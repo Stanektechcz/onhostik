@@ -24,7 +24,7 @@ function incidentWebService(Organization $org, array $overrides = []): Service
 it('runs an incident through the public status page: open → updates → resolve → post-mortem, notifying affected customers', function () {
     [$customer, $org] = $this->customerWithOrganization();
     $service = incidentWebService($org);
-    $sre = $this->staff('sre');
+    $sre = $this->steppedUpStaff('sre');
 
     $this->actingAs($customer, 'sanctum');
     $this->postJson('/v1/staff/incidents', ['title' => 'x', 'severity' => 'p1', 'components' => ['web-cz1']])->assertForbidden();
@@ -74,10 +74,10 @@ it('runs an incident through the public status page: open → updates → resolv
 it('keeps internal and security incidents off the status page but visible to affected customers', function () {
     [$customer, $org] = $this->customerWithOrganization();
     $service = incidentWebService($org);
-    $this->actingAs($this->staff('sre'), 'sanctum');
+    $this->actingAs($this->steppedUpStaff('sre'), 'sanctum');
     $this->postJson('/v1/staff/incidents', ['title' => 'Interní degradace', 'severity' => 'p3', 'components' => ['web-cz1'], 'visibility' => 'internal', 'affected_services' => [$service->id]])->assertCreated();
     $this->postJson('/v1/staff/incidents', ['title' => 'Podezření na kompromitaci', 'severity' => 'p2', 'components' => ['portal'], 'security' => true])->assertForbidden(); // security incidents need security.incident.manage
-    $this->actingAs($this->staff('security_soc'), 'sanctum');
+    $this->actingAs($this->steppedUpStaff('security_soc'), 'sanctum');
     $this->postJson('/v1/staff/incidents', ['title' => 'Podezření na kompromitaci', 'severity' => 'p2', 'components' => ['portal'], 'security' => true])->assertCreated()->assertJsonPath('visibility', 'internal');
     app(OutboxPublisher::class)->relayPending();
     expect(OutboxMessage::query()->where('name', 'security.incident.opened')->exists())->toBeTrue();
@@ -97,13 +97,14 @@ it('schedules maintenance with lead time, rollback plan and four-eyes approval, 
     $this->actingAs($owner, 'sanctum');
     $window = ['title' => 'Výměna disků shared01', 'components' => ['web-cz1'], 'starts_at' => now()->addHours(72)->toIso8601String(), 'ends_at' => now()->addHours(74)->toIso8601String(), 'impact' => 'Krátké výpadky', 'affected_services' => [$service->id]];
 
+    // TASK-0037: scheduling is work under the HIGH maintenance.manage too, not only announcing it — the step-up comes first
+    $this->postJson('/v1/staff/maintenance', $window + ['rollback' => 'Vrátit staré disky'])->assertForbidden()->assertJsonPath('error', 'step_up_required');
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
     $this->postJson('/v1/staff/maintenance', $window)->assertUnprocessable()->assertJsonValidationErrors(['rollback']);
     $this->postJson('/v1/staff/maintenance', array_merge($window, ['rollback' => 'Vrátit staré disky', 'starts_at' => now()->addHour()->toIso8601String(), 'ends_at' => now()->addHours(2)->toIso8601String()]))->assertUnprocessable()->assertJsonPath('error', 'maintenance_lead_time');
     $created = $this->postJson('/v1/staff/maintenance', $window + ['rollback' => 'Vrátit staré disky'])->assertCreated()->assertJsonPath('state', 'planned')->assertJsonPath('number', 'MNT-'.now()->format('Y').'-0001');
     $id = $created->json('id');
 
-    $this->postJson("/v1/staff/maintenance/{$id}/approve")->assertForbidden()->assertJsonPath('error', 'step_up_required'); // announcing to customers is HIGH risk
-    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
     $this->postJson("/v1/staff/maintenance/{$id}/approve")->assertForbidden()->assertJsonPath('error', 'maintenance_self_approval');
     $approver = $this->staff('sre');
     $this->actingAs($approver, 'sanctum');
@@ -130,7 +131,7 @@ it('tells only the affected customers, and never who else is affected or what st
     [$affected, $orgA] = $this->customerWithOrganization();
     [$bystander, $orgB] = $this->customerWithOrganization();
     $service = incidentWebService($orgA);
-    $this->actingAs($this->staff('sre'), 'sanctum');
+    $this->actingAs($this->steppedUpStaff('sre'), 'sanctum');
     $id = $this->postJson('/v1/staff/incidents', ['title' => 'Výpadek webhostingu CZ1', 'severity' => 'p1', 'components' => ['web-cz1'], 'impact' => 'Část webů je nedostupná.', 'affected_services' => [$service->id]])->assertCreated()->json('id');
     $this->postJson("/v1/staff/incidents/{$id}/updates", ['note' => 'Interní: zákazník '.$orgA->name.' volal, eskalováno na on-call.', 'public' => false])->assertOk();
     $this->postJson("/v1/staff/incidents/{$id}/updates", ['note' => 'Příčinu známe, opravujeme.', 'state' => 'IDENTIFIED'])->assertOk();

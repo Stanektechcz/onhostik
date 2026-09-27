@@ -46,7 +46,7 @@ it('places sandbox tenants on lab instances only, credits them for testing and s
     // staff switch the flag; the organization gets the sandbox credit once and is placed on the lab
     [$owner, $org] = $this->customerWithOrganization(['email' => 'dev@integrator.cz'], ['name' => 'Integrátor s.r.o.']);
     expect(NodeScheduler::sandboxFor($org->id))->toBeFalse()->and(NodeScheduler::sandboxFor(null))->toBeFalse();
-    $this->actingAs($this->staff('platform_owner'), 'sanctum');
+    $this->actingAs($this->steppedUpStaff('platform_owner'), 'sanctum');
     $this->withHeader('Idempotency-Key', 'sb-1')->postJson("/v1/staff/customers/{$org->id}/sandbox", ['enabled' => true, 'reason' => 'API integrace'])->assertOk()->assertJsonPath('sandbox', true)->assertJsonPath('credit', 500000);
     $this->flushHeaders();
     expect(NodeScheduler::sandboxFor($org->id))->toBeTrue()->and(app(WalletService::class)->balances($org, 'CZK')['promo']->minor)->toBe(500000);

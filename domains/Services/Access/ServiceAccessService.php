@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
 use Onhost\Domain\Identity\Authorization\RoleCatalog;
+use Onhost\Domain\Identity\Models\ServiceAccount;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Notifications\NotificationService;
 use Onhost\Domain\Organizations\Models\Organization;
@@ -73,8 +74,8 @@ final class ServiceAccessService
         if ($until !== null && $until->isPast()) {
             throw new DomainError('access_until_past', 'access_until must be in the future.', 422, ['field' => 'access_until']);
         }
-        $actor = $context->actorType === 'user' && $context->actorId !== null ? User::query()->find($context->actorId) : null;
-        if ($actor !== null && mb_strtolower((string) $actor->email) === $email) {
+        $actor = $this->grantor($context);
+        if ($actor instanceof User && mb_strtolower((string) $actor->email) === $email) {
             throw new DomainError('cannot_share_with_self', 'You already manage this service.', 422, ['field' => 'email']);
         }
         $this->assertMayGrant($actor, $service, $capabilities, $context);
@@ -92,7 +93,7 @@ final class ServiceAccessService
         return DB::transaction(function () use ($organization, $service, $email, $capabilities, $context, $until, $note, $user, $member) {
             $grant = $this->openGrant($service, $email) ?? new ServiceAccessGrant(['organization_id' => $organization->id, 'service_id' => $service->id, 'email' => $email]);
             $before = $grant->exists && $grant->state === ServiceAccessGrant::ACTIVE && $grant->user_id !== null ? (array) $grant->capabilities : [];
-            $grant->forceFill(['capabilities' => $capabilities, 'expires_at' => $until, 'note' => $note !== null ? mb_substr(trim($note), 0, 250) : $grant->note, 'granted_by' => $context->actorId]);
+            $grant->forceFill(['capabilities' => $capabilities, 'expires_at' => $until, 'note' => $note !== null ? mb_substr(trim($note), 0, 250) : $grant->note, 'granted_by' => $context->onBehalfOfUserId ?? $context->actorId]);
             $vars = ['sluzba' => $this->serviceName($service), 'organizace' => (string) $organization->name, 'opravneni' => $this->describe($capabilities, (string) ($organization->locale ?? 'cs')), 'do' => $until?->format('j. n. Y') ?? '—'];
             if ($member && $user !== null) {
                 $grant->forceFill(['state' => ServiceAccessGrant::ACTIVE, 'user_id' => $user->id, 'accepted_at' => $grant->accepted_at ?? now()])->save();
@@ -279,17 +280,40 @@ final class ServiceAccessService
 
     /**
      * Nobody hands out what they do not hold themselves on that service (the rule of the team page, asked at the service).
+     * Staff included, by what they hold in the customer's organization: `is_staff` skipped the rule, and a global binding shared
+     * any customer's service — the console with it — with any address (red-team round of the Phase-0 chain, audit SS-1; staff
+     * tooling needs a staff permission of its own, P0-08).
      *
      * @param  list<string>  $capabilities
      */
-    private function assertMayGrant(?User $actor, Service $service, array $capabilities, CommandContext $context): void
+    /**
+     * The person whose rights a share is compared with and who is recorded as having granted it (TASK-0041, permission
+     * program P0-07 follow-up; GrantPolicy::grantor): the person a staff member or the assistant acts for first, then the
+     * actor. It read `actorId` alone — acting for a viewer, the carrier's own console right was handed out in the viewer's
+     * name — and an `ai` or service-account actor was not compared at all. The system (sweeps, operators) has no grantor to
+     * compare; an actor that cannot be found grants nothing.
+     */
+    private function grantor(CommandContext $context): User|ServiceAccount|null
     {
-        if ($actor === null || $actor->is_staff) {
-            return; // the platform and its staff act under their own permissions (checked by the command)
+        if ($context->actorType === 'system') {
+            return null;
+        }
+        if ($context->actorType === 'service_account') {
+            return ServiceAccount::query()->find((string) $context->actorId) ?? throw DomainError::forbidden('Unknown actor.');
+        }
+
+        return User::query()->find((string) ($context->onBehalfOfUserId ?? $context->actorId)) ?? throw DomainError::forbidden('Unknown actor.');
+    }
+
+    private function assertMayGrant(User|ServiceAccount|null $actor, Service $service, array $capabilities, CommandContext $context): void
+    {
+        if ($actor === null) {
+            return; // the platform acts under its own permissions (checked by the command)
         }
         $scope = CommandScope::resource($service->id, $service->organization_id, $service->project_id);
+        $held = $this->authorizer->customerPermissionsAt($actor, $scope);
         foreach ($this->permissionsOf($capabilities) as $permission) {
-            if (! $this->authorizer->can($actor, $permission, $scope)) {
+            if (! in_array($permission, $held, true)) {
                 throw new DomainError('capability_above_own', "You cannot hand out {$permission}: you do not hold it on this service yourself.", 403, ['field' => 'capabilities']);
             }
         }

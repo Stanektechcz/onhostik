@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\ProviderRegistry;
+use Onhost\Domain\Services\Models\Service;
+use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Platform\Errors\ProviderException;
 use Onhost\Providers\Contracts\GameToolsProvider;
 use Onhost\Providers\Contracts\ResourceRef;
@@ -31,6 +34,17 @@ function pteroTools(): PterodactylGameProvider
 function pteroServerRef(): ResourceRef
 {
     return new ResourceRef('server', '77', '2', ['uuid' => 'e4c1-uuid', 'identifier' => 'e4c1abcd', 'user_id' => 9, 'allocation_id' => 11], 'srv_g1');
+}
+
+/**
+ * The service behind the lab server `srv_g1`: the panel account is shown and changed, and collaborators are added, only when
+ * the panel user carries exactly the service's organization id (TASK-0033). @return string the organization id panel user 9 carries
+ */
+function pteroToolsService(Organization $org): string
+{
+    Service::query()->create(['id' => 'srv_g1', 'organization_id' => $org->id, 'product_key' => 'game', 'family' => 'game', 'name' => 'Herní server', 'state' => ServiceStateMachine::ACTIVE, 'region_code' => 'cz1', 'desired_spec' => [], 'entitlements' => [], 'sla_class' => 'standard']);
+
+    return $org->id;
 }
 
 beforeEach(fn () => Http::preventStrayRequests());
@@ -76,7 +90,8 @@ it('reads status, startup and the server detail, sets a variable and the image, 
 it('lists, toggles, runs and deletes schedules and manages databases, collaborators, allocations and backups', function () {
     $schedule = ['id' => 4, 'name' => 'Noční restart', 'cron' => ['minute' => '0', 'hour' => '4', 'day_of_month' => '*', 'month' => '*', 'day_of_week' => '*'], 'is_active' => true, 'is_processing' => false, 'only_when_online' => false, 'last_run_at' => null, 'next_run_at' => '2026-09-14T04:00:00+00:00', 'relationships' => ['tasks' => ['data' => [['attributes' => ['id' => 9, 'sequence_id' => 1, 'action' => 'power', 'payload' => 'restart']]]]]];
     $locked = false;
-    Http::fake(function (Request $request) use (&$schedule, &$locked) {
+    $owner = pteroToolsService($this->customerWithOrganization()[1]);
+    Http::fake(function (Request $request) use (&$schedule, &$locked, $owner) {
         $path = (string) parse_url($request->url(), PHP_URL_PATH);
         $m = $request->method();
 
@@ -97,6 +112,8 @@ it('lists, toggles, runs and deletes schedules and manages databases, collaborat
             str_ends_with($path, '/users') && $m === 'GET' => Http::response(['object' => 'list', 'data' => [['object' => 'server_subuser', 'attributes' => ['uuid' => 'su-1', 'username' => 'admin2', 'email' => 'admin2@liga.test', 'permissions' => ['control.console'], 'created_at' => '2026-09-01T00:00:00+00:00']]]]),
             str_ends_with($path, '/users') && $m === 'POST' => Http::response(['object' => 'server_subuser', 'attributes' => ['uuid' => 'su-2', 'email' => $request['email'], 'permissions' => $request['permissions']]]),
             str_ends_with($path, '/users/su-1') && $m === 'DELETE' => Http::response('', 204),
+            str_ends_with($path, '/api/application/users/9') && $m === 'GET' => Http::response(['object' => 'user', 'attributes' => ['id' => 9, 'external_id' => $owner, 'username' => 'liga_ab12cd', 'root_admin' => false]]),
+            str_ends_with($path, '/api/application/servers/77') && $m === 'GET' => Http::response(['object' => 'server', 'attributes' => ['id' => 77, 'identifier' => 'e4c1abcd', 'user' => 9, 'node' => 2]]), // the owner is the panel's answer (TASK-0033)
             str_ends_with($path, '/network/allocations') && $m === 'GET' => Http::response(['object' => 'list', 'data' => [['object' => 'allocation', 'attributes' => ['id' => 11, 'ip' => '89.187.160.10', 'ip_alias' => null, 'port' => 25566, 'notes' => null, 'is_default' => true]]]]),
             str_ends_with($path, '/network/allocations') && $m === 'POST' => Http::response(['object' => 'allocation', 'attributes' => ['id' => 12, 'ip' => '89.187.160.10', 'ip_alias' => null, 'port' => 25567, 'notes' => null, 'is_default' => false]]),
             str_ends_with($path, '/network/allocations/12/primary') => Http::response(['object' => 'allocation', 'attributes' => ['id' => 12, 'is_default' => true]]),
@@ -144,7 +161,8 @@ it('lists, toggles, runs and deletes schedules and manages databases, collaborat
 });
 
 it('browses, reads and writes files, and handles the customer panel account without touching administrators', function () {
-    $users = [9 => ['id' => 9, 'username' => 'liga_ab12cd', 'email' => 'owner@liga.test', 'first_name' => 'Liga', 'last_name' => 'Customer', 'language' => 'en', 'root_admin' => false], 1 => ['id' => 1, 'username' => 'onhost_api', 'email' => 'api@onhost.test', 'root_admin' => true]];
+    $owner = pteroToolsService($this->customerWithOrganization()[1]);
+    $users = [9 => ['id' => 9, 'external_id' => $owner, 'username' => 'liga_ab12cd', 'email' => 'owner@liga.test', 'first_name' => 'Liga', 'last_name' => 'Customer', 'language' => 'en', 'root_admin' => false], 1 => ['id' => 1, 'username' => 'onhost_api', 'email' => 'api@onhost.test', 'root_admin' => true]];
     $written = null;
     Http::fake(function (Request $request) use (&$users, &$written) {
         $path = (string) parse_url($request->url(), PHP_URL_PATH);
@@ -168,6 +186,7 @@ it('browses, reads and writes files, and handles the customer panel account with
                 return Http::response(['object' => 'user', 'attributes' => $users[(int) $mm[1]]]);
             })(),
             str_ends_with($path, '/api/application/servers/78') => Http::response(['object' => 'server', 'attributes' => ['id' => 78, 'identifier' => 'adm1n000', 'user' => 1, 'node' => 2]]),
+            str_ends_with($path, '/api/application/servers/77') && $m === 'GET' => Http::response(['object' => 'server', 'attributes' => ['id' => 77, 'identifier' => 'e4c1abcd', 'user' => 9, 'node' => 2]]), // the owner is the panel's answer (TASK-0033)
             str_ends_with($path, '/api/client/account') => Http::response(['object' => 'user', 'attributes' => ['id' => 1, 'admin' => true]]),
             default => null,
         };

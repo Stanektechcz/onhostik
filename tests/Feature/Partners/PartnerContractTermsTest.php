@@ -12,6 +12,7 @@ use Onhost\Domain\Notifications\Models\Notification;
 use Onhost\Domain\Partners\Models\Partner;
 use Onhost\Domain\Partners\Models\PartnerCommission;
 use Onhost\Domain\Partners\Models\PartnerPayout;
+use Onhost\Domain\Partners\Models\PartnerPayoutAccount;
 use Onhost\Domain\Partners\PartnerService;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Platform\Commands\CommandContext;
@@ -61,7 +62,7 @@ it('lets a partner ask for any term, applies approved money terms next month and
     expect($wl)->toMatchArray(['hide_brand' => true, 'own_mail' => false, 'own_support' => false, 'limited' => ['own_mail', 'own_support']]);
 
     // finance decides: money terms wait for the first of next month, the scope applies at once
-    $staff = $this->staff('platform_owner');
+    $staff = $this->steppedUpStaff('platform_owner');
     $this->actingAs($staff, 'sanctum');
     expect($this->getJson('/v1/staff/partners/requests')->assertOk()->json('data'))->toHaveCount(4);
     $effective = now()->startOfMonth()->addMonth()->toDateString();
@@ -96,8 +97,10 @@ it('lets a partner ask for any term, applies approved money terms next month and
 
     // monthly terms: the payable balance is requested for the partner on the 1st — once, above the minimum, with an IBAN
     PartnerCommission::query()->create(['partner_id' => $partner->id, 'organization_id' => $partnerOrg->id, 'invoice_id' => null, 'period' => now()->format('Y-m'), 'kind' => 'share', 'base_minor' => 1000000, 'rate_pct' => 15, 'amount_minor' => 150000, 'currency' => 'CZK', 'state' => 'payable', 'invoice_paid_at' => now()]);
-    expect($partners->autoPayouts())->toBe(['requested' => 0, 'skipped' => 1]); // no IBAN yet
+    expect($partners->autoPayouts())->toBe(['requested' => 0, 'skipped' => 1]); // no payout account yet
     $partner->forceFill(['iban' => 'CZ6508000000192000145399'])->save();
+    expect($partners->autoPayouts())->toBe(['requested' => 0, 'skipped' => 1]); // TASK-0040: an IBAN a request once wrote is not an account
+    PartnerPayoutAccount::query()->create(['partner_id' => $partner->id, 'iban' => 'CZ6508000000192000145399', 'source' => 'owner', 'usable_from' => now()->subDays(8)]);
     expect($partners->autoPayouts())->toBe(['requested' => 1, 'skipped' => 0]);
     $payoutRow = PartnerPayout::query()->where('partner_id', $partner->id)->firstOrFail();
     expect($payoutRow->amount_minor)->toBe(150000)->and($payoutRow->state)->toBe('requested');

@@ -6,6 +6,8 @@ namespace Onhost\Domain\Billing\Commands;
 
 use Onhost\Domain\Identity\Authorization\PermissionCatalog;
 use Onhost\Domain\Identity\Authorization\RiskAwareCommand;
+use Onhost\Domain\Identity\Authorization\StaffActor;
+use Onhost\Domain\Identity\Authorization\StaffModeCommand;
 use Onhost\Platform\Commands\OrganizationCommand;
 
 /**
@@ -16,7 +18,7 @@ use Onhost\Platform\Commands\OrganizationCommand;
  * (`billing.wallet.spend`) spend the credit. The amount is the stated quote for the customer's own service, the same risk
  * as paying an invoice from the credit: NORMAL, no step-up. Not available to API tokens (no token scope maps to it).
  */
-final class ReinstateServiceCommand extends OrganizationCommand implements RiskAwareCommand
+final class ReinstateServiceCommand extends OrganizationCommand implements RiskAwareCommand, StaffModeCommand
 {
     /** Whoever may pay the organization's invoices from its credit may ask; CreditOrderPolicy decides whether they may spend it. */
     public const PERMISSION = 'billing.wallet.topup';
@@ -25,6 +27,17 @@ final class ReinstateServiceCommand extends OrganizationCommand implements RiskA
     {
         return self::PERMISSION;
     }
+
+    // ── TASK-0039 P0-16 re-check (staff mode asks staff keys) ──
+    /**
+     * On /v1/staff/services/{id}/reinstate staff restore on the platform's authority (ServiceReinstatement skips the credit gate for
+     * them): the staff billing key, not the customer's `billing.wallet.topup`, which the staff person's own membership satisfied.
+     */
+    public function staffPermission(): string
+    {
+        return StaffActor::BILLING_KEY;
+    }
+    // ── end TASK-0039 P0-16 re-check ──
 
     public function name(): string
     {

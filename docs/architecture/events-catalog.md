@@ -222,3 +222,37 @@ Payload addition (TASK-0023 web-disk-total): once the plan total is enforced for
 
 Payload addition (TASK-0031 review round 1): `partner.payout.paid` also carries `transfer` — what was paid, the self-billing document's total (net + VAT for a VAT-payer partner); `amount` stays the commission (net).
 <!-- TASK-0031 vies: end -->
+
+<!-- TASK-0036 grant-policy: begin -->
+Producer additions (TASK-0036, permission program P0-07, IF-1..IF-3): the two member events are the contract TASK-0035 (Discord links, action hooks) consumes; their payload is unchanged.
+
+| Event | Aggregate | Payload / meaning | Source |
+| --- | --- | --- | --- |
+| `organization.member.role_changed` | organization | `user_id`, `email`, `from`, `to` — published for every `change_role` of a member (up, down or sideways; a consumer compares `from`/`to` itself; an accepted invitation that widens a role does not publish it), and now also by an ownership transfer, once for each person: the previous owner (`owner` → `org_admin`) and the heir (their earlier role → `owner`). A role change of somebody who is not a current member no longer exists (404), so no event names a stranger. An accepted invitation that would lower a current membership keeps it and publishes nothing | OrganizationService::changeRole, ::transferOwnership |
+| `organization.member.removed` | organization | `user_id`, `email` — published only after a real membership was removed (by hand, a guest released, `onhost:access:expire`); a removal aimed at a non-member is refused with 404 by GrantPolicy before anything is written or published | OrganizationService::removeMember |
+<!-- TASK-0036 grant-policy: end -->
+
+<!-- TASK-0037 time-lock: begin -->
+| Event | Aggregate | Payload / meaning | Source |
+| --- | --- | --- | --- |
+| `iam.approval.time_locked` | approval | `approval_id`, `action` (the command's name), `requested_by`, `requester`, `reason`, `not_before`, `hours`, `expires_at` — with `ONHOST_FOUR_EYES=false` the sole holder of `iam.approval.decide` asked for their own critical action; it runs only when repeated after `not_before` (`ONHOST_FOUR_EYES_TIME_LOCK_HOURS`, 24) and can be cancelled on the approvals page until then (a rejection of a time-locked request is recorded as `cancelled` in `iam.approval.decided`). Routed to staff (security, warn); no customer notice until the `disclosure_restricted` flag exists (program D7) | ApprovalService::request |
+<!-- TASK-0037 time-lock: end -->
+
+<!-- TASK-0040 partner-payouts: begin -->
+Producer additions (TASK-0040, permission program P0-13 / IF-14): the payout account is its own step, a payout can be held for a look, and partners are told that client contacts and dunning are masked. No payload carries a whole IBAN — `account` / `previous` are masked (`CZ65…5399`).
+
+| Event | Aggregate | Payload / meaning | Source |
+| --- | --- | --- | --- |
+| `partner.payout_account.changed` | partner | `account`, `previous` (masked, `previous` null for the first account), `usable_from` (ISO, the end of the 7-day cooling-off), `replaced_pending` (count of a still-cooling change it replaced), `days`, `partner_code` — the partner organization's owner set a new payout account (HIGH, step-up). Customer in-app (warn) + the mandatory `legal-notice` mail to the owner **and** the billing e-mail, each at its own address, saying how to call it off; finance inbox (info) | PayoutAccounts::change |
+| `partner.payout_account.cancelled` | partner | `account` (masked), `usable_from`, `partner_code` — the owner called off a change still cooling off; payouts keep going to the confirmed account. Customer in-app | PayoutAccounts::cancelPending |
+| `partner.payout.frozen` / `partner.payout.unfrozen` | partner_payout | `number`, `amount` (Money, frozen only), `reason` — a payout held for a look (`onhost:partners:payout-anomalies --apply`, or finance) / released with a reason. Finance inbox + the partner in-app (frozen: warn, "waiting for a check") | PartnerService::freezePayout / unfreezePayout |
+| `partner.client_data.masked` | partner | `partner_code` — the one-off notice (program §10 O9) that the portal no longer shows client contacts or who is overdue; published once per active partner by `onhost:partners:masking-notice --send`. Customer in-app (warn) + mandatory `legal-notice` mail | PartnerService::noticeMasking |
+
+Payload unchanged, meaning sharpened: `partner.payout.requested` is published only for a payout whose amount equals the commissions it allocated, to the confirmed account; `partner.payout.paid` only for an `approved` payout paid by somebody other than who asked for or approved it (the payment is CRITICAL: a second person or the sole operator's time lock).
+<!-- TASK-0040 partner-payouts: end -->
+
+<!-- TASK-0039 staff-panel-login: begin -->
+| Event | Aggregate | Payload / meaning | Source |
+| --- | --- | --- | --- |
+| `service.staff_panel_login` | service | `service` (label), `ticket_number`, `ticket_id`, `staff_name`, `reason`, `consented` (bool), `at` — a member of staff signed on to the customer's hosting panel through `PanelLoginCommand` (permission program P0-14, IF-16): an open ticket a member opened in the portal about that service, a reason of ≥ 10 characters, the console of the service's family, and without the customer's consent on the ticket a second person or the sole approver's time lock. The one-time link itself is never in the payload. Customer in-app *Podpora ONhost se přihlásila do panelu služby …* (security, warn) + mandatory mail `staff-panel-login` to the owner; staff security line with the reason | PanelLoginCommandHandler |
+<!-- TASK-0039 staff-panel-login: end -->

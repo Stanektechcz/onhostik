@@ -57,6 +57,7 @@ use Onhost\Platform\Errors\ProviderException;
 use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Files\FileStore;
 use Onhost\Platform\Outbox\OutboxPublisher;
+use Onhost\Providers\Contracts\AsyncHandle;
 use Onhost\Providers\Contracts\AsyncStatus;
 use Onhost\Providers\Contracts\BackupCapable;
 use Onhost\Providers\Contracts\ComputeProvider;
@@ -165,7 +166,7 @@ final class ServiceActionWorkflow implements Workflow
             'backup' => [$this->backupStep()],
             'restore' => [$this->safetyCopyStep('pre_restore'), $this->restoreStep()],
             'restore.test' => [$this->restoreTestStep()], // restores into databases of its own: nothing live is touched, so no copy is needed
-            'archive.restore' => [$this->archiveRestoreStep()],
+            'archive.restore' => [$this->safetyCopyStep('pre_restore'), $this->archiveRestoreStep()], // the archive goes OVER a live site: a copy first, nothing written without it (TASK-0035, IF-11 / audit SE-2)
             'snapshot' => [$this->snapshotStep()],
             'rollback_snapshot' => [$this->safetyCopyStep('pre_rollback'), $this->rollbackSnapshotStep()],
             'reinstall' => [$this->safetyCopyStep('pre_reinstall'), $this->featureStep('reinstall')], // rewrites the server files
@@ -1948,23 +1949,38 @@ final class ServiceActionWorkflow implements Workflow
             /** The hypervisor finished the snapshot this step started: the copy is real, so the row says so. */
             protected function afterAsyncSuccess(StepContext $context, AsyncStatus $status): StepResult
             {
-                $backup = Backup::query()->where('operation_id', $context->operation->id)->where('kind', $this->kind)->first();
+                $backup = $this->current($context);
                 $backup?->forceFill(['state' => 'completed', 'finished_at' => now(), 'verified_at' => now(), 'verify_status' => 'ok'])->save();
 
                 return StepResult::done(['safety_copy_id' => $backup?->id, 'safety_copy' => $backup?->remote_id]);
             }
 
+            /** This operation's copy that may still count: a failed one never does, whatever the step is asked next. */
+            private function current(StepContext $context): ?Backup
+            {
+                return Backup::query()->where('operation_id', $context->operation->id)->where('kind', $this->kind)->whereIn('state', ['running', 'completed'])->first();
+            }
+
             public function run(StepContext $context): StepResult
             {
                 $service = $this->service($context);
-                $existing = Backup::query()->where('operation_id', $context->operation->id)->where('kind', $this->kind)->first();
-                if ($existing !== null) {
-                    // the step is entered again after the provider task it waited for finished — one copy per operation, never two
-                    if ($existing->state !== 'completed') {
-                        $existing->forceFill(['state' => 'completed', 'finished_at' => now(), 'verified_at' => now(), 'verify_status' => 'ok'])->save();
+                $existing = $this->current($context);
+                // TASK-0035 (IF-11, "the copy fails closed"): only a finished copy counts. A web copy whose attempt FAILED was turned
+                // into "completed" by the retry, with its error in the meta and no site files in the set, and the restore then wrote
+                // over the live site with nothing kept.
+                if ($existing?->state === 'completed') {
+                    return StepResult::done(['safety_copy_id' => $existing->id, 'safety_copy' => $existing->remote_id]); // one copy per operation, never two
+                }
+                // a hypervisor snapshot still "running" here was never confirmed: afterAsyncSuccess would have completed it. The run
+                // is entered again from the start only after the poll ended without a success (the task FAILED, its state stayed
+                // UNKNOWN until the retries ran out, our deadline passed) and an operator retried — and that retry used to call the
+                // row "completed" and roll back or reinstall with no copy (TASK-0035 review round 1). Only the hypervisor's own
+                // word on the task this step started makes it a copy; anything else fails the row and a new snapshot is taken.
+                if ($existing !== null && in_array($service->family, ['cloud', 'data'], true)) {
+                    $confirmed = $this->confirmSnapshot($context, $existing);
+                    if ($confirmed !== null) {
+                        return $confirmed;
                     }
-
-                    return StepResult::done(['safety_copy_id' => $existing->id, 'safety_copy' => $existing->remote_id]);
                 }
                 $days = $context->container->make(DeletionPolicy::class)->retentionDays();
                 try {
@@ -1975,7 +1991,8 @@ final class ServiceActionWorkflow implements Workflow
                             'service_id' => $service->id, 'organization_id' => $service->organization_id, 'provider_instance_id' => $service->provider_instance_id,
                             'kind' => $this->kind, 'state' => $result->isAsync() ? 'running' : 'completed', 'started_at' => now(), 'finished_at' => $result->isAsync() ? null : now(),
                             'protected' => true, 'operation_id' => $context->operation->id, 'remote_id' => $name,
-                            'retention_until' => now()->addDays($days), 'meta' => ['reason' => $this->kind, 'snapshot' => $name],
+                            'retention_until' => now()->addDays($days), // the task handle stays with the row: a later run asks the hypervisor about THIS task (TASK-0035)
+                            'meta' => ['reason' => $this->kind, 'snapshot' => $name] + ($result->isAsync() && $result->async !== null ? ['task' => $result->async->toArray()] : []),
                         ]);
 
                         return $result->isAsync()
@@ -1994,6 +2011,36 @@ final class ServiceActionWorkflow implements Workflow
                 }
 
                 return StepResult::done(['safety_copy_id' => $backup->id, 'safety_copy_set' => data_get($backup->meta, 'set')]);
+            }
+
+            /**
+             * What the hypervisor says about the snapshot task behind a "running" row: finished OK — it is the copy; still running —
+             * wait for it; anything else (failed, unknown, a row with no task on record) — the row is failed and null tells run() to
+             * take a new copy. A hypervisor that does not answer fails the step (retryable) with nothing written.
+             */
+            private function confirmSnapshot(StepContext $context, Backup $existing): ?StepResult
+            {
+                $task = data_get($existing->meta, 'task');
+                $adapter = $context->adapter();
+                if (is_array($task) && method_exists($adapter, 'awaitStatus')) {
+                    $handle = AsyncHandle::fromArray($task);
+                    try {
+                        /** @var AsyncStatus $status */
+                        $status = $adapter->awaitStatus($handle);
+                    } catch (ProviderException $e) {
+                        return self::fromProviderException($e);
+                    }
+                    if ($status->state === AsyncStatus::SUCCEEDED) {
+                        return $this->afterAsyncSuccess($context, $status);
+                    }
+                    if ($status->state === AsyncStatus::RUNNING) {
+                        return StepResult::wait($handle, ['safety_copy_id' => $existing->id, 'safety_copy' => $existing->remote_id]);
+                    }
+                }
+                $existing->forceFill(['state' => 'failed', 'finished_at' => now(), 'verify_status' => 'failed',
+                    'meta' => array_merge((array) $existing->meta, ['error' => 'the hypervisor never confirmed this snapshot; a new one was taken'])])->save();
+
+                return null;
             }
         };
     }

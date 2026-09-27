@@ -30,7 +30,7 @@ it('lists stalled, failed and long-running operations, drains a failing node aut
     $long = $make('ob-long', ['state' => Operation::RUNNING, 'started_at' => now()->subMinutes(25), 'step' => 3, 'steps_total' => 7, 'step_label' => 'Certifikát']);
     $make('ob-fresh', ['state' => Operation::RUNNING, 'started_at' => now()->subMinutes(2)]);
 
-    $staff = $this->staff('infrastructure_admin'); // reads operations, manages provider instances and their nodes
+    $staff = $this->steppedUpStaff('infrastructure_admin'); // reads operations, manages provider instances and their nodes
     $this->actingAs($staff, 'sanctum');
     $board = $this->getJson('/v1/staff/provisioning/board')->assertOk()->json('data');
     expect(array_column($board['stalled'], 'id'))->toContain($stalled->id)->and($board['counts'])->toMatchArray(['stalled' => 2, 'failed_24h' => 1, 'long_running' => 1, 'draining' => 0])
@@ -102,7 +102,7 @@ it('tells staff which operations drained a node, resumes a quiet drained node af
     expect($board->autoDrain())->toMatchArray(['resumed' => 1])->and($node->fresh()->state)->toBe('active')->and($node->fresh()->tags)->not->toHaveKey('auto_drain');
 
     // staff keep a node drained on purpose: the feedback loop never touches it
-    $staff = $this->staff('infrastructure_admin');
+    $staff = $this->steppedUpStaff('infrastructure_admin');
     $this->actingAs($staff, 'sanctum')->postJson("/v1/staff/integrations/{$instance->key}/nodes/{$node->id}/state", ['state' => 'draining', 'reason' => 'hardware swap', 'keep' => true])->assertOk()->assertJsonPath('tags.auto_drain.keep', true);
     expect($board->autoDrain())->toMatchArray(['resumed' => 0, 'probed' => 0])->and($node->fresh()->state)->toBe('draining');
 });

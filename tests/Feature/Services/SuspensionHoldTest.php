@@ -66,8 +66,8 @@ it('records who imposed a suspension: the customer resumes their own pause, nobo
     expect(SuspensionHold::holds($own))->toBe([])->and($this->getJson("/v1/services/{$own->id}")->json('data.suspension'))->toMatchArray(['hold' => null, 'customer_can_resume' => true]);
     $this->withHeader('Idempotency-Key', 'own-resume')->postJson("/v1/services/{$own->id}/resume")->assertStatus(202);
 
-    // staff suspend with a free-text reason: a hold all the same, because of who did it
-    $byStaff = suspendAs(legacySuspendedReset($own), $this->contextFor($this->staff('support_l2'), $org), 'zákazník požádal telefonicky, ověřujeme identitu');
+    // staff suspend with a free-text reason: a hold all the same, because of who did it — as staff, in staff mode (TASK-0039)
+    $byStaff = suspendAs(legacySuspendedReset($own), $this->staffContextFor($this->staff('support_l2'), $org), 'zákazník požádal telefonicky, ověřujeme identitu');
     expect(SuspensionHold::holds($byStaff))->toBe(['review']);
     $this->withHeader('Idempotency-Key', 'staff-held')->postJson("/v1/services/{$byStaff->id}/resume")->assertStatus(409)->assertJsonPath('hold', 'review');
 });
@@ -88,7 +88,7 @@ it('keeps a quarantine when the invoice is paid, and an unpaid stop when the qua
 
     // overdue first, then reported for phishing: the site is already down, so the abuse team only adds its hold
     $service = suspendAs(featureWebService($org, 'aapanel'), $system('dunning'), 'dunning');
-    $service = $services->imposeHold($service, SuspensionHold::ABUSE, 'abuse:AB-2026-0007', $this->contextFor($this->staff('abuse_trust_safety'), $org));
+    $service = $services->imposeHold($service, SuspensionHold::ABUSE, 'abuse:AB-2026-0007', $this->staffContextFor($this->staff('abuse_trust_safety'), $org));
     expect(SuspensionHold::holds($service))->toBe(['abuse', 'payment'])->and($service->suspended_reason)->toBe('dunning');
 
     // the money arrives: the payment hold goes, the quarantine — and the suspension — stay
@@ -100,7 +100,7 @@ it('keeps a quarantine when the invoice is paid, and an unpaid stop when the qua
     expect(fn () => $services->requestAction($service, 'resume', $system('dunning resolved'), 'paid-2', ['lift' => SuspensionHold::PAYMENT]))->toThrow(DomainError::class);
 
     // staff end the quarantine: on the record, with a reason
-    $abuse = $this->contextFor($this->staff('abuse_trust_safety'), $org);
+    $abuse = $this->staffContextFor($this->staff('abuse_trust_safety'), $org); // on /v1/staff: staff mode (TASK-0039)
     expect(fn () => $services->requestAction($service, 'resume', $abuse, 'lift-0'))->toThrow(fn (DomainError $e) => expect($e->error)->toBe('reason_required'));
     expect($services->requestAction($service, 'resume', $abuse, 'lift-1', ['reason' => 'obsah odstraněn, případ uzavřen']))->toBeInstanceOf(Operation::class);
     expect(AuditEvent::query()->where('action', 'service.hold.lift')->where('resource_id', $service->id)->count())->toBe(2);

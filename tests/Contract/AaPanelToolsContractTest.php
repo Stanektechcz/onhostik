@@ -124,8 +124,9 @@ it('runs commands through the panel shell wrapper and reads tool paths and quota
     $result = $adapter->shell($site)->run('echo hello', ['user' => 'www', 'cwd' => '/www/wwwroot/shop.cz']);
     expect($result->ok())->toBeTrue()->and(trim($result->stdout))->toBe('hello from node')->and($result->timedOut)->toBeFalse(); // the panel's security banner line is stripped
     $wrapped = (string) collect($calls)->first(fn ($c) => $c[0] === 'action=ExecShell')[1]['shell'];
-    expect($wrapped)->toStartWith('timeout 120s bash -c ')->toContain('su -s /bin/bash ')->toContain('www')->toContain('/www/wwwroot/shop.cz')->toContain('echo hello')->toContain('> /tmp/onhost-')->toContain('echo $? > /tmp/onhost-'); // POSIX quoting on every platform
-    expect(collect($calls)->last(fn ($c) => $c[0] === 'action=ExecShell')[1]['shell'])->toStartWith('rm -f /tmp/onhost-'); // temp files are removed afterwards
+    // output and exit files live where only root reads them, not in /tmp where every site's PHP could (TASK-0034, IF-7)
+    expect($wrapped)->toStartWith('mkdir -p -m 700 /root/.onhost-shell && chmod 700 /root/.onhost-shell && { timeout 120s bash -c ')->toContain('su -s /bin/bash ')->toContain('www')->toContain('/www/wwwroot/shop.cz')->toContain('echo hello')->toContain('> /root/.onhost-shell/onhost-')->toContain('echo $? > /root/.onhost-shell/onhost-')->not->toContain('/tmp/onhost-'); // POSIX quoting on every platform
+    expect(collect($calls)->last(fn ($c) => $c[0] === 'action=ExecShell')[1]['shell'])->toStartWith('rm -f /root/.onhost-shell/onhost-'); // temp files are removed afterwards
 
     expect($adapter->shell($site)->run('exit 3')->exitCode)->toBe(3);
 

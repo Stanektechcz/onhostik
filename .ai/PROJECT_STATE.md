@@ -1,6 +1,6 @@
 # Project state (AI team)
 
-**Updated:** 2026-09-26 by TASK-0027 (docs of TASK-0029 … TASK-0031) · **Integration branch:** `development` (at `2426c17`, PR #19)
+**Updated:** 2026-09-27 by the Phase-0 docs commit on the final chain (TASK-0033 … TASK-0041, after `650f675`) · **Integration branch:** `development` (at `3b2a9fb`, PR #24)
 
 ## What ONHOST is
 
@@ -15,8 +15,9 @@ The customer panel, public site and admin are a preserved HTML prototype made li
 | --- | --- |
 | Engineering invariants | `AGENTS.md`, `CLAUDE.md` |
 | Product state, priorities, open operational work | `docs/context/CURRENT_STATE.md`, `docs/runbooks/go-live-checklist.md` |
-| Findings with evidence | `docs/runbooks/production-readiness-audit.md` §7 (rows 1–122) |
-| Architecture and owner decisions | `.ai/DECISIONS.md` → `docs/adr/` (ADR-0007 = owner decisions of 2026-09-25; ADR-0008 = the three HIGH audit fixes; next number 0009), `.ai/decisions/` |
+| Findings with evidence | `docs/runbooks/production-readiness-audit.md` §7 (rows 1–133) |
+| Permission program (Phase 0 status, slices, exploits, rulings) | `docs/security/permission-program-2026-09-27.md` (status header), `docs/runbooks/breach-register.md` (holes still open) |
+| Architecture and owner decisions | `.ai/DECISIONS.md` → `docs/adr/` (ADR-0007 = owner decisions of 2026-09-25; ADR-0008 = the three HIGH audit fixes; ADR-0009 = the permission program; next number 0010), `.ai/decisions/` |
 | Map for agents | `.ai/ARCHITECTURE.md`, `.ai/DOMAIN_MAP.md`, `.ai/DEPENDENCY_MAP.md`, `.ai/TECH_STACK.md` |
 | How we work | `.ai/DEVELOPMENT_RULES.md`, `.ai/INTEGRATION_RULES.md`, `.ai/SECURITY_RULES.md`, `.ai/TESTING.md` |
 | Who is doing what now | `.\brain.ps1 task board` (live) |
@@ -40,29 +41,37 @@ The customer panel, public site and admin are a preserved HTML prototype made li
 | TASK-0014 | a resource the platform did not create is not touched (row 101) | #17 | `fbf360c` |
 | TASK-0015 | erasing an account is the owner's act, step-up, 14 days (row 102) | #18 | `29e4431` |
 | TASK-0016 | mailbox tools act only on the service's own mailboxes (row 103) | #19 | `2426c17` |
+| TASK-0003, TASK-0017 … TASK-0027, TASK-0029 … TASK-0031 | the stack: owner decisions of 2026-09-25 and the three HIGH onboarding-audit fixes (rows 104–122, ADR-0007, ADR-0008); merged 2026-09-26 | #24 | `3b2a9fb` |
 
-## Pending: the stack, one pull request
+## Pending: Phase 0 of the permission program (PR #25), and TASK-0032 (PR #26)
 
-Branch `fix/TASK-0027-stack-coherence-and-the-docs-that-descri` = `development @ 2426c17` + TASK-0019, TASK-0017,
-TASK-0020, TASK-0026, TASK-0024, TASK-0021, TASK-0022, TASK-0023, TASK-0025, cherry-picked TASK-0018 and TASK-0003,
-TASK-0027 (coherence fixes C1–C4 and the docs) **plus TASK-0029, TASK-0030 and TASK-0031** (the three HIGH findings of
-the onboarding audit, stacked on the PR #24 tip `052ceff` in that order and fast-forwarded onto this branch at `62af410`
-on 2026-09-26, then this docs commit). Everything reaches `development` in **one** pull request, only with the human's
-go-ahead: **#24** carries the stack and TASK-0029 … TASK-0031 (the new commits are local until the human approves the
-push; #24's CI was green incl. `pest-postgres` and e2e before them). TASK-0017, TASK-0018, TASK-0019 and TASK-0003 were
-also pushed on their own as PRs #20–#23, now closed as superseded by #24. What each task does:
-`docs/context/CURRENT_STATE.md` (*The stack*), audit rows 104–122, ADR-0008 for TASK-0029 … TASK-0031. New behaviour that
-reaches existing services is switched off by default; the operator steps are in `docs/runbooks/go-live-checklist.md` §6
-(TASK-0029/0030 tighten authorization at deploy without a switch — release note there).
+The pull requests and branches of this phase (nothing unmerged is pushed or merged without the human's go-ahead):
 
-## Baseline (`20f05d9`, stack tip with TASK-0029 … TASK-0031, 2026-09-26)
+| Pull request / branch | Content | State |
+| --- | --- | --- |
+| **PR #24** | the stack TASK-0017 … TASK-0031 | **merged** 2026-09-26 — `development` = `3b2a9fb` |
+| **PR #25** — `feat/permission-p0` | Phase 0 of the permission program: wave 1 (TASK-0036, TASK-0037, TASK-0035, TASK-0033, TASK-0034, TASK-0038 → `1fb641e`) + two follow-ups (TASK-0036 PostgreSQL race answer, TASK-0037 e2e step-up) = `45017b7`, base `3b2a9fb` | open; `origin/feat/permission-p0` is at `45017b7` |
+| `fix/TASK-0039-staff-act-as-staff-and-a-token-only-for` (the rest of PR #25) | on top of `45017b7`: wave 2 (TASK-0040 partner payouts, TASK-0041 wave-1 leftovers + the P0-16 record + the red-team fixes, tip `b77ab8a`) → TASK-0039 (P0-08, P0-09, P0-14; pins retired `daca3b5`, OpenAPI `b083de5`, P0-16 re-check fix `c4c43e2`, gate report `650f675`) → the Phase-0 docs commit | local, **not pushed**; gate PASS. `fix/TASK-0041-wave-one-leftovers-of-the-permission-pro` is at `b77ab8a`, the wave-2 part of this chain |
+| **PR #26** — `fix/TASK-0032-a-deploy-stops-when-the-readiness-check` | TASK-0032: deploy gate and first release (onboarding audit C12, C14), base `3b2a9fb` | its own pull request, not merged (branch `0c73d22`, pushed) |
 
-`.\brain.ps1 gate -Task TASK-0031` (full) **PASS** on `20f05d9` (`.ai/reports/TASK-0031-gate.md`; `62af410` after it
-changes only the task file and the gate report): Pest 1 558/1 558 (20 527 assertions) · Larastan 0 errors (639 baseline
-entries / 1 010 suppressed; the three tasks only removed entries, none added) · Pint, frontend build PASS · no regressions,
-no pre-existing failures · 62 migrations · OpenAPI regenerated (438 paths, 494 operations; one new route). Earlier stack
-tip `edb635b` (2026-09-25): Pest 1 364/1 364, composer/npm audit clean, 543 routes (493 `/v1`), `Orchestration.Tests.ps1`
-PASS. E2E and PostgreSQL only in CI — not yet run on TASK-0029 … TASK-0031.
+The program, its status per P0 key and what is still open: `docs/security/permission-program-2026-09-27.md`
+(status header), decisions in ADR-0009, audit rows 123–133, operator steps `docs/runbooks/go-live-checklist.md` §7.
+**Phase 0 is not signed off.** Every HIGH finding has its fix in code: the six HIGH of the first P0-16 round (`c59e08a`) in
+TASK-0039, the HIGH of the re-check (`02b5bc5`) in `c4c43e2`. Still in the way: IF-4 staff reach (with staff
+`archive.restore`) and PA-04 for tokens bound to no organization are logged but allowed until the operator turns on
+`ONHOST_STAFF_REACH_ENFORCED` and `ONHOST_TOKEN_ORGANIZATION_REQUIRED`; `GET /v1/me` across organizations (MEDIUM) has no fix;
+`c4c43e2` has had no independent review; the forensic baseline and the owner's Art. 33 decision are open.
+
+## Baseline (`c4c43e2`, the final Phase-0 chain, 2026-09-27)
+
+`.\brain.ps1 gate -Task TASK-0039` (full) **PASS** on `02b5bc5` with exactly the 17 paths of `c4c43e2` uncommitted
+(`.ai/reports/TASK-0039-gate.md`, committed as `650f675`): Pest 1 825/1 825 (22 951 assertions, serial) · Larastan 0 errors
+(639 baseline entries, `phpstan-baseline.neon` unchanged since `3b2a9fb`) · Pint, frontend build PASS · no regressions, no
+pre-existing failures · 63 migrations (`000890` partner payout accounts). Before the re-check fix, `02b5bc5`: 1 821/1 821. The
+wave-2 chain with the pins (`22ba016`): 1 788/1 788. PostgreSQL (`pest-postgres`) and E2E only in CI — not yet run on wave 2 or
+TASK-0039 (the payout and placement row locks and the shadow insert after the transaction are proven only there). The
+parallel runner (`artisan test --parallel`) fails `ArchiveRestoreKeyTest` on a helper defined in another file
+(`arsWebService()`, pre-existing); the serial suite is the evidence.
 
 ## Known issues
 
@@ -96,7 +105,7 @@ PASS. E2E and PostgreSQL only in CI — not yet run on TASK-0029 … TASK-0031.
 9. **Onboarding audit (Fikoun, 2026-09-25)** — `.ai/audits/2026-09-25-onboarding-audit/`: the audit's `README.md` and
    `development-state.md`, and `response-verified-2026-09-25.md` checking all its claims against the stack tip (72 rows:
    45 confirmed, 21 partly, 5 wrong, 1 resolved by the stack; HIGH findings re-checked by adversarial challengers).
-   **The three HIGH findings are fixed** on the stack branch (ADR-0008, audit rows 120–122): TASK-0029 (service actions
+   **The three HIGH findings are fixed** and merged with PR #24 (ADR-0008, audit rows 120–122): TASK-0029 (service actions
    ask their own permission and risk; no default arm), TASK-0030 (explicit token scope map, `services:console`, no
    step-up through a token, step-up for staff writes outside the bus), TASK-0031 (VIES through `providers/Vies`, reverse
    charge on a fresh check or a staff override, partner self-billing VAT). Go-live items: the accountant's sign-off (D31.9)
@@ -109,18 +118,68 @@ PASS. E2E and PostgreSQL only in CI — not yet run on TASK-0029 … TASK-0031.
    published account (§109 ZDPH), the `vat_validations` erasure policy, the qualifier in the prototype's
    `onhost-content.js`, the flaky wall-clock bucket in `DiscordIntegrationTest` (TASK-0030 follow-up). The audit's other
    pages (`security-posture.md`, `production-readiness.md`, `ai-docs-and-tooling.md`, `needs-verification.md`) and its
-   TASK-0028 branch are not pushed yet — **TASK-0028 is taken by that branch; the audit response's follow-up tasks
-   continue at TASK-0032** (numbering in its §6).
+   TASK-0028 branch are not pushed yet — **TASK-0028 is taken by that branch; TASK-0032 is the deploy gate (own branch); TASK-0033 … TASK-0041 are
+   now the permission program**, so the audit response's unstarted follow-ups take the next free id when they start
+   (its §6; the fail-closed op commands item was absorbed by Phase 0, TASK-0037).
+10. **Permission program — what is still open after Phase 0** (P0-16 red team: first round on `c59e08a`, re-check on the
+    final chain `02b5bc5`; the six HIGH and six MEDIUM of the first round and the HIGH + one MEDIUM of the re-check are fixed
+    on the chain — audit rows 129, 132, 133).
+    - **Logged, allowed until the operator's switch** (breach register open list): IF-4 staff reach on customer keys and staff
+      `archive.restore` through a global binding (`ONHOST_STAFF_REACH_ENFORCED`, after seven empty days of
+      `operator:authz:staff-reach` and P0-15); PA-04 for tokens bound to no organization (`ONHOST_TOKEN_ORGANIZATION_REQUIRED`,
+      after `operator:tokens:unbound --dry-run` and a notice).
+    - **Neither fixed nor pinned — each needs its own task (next free id at start):**
+      - MEDIUM: `GET /v1/me` is open to tokens and returns every current membership of the person with the full organization
+        record (billing e-mail, company and VAT ids, address, settings, role) — a token of organization A reads organization B
+        (`AuthController::me`; PA-04 path, in the breach register; `TokenPrincipalTest` does not cover it).
+      - MEDIUM: SS-7 — `support.customer_impersonate` (HIGH) is still held by `support_manager`.
+      - LOW: the HTTP replay store (`IdempotencyKey`) is keyed `user:<id>` without the token or organization, so a portal answer
+        can be replayed to the same person's token when key and body match.
+      - LOW: `ServiceArchiveService::assertMayRestore` asks the source `backup.read` on the person, not the token view (same
+        organization only; a staff person's token gets it through shadow-logged reach).
+      - LOW: runs queued with a token before the release carry no `desired.token_id` and finish on the person's view; a staff
+        `suspend` queued by the old code settles as the customer's pause — deploy with none in flight.
+      - LOW: the command-line time lock of `onhost:staff:create` skips roles that hold CRITICAL keys but decide no approvals
+        (`cloud_vps_admin`, `backup_dr_admin`) and a new approver made while the sole approver is suspended; no approver is told.
+      - LOW: a Discord link code readable in a stored bus result (it is in clear in `discord_links.code` anyway); `approvePayout`
+        compares only `requested_by` for legacy payouts; an `APP_KEY` rotation turns a retry into 409; the payout race test is
+        simulated on SQLite (the real lock only on `pest-postgres`).
+    - **Not reviewed:** the re-check fix `c4c43e2` (staff mode asks staff keys) has had no independent read-only review; its
+      contract change for staff tools (auditor, IAM admin and sales lose `/v1/staff/services/{id}/actions`) and the mapping of
+      keys with no staff counterpart (`service.console`, `backup.restore`, `backup.delete`, `game.manage`, `compute.vm.delete`,
+      `service.panel_account.manage` stay customer keys in staff mode) are its choices.
+    - **For P0-15 and later slices (TASK-0039 handoff):** P0-15 gives staff keys to what the shadow log lists before the switch
+      goes on; S2-01 replaces `StaffActor::CONSOLE_FAMILIES`; S2-02 writes `ticket.meta.support_access`; a chained bus command
+      from a step of a token-started run has no dedicated test.
+    - Still open by design until the owner's O1 `--apply`: PA-02 (open aaPanel nodes) and PA-03 (terminal, Node.js and
+      existing cron under the shared `www`). Mapped to slices, not started: TD-7/TD-9 (S1-02), TD-8 (S1-01), PA-07 (S5-01),
+      P6/P7 (S3).
+    - Handoff follow-ups: `QuoteService` → `CartCapacity` asks without an organization (a paid order can wait in
+      `ScheduleNodeStep`); the manual-archive "free now" message; a CommandBus action to set a game server's recorded owner
+      after a re-home; the Doctor line `four eyes in effect` still describes the old waiver; the time lock sends no customer
+      notice until `disclosure_restricted` (D7); finance sees only a masked IBAN; marketplace partner routes still on
+      `organization.read`; `GameMigrationWorkflow` refuses a cross-panel move for an organization without an e-mail.
+    - Tests that failed only in a wall-clock window during the Phase-0 runs (not in the baseline; the gate was green):
+      `WithdrawalTest` date assertions between 22:00 and 24:00 UTC.
+    - The owner's copy of the program (`PROGRAM-opravneni-2026-09-27.md`, outside the repository) still calls PA-04, EXPL-1..3,
+      SS-4 and IF-4 wholly open in §9; the repository copy is current.
 
 ## Next safe steps
 
-1. Human: approve the push of the TASK-0029 … TASK-0031 commits to #24, let CI (`pest-postgres`, e2e) run on them, then
-   merge PR #24 into `development` (`gh pr merge 24 --rebase`); after the merge the post-integration gate and
-   `.\brain.ps1 task finish` for TASK-0003 and TASK-0017 … TASK-0031.
-2. Then TASK-0032+ from the onboarding-audit response (§6: TASK-0032 deploy gate, TASK-0033 production fail-closed
-   configuration, TASK-0034 …) and the MEDIUM follow-ups of known issue 9; coordinate with the second developer's
-   TASK-0028 (portable `./brain`) so the two do not collide.
-3. Staging: the lifecycle verification (archive on each panel, then the purge) and the restore of `s4s.electree.cz`.
-4. Then the go-live checklist on the production host with the stack's operator steps (§6), each default-off switch only
-   after its read-only command; `onhost:audit:provider-calls` on a production copy.
-5. Start further changes with `/ai-orchestrate` or `/ai-task` (`brain.ps1 task start`, one worktree per task).
+1. PR #24 is merged: run the post-integration gate on `development` and `.\brain.ps1 task finish` for TASK-0003 and
+   TASK-0017 … TASK-0031.
+2. With the human's go-ahead: push the Phase-0 chain to `feat/permission-p0` and merge **PR #25** after a green CI including
+   `pest-postgres` and E2E; merge **PR #26** (TASK-0032, deploy gate).
+3. Operator, in this order: the forensic baseline (`onhost:forensics:lookback`) on production **before** the first Phase-0
+   deploy, then the steps of `docs/runbooks/go-live-checklist.md` §7 (token listing and `operator:tokens:unbound --dry-run`,
+   Pterodactyl identity triage, aaPanel tenancy dry run → owner decision on terminal/Node.js/cron → notice → `--apply`, orphan
+   links, project-role audit, partner masking notice, payout-anomaly dry run → `--apply --digest=`, then
+   `ONHOST_TOKEN_ORGANIZATION_REQUIRED=true` after the notice; `ONHOST_STAFF_REACH_ENFORCED=true` only after P0-15 and seven
+   empty days of `operator:authz:staff-reach`).
+4. For the Phase-0 sign-off: a task for `GET /v1/me` (failing-first test in `TokenPrincipalTest`), a read-only review of
+   `c4c43e2`; the breach register's open list empty.
+5. Then Slice 1 (S1-01 GrantPolicy I1–I12 and the matrix test, S1-02 cascade/acceptance/transfer/owner recovery, S1-03
+   family × level matrix, S1-04 access wizard); P0-15 after seven days of an empty staff-reach shadow log. Tasks for the other
+   items of known issue 10 take the next free id; the onboarding-audit follow-ups keep their list in
+   `.ai/audits/2026-09-25-onboarding-audit/response-verified-2026-09-25.md` §6.
+6. Start further changes with `/ai-orchestrate` or `/ai-task` (`brain.ps1 task start`, one worktree per task).

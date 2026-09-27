@@ -6,7 +6,9 @@ namespace Onhost\Domain\Services\Commands;
 
 use Onhost\Domain\Identity\Authorization\PermissionCatalog;
 use Onhost\Domain\Identity\Authorization\RiskAwareCommand;
+use Onhost\Domain\Identity\Authorization\StaffModeCommand;
 use Onhost\Domain\Services\DestructivePreview;
+use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Commands\OrganizationCommand;
 use Onhost\Platform\Errors\DomainError;
@@ -21,7 +23,7 @@ use Onhost\Platform\Errors\DomainError;
  * is HIGH for customers although the catalogue rates `backup.delete` CRITICAL: IdentityCommandAuthorizer forces CRITICAL only
  * for staff-audience permissions, and there is no customer four-eyes (D29.2) — the step-up is the customer's second lock.
  */
-final class ServiceActionCommand extends OrganizationCommand implements RiskAwareCommand
+final class ServiceActionCommand extends OrganizationCommand implements RiskAwareCommand, StaffModeCommand
 {
     /**
      * Every action of ServiceActionWorkflow::ACTIONS → the permission the bus asks for, and the operation row asks again before
@@ -118,6 +120,39 @@ final class ServiceActionCommand extends OrganizationCommand implements RiskAwar
     }
 
     /**
+     * The key the BUS keeps its answer under: the caller's key plus a keyed fingerprint of what was asked (TASK-0036 review
+     * round 1, IF-12). The bus answers a known key before the handler runs, so the same key with another body was answered
+     * with the first run whenever the HTTP layer had kept nothing (the process died after the commit, a 5xx) — and
+     * ServiceService's own 409 for a changed request never got the chance. Now another body passes the bus, and the
+     * operation (looked up by the caller's key alone, `$this->idempotencyKey`) refuses it. Keyed with app.key: the params
+     * carry passwords, and this key is stored in clear for a day. The same request still hashes the same, so a true retry
+     * is replayed by the bus exactly as before.
+     */
+    public function idempotencyKey(): string
+    {
+        return self::fingerprinted($this->idempotencyKey, $this->payload);
+    }
+
+    /** The bus key of a service command: the caller's key and a keyed fingerprint of the payload (ServiceArchiveCommand too). @param array<mixed> $payload */
+    public static function fingerprinted(string $key, array $payload): string
+    {
+        return $key.'#'.substr(hash_hmac('sha256', (string) json_encode($payload), (string) config('app.key')), 0, 16);
+    }
+
+    /**
+     * The caller's key prefix for an action on one service, for EVERY door to it (TASK-0036 review round 1, red-team round): the
+     * action endpoint and the archive endpoint name the service and the actor (the person a staff member acts for first, as the
+     * operation's own namespace does), so the bus never answers one person's or one target's key for another, and both doors
+     * to one archive restore reach the same operation.
+     */
+    public static function keyPrefix(string $serviceId, string $action, CommandContext $context): string
+    {
+        $actor = substr(hash('sha256', $context->actorType.':'.($context->onBehalfOfUserId ?? $context->actorId ?? '')), 0, 16);
+
+        return "service.{$action}:{$serviceId}:{$actor}";
+    }
+
+    /**
      * One map for the bus and for the operation row: a long run asks for the same permission again before each privileged
      * step (H315). An action nobody mapped is refused (the same answer as ServiceService::requestAction), whoever asks.
      *
@@ -128,6 +163,7 @@ final class ServiceActionCommand extends OrganizationCommand implements RiskAwar
         $permission = self::PERMISSIONS[$action] ?? throw new DomainError('service_action_unknown', "Unknown service action {$action}.", 422, ['action' => $action]);
 
         return match (true) {
+            self::skipsCustomerProtection($action, $params) => self::STAFF_DELETE, // TASK-0039 (IF-9): a forced purge or a skipped archive
             $action === 'schedule.create' && self::schedulesConsoleCommand($params) => 'service.console',
             $action === 'gbackup.lock' && ! self::keepsLocked($params) => self::PERMISSIONS['gbackup.delete'],
             default => $permission,
@@ -177,8 +213,66 @@ final class ServiceActionCommand extends OrganizationCommand implements RiskAwar
 
     public function riskLevel(): string
     {
+        if (self::skipsCustomerProtection((string) $this->get('action'), (array) $this->get('params', []))) {
+            return PermissionCatalog::CRITICAL; // TASK-0039 (IF-9): a second person, or the sole approver's time lock
+        }
+
         return in_array((string) $this->get('action'), self::HIGH_RISK, true) ? PermissionCatalog::HIGH : PermissionCatalog::NORMAL;
     }
+
+    // ── TASK-0039 (permission program P0-08/IF-9, audit SS-5/SE-3) ──
+    /** The staff permission that removes a service before its time or without its final archive (a staff role's, never a customer's). */
+    public const STAFF_DELETE = 'staff.service.delete';
+
+    /**
+     * A forced purge (inside the customer's restore window) or a skipped final archive (`archive_before_delete: false`) skips what
+     * protects the customer's data, so it is `staff.service.delete`, declared CRITICAL: a second person, or the sole approver's
+     * time lock (ServiceActionWorkflow::finalArchiveStep, ServiceService::requestAction). It was `service.delete`, HIGH: one
+     * operator alone removed a service and its data at once. Decided from what was asked, not from who asks: a customer who asks
+     * for the flags is refused them by the bus (they were silently dropped before, CustomerActionParams), a token too — the
+     * permission has no token scope (TokenScopes::for). Fail closed: anything but a definite yes to the archive asks for the staff permission.
+     *
+     * @param  array<string,mixed>  $params
+     */
+    public static function skipsCustomerProtection(string $action, array $params): bool
+    {
+        if (! in_array($action, ['purge', 'terminate'], true)) {
+            return false;
+        }
+
+        return ($action === 'purge' && self::forces($params)) || self::skipsArchive($params);
+    }
+
+    /** A forced purge, read exactly as ServiceService reads it (anything non-empty forces). @param array<string,mixed> $params */
+    public static function forces(array $params): bool
+    {
+        return ! empty($params['force']);
+    }
+
+    /** A request to skip the final archive: anything that is not a definite yes to it (the workflow skips on `false`). @param array<string,mixed> $params */
+    public static function skipsArchive(array $params): bool
+    {
+        return array_key_exists('archive_before_delete', $params) && filter_var($params['archive_before_delete'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) !== true;
+    }
+    // ── end TASK-0039 ──
+
+    // ── TASK-0039 P0-16 re-check (staff mode asks staff keys) ──
+    /**
+     * The staff key of a customer key on /v1/staff/services/{id}/actions: managing a service (a resume, a suspend, a resize…) is
+     * `staff.service.manage`, removing one `staff.service.delete`. The staff route used to ask the customer key, which the staff
+     * person's own membership or a `svc_manage` share satisfied. A key with no staff counterpart stays what it is — the console,
+     * a restore, a copy deleted, the owner's panel password: staff reach it only as staff reach (shadow-logged, CRITICAL where
+     * the catalogue says so) or as a member, never with more than the customer route gives (StaffActor::may asks the staff key).
+     */
+    public const STAFF_PERMISSIONS = ['service.manage' => 'staff.service.manage', 'service.delete' => self::STAFF_DELETE, self::STAFF_DELETE => self::STAFF_DELETE];
+
+    public function staffPermission(): string
+    {
+        $permission = self::permissionFor((string) $this->get('action'), (array) $this->get('params', []));
+
+        return self::STAFF_PERMISSIONS[$permission] ?? $permission;
+    }
+    // ── end TASK-0039 P0-16 re-check ──
 
     public function requiresStepUp(): bool
     {

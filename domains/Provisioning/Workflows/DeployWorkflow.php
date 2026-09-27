@@ -264,7 +264,9 @@ final class DeployWorkflow implements Workflow
                 $base = (string) $context->get('base');
                 $releases = (str_starts_with($base, '../') ? dirname($root).'/'.substr($base, 3) : $root.'/'.$base).'/releases';
                 $keep = max(2, (int) $source->keep_releases);
-                $tools->shell($ref)->run('cd '.Q::arg($releases).' 2>/dev/null && ls -1t | tail -n +'.($keep + 1).' | xargs -r rm -rf', ['timeout' => 300]);
+                // as the site user who cloned the releases: as root, a `releases` folder the tenant replaced with a link to a
+                // neighbour's site led the `rm -rf` there (TASK-0034 review round 2)
+                $tools->shell($ref)->run('cd '.Q::arg($releases).' 2>/dev/null && ls -1t | tail -n +'.($keep + 1).' | xargs -r rm -rf', ['timeout' => 300, 'user' => $tools->siteUser($ref)]);
                 Deployment::query()->where('service_id', $this->service($context)->id)->where('state', 'succeeded')->orderByDesc('finished_at')->skip($keep)->take(100)->get()->each(fn (Deployment $d) => $d->forceFill(['release' => null])->save());
 
                 return StepResult::done(['pruned' => true]);

@@ -723,4 +723,18 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
         'per_organization_per_hour' => 5,
     ],
     // ── end TASK-0031 VIES ──────────────────────────────────────────────────────────────────────────────────────────
+    // ── TASK-0037 four-eyes time lock (permission program IF-10, owner default §10 O4) ──
+    // with ONHOST_FOUR_EYES=false the sole approver's own critical action waits this long before it may run, cancellable on the
+    // approvals page, with a notice to staff only — no customer notice yet (program D7 disclosure_restricted: a legal hold
+    // announced to its subject tips them off; docs/runbooks/approvals.md). Never less than one hour.
+    'four_eyes_time_lock_hours' => (int) env('ONHOST_FOUR_EYES_TIME_LOCK_HOURS', 24),
+    // ── end TASK-0037 ──
+    // ── TASK-0039 staff act as staff, a token only for its organization (permission program P0-08, P0-09, §10 defaults) ──
+    // shadow release first: staff roles and JIT elevations still reach customer permissions and every such allow is written to
+    // security_events `authz.staff_reach`; switched on when `operator:authz:staff-reach --days=7` has stayed empty (P0-15)
+    'staff_reach_enforced' => (bool) env('ONHOST_STAFF_REACH_ENFORCED', false),
+    // an API token bound to no organization keeps its person's organization bindings (never a global one) until this is on;
+    // list them with `operator:tokens:unbound --dry-run`, notify the owners, then switch it on
+    'token_organization_required' => (bool) env('ONHOST_TOKEN_ORGANIZATION_REQUIRED', false),
+    // ── end TASK-0039 ──
 ];

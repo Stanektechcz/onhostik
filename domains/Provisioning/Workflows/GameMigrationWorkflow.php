@@ -35,6 +35,7 @@ use Onhost\Providers\Contracts\InfrastructureProvider;
 use Onhost\Providers\Contracts\PowerCapable;
 use Onhost\Providers\Contracts\ProviderAdapter;
 use Onhost\Providers\Contracts\ResourceRef;
+use Onhost\Providers\Contracts\ServerOwnership;
 use Throwable;
 
 /**
@@ -178,6 +179,28 @@ final class GameMigrationWorkflow implements Workflow
                     return StepResult::fail("The game panel of node {$target->name} is not active", false);
                 }
                 $cross = $targetInstance->id !== $service->provider_instance_id;
+                // the same panel builds the new server under the owner the platform RECORDED (below). When the panel names another
+                // owner today, that record is stale and the copy of the customer's server would go to whichever account it names:
+                // refused until an operator makes both agree (red-team round of the Phase-0 chain; TASK-0033 `moved`).
+                // Not being `moved` is not enough (TASK-0041, permission program IF-6 / P0-02 follow-up): a server that sits,
+                // exactly as recorded, under another organization's account (`foreign`, the PA-01 hijack), under an account the
+                // platform never made (`unmarked`) or under a panel administrator was copied under that account again — with the
+                // collaborators carried onto it. Only an owner the panel proves to be the organization's own passes; the rest goes
+                // to the operator's triage (`onhost:game:panel-identity`), never moved automatically. A panel that cannot say whose
+                // server it is counts as not proven.
+                if (! $cross) {
+                    $panel = $context->adapter($service->provider_instance_id);
+                    try {
+                        $verdict = $panel instanceof ServerOwnership ? $panel->ownerVerdict($source->ref(), (string) $service->organization_id) : 'unsupported';
+                    } catch (ProviderException $e) {
+                        return AbstractStep::fromProviderException($e); // the panel could not be asked: a retry may prove it, nothing was touched
+                    }
+                    if ($verdict !== ServerOwnership::OWNED) {
+                        return StepResult::fail($verdict === ServerOwnership::MOVED
+                            ? 'The game panel names another owner of this server than the platform recorded; support has to review it before it can be moved'
+                            : "The game panel account of this server is not proven to be this organization's ({$verdict}); support has to review it before it can be moved", false, ['owner_verdict' => $verdict, 'triage' => 'onhost:game:panel-identity']);
+                    }
+                }
                 $game = GameServer::query()->where('service_id', $service->id)->first();
                 $user = (int) (($source->meta['user_id'] ?? 0) ?: ($game?->ptero_user_id ?? 0));
                 $template = null;

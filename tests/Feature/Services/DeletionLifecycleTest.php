@@ -71,6 +71,7 @@ it('charges the fee once for downloading an archive and hands over a signed link
     $backup = storedArchive($org->id, $service->id);
     app(WalletService::class)->topup($org, Money::decimal('2000', 'CZK'), 'bank', 'seed', CommandContext::system('test'));
     $this->actingAs($owner, 'sanctum');
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1'); // TASK-0037: paying for and taking the archive is under backup.restore (HIGH): the portal steps up
 
     $list = $this->getJson('/v1/services/archives')->assertOk()->json('data');
     expect($list['policy'])->toMatchArray(['grace_days' => 30, 'retention_days' => 60, 'download_fee_minor' => 50000])
@@ -115,6 +116,7 @@ it('refuses an archive of another organization and one whose retention has run o
     $expired = storedArchive($org->id, 'srv_old');
     $expired->forceFill(['retention_until' => now()->subDay()])->save();
     $this->actingAs($owner, 'sanctum');
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1'); // TASK-0037: paying for and taking the archive is under backup.restore (HIGH): the portal steps up
 
     $this->withHeader('Idempotency-Key', 'x-1')->postJson("/v1/services/archives/{$foreign->id}/download")->assertStatus(404);
     $this->withHeader('Idempotency-Key', 'x-2')->postJson("/v1/services/archives/{$expired->id}/download")->assertStatus(410);

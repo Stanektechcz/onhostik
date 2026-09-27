@@ -21,7 +21,7 @@ it('empties a web node from its own route and says what stays behind', function 
     $node = Node::query()->findOrFail($service->node_id);
     $mail->forceFill(['node_id' => $node->id])->save();
 
-    $this->actingAs($this->staff('infrastructure_admin'), 'sanctum');
+    $this->actingAs($this->steppedUpStaff('infrastructure_admin'), 'sanctum');
     $result = $this->withHeader('Idempotency-Key', 'evac-web-1')
         ->postJson("/v1/staff/nodes/{$node->id}/evacuate", ['reason' => 'hardware swap'])->assertStatus(202)->json();
 
@@ -41,7 +41,7 @@ it('is staff only', function () {
 });
 
 it('says so when the node is not there', function () {
-    $this->actingAs($this->staff('infrastructure_admin'), 'sanctum');
+    $this->actingAs($this->steppedUpStaff('infrastructure_admin'), 'sanctum');
 
     $this->withHeader('Idempotency-Key', 'evac-web-3')
         ->postJson('/v1/staff/nodes/nd_nothing/evacuate', [])->assertNotFound();

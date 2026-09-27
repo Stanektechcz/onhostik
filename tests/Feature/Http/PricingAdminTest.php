@@ -20,7 +20,8 @@ beforeEach(function () {
 
 it('lets staff approve commitment and domain discounts, manage promo codes, add-on mappings and option prices', function () {
     // price changes take a step-up and a second person (owner decision 13, tests/Feature/Catalog/CatalogFourEyesTest.php); this test runs
-    // the functional flow the way a single operator does (ONHOST_FOUR_EYES=false): the step-up stays, the audit says nobody else signed
+    // the functional flow the way a single operator does (ONHOST_FOUR_EYES=false): the step-up stays, the audit says nobody else signed,
+    // and each price change of the only approver waits the time lock first (TASK-0037, program IF-10: soloAfterTimeLock)
     config(['onhost.identity.four_eyes' => false]);
     $pricingStaff = $this->staff('platform_owner');
     app(StepUpService::class)->grant($pricingStaff, 'totp', null, '127.0.0.1');
@@ -30,14 +31,14 @@ it('lets staff approve commitment and domain discounts, manage promo codes, add-
         ->and(collect($index['promo_codes'])->pluck('code')->all())->toContain('ONHOST10')->and(collect($index['products'])->firstWhere('key', 'web-hosting')['addon_products'])->toBe(['cdn', 'backup-plus', 'mail-hosting']) // ssl is not on sale: a draft add-on is never offered
         ->and(collect(collect($index['products'])->firstWhere('key', 'web-custom')['options'])->pluck('key')->all())->toContain('sites', 'nvme_gb', 'backup_days')->and(collect($index['addon_candidates'])->pluck('key')->all())->toContain('ssl', 'cdn');
 
-    $this->putJson('/v1/staff/pricing/commit-discounts', ['default' => [12 => 0], 'families' => ['web' => [12 => 5, 24 => 10]]])->assertOk()->assertJsonPath('commit_discounts.families.web.24', 10);
+    $this->soloAfterTimeLock($pricingStaff, fn () => $this->putJson('/v1/staff/pricing/commit-discounts', ['default' => [12 => 0], 'families' => ['web' => [12 => 5, 24 => 10]]]))->assertOk()->assertJsonPath('commit_discounts.families.web.24', 10);
     $this->putJson('/v1/staff/pricing/commit-discounts', ['families' => ['web' => [24 => 120]]])->assertUnprocessable();
-    $this->putJson('/v1/staff/pricing/domain-discounts', ['tld' => '.cz', 'register' => 15, 'label' => 'Podzimní akce'])->assertOk()->assertJsonPath('domain_discount.register', 15)->assertJsonPath('tld', 'cz');
-    $this->putJson('/v1/staff/pricing/promo-codes', ['code' => 'jaro-2026', 'kind' => 'percent', 'value' => 15, 'applies_to' => ['web', 'domain'], 'max_uses' => 100])->assertOk()->assertJsonPath('promo.code', 'JARO-2026');
+    $this->soloAfterTimeLock($pricingStaff, fn () => $this->putJson('/v1/staff/pricing/domain-discounts', ['tld' => '.cz', 'register' => 15, 'label' => 'Podzimní akce']))->assertOk()->assertJsonPath('domain_discount.register', 15)->assertJsonPath('tld', 'cz');
+    $this->soloAfterTimeLock($pricingStaff, fn () => $this->putJson('/v1/staff/pricing/promo-codes', ['code' => 'jaro-2026', 'kind' => 'percent', 'value' => 15, 'applies_to' => ['web', 'domain'], 'max_uses' => 100]))->assertOk()->assertJsonPath('promo.code', 'JARO-2026');
     $this->putJson('/v1/staff/pricing/addon-products', ['product_key' => 'wordpress', 'addon_products' => ['cdn']])->assertOk()->assertJsonPath('addon_products', ['cdn']);
     $this->putJson('/v1/staff/pricing/addon-products', ['product_key' => 'wordpress', 'addon_products' => ['nope']])->assertUnprocessable()->assertJsonPath('error', 'addon_product_unknown');
-    $this->putJson('/v1/staff/pricing/options', ['product_key' => 'web-hosting', 'key' => 'malware_scan', 'kind' => 'addon', 'label' => ['cs' => 'Sken malwaru', 'en' => 'Malware scan'], 'desc' => ['cs' => 'denní kontrola souborů'], 'price_czk' => 39])->assertOk()->assertJsonPath('option.key', 'malware_scan');
-    $this->putJson('/v1/staff/pricing/options', ['product_key' => 'web-custom', 'key' => 'sites', 'kind' => 'slider', 'label' => ['cs' => 'Weby'], 'unit' => 'ks', 'min' => 1, 'max' => 100, 'step' => 1, 'default' => 1, 'price_czk' => 35, 'entitlement' => ['key' => 'sites', 'mode' => 'absolute']])->assertOk();
+    $this->soloAfterTimeLock($pricingStaff, fn () => $this->putJson('/v1/staff/pricing/options', ['product_key' => 'web-hosting', 'key' => 'malware_scan', 'kind' => 'addon', 'label' => ['cs' => 'Sken malwaru', 'en' => 'Malware scan'], 'desc' => ['cs' => 'denní kontrola souborů'], 'price_czk' => 39]))->assertOk()->assertJsonPath('option.key', 'malware_scan');
+    $this->soloAfterTimeLock($pricingStaff, fn () => $this->putJson('/v1/staff/pricing/options', ['product_key' => 'web-custom', 'key' => 'sites', 'kind' => 'slider', 'label' => ['cs' => 'Weby'], 'unit' => 'ks', 'min' => 1, 'max' => 100, 'step' => 1, 'default' => 1, 'price_czk' => 35, 'entitlement' => ['key' => 'sites', 'mode' => 'absolute']]))->assertOk();
     $this->putJson('/v1/staff/pricing/options', ['product_key' => 'web-hosting', 'key' => 'bad key', 'kind' => 'addon', 'label' => ['cs' => 'x'], 'price_czk' => 1])->assertUnprocessable()->assertJsonPath('error', 'option_key_invalid');
 
     // the rules reach the quote …
@@ -68,7 +69,7 @@ it('lets staff approve commitment and domain discounts, manage promo codes, add-
 
     $this->deleteJson('/v1/staff/pricing/domain-discounts/cz')->assertOk()->assertJsonPath('deleted', true);
     $this->deleteJson('/v1/staff/pricing/promo-codes/JARO-2026')->assertOk()->assertJsonPath('deleted', true);
-    $this->deleteJson('/v1/staff/pricing/options/web-hosting/malware_scan')->assertOk()->assertJsonPath('deleted', true);
+    $this->soloAfterTimeLock($pricingStaff, fn () => $this->deleteJson('/v1/staff/pricing/options/web-hosting/malware_scan'))->assertOk()->assertJsonPath('deleted', true);
     expect(PromoCode::query()->where('code', 'JARO-2026')->exists())->toBeFalse()->and(ProductOption::query()->where('key', 'malware_scan')->exists())->toBeFalse();
     expect(AuditEvent::query()->where('action', 'catalog.promo.upsert')->where('result', 'succeeded')->sole()->approval_ids)->toBe(['waived:single-operator']);
 });

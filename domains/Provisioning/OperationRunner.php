@@ -9,6 +9,7 @@ use Illuminate\Contracts\Container\Container;
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Identity\Authorization\Authorizer;
+use Onhost\Domain\Identity\Authorization\IdentityCommandAuthorizer;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\OperationAttempt;
@@ -159,7 +160,9 @@ final class OperationRunner
     private function context(Operation $operation): StepContext
     {
         $service = $operation->service_id ? Service::query()->find($operation->service_id) : null;
-        $actor = new CommandContext($operation->actor_type, $operation->actor_id, $operation->organization_id, correlationId: $operation->correlation_id);
+        // TASK-0039 review round 1 (program §3 "staffMode persisted"): a run started in staff mode acts in it — OperationService::start
+        // writes the flag from the starting context only, and StaffActor still asks whether the person is staff and active today
+        $actor = new CommandContext($operation->actor_type, $operation->actor_id, $operation->organization_id, sessionId: self::tokenSession($operation), correlationId: $operation->correlation_id, staffMode: data_get($operation->desired, 'staff_mode') === true);
 
         return new StepContext($operation, $service, $this->providers, $this->container, $actor);
     }
@@ -208,6 +211,16 @@ final class OperationRunner
         if ($user === null || ! $user->isActive()) {
             return 'the account that started this operation is no longer active; no further step was sent to the provider';
         }
+        // ── TASK-0039 review round 2 (P0-09 "including queued operations") ──
+        // a run started with an API token is asked on the token's view, as the bus asked when it started (one organization, no
+        // global reach); the person's full view let the run go on after the token was revoked or had expired
+        if (($session = self::tokenSession($operation)) !== null) {
+            $user = IdentityCommandAuthorizer::asToken($user, new CommandContext('user', (string) $operation->actor_id, $operation->organization_id, sessionId: $session));
+            if (! $user instanceof User) {
+                return 'the API token that started this operation was revoked or has expired; no further step was sent to the provider';
+            }
+        }
+        // ── end TASK-0039 ──
         $scope = match (true) {
             $operation->authorized_scope === 'global' => CommandScope::global(), // a staff run: the role is held globally and was checked globally
             // with the project the service belongs to: a role held in that project covers it, and without it every multi-step run
@@ -224,6 +237,16 @@ final class OperationRunner
 
         return null;
     }
+
+    // ── TASK-0039 review round 2 ──
+    /** `token:<id>` when the run was started with an API token (OperationService::start writes `desired.token_id`), else null. */
+    private static function tokenSession(Operation $operation): ?string
+    {
+        $tokenId = data_get($operation->desired, 'token_id');
+
+        return $tokenId === null ? null : 'token:'.(is_scalar($tokenId) ? (string) $tokenId : ''); // anything unreadable decides nothing
+    }
+    // ── end TASK-0039 ──
 
     private function handleTimedOut(Operation $operation): bool
     {

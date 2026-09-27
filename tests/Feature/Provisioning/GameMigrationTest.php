@@ -31,6 +31,12 @@ beforeEach(function () {
     Http::preventStrayRequests();
 });
 
+/** The organization of the lab game service: the panel users of both lab panels are its own (external id = organization id, TASK-0033). */
+function gameMigrationPanelOwner(): string
+{
+    return (string) Service::query()->where('family', 'game')->orderBy('created_at')->value('organization_id');
+}
+
 /** The panel double for a two-node game panel; `$state` records what happened, `$failUpload` breaks the transfer. */
 /**
  * The collaborators endpoint of the panel's client API, per server identifier. `$state['panel_widens']` makes the panel
@@ -82,7 +88,7 @@ function gameMigrationPanel(array &$state, bool $failUpload = false): void
         $state['calls'][] = [$m, $path, $request->data()];
         $list = fn (array $items, string $object) => Http::response(['object' => 'list', 'data' => array_map(fn ($a) => ['object' => $object, 'attributes' => $a], $items), 'meta' => ['pagination' => ['total_pages' => 1]]]);
         $server = fn (int $id, int $node, string $identifier, string $uuid, int $allocation, ?string $status) => Http::response(['object' => 'server', 'attributes' => [
-            'id' => $id, 'external_id' => $id === 77 ? 'order-item-1' : 'gmig', 'uuid' => $uuid, 'identifier' => $identifier, 'name' => 'mc-liga', 'suspended' => false, 'status' => $status, 'user' => 9, 'node' => $node, 'allocation' => $allocation, 'nest' => 1, 'egg' => 3,
+            'id' => $id, 'external_id' => $id === 77 ? 'order-item-1' : 'gmig', 'uuid' => $uuid, 'identifier' => $identifier, 'name' => 'mc-liga', 'suspended' => false, 'status' => $status, 'user' => $state['live_owner'] ?? 9, 'node' => $node, 'allocation' => $allocation, 'nest' => 1, 'egg' => 3,
             'limits' => ['memory' => 8192, 'swap' => 0, 'disk' => 61440, 'io' => 500, 'cpu' => 300], 'feature_limits' => ['databases' => 2, 'allocations' => 2, 'backups' => 5],
             'container' => ['startup_command' => 'java -jar {{SERVER_JARFILE}}', 'image' => 'ghcr.io/pterodactyl/yolks:java_21', 'installed' => $status === null ? 1 : 0, 'environment' => ['SERVER_JARFILE' => 'server.jar', 'MOTD' => 'Vitejte', 'P_SERVER_UUID' => $uuid]],
         ]]);
@@ -122,6 +128,7 @@ function gameMigrationPanel(array &$state, bool $failUpload = false): void
                 return Http::response('', 204);
             })(),
             $path === '/api/client/account' => Http::response(['object' => 'user', 'attributes' => ['id' => 1, 'admin' => true]]),
+            $path === '/api/application/users/9' && $m === 'GET' => Http::response(['object' => 'user', 'attributes' => ['id' => 9, 'external_id' => gameMigrationPanelOwner(), 'email' => 'org-x@game-users.onhost.invalid', 'username' => 'liga', 'root_admin' => false]]), // a collaborator is carried only onto the organization's own account (TASK-0033)
             preg_match('#^/api/client/servers/(e4c1abcd|f00dbabe)/users(?:/([\w-]+))?$#', $path, $u) === 1 => gameMigrationUsers($state, $request, $u[1], $u[2] ?? null),
             default => Http::response(['errors' => [['code' => 'NotFoundHttpException', 'status' => '404', 'detail' => "no fake for {$m} {$path}"]]], 404),
         };
@@ -138,7 +145,7 @@ it('moves a game server to another node of its panel: stop, backup, rebuild, tra
     gameMigrationPanel($state);
     $sourceBinding = $service->primaryBinding();
 
-    $staff = $this->staff('infrastructure_admin');
+    $staff = $this->steppedUpStaff('infrastructure_admin');
     $this->actingAs($staff, 'sanctum');
     $started = $this->withHeader('Idempotency-Key', 'gmig-1')->postJson("/v1/staff/services/{$service->id}/migrate", ['target_node_id' => 'games02', 'reason' => 'údržba uzlu games01'])->assertStatus(202)->json();
     $this->flushHeaders();
@@ -171,6 +178,28 @@ it('moves a game server to another node of its panel: stop, backup, rebuild, tra
     expect($queue->where('kind', 'game.migrate')->count())->toBe(0)->and($this->getJson('/v1/staff/game')->json('data.recent'))->toBe(1); // finished: no longer queued, counted as recent
 });
 
+// Red-team round of the Phase-0 chain (TASK-0033 review round 1 note): a same-panel move builds the new server under the owner the
+// platform RECORDED (binding meta.user_id / game_servers.ptero_user_id). When the panel names another owner today (verdict
+// `moved`), that record is stale — the copy of the customer's server would go to whichever account the record names.
+it('refuses to move a server within its panel while the panel names another owner than the platform recorded', function () {
+    [$user, $org] = $this->customerWithOrganization();
+    $service = featureGameService($org);
+    $instance = ProviderInstance::query()->where('key', 'pterodactyl-games01')->firstOrFail();
+    Node::query()->create(['provider_instance_id' => $instance->id, 'name' => 'games02', 'region_code' => 'cz1', 'role' => 'game', 'state' => 'active', 'capacity' => ['cpu_cores' => 32, 'ram_mb' => 131072, 'disk_gb' => 2000], 'usage' => [], 'remote_id' => '3']);
+    $state = ['calls' => [], 'power' => [], 'files' => [], 'deleted' => [], 'live_owner' => 12]; // moved on the panel to account 12; the platform recorded 9
+    gameMigrationPanel($state);
+    $sourceBinding = $service->primaryBinding();
+
+    $this->actingAs($this->steppedUpStaff('infrastructure_admin'), 'sanctum');
+    $started = $this->withHeader('Idempotency-Key', 'gmig-moved')->postJson("/v1/staff/services/{$service->id}/migrate", ['target_node_id' => 'games02', 'reason' => 'údržba uzlu games01'])->assertStatus(202)->json();
+    $this->flushHeaders();
+    $operation = driveOperation(Operation::query()->findOrFail($started['id']));
+
+    expect($operation->state)->toBe(Operation::FAILED)->and($operation->error['message'])->toContain('another owner')
+        ->and($state)->not->toHaveKey('created')->and($state['power'])->toBe([])->and($state['deleted'])->toBe([])
+        ->and($sourceBinding->fresh()->remote_id)->toBe('77')->and($service->fresh()->node_id)->not->toBeNull();
+});
+
 it('undoes a migration that fails before the switch: the half-built target is deleted, the source starts again, nothing points elsewhere', function () {
     [$user, $org] = $this->customerWithOrganization();
     $service = featureGameService($org);
@@ -182,7 +211,7 @@ it('undoes a migration that fails before the switch: the half-built target is de
     $sourceNode = $service->node_id;
 
     // per node: the node is drained and every server of it gets its own saga; the scheduler picks the target (the only other active game node)
-    $staff = $this->staff('infrastructure_admin');
+    $staff = $this->steppedUpStaff('infrastructure_admin');
     $this->actingAs($staff, 'sanctum');
     $node = Node::query()->findOrFail($sourceNode);
     $result = $this->withHeader('Idempotency-Key', 'evac-1')->postJson("/v1/staff/integrations/{$instance->key}/game/nodes/{$node->id}/evacuate", ['reason' => 'disk replacement'])->assertStatus(202)->json();
@@ -230,7 +259,8 @@ function gameMigrationSecondPanel(array &$state): ProviderInstance
             'limits' => ['memory' => 8192, 'swap' => 0, 'disk' => 61440, 'io' => 500, 'cpu' => 300], 'feature_limits' => ['databases' => 2, 'allocations' => 2, 'backups' => 5], 'container' => ['startup_command' => 'java -jar {{SERVER_JARFILE}}', 'image' => 'ghcr.io/pterodactyl/yolks:java_21', 'installed' => $status === null ? 1 : 0, 'environment' => ['SERVER_JARFILE' => 'server.jar', 'MOTD' => 'Vitejte']]]]);
 
         return match (true) {
-            $path === '/api/application/users' && $m === 'GET' => $list([['id' => 44, 'email' => 'billing@example.cz', 'username' => 'test']], 'user'),
+            // the customer's account on the other panel is found by the organization id alone, never by an e-mail (TASK-0033)
+            $path === '/api/application/users/external/'.gameMigrationPanelOwner() && $m === 'GET', $path === '/api/application/users/44' && $m === 'GET' => Http::response(['object' => 'user', 'attributes' => ['id' => 44, 'external_id' => gameMigrationPanelOwner(), 'email' => 'billing@example.cz', 'username' => 'test', 'root_admin' => false]]),
             $path === '/api/application/nodes' => $list([['id' => 1, 'name' => 'games-b01', 'fqdn' => 'wings03.test']], 'node'),
             $path === '/api/application/nodes/1/allocations' => $list([['id' => 71, 'ip' => '198.51.100.5', 'alias' => null, 'port' => 27015, 'assigned' => false]], 'allocation'),
             str_starts_with($path, '/api/application/servers/external/') => Http::response(['errors' => [['code' => 'NotFoundHttpException', 'status' => '404', 'detail' => 'no server']]], 404),
@@ -275,7 +305,7 @@ it('moves a server to a node of another game panel: the account and the template
     $sourceInstance = ProviderInstance::query()->where('key', 'pterodactyl-games01')->firstOrFail();
     $sourceBinding = $service->primaryBinding();
 
-    $staff = $this->staff('infrastructure_admin');
+    $staff = $this->steppedUpStaff('infrastructure_admin');
     $this->actingAs($staff, 'sanctum');
     $started = $this->withHeader('Idempotency-Key', 'gmig-x1')->postJson("/v1/staff/services/{$service->id}/migrate", ['target_node_id' => 'games02-n1', 'reason' => 'konsolidace panelů'])->assertStatus(202)->json();
     $this->flushHeaders();
@@ -315,7 +345,7 @@ it('waits for the window the customer chooses: the saga starts at the chosen tim
     $from = now()->addHours(2)->startOfMinute();
     $to = $from->copy()->addHours(6);
 
-    $staff = $this->staff('infrastructure_admin');
+    $staff = $this->steppedUpStaff('infrastructure_admin');
     $this->actingAs($staff, 'sanctum');
     $started = $this->withHeader('Idempotency-Key', 'gmig-w1')->postJson("/v1/staff/services/{$service->id}/migrate", ['target_node_id' => 'games02', 'reason' => 'výměna disků', 'window_from' => $from->toIso8601String(), 'window_to' => $to->toIso8601String()])->assertStatus(202)->json();
     $this->flushHeaders();
@@ -365,7 +395,7 @@ function collaboratorMigrationFixture(Organization $org): Service
 it('carries the collaborators to the new server with exactly the permissions they had', function () {
     [, $org] = $this->customerWithOrganization();
     $service = collaboratorMigrationFixture($org);
-    $this->actingAs($this->staff('infrastructure_admin'), 'sanctum');
+    $this->actingAs($this->steppedUpStaff('infrastructure_admin'), 'sanctum');
     $console = ['control.console', 'control.start', 'control.stop', 'control.restart', 'websocket.connect'];
     $state = ['calls' => [], 'power' => [], 'files' => [], 'deleted' => [], 'subusers' => ['e4c1abcd' => [
         'su-a' => ['uuid' => 'su-a', 'email' => 'Helper@Example.test', 'username' => 'helper', 'permissions' => $console, 'created_at' => null],
@@ -396,7 +426,7 @@ it('carries the collaborators to the new server with exactly the permissions the
 it('stops before the switch when the target panel would give a collaborator more than was approved, and removes what it created', function () {
     [, $org] = $this->customerWithOrganization();
     $service = collaboratorMigrationFixture($org);
-    $this->actingAs($this->staff('infrastructure_admin'), 'sanctum');
+    $this->actingAs($this->steppedUpStaff('infrastructure_admin'), 'sanctum');
     $binding = $service->primaryBinding();
     $state = ['calls' => [], 'power' => [], 'files' => [], 'deleted' => [], 'panel_widens' => true, 'subusers' => ['e4c1abcd' => [
         'su-a' => ['uuid' => 'su-a', 'email' => 'helper@example.test', 'username' => 'helper', 'permissions' => ['control.console', 'websocket.connect'], 'created_at' => null],
@@ -418,7 +448,7 @@ it('stops before the switch when the target panel would give a collaborator more
 it('moves without a collaborator the target cannot take unchanged only when that is asked for, and names them to the customer', function () {
     [, $org] = $this->customerWithOrganization();
     $service = collaboratorMigrationFixture($org);
-    $this->actingAs($this->staff('infrastructure_admin'), 'sanctum');
+    $this->actingAs($this->steppedUpStaff('infrastructure_admin'), 'sanctum');
     $state = ['calls' => [], 'power' => [], 'files' => [], 'deleted' => [], 'panel_forgets' => ['backup.restore'], 'subusers' => ['e4c1abcd' => [
         'su-a' => ['uuid' => 'su-a', 'email' => 'helper@example.test', 'username' => 'helper', 'permissions' => ['control.console', 'websocket.connect'], 'created_at' => null],
         'su-b' => ['uuid' => 'su-b', 'email' => 'backups@example.test', 'username' => 'backups', 'permissions' => ['backup.read', 'backup.restore', 'websocket.connect'], 'created_at' => null],

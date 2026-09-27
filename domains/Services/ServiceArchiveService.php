@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Onhost\Domain\Services;
 
 use Illuminate\Support\Facades\DB;
+use Onhost\Domain\Identity\Authorization\Authorizer;
+use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Orders\CreditOrderPolicy;
 use Onhost\Domain\Organizations\Models\Organization;
@@ -17,6 +19,7 @@ use Onhost\Domain\Tax\VatStanding;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
+use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Money\Money;
@@ -45,6 +48,7 @@ final class ServiceArchiveService
         private readonly ServiceService $services,
         private readonly AuditRecorder $audit,
         private readonly OutboxPublisher $outbox,
+        private readonly Authorizer $authorizer,
     ) {}
 
     /**
@@ -126,12 +130,21 @@ final class ServiceArchiveService
     /**
      * Free restore onto a new, paid service of the same family: files and databases go back through the panel.
      * The target must be an active service of the same organization — never the archive's own (it no longer exists).
+     *
+     * Both doors lead here — `POST /services/archives/{id}/restore` and the generic action endpoint with `archive.restore`
+     * (TASK-0035, IF-11 / audit SE-2, SE-14): the generic one checked only the TARGET, so a guest holding `svc_restore` on one
+     * service could pull any archive of the organization into it and read a stranger's site. What is asked now is what the
+     * restore really does: read the source (`backup.read` where the archived service lived — otherwise the archive does not exist
+     * for the person, 404) and restore for the whole project or organization of the target (`backup.restore` there; a single
+     * shared service is no such scope). The live target is copied first (the `pre_restore` step, fails closed), and the download
+     * fee is waived only once the restore was accepted — a refused one leaves the archive costing what it cost.
      */
     public function restore(Backup $backup, Service $target, CommandContext $context, string $idempotencyKey): Operation
     {
         if ($target->organization_id !== $backup->organization_id) {
             throw DomainError::notFound('service');
         }
+        $this->assertMayRestore($backup, $target, $context);
         $family = (string) data_get($backup->meta, 'family', '');
         if ($family !== '' && $target->family !== $family) {
             throw new DomainError('archive_family_mismatch', 'Archiv patří ke službě typu '.$family.'; obnovit ho lze jen do stejného typu služby.', 422);
@@ -139,15 +152,40 @@ final class ServiceArchiveService
         if (! in_array($target->state, [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED], true)) {
             throw new DomainError('service_state_invalid', 'Obnovu lze spustit jen do aktivní služby.', 409, ['state' => $target->state]);
         }
-        if (! in_array($family, ['web', 'managed'], true)) { // no automated path for this family: the archive is handed over instead, free of charge
-            $this->waive($backup, $context, 'restore to a new paid service ('.$target->id.')');
-
-            throw new DomainError('archive_restore_manual', 'Archiv této služby vracíme ručně — stažení je pro vás nyní zdarma a s obnovou vám pomůže podpora.', 409, ['waived' => true, 'backup_id' => $backup->id]);
+        // No automated path for this family: support hands the archive over. This is a refusal (409), and a refusal inside the bus
+        // transaction keeps nothing — the waive written here before was rolled back while the answer said `waived: true` and "free
+        // now" (red-team round of the Phase-0 chain). The answer says what was kept: nothing; whether the fee goes is support's call.
+        if (! in_array($family, ['web', 'managed'], true)) {
+            throw new DomainError('archive_restore_manual', 'Archiv této služby vracíme ručně — napište podpoře, s obnovou vám pomůže a domluví s vámi i poplatek za stažení.', 409, ['waived' => false, 'backup_id' => $backup->id]);
         }
-        $this->waive($backup, $context, 'restore to a new paid service ('.$target->id.')');
-
         // the customer's bus command was checked for backup.restore; a restore writes over a live service for minutes, so the run asks again before each step (H315)
-        return $this->services->requestAction($target, 'archive.restore', $context, $idempotencyKey, ['backup_id' => $backup->id], authorizedPermission: 'backup.restore');
+        $operation = $this->services->requestAction($target, 'archive.restore', $context, $idempotencyKey, ['backup_id' => $backup->id], authorizedPermission: 'backup.restore');
+        $this->waive($backup, $context, 'restore to a new paid service ('.$target->id.')'); // accepted: from now on the download is free (IF-11)
+
+        return $operation;
+    }
+
+    /** IF-11: the source is read, the target is restored for a whole project or organization — see restore(). */
+    private function assertMayRestore(Backup $backup, Service $target, CommandContext $context): void
+    {
+        if ($context->actorType === 'system') {
+            return; // the platform itself (an operator command, a saga) acts on its own authority
+        }
+        // the person a staff member acts for is the one asked (red-team round; GrantPolicy, CreditOrderPolicy read it the same way)
+        $person = $context->onBehalfOfUserId ?? $context->actorId;
+        $user = $context->actorType === 'user' && $person !== null ? User::query()->find($person) : null;
+        if ($user === null) {
+            throw DomainError::forbidden('An archive is restored by a person.');
+        }
+        $source = Service::query()->withTrashed()->find((string) $backup->service_id);
+        $sourceScope = $source === null ? CommandScope::organization($backup->organization_id) : CommandScope::resource($source->id, $source->organization_id, $source->project_id);
+        if (! $this->authorizer->can($user, 'backup.read', $sourceScope)) {
+            throw DomainError::notFound('backup');
+        }
+        $targetScope = $target->project_id === null ? CommandScope::organization($target->organization_id) : CommandScope::project($target->project_id, $target->organization_id);
+        if (! $this->authorizer->can($user, 'backup.restore', $targetScope)) {
+            throw new DomainError('forbidden', 'Archiv zrušené služby obnoví jen ten, kdo smí obnovovat zálohy v celém projektu nebo organizaci.', 403, ['permission' => 'backup.restore', 'scope' => $target->project_id === null ? 'organization' : 'project']);
+        }
     }
 
     private function chargeFee(Organization $organization, Backup $backup, Money $net, CommandContext $context): void

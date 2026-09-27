@@ -60,7 +60,7 @@ it('shares one weight table between the order and the referral loop and merges t
     expect($assessed['signals'])->toBe(['disposable_email'])->and($assessed['score'])->toBe(65);
 
     // staff tune any signal of either loop from the console; unknown ones are refused; a reset restores every default
-    $this->actingAs($this->staff('platform_owner'), 'sanctum');
+    $this->actingAs($this->steppedUpStaff('platform_owner'), 'sanctum');
     $this->withHeader('Idempotency-Key', 'rt-1')->putJson('/v1/staff/automation/order.risk/tuning', ['weights' => ['same_address' => 80, 'new_account' => 30]])->assertOk();
     expect($referrals->weights()['same_address'])->toBe(80)->and($orders->weights()['new_account'])->toBe(30);
     $this->withHeader('Idempotency-Key', 'rt-2')->putJson('/v1/staff/automation/order.risk/tuning', ['weights' => ['no_such_signal' => 50]])->assertStatus(422)->assertJsonPath('error', 'risk_signal_unknown');

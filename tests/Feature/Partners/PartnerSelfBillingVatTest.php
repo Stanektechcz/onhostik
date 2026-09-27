@@ -9,6 +9,7 @@ use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Partners\Models\Partner;
 use Onhost\Domain\Partners\Models\PartnerCommission;
 use Onhost\Domain\Partners\Models\PartnerPayout;
+use Onhost\Domain\Partners\Models\PartnerPayoutAccount;
 use Onhost\Domain\Partners\PartnerPresenters;
 use Onhost\Domain\Partners\PartnerService;
 use Onhost\Domain\Tax\Commands\OverrideVatStatusCommand;
@@ -35,11 +36,12 @@ beforeEach(function () {
     config(['onhost.vies.enabled' => false]);
 });
 
-/** An approved partner with 2 000 CZK of payable commission. */
+/** An approved partner with 2 000 CZK of payable commission and a confirmed payout account (TASK-0040: the IBAN comes from it). */
 function vatPartnerWithBalance(Organization $organization): Partner
 {
     $partners = app(PartnerService::class);
     $partner = $partners->approve($partners->apply($organization, ['model' => 'share'], CommandContext::system('test')), CommandContext::system('test'));
+    PartnerPayoutAccount::query()->create(['partner_id' => $partner->id, 'iban' => 'CZ6508000000192000145399', 'source' => 'owner', 'usable_from' => now()->subDays(8)]);
     PartnerCommission::query()->create(['partner_id' => $partner->id, 'organization_id' => $organization->id, 'invoice_id' => 'inv-'.uniqid(), 'period' => now()->format('Y-m'), 'kind' => 'share', 'base_minor' => 1000000, 'rate_pct' => 20, 'amount_minor' => 200000, 'currency' => 'CZK', 'state' => 'payable', 'invoice_paid_at' => now()->subDay()]);
 
     return $partner->fresh();
@@ -158,8 +160,9 @@ it('pays a partner without VAT, and one under reverse charge, exactly the commis
     }
     $partners = app(PartnerService::class);
     $payout = vatPartnerPayout(vatPartnerWithBalance($organization->fresh()));
+    $partners->approvePayout($payout, CommandContext::system('test')); // TASK-0040: only an approved payout is paid
 
-    $paid = $partners->markPayoutPaid($payout, 'BANK-VAT-2', CommandContext::system('test'));
+    $paid = $partners->markPayoutPaid($payout->fresh(), 'BANK-VAT-2', CommandContext::system('test'));
     expect(vatPartnerPostings($paid->ledger_transaction_id))->toBe([
         'expense:partner_commission:CZK:debit' => 100000,
         'asset:bank:bank:CZK:credit' => 100000,

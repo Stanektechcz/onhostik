@@ -103,6 +103,7 @@ it('ends a project role on its date, never later than the membership, and leaves
     $organizations->attachMember($org, $lecturer, 'viewer', CommandContext::system('test'), true, now()->addDays(30));
     $colleague = $this->customer();
     $organizations->attachMember($org, $colleague, 'developer', CommandContext::system('test'), true);
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1'); // a project role is a membership grant: HIGH, fresh step-up (TASK-0036, IF-3)
 
     // a project role cannot outlive the membership it builds on
     $this->postJson("/v1/organizations/{$org->id}/projects/{$course}/members", ['user_id' => $lecturer->id, 'role' => 'developer', 'access_until' => now()->addDays(90)->toIso8601String()])->assertCreated();

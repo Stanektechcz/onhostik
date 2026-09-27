@@ -27,6 +27,10 @@ use Onhost\Platform\Errors\DomainError;
  * The organization comes from `X-Organization` (or `?organization=`); without it the
  * user's first active membership is used. Staff with `staff.customer.read` may address
  * any organization; customers only those they belong to.
+ *
+ * TASK-0039 (permission program P0-08/P0-09): a context built for a /v1/staff/* request by a member of staff is in staff mode
+ * (StaffActor) — nowhere else. An API token acts for its own organization only: another one named in the request is refused,
+ * none named means the token's own (IF-5).
  */
 final class ApiContext
 {
@@ -46,6 +50,7 @@ final class ApiContext
     {
         $user = $this->user($request);
         $id = $request->headers->get('X-Organization') ?: $request->query('organization');
+        $id = self::tokenOrganization($request, is_string($id) ? $id : null) ?? $id;
         if (is_string($id) && $id !== '') {
             $organization = Organization::query()->find($id);
             if ($organization === null) {
@@ -79,8 +84,51 @@ final class ApiContext
             $actorType, $user?->getAuthIdentifier() !== null ? (string) $user->getAuthIdentifier() : null, $organization?->id, null,
             $request->ip(), mb_substr((string) $request->userAgent(), 0, 250), $sessionId, $reason ?? $request->input('reason'), $request->input('ticket_ref'), $stepUp,
             array_values(array_filter((array) $request->input('approval_ids', []), 'is_string')), CommandContext::currentCorrelationId(), Context::get('request_id'),
+            staffMode: self::staffMode($request),
         );
     }
+
+    // ── TASK-0039 (permission program P0-08 IF-8, P0-09 IF-5) ──
+    /**
+     * Staff mode: a /v1/staff/* request of a person in the portal (program principle 2, "staffMode set only by the /v1/staff/*
+     * routes"). Whether that person IS staff is StaffActor's question, asked where it matters. A token never — tokens do not
+     * reach staff routes (TokenRouteScope) and act for one organization.
+     */
+    public static function staffMode(Request $request): bool
+    {
+        $user = $request->user();
+
+        return $user instanceof User && TokenScopes::tokenOf($user) === null && $request->is('v1/staff/*');
+    }
+
+    /**
+     * The organization a token acts for, or null for the portal's own session (and for a token bound to none while
+     * `onhost.token_organization_required` is off). A token of A that names B — `X-Organization` or `?organization=` — is refused
+     * (a person in two organizations used the token of one for the other, audit PA-04); a token that names none acts for A.
+     *
+     * @throws DomainError `token_organization_mismatch` (403), `token_unbound` (403)
+     */
+    public static function tokenOrganization(Request $request, ?string $named = null): ?string
+    {
+        $token = TokenScopes::tokenOf($request->user());
+        if ($token === null) {
+            return null;
+        }
+        $own = $token->organization_id === null ? null : (string) $token->organization_id;
+        if ($own === null) {
+            if ((bool) config('onhost.token_organization_required', false)) {
+                throw new DomainError('token_unbound', 'This API token is bound to no organization and is no longer accepted; create a new token in the organization it is for.', 403);
+            }
+
+            return null;
+        }
+        if ($named !== null && $named !== '' && $named !== $own) {
+            throw new DomainError('token_organization_mismatch', 'This API token belongs to another organization; use a token of the organization you address.', 403);
+        }
+
+        return $own;
+    }
+    // ── end TASK-0039 ──
 
     public function sessionId(Request $request): ?string
     {

@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Services;
 
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Onhost\Domain\Billing\Models\Subscription;
@@ -13,7 +15,7 @@ use Onhost\Domain\Billing\ServiceReinstatement;
 use Onhost\Domain\Billing\SubscriptionService;
 use Onhost\Domain\Catalog\Models\PlanVersion;
 use Onhost\Domain\Catalog\Models\Product;
-use Onhost\Domain\Identity\Models\User;
+use Onhost\Domain\Identity\Authorization\StaffActor;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\Orders\OrderFulfilmentService;
@@ -23,6 +25,7 @@ use Onhost\Domain\Organizations\Models\Project;
 use Onhost\Domain\Provisioning\FreezeSwitch;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
+use Onhost\Domain\Provisioning\OperationKey;
 use Onhost\Domain\Provisioning\OperationService;
 use Onhost\Domain\Provisioning\PlacementService;
 use Onhost\Domain\Provisioning\ProviderRegistry;
@@ -42,6 +45,7 @@ use Onhost\Domain\Provisioning\Workflows\SiteWorkflow;
 use Onhost\Domain\Provisioning\Workflows\StagingWorkflow;
 use Onhost\Domain\Provisioning\Workflows\WordPressWorkflow;
 use Onhost\Domain\Services\Access\OwnerOnlyActions;
+use Onhost\Domain\Services\Commands\ServiceActionCommand;
 use Onhost\Domain\Services\Limits\LimitRaises;
 use Onhost\Domain\Services\Metering\CustomerUsage;
 use Onhost\Domain\Services\Models\Backup;
@@ -310,7 +314,10 @@ final class ServiceService
         if ($holds === []) {
             return $service;
         }
-        $staff = $context->actorType === 'user' && $context->actorId !== null && (bool) User::query()->whereKey($context->actorId)->value('is_staff');
+        // staff lift ONhost's holds in staff mode only (/v1/staff/*): a member of staff on a customer route is that customer — a
+        // quarantine of an operator's own organization was lifted by the operator (TASK-0039, IF-8, EXPL-2); and with the staff key only —
+        // an auditor who owns the organization lifted it on /v1/staff through the ownership (P0-16 re-check)
+        $staff = StaffActor::may($context, StaffActor::SERVICE_KEY);
         if ($context->actorType === 'user' && ! $staff) { // the customer, or anything acting as them
             $state = SuspensionHold::of($service);
 
@@ -325,7 +332,7 @@ final class ServiceService
             throw new DomainError('service_suspension_held', 'The service is held for another reason: '.implode(', ', $holds).'.', 409, ['hold' => $holds[0], 'holds' => $holds]);
         }
         $service->forceFill(['tags' => SuspensionHold::without((array) $service->tags, $lift)])->save();
-        $this->audit->record($context->withScope($service->organization_id), 'service.hold.lift', 'succeeded', ['lifted' => $lift ?? $holds, 'reason' => $params['reason'] ?? null], 'service', $service->id);
+        $this->audit->record($context->withScope($service->organization_id), 'service.hold.lift', 'succeeded', ['lifted' => $lift ?? $holds, 'reason' => $params['reason'] ?? null] + ($staff ? ['staff_mode' => true] : []), 'service', $service->id);
         $left = SuspensionHold::holds($service);
         if ($left !== []) {
             throw new DomainError('service_suspension_held', 'One hold is lifted, the service stays suspended for: '.implode(', ', $left).'.', 409, ['hold' => $left[0], 'holds' => $left, 'lifted' => $lift]);
@@ -464,7 +471,9 @@ final class ServiceService
         if (! in_array($action, ServiceActionWorkflow::ACTIONS, true)) {
             throw new DomainError('service_action_unknown', "Unknown service action {$action}.", 422);
         }
-        $existing = Operation::query()->where('idempotency_key', $idempotencyKey)->first();
+        // IF-12: the caller's key is theirs for this organization, service, action and actor (OperationKey, shared with DomainService)
+        [$idempotencyKey, $requestHash] = OperationKey::scoped($context, [(string) $service->organization_id, $service->id, $action], $idempotencyKey, $action, $params);
+        $existing = OperationKey::replay($idempotencyKey, $requestHash, 'This idempotency key was already used for another request on this service.');
         if ($existing !== null) {
             return $existing;
         }
@@ -490,7 +499,7 @@ final class ServiceService
         // planned end instead of failing in the queue for hours; staff working on the panel and system runs are not stopped
         if ($context->actorType === 'user') {
             $control = ControlPlaneStatus::of($service);
-            if (in_array($control['state'], ['maintenance', 'disabled'], true) && ! (bool) User::query()->whereKey((string) $context->actorId)->value('is_staff')) {
+            if (in_array($control['state'], ['maintenance', 'disabled'], true) && ! StaffActor::may($context, StaffActor::SERVICE_KEY)) { // staff mode with the staff key only (TASK-0039, IF-8, EXPL-3; P0-16 re-check)
                 $wait = $control['until'] === null ? 0 : (int) now()->diffInSeconds(Carbon::parse($control['until']), false);
 
                 throw new DomainError('control_plane_maintenance', (string) $control['message'], 503, ['control_plane' => $control] + ($wait > 0 ? ['retry_after' => $wait] : []));
@@ -525,6 +534,11 @@ final class ServiceService
             }
             if (! empty($params['force']) && $context->actorType === 'user' && (string) ($params['reason'] ?? '') === '') {
                 throw new DomainError('reason_required', 'Předčasné odstranění služby vyžaduje důvod.', 422);
+            }
+            // TASK-0039 (IF-9): a service removed before its time goes with its final archive, taken first (finalArchiveStep runs
+            // before the removal and fails the run when it cannot make one) — never forced AND without the archive
+            if (! empty($params['force']) && ServiceActionCommand::skipsArchive($params)) {
+                throw new DomainError('final_archive_required', 'Předčasné odstranění služby proběhne vždy až po závěrečné záloze; bez ní ji odstranit nelze.', 422, ['field' => 'archive_before_delete']);
             }
             if (empty($params['force'])) {
                 app(ServiceReinstatement::class)->assertPurgeAllowed($service); // TASK-0025: a carried site of a parent that was paid for and brought back stays
@@ -569,7 +583,18 @@ final class ServiceService
         if ($transient !== null) {
             $this->transition($service, $transient, $context, (string) ($params['reason'] ?? $action));
         }
-        $operation = $this->operations->start(self::actionWorkflowFor($action), $idempotencyKey, array_merge($params, ['action' => $action, 'service_id' => $service->id]), $context, $service->id, $service->organization_id, null, $service->provider_instance_id, authorizedPermission: $authorizedPermission, authorizedScope: $authorizedScope);
+        try {
+            // in a savepoint: on PostgreSQL the losing INSERT aborts the whole surrounding transaction (SQLSTATE 25P02), so without
+            // one the caller could not even read after the 409 — SQLite forgives it, which is why only pest-postgres saw this.
+            // TASK-0039 (P0-08, program §3 "staffMode persisted"): a run started as staff says so on the operation itself — written by
+            // OperationService::start from $context alone, whatever `staff_mode` the parameters carry (review round 1)
+            $operation = DB::transaction(fn () => $this->operations->start(self::actionWorkflowFor($action), $idempotencyKey, array_merge($params, ['action' => $action, 'service_id' => $service->id], OperationKey::desired($requestHash)), $context, $service->id, $service->organization_id, null, $service->provider_instance_id, authorizedPermission: $authorizedPermission, authorizedScope: $authorizedScope));
+        } catch (UniqueConstraintViolationException) {
+            // TASK-0036 review round 1: two copies of one request passed the look-up above at the same moment. The unique key of
+            // `operations` lets exactly one of them in; the other is told so (409) instead of a 500. The surrounding bus
+            // transaction is rolled back with this answer, so nothing of the losing copy stays.
+            throw new DomainError('operation_in_progress', 'The same request is already being started on this service; wait for it and look at its operation.', 409, ['idempotency' => 'in_flight']);
+        }
         $this->audit->record($context->withScope($service->organization_id), "service.action.{$action}", 'succeeded', ['params' => self::auditParams($params), 'operation_id' => $operation->id], 'service', $service->id, stepUp: $context->stepUpMethod, approvalIds: $context->approvalIds);
 
         return $operation;
@@ -1410,9 +1435,26 @@ final class ServiceService
             throw new DomainError('console_unsupported', 'This service type has no console.', 422);
         }
         $access = $adapter->consoleAccess($binding->ref());
+        $this->recordConsoleIssuer((string) ($access['token'] ?? ''), $service, $context);
         $this->audit->record($context->withScope($service->organization_id), 'service.console', 'succeeded', ['kind' => $access['kind'], 'expires_at' => $access['expires_at']], 'service', $service->id);
 
         return $access;
+    }
+
+    /**
+     * TASK-0039 (IF-8, audit SS-14): the browser pre-flight of a console token (ConsoleRelayController::check) let every member
+     * of staff through. It now asks who the token was issued to: the descriptor the adapter stored carries the issuing person
+     * and the service's organization, and the pre-flight passes them and the organization's current members only.
+     */
+    private function recordConsoleIssuer(string $token, Service $service, CommandContext $context): void
+    {
+        $key = "onhost:console:{$token}";
+        $descriptor = $token === '' ? null : Cache::get($key);
+        if (! is_array($descriptor)) {
+            return;
+        }
+        $ttl = max(1, (int) config('onhost.provisioning.console_token_ttl_seconds', 120));
+        Cache::put($key, $descriptor + ['organization_id' => $service->organization_id, 'issued_to' => $context->actorType === 'user' ? ($context->onBehalfOfUserId ?? $context->actorId) : null], $ttl);
     }
 
     public function usage(Service $service): Usage

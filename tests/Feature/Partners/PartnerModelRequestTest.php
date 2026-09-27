@@ -45,7 +45,7 @@ it('asks finance for the other model, applies an approved change next month and 
     expect(Notification::query()->where('audience', 'internal')->where('event', 'partner.model.requested')->where('title', 'like', '%share → oneoff%')->exists())->toBeTrue();
 
     // finance approves: the partner keeps the old model until the first of next month; the daily command flips it then
-    $staff = $this->staff('platform_owner');
+    $staff = $this->steppedUpStaff('platform_owner');
     $this->actingAs($staff, 'sanctum');
     expect($this->getJson('/v1/staff/partners/requests')->assertOk()->json('data'))->toHaveCount(1)->and($this->getJson('/v1/staff/partners/requests')->json('data.0'))->toMatchArray(['id' => $request['id'], 'partner_code' => $partner->code, 'state' => 'requested']);
     $this->withHeader('Idempotency-Key', 'pm-d1')->postJson("/v1/staff/partners/requests/{$request['id']}/decide", ['decision' => 'maybe'])->assertStatus(422);

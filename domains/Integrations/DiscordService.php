@@ -11,6 +11,7 @@ use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Integrations\Models\DiscordLink;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Services\Commands\ServiceActionCommand;
 use Onhost\Domain\Services\CustomerActionParams;
@@ -19,6 +20,7 @@ use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\Services\Web\UptimeMonitor;
+use Onhost\Domain\Support\Assistant\AssistantScope;
 use Onhost\Domain\Support\Assistant\AssistantService;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
@@ -159,6 +161,7 @@ final class DiscordService
             }
             $link->forceFill(['last_used_at' => now(), 'commands' => $link->commands + 1, 'discord_guild_id' => $guild ?? $link->discord_guild_id])->save();
             [$organization, $user] = $this->principal($link);
+            $scope = AssistantScope::for($organization, $user, $this->authorizer); // what this person may see, as the panel and the assistant ask it (IF-15)
             $t = fn (string $cs, string $en) => $link->locale === 'en' ? $en : $cs;
 
             return match ($sub) {
@@ -167,12 +170,12 @@ final class DiscordService
 
                     return $this->reply($t('Účet odpojen. Znovu ho propojíte kódem z panelu.', 'Account unlinked. Link it again with a code from the panel.'));
                 })(),
-                'services' => $this->servicesReply($organization, $t),
-                'status' => $this->statusReply($organization, $user, (string) ($opts['service'] ?? ''), $t),
-                'backup' => $this->runReply($link, $organization, $user, (string) ($opts['service'] ?? ''), 'backup', ['kind' => 'manual'], $t),
-                'restart' => $this->proposeReply($link, $organization, $user, (string) ($opts['service'] ?? ''), 'restart', $t),
-                'deploy' => $this->proposeReply($link, $organization, $user, (string) ($opts['service'] ?? ''), 'deploy', $t),
-                'ask' => $this->askReply($link, $organization, $user, (string) ($opts['question'] ?? ''), $t),
+                'services' => $this->servicesReply($scope, $t),
+                'status' => $this->statusReply($scope, (string) ($opts['service'] ?? ''), $t),
+                'backup' => $this->runReply($link, $scope, (string) ($opts['service'] ?? ''), 'backup', ['kind' => 'manual'], $t),
+                'restart' => $this->proposeReply($link, $scope, (string) ($opts['service'] ?? ''), 'restart', $t),
+                'deploy' => $this->proposeReply($link, $scope, (string) ($opts['service'] ?? ''), 'deploy', $t),
+                'ask' => $this->askReply($link, $scope, (string) ($opts['question'] ?? ''), $t),
                 default => $this->reply($t('Příkazy: `/onhost services`, `/onhost status <služba>`, `/onhost backup <služba>`, `/onhost restart <služba>`, `/onhost deploy <služba>`, `/onhost ask <otázka>`, `/onhost unlink`.', 'Commands: `/onhost services`, `/onhost status <service>`, `/onhost backup <service>`, `/onhost restart <service>`, `/onhost deploy <service>`, `/onhost ask <question>`, `/onhost unlink`.')),
             };
         } catch (DomainError $e) {
@@ -234,9 +237,12 @@ final class DiscordService
         return $this->reply('✅ Propojeno s účtem '.($organization?->name ?? '').'. Zkuste `/onhost services`.');
     }
 
-    private function servicesReply(Organization $organization, callable $t): array
+    private function servicesReply(AssistantScope $scope, callable $t): array
     {
-        $services = Service::query()->where('organization_id', $organization->id)->whereNotIn('state', [ServiceStateMachine::TERMINATED])->orderBy('family')->orderBy('hostname')->get();
+        if (! $scope->seesAnyService()) {
+            return $this->reply($t('Vaše role v organizaci nedovoluje zobrazit žádnou službu.', 'Your role in the organization shows no service.'));
+        }
+        $services = $scope->services()->whereNotIn('state', [ServiceStateMachine::TERMINATED])->orderBy('family')->orderBy('hostname')->get();
         if ($services->isEmpty()) {
             return $this->reply($t('Zatím nemáte žádnou službu. Objednat můžete v klientském panelu.', 'You have no service yet. Order one in the client panel.'));
         }
@@ -245,9 +251,9 @@ final class DiscordService
         return $this->reply(implode("\n", $lines)."\n\n".$t('Podrobnosti: `/onhost status <doména>`', 'Details: `/onhost status <domain>`'));
     }
 
-    private function statusReply(Organization $organization, User $user, string $query, callable $t): array
+    private function statusReply(AssistantScope $scope, string $query, callable $t): array
     {
-        $service = $this->resolveService($organization, $query, $t);
+        $service = $this->resolveService($scope, $query, $t);
         $lines = ['**'.($service->hostname ?: $service->name).'** — '.$this->family($service->family, $t).' · '.ServiceStateMachine::machine()->label($service->state).($service->activated_at ? ' · '.$t('od ', 'since ').$service->activated_at->format('j. n. Y') : '')];
         if (in_array($service->family, ['web', 'managed'], true)) {
             try {
@@ -268,18 +274,18 @@ final class DiscordService
         return $this->reply(implode("\n", $lines));
     }
 
-    private function runReply(DiscordLink $link, Organization $organization, User $user, string $query, string $action, array $params, callable $t): array
+    private function runReply(DiscordLink $link, AssistantScope $scope, string $query, string $action, array $params, callable $t): array
     {
-        $service = $this->resolveService($organization, $query, $t);
-        $operation = $this->execute($link, $organization, $user, $service, $action, $params);
+        $service = $this->resolveService($scope, $query, $t);
+        $operation = $this->execute($link, $scope->organization, $scope->user, $service, $action, $params);
 
         return $this->reply('▶️ '.$t('Spuštěno: ', 'Started: ').$this->actionLabel($action, $t).' · '.($service->hostname ?: $service->name).' · '.$t('operace ', 'operation ').substr($operation->id, -6).$t('. Průběh sledujte v panelu nebo `/onhost status`.', '. Follow it in the panel or with `/onhost status`.'));
     }
 
     /** restart/deploy need a click: the reply carries a button that runs the action when pressed. */
-    private function proposeReply(DiscordLink $link, Organization $organization, User $user, string $query, string $kind, callable $t): array
+    private function proposeReply(DiscordLink $link, AssistantScope $scope, string $query, string $kind, callable $t): array
     {
-        $service = $this->resolveService($organization, $query, $t);
+        $service = $this->resolveService($scope, $query, $t);
         if ($kind === 'restart') {
             if (! in_array($service->family, ['cloud', 'game'], true)) {
                 return $this->reply($t('Webhosting a e-mail se nerestartují; zkuste `/onhost backup` nebo `/onhost deploy`.', 'Web and mail hosting have no restart; try `/onhost backup` or `/onhost deploy`.'));
@@ -295,13 +301,17 @@ final class DiscordService
         return $this->confirmReply($link, $t('Potvrďte: ', 'Confirm: ').$proposal['label'], [$proposal], $t);
     }
 
-    private function askReply(DiscordLink $link, Organization $organization, User $user, string $question, callable $t): array
+    private function askReply(DiscordLink $link, AssistantScope $scope, string $question, callable $t): array
     {
         $question = trim($question);
         if ($question === '') {
             return $this->reply($t('Napište otázku: `/onhost ask Jak je na tom můj web?`', 'Ask something: `/onhost ask How is my site doing?`'));
         }
-        $answer = $this->assistant->chat($question, $organization, $user, 'discord:'.$link->discord_user_id, $this->context($link, $user, 'ask'), $link->locale === 'en' ? 'en' : 'cs');
+        // the same door as the chat in the panel (IF-15): a role without the assistant does not get it through Discord either
+        if (! AssistantScope::mayChat($scope->organization, $scope->user, $this->authorizer)) {
+            return $this->reply($t('Vaše role v organizaci nedovoluje používat asistenta.', 'Your role in the organization does not include the assistant.'));
+        }
+        $answer = $this->assistant->chat($question, $scope->organization, $scope->user, 'discord:'.$link->discord_user_id, $this->context($link, $scope->user, 'ask'), $link->locale === 'en' ? 'en' : 'cs', $scope);
         $proposals = [];
         foreach ((array) ($answer['actions'] ?? []) as $a) {
             if (($a['kind'] ?? '') === 'service_action' && ! empty($a['service_id']) && in_array((string) ($a['action'] ?? ''), self::BUTTON_ACTIONS, true)) {
@@ -337,8 +347,8 @@ final class DiscordService
             return $this->reply('Tlačítko může použít jen ten, kdo příkaz zadal.');
         }
         $this->cache->forget($key);
-        [$organization, $user] = $this->principal($link);
-        $service = Service::query()->where('organization_id', $organization->id)->find((string) $proposal['service_id']);
+        [$organization, $user] = $this->principal($link); // a button proposed before the person left runs nothing after (IF-15)
+        $service = AssistantScope::for($organization, $user, $this->authorizer)->service((string) $proposal['service_id']);
         if ($service === null) {
             return ['type' => 7, 'data' => ['content' => 'Služba už neexistuje.', 'components' => []]];
         }
@@ -397,7 +407,14 @@ final class DiscordService
         return ['type' => 4, 'data' => ['content' => mb_substr($text, 0, 1900), 'flags' => 64]];
     }
 
-    /** @return array{0:Organization,1:User} */
+    /**
+     * The person behind the link, asked NOW (TASK-0035, IF-15 / audit G1): the link was a full-user credential nobody checked
+     * against the membership — a removed member went on reading the services and their operations. Somebody who is no current
+     * member (removed, or the access ended on its date and the sweep has not run yet) has the link taken back the moment it is
+     * used, audited, and is told nothing about the organization.
+     *
+     * @return array{0:Organization,1:User}
+     */
     private function principal(DiscordLink $link): array
     {
         $organization = Organization::query()->find($link->organization_id);
@@ -406,8 +423,68 @@ final class DiscordService
             $link->forceFill(['state' => 'revoked'])->save();
             throw new DomainError('discord_link_stale', 'The linked account no longer exists; link again from the panel.', 410);
         }
+        $this->authorizer->forget($user); // a Discord interaction is its own unit of work: no answer from before a role changed
+        if (! self::isCurrentMember($organization->id, $user->id)) {
+            $this->revoke($link, 'not_member', CommandContext::system('discord link of a person who is no member'));
+
+            throw new DomainError('discord_link_revoked', 'Propojení bylo zrušeno: účet už není členem organizace. / The link was revoked: the account is no longer a member of the organization.', 410);
+        }
 
         return [$organization, $user];
+    }
+
+    // ── side doors of people who left (TASK-0035, IF-15) ─────────────────────────────────────────────────
+
+    /** What creating a link asks (IntegrationCommand `discord.link_code`): whoever no longer holds it no longer holds a link. */
+    public const LINK_PERMISSION = 'organization.manage';
+
+    /**
+     * Links the person no longer qualifies for: not a current member of the link's organization, or a role without the
+     * permission that made the link. `$organizationId`/`$userId` narrow it to one person (the listener), none = every link (the
+     * one-off operator:integrations:orphan-links command).
+     *
+     * @return list<array{link:DiscordLink, reason:string}>
+     */
+    public function orphans(?string $organizationId = null, ?string $userId = null, bool $withPending = false): array
+    {
+        $links = DiscordLink::query()->whereIn('state', $withPending ? ['linked', 'pending'] : ['linked'])
+            ->when($organizationId !== null, fn ($q) => $q->where('organization_id', $organizationId))
+            ->when($userId !== null, fn ($q) => $q->where('user_id', $userId))
+            ->orderBy('created_at')->limit(5000)->get();
+        $out = [];
+        foreach ($links as $link) {
+            $reason = $this->orphanReason($link);
+            if ($reason !== null) {
+                $out[] = ['link' => $link, 'reason' => $reason];
+            }
+        }
+
+        return $out;
+    }
+
+    public function revoke(DiscordLink $link, string $reason, CommandContext $context): void
+    {
+        if ($link->state === 'revoked') {
+            return;
+        }
+        $link->forceFill(['state' => 'revoked', 'code' => null, 'code_expires_at' => null])->save();
+        $this->audit->record($context->withScope($link->organization_id), 'integration.discord.revoke', 'succeeded', ['reason' => $reason, 'user_id' => $link->user_id, 'discord_user_id' => $link->discord_user_id], 'discord_link', $link->id);
+    }
+
+    private function orphanReason(DiscordLink $link): ?string
+    {
+        $user = $link->user_id === null ? null : User::query()->find($link->user_id);
+        if ($user === null || ! self::isCurrentMember((string) $link->organization_id, $user->id)) {
+            return 'not_member';
+        }
+        $this->authorizer->forget($user);
+
+        return $this->authorizer->can($user, self::LINK_PERMISSION, CommandScope::organization((string) $link->organization_id)) ? null : 'role_changed';
+    }
+
+    private static function isCurrentMember(string $organizationId, string $userId): bool
+    {
+        return OrganizationMembership::query()->where('organization_id', $organizationId)->where('user_id', $userId)->current()->exists();
     }
 
     private function context(DiscordLink $link, User $user, string $what): CommandContext
@@ -415,10 +492,11 @@ final class DiscordService
         return new CommandContext('user', $user->id, $link->organization_id, null, null, 'discord-bot', 'discord:'.$link->discord_user_id, 'discord /onhost '.$what);
     }
 
-    private function resolveService(Organization $organization, string $query, callable $t): Service
+    /** Only among the services the person may see: a name they may not see is answered like one that does not exist. */
+    private function resolveService(AssistantScope $scope, string $query, callable $t): Service
     {
         $query = strtolower(trim($query));
-        $services = Service::query()->where('organization_id', $organization->id)->whereNotIn('state', [ServiceStateMachine::TERMINATED])->get();
+        $services = $scope->services()->whereNotIn('state', [ServiceStateMachine::TERMINATED])->get();
         if ($query === '') {
             if ($services->count() === 1) {
                 return $services->first();

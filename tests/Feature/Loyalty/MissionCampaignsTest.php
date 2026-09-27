@@ -28,7 +28,7 @@ it('announces a campaign once, tracks progress and grants the campaign badge whe
     [$owner, $org] = $this->customerWithOrganization();
     $service = featureGameService($org);
     $missions = app(MissionService::class);
-    $this->actingAs($this->staff('platform_owner'), 'sanctum');
+    $this->actingAs($this->steppedUpStaff('platform_owner'), 'sanctum');
     $this->putJson('/v1/staff/loyalty/campaigns', ['campaigns' => [['key' => 'x1', 'missions' => ['nope'], 'active_from' => '2026-09-01']]])->assertStatus(422)->assertJsonPath('error', 'campaign_mission_unknown');
     $this->putJson('/v1/staff/loyalty/campaigns', ['campaigns' => [['key' => 'x1', 'missions' => ['profile'], 'active_from' => '2026-09-10', 'active_to' => '2026-09-01']]])->assertStatus(422);
     $table = $this->putJson('/v1/staff/loyalty/campaigns', ['campaigns' => [

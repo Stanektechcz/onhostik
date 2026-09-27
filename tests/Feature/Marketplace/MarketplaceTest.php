@@ -53,7 +53,7 @@ it('runs listing → publish → order → deliver → accept with the commissio
     expect(Notification::query()->where('audience', 'internal')->where('event', 'marketplace.listing.submitted')->exists())->toBeTrue();
 
     // staff publish; the public catalogue shows it; the partner may pause and resume it
-    $this->actingAs($this->staff('billing_finance_admin'), 'sanctum');
+    $this->actingAs($this->steppedUpStaff('billing_finance_admin'), 'sanctum');
     $this->withHeader('Idempotency-Key', 'ms-1')->postJson("/v1/staff/marketplace/listings/{$listing['id']}/state", ['state' => 'published', 'reason' => 'ok'])->assertOk()->assertJsonPath('state', 'published');
     $this->flushHeaders();
     expect($this->getJson('/v1/marketplace?category=care')->assertOk()->json('data.0.key'))->toBe('wp-care-basic');
@@ -63,7 +63,7 @@ it('runs listing → publish → order → deliver → accept with the commissio
     $this->withHeaders($ph + ['Idempotency-Key' => 'ml-4'])->postJson("/v1/partner/marketplace/listings/{$listing['id']}/state", ['state' => 'published'])->assertOk()->assertJsonPath('state', 'published');
     // a price change sends it back to draft (staff publish again)
     $this->withHeaders($ph + ['Idempotency-Key' => 'ml-5'])->putJson("/v1/partner/marketplace/listings/{$listing['id']}", ['price_minor' => 160000])->assertOk()->assertJsonPath('state', 'draft');
-    $this->actingAs($this->staff('billing_finance_admin'), 'sanctum');
+    $this->actingAs($this->steppedUpStaff('billing_finance_admin'), 'sanctum');
     $this->withHeader('Idempotency-Key', 'ms-2')->postJson("/v1/staff/marketplace/listings/{$listing['id']}/state", ['state' => 'published'])->assertOk();
     $this->flushHeaders();
 
@@ -102,7 +102,7 @@ it('runs listing → publish → order → deliver → accept with the commissio
     $this->withHeaders($h + ['Idempotency-Key' => 'mo-6'])->postJson("/v1/account/marketplace/orders/{$second['id']}/cancel")->assertStatus(409)->assertJsonPath('error', 'marketplace_order_started');
     $this->withHeaders($h + ['Idempotency-Key' => 'mo-7'])->postJson("/v1/account/marketplace/orders/{$second['id']}/dispute", ['reason' => 'Nic se na webu nezměnilo, zálohy neběží.'])->assertOk()->assertJsonPath('state', 'disputed');
     $beforeRefund = $posted();
-    $this->actingAs($this->staff('billing_finance_admin'), 'sanctum');
+    $this->actingAs($this->steppedUpStaff('billing_finance_admin'), 'sanctum');
     expect($this->getJson('/v1/staff/marketplace/orders?state=open')->assertOk()->json('disputed'))->toBe(1);
     $this->withHeader('Idempotency-Key', 'ms-3')->postJson("/v1/staff/marketplace/orders/{$second['id']}/resolve", ['decision' => 'refund', 'reason' => 'Partner nedodal, zákazník má pravdu.'])->assertOk()->assertJsonPath('state', 'cancelled');
     $this->flushHeaders();

@@ -31,7 +31,7 @@ function placementLab(): array
 
 it('lets staff pin a plan to a panel and a server, validates compatibility and drives the scheduler', function () {
     [$isp, $aap, $pve, $nodes] = placementLab();
-    $staff = $this->staff('platform_owner');
+    $staff = $this->steppedUpStaff('platform_owner');
     $this->actingAs($staff, 'sanctum');
 
     $overview = $this->getJson('/v1/staff/placements')->assertOk()->json('data');

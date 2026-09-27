@@ -11,7 +11,6 @@ use Illuminate\Support\Str;
 use Onhost\Domain\Billing\Models\DunningCase;
 use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Identity\Models\User;
-use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Partners\Models\Partner;
@@ -22,11 +21,8 @@ use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Tax\Jobs\CheckVatNumber;
-use Onhost\Domain\Tax\TaxEngine;
-use Onhost\Domain\Tax\VatNumber;
 use Onhost\Domain\Tax\VatNumberChecks;
 use Onhost\Domain\Tax\VatStanding;
-use Onhost\Domain\WalletLedger\LedgerService;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
@@ -47,9 +43,8 @@ final class PartnerService
     public function __construct(
         private readonly OutboxPublisher $outbox,
         private readonly AuditRecorder $audit,
-        private readonly LedgerService $ledger,
-        private readonly InvoiceService $invoices,
-        private readonly TaxEngine $tax,
+        private readonly PayoutAccounts $accounts,
+        private readonly PartnerPayouts $payouts,
     ) {}
 
     // ── lifecycle ────────────────────────────────────────────────────────────
@@ -259,117 +254,55 @@ final class PartnerService
     }
 
     // ── payouts ──────────────────────────────────────────────────────────────
+    // TASK-0040: the lifecycle (locked request, approval, the four-eyes payment, freeze) lives in PartnerPayouts; these are the
+    // doors its callers — the command handler, the automatic payouts, tests — already use.
 
-    public function requestPayout(Partner $partner, Money $amount, string $iban, CommandContext $context, string $method = 'bank_transfer'): PartnerPayout
+    public function requestPayout(Partner $partner, Money $amount, ?string $iban, CommandContext $context, string $method = 'bank_transfer'): PartnerPayout
     {
-        if (! $partner->isActive()) {
-            throw new DomainError('partner_not_active', 'The partner account is not active.', 409);
-        }
-        $min = Money::minor((int) config('onhost.partners.min_payout_minor', 100000), $partner->currency);
-        if ($amount->lessThan($min)) {
-            throw new DomainError('payout_below_minimum', "Minimum payout is {$min->format()}.", 422, ['field' => 'amount', 'minimum' => $min]);
-        }
-        $balance = $this->balance($partner);
-        if ($amount->greaterThan($balance['payable'])) {
-            throw new DomainError('payout_exceeds_balance', "Available for payout: {$balance['payable']->format()}.", 422, ['field' => 'amount', 'available' => $balance['payable']]);
-        }
-        $iban = strtoupper(preg_replace('/\s+/', '', $iban) ?? '');
-        if ($method === 'bank_transfer' && ! preg_match('/^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/', $iban)) {
-            throw new DomainError('payout_iban_invalid', 'Enter a valid IBAN (Czech IBAN is CZ followed by 22 digits).', 422, ['field' => 'iban']);
-        }
-        $organization = Organization::query()->findOrFail($partner->organization_id);
-        $vat = $this->selfBillingVat($organization); // decided before anything is written: a refused payout leaves nothing half-made
-
-        return DB::transaction(function () use ($partner, $amount, $iban, $method, $organization, $context, $vat) {
-            $number = $this->payoutNumber();
-            $payout = PartnerPayout::query()->create([
-                'partner_id' => $partner->id, 'number' => $number, 'amount_minor' => $amount->minor, 'currency' => $amount->currency->value, 'method' => $method, 'iban' => $iban ?: null,
-                'state' => 'requested', 'self_billing' => [], 'requested_at' => now(),
-            ]);
-            // FIFO allocation of payable commissions; the last one is split so the payout matches the requested amount exactly.
-            $remaining = $amount->minor;
-            $allocated = [];
-            foreach (PartnerCommission::query()->where('partner_id', $partner->id)->where('state', 'payable')->orderBy('invoice_paid_at')->orderBy('created_at')->lockForUpdate()->get() as $commission) {
-                if ($remaining <= 0) {
-                    break;
-                }
-                if ($commission->amount_minor > $remaining) {
-                    $rest = $commission->replicate(['id']);
-                    $rest->forceFill(['amount_minor' => $commission->amount_minor - $remaining, 'state' => 'payable', 'payout_id' => null])->save();
-                    $commission->forceFill(['amount_minor' => $remaining]);
-                }
-                $commission->forceFill(['state' => 'allocated', 'payout_id' => $payout->id])->save();
-                $remaining -= $commission->amount_minor;
-                $allocated[] = $commission;
-            }
-            $payout->forceFill(['self_billing' => $this->selfBilling($number, $partner, $organization, $amount, $allocated, $vat)])->save();
-            $partner->forceFill(['iban' => $iban ?: $partner->iban])->save();
-            $this->audit->record($context->withScope($partner->organization_id), 'partner.payout.request', 'succeeded', ['number' => $number, 'amount' => $amount, 'method' => $method, 'commissions' => count($allocated)], 'partner_payout', $payout->id);
-            $this->outbox->publish(GenericEvent::of('partner.payout.requested', 'partner_payout', $payout->id, ['number' => $number, 'amount' => $amount, 'method' => $method], $partner->organization_id));
-
-            return $payout;
-        });
+        return $this->payouts->requestPayout($partner, $amount, $iban, $context, $method);
     }
 
     public function approvePayout(PartnerPayout $payout, CommandContext $context): PartnerPayout
     {
-        if ($payout->state !== 'requested') {
-            throw new DomainError('payout_not_requested', 'Only requested payouts can be approved.', 409);
-        }
-        $payout->forceFill(['state' => 'approved', 'decided_by' => $context->actorId])->save();
-        $this->audit->record($context, 'partner.payout.approve', 'succeeded', ['number' => $payout->number], 'partner_payout', $payout->id);
-
-        return $payout;
+        return $this->payouts->approvePayout($payout, $context);
     }
 
     public function rejectPayout(PartnerPayout $payout, string $reason, CommandContext $context): PartnerPayout
     {
-        if (! in_array($payout->state, ['requested', 'approved'], true)) {
-            throw new DomainError('payout_not_open', 'Only open payouts can be rejected.', 409);
-        }
-        DB::transaction(function () use ($payout, $reason, $context): void {
-            PartnerCommission::query()->where('payout_id', $payout->id)->update(['state' => 'payable', 'payout_id' => null]);
-            $payout->forceFill(['state' => 'rejected', 'decided_by' => $context->actorId, 'note' => $reason])->save();
-            $this->audit->record($context, 'partner.payout.reject', 'succeeded', ['number' => $payout->number, 'reason' => $reason], 'partner_payout', $payout->id);
-        });
-
-        return $payout;
+        return $this->payouts->rejectPayout($payout, $reason, $context);
     }
 
-    /**
-     * Bank transfer executed: post the commission expense and notify the partner (mail template `payout`). What is paid is the
-     * self-billing document's total (TASK-0031 review): a VAT-payer partner's document says net + VAT, and the partner owes that
-     * VAT on what it receives — the VAT is booked as input VAT against the VAT account, the commission stays the expense.
-     */
     public function markPayoutPaid(PartnerPayout $payout, string $paymentReference, CommandContext $context): PartnerPayout
     {
-        if (! in_array($payout->state, ['requested', 'approved'], true)) {
-            throw new DomainError('payout_not_open', 'Only open payouts can be paid.', 409);
-        }
-        $partner = Partner::query()->findOrFail($payout->partner_id);
-        $amount = $payout->net();
-        $tax = $payout->documentTax();
-        $transfer = $payout->transferAmount();
-        DB::transaction(function () use ($payout, $partner, $amount, $tax, $transfer, $paymentReference, $context): void {
-            $postings = [['account' => LedgerService::expenseAccount('partner_commission', $amount->currency), 'debit' => $amount->minor]];
-            if ($tax->isPositive()) {
-                $postings[] = ['account' => LedgerService::vatAccount($amount->currency), 'debit' => $tax->minor];
-            }
-            $postings[] = ['account' => LedgerService::bankAccount($payout->method === 'offset' ? 'offset' : 'bank', $amount->currency), 'credit' => $transfer->minor];
-            $transaction = $this->ledger->post('partner_payout', $amount->currency, $postings, "partner-payout:{$payout->id}", $partner->organization_id, 'partner_payout', $payout->id, "Partner payout {$payout->number}");
-            PartnerCommission::query()->where('payout_id', $payout->id)->update(['state' => 'paid']);
-            $payout->forceFill(['state' => 'paid', 'paid_at' => now(), 'payment_reference' => $paymentReference, 'decided_by' => $context->actorId, 'ledger_transaction_id' => $transaction->id ?? null])->save();
-            $this->audit->record($context->withScope($partner->organization_id), 'partner.payout.paid', 'succeeded', ['number' => $payout->number, 'amount' => $amount, 'tax' => $tax, 'transfer' => $transfer, 'reference' => $paymentReference], 'partner_payout', $payout->id);
-        });
-        $this->outbox->publish(GenericEvent::of('partner.payout.paid', 'partner_payout', $payout->id, ['number' => $payout->number, 'amount' => $amount, 'transfer' => $transfer, 'period' => $payout->self_billing['period'] ?? substr($payout->number, 3), 'reference' => $paymentReference], $partner->organization_id));
+        return $this->payouts->markPayoutPaid($payout, $paymentReference, $context);
+    }
 
-        return $payout;
+    public function freezePayout(PartnerPayout $payout, string $reason, CommandContext $context): PartnerPayout
+    {
+        return $this->payouts->freezePayout($payout, $reason, $context);
+    }
+
+    public function unfreezePayout(PartnerPayout $payout, string $reason, CommandContext $context, bool $confirmsAccount = false): PartnerPayout
+    {
+        return $this->payouts->unfreezePayout($payout, $reason, $context, $confirmsAccount);
+    }
+
+    public function payoutAccounts(): PayoutAccounts
+    {
+        return $this->accounts;
     }
 
     // ── portal projections ───────────────────────────────────────────────────
 
-    /** Client rows in the prototype shape: id, name, contact, st (ok|due|churn), mrr, since, svc, services[[name, monthly]]. */
-    public function clients(Partner $partner): Collection
+    /**
+     * Client rows in the prototype shape: id, name, contact, st (ok|due|churn), mrr, since, svc, services[[name, monthly]].
+     *
+     * TASK-0040 (program D13, §10 O9, audit P5): the partner's view (`$internal` false) carries no contact and no dunning —
+     * `contact` is null with `contact_masked`, and an overdue client reads `ok` (active) as any other. Attribution gives the
+     * partner commission, not the client's e-mail or the fact that it is behind with its invoices (no DPA covers that
+     * disclosure). Contact-level detail comes back only with the client's recorded consent (S3-01). Staff see everything.
+     */
+    public function clients(Partner $partner, bool $internal = false): Collection
     {
         $clients = $this->clientQuery($partner)->orderBy('created_at')->get();
         $out = collect();
@@ -383,7 +316,8 @@ final class PartnerService
             $owner = User::query()->find($client->owner_user_id);
             $families = $services->groupBy('family')->map(fn ($g, $family) => count($g) > 1 ? count($g).'× '.$family : $family)->values()->implode(' · ');
             $out->push([
-                'id' => $client->id, 'name' => $client->name, 'contact' => $owner?->email ?? $client->billing_email, 'st' => $churn ? 'churn' : ($overdue ? 'due' : 'ok'),
+                'id' => $client->id, 'name' => $client->name, 'contact' => $internal ? ($owner?->email ?? $client->billing_email) : null, 'contact_masked' => ! $internal,
+                'st' => $churn ? 'churn' : ($overdue && $internal ? 'due' : 'ok'),
                 'mrr' => Money::minor($mrr, $partner->currency), 'since' => $client->created_at->format('n / Y'), 'svc' => $families,
                 'services' => $services->map(fn (Service $s) => [$s->name.($s->hostname ? " — {$s->hostname}" : ''), Money::minor((int) ($subs->firstWhere('service_id', $s->id)?->amount_minor ?? 0), $partner->currency)])->values()->all(),
                 'commission' => Money::minor($mrr, $partner->currency)->percent($partner->rate_pct),
@@ -721,13 +655,14 @@ final class PartnerService
             }
             $balance = $this->balance($partner);
             $min = Money::minor((int) config('onhost.partners.min_payout_minor', 100000), $partner->currency);
-            if ($partner->iban === null || $partner->iban === '' || $balance['payable']->lessThan($min) || PartnerPayout::query()->where('partner_id', $partner->id)->whereIn('state', ['requested', 'approved'])->exists()) {
+            // TASK-0040: to the confirmed payout account only — `partners.iban` was whatever the last request typed, paid or not
+            if ($this->accounts->of($partner)['active'] === null || $balance['payable']->lessThan($min) || PartnerPayout::query()->where('partner_id', $partner->id)->whereIn('state', ['requested', 'approved'])->exists()) {
                 $stats['skipped']++;
 
                 continue;
             }
             try {
-                $payout = $this->requestPayout($partner, $balance['payable'], (string) $partner->iban, CommandContext::system('partner.auto_payout')->withScope($partner->organization_id));
+                $payout = $this->requestPayout($partner, $balance['payable'], null, CommandContext::system('partner.auto_payout')->withScope($partner->organization_id));
             } catch (DomainError) {
                 $stats['skipped']++;
 
@@ -739,6 +674,30 @@ final class PartnerService
 
         return $stats;
     }
+
+    // ── TASK-0040 (program §10 O9): partners are told the same day that client contacts and dunning are masked ──
+
+    public const MASKING_NOTICE = 'partner.client_data.masked_notice';
+
+    /** Whether this partner was told already (the audit row is the record; a second run tells nobody twice). */
+    public function maskingNoticed(Partner $partner): bool
+    {
+        return DB::table('audit_events')->where('action', self::MASKING_NOTICE)->where('resource_id', $partner->id)->exists();
+    }
+
+    /** Tells one active partner, once: in the portal and by the mandatory notice mail. Returns false when it was told already. */
+    public function noticeMasking(Partner $partner, CommandContext $context): bool
+    {
+        if (! $partner->isActive() || $this->maskingNoticed($partner)) {
+            return false;
+        }
+        $this->audit->record($context->withScope($partner->organization_id), self::MASKING_NOTICE, 'succeeded', ['code' => $partner->code], 'partner', $partner->id);
+        $this->outbox->publish(GenericEvent::of('partner.client_data.masked', 'partner', $partner->id, ['partner_code' => $partner->code], $partner->organization_id));
+
+        return true;
+    }
+    // ── end TASK-0040 ──
+
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private function clientQuery(Partner $partner)
@@ -759,60 +718,6 @@ final class PartnerService
         throw new DomainError('partner_code_conflict', 'Could not allocate a partner code.', 500);
     }
 
-    private function payoutNumber(): string
-    {
-        $base = 'PO-'.now()->format('Y-m');
-        $n = PartnerPayout::query()->where('number', 'like', "{$base}%")->count();
-
-        return $n === 0 ? $base : "{$base}-".($n + 1);
-    }
-
-    /**
-     * The VAT of the self-billing document (TASK-0031, D31.6), from the same recorded check as the tax decision: a partner that
-     * is a VAT payer in the supplier's country (a Czech DIČ is in VIES) is billed the standard rate of the active rule set; one
-     * of another EU state, under reverse charge; anybody else without VAT. It used to ask for a status `payer` (never
-     * written) and a `rates.<CC>` key the rule set does not have, falling back to 21: every document was 0 %. A missing rate is
-     * refused, never guessed.
-     *
-     * A number no check has spoken about yet is not proof of the opposite (review round 2): the document then says the
-     * registration is not verified and carries `vat_review` for finance, instead of stating that the partner is not a payer.
-     *
-     * Payer status follows the customer's acceptance rules (review round 3, VatStanding::payerStanding): a valid number of
-     * another country than the partner's, or one VIES registers to another trader, is not proof — the document is at 0 %, says
-     * the registration is not verified and carries `vat_review` with `vat_review_reason` (vat_country_mismatch, name_mismatch,
-     * or unknown for a number nothing has proved either way), so no VAT is transferred on markPayoutPaid or booked as input
-     * VAT. Only a check that said invalid, or a staff override to invalid, lets the document say the partner is not a payer.
-     *
-     * @return array{rate:float, category:string, note_vat:string, vat_review:bool, vat_review_reason:?string}
-     */
-    private function selfBillingVat(Organization $organization): array
-    {
-        $rules = $this->tax->currentRules()->rules;
-        $supplier = strtoupper((string) data_get($rules, 'supplier.country', 'CZ'));
-        $country = strtoupper((string) $organization->country);
-        $standing = VatStanding::payerStanding($organization);
-        $payer = $standing['payer'];
-        if ($payer && $country === $supplier) {
-            $rate = data_get($rules, 'standard_rates.'.$country);
-            if (! is_numeric($rate)) {
-                throw new DomainError('tax_rate_missing', 'No standard VAT rate for '.$country.' in the active tax rules; the self-billing document cannot be issued.', 409, ['country' => $country]);
-            }
-
-            return ['rate' => (float) $rate, 'category' => TaxEngine::CAT_STANDARD, 'note_vat' => 'Dodavatel je plátcem DPH.', 'vat_review' => false, 'vat_review_reason' => null];
-        }
-        if ($payer && in_array($country, array_map('strtoupper', (array) data_get($rules, 'eu_members', VatNumber::EU_MEMBERS)), true)) {
-            return ['rate' => 0.0, 'category' => TaxEngine::CAT_REVERSE_CHARGE, 'note_vat' => 'Daň odvede odběratel (reverse charge, čl. 196 směrnice 2006/112/ES).', 'vat_review' => false, 'vat_review_reason' => null];
-        }
-        // closing review: a supplier finance has not confirmed (or that renamed itself since) is refused like a name VIES disowns
-        $refused = in_array($standing['reason'], ['vat_country_mismatch', 'name_mismatch', 'identity_unconfirmed', 'identity_changed'], true);
-        $said = in_array($standing['reason'], ['invalid', 'staff_override'], true); // a check of this number, or staff, said "not a payer"
-        if ($refused || (! $said && VatStanding::subject($organization)?->isWellFormed() === true)) {
-            return ['rate' => 0.0, 'category' => TaxEngine::CAT_EXEMPT, 'note_vat' => 'Registrace dodavatele k DPH neověřena.', 'vat_review' => true, 'vat_review_reason' => $refused ? $standing['reason'] : 'unknown'];
-        }
-
-        return ['rate' => 0.0, 'category' => TaxEngine::CAT_EXEMPT, 'note_vat' => 'Dodavatel není plátcem DPH.', 'vat_review' => false, 'vat_review_reason' => null];
-    }
-
     /**
      * A partner's number decides the VAT of its self-billing documents (review round 2, D31.6): when an organization applies
      * or is approved, a number no check has spoken about is asked about on the queue — as the system, like a number the
@@ -824,31 +729,5 @@ final class PartnerService
             return;
         }
         CheckVatNumber::dispatch($organization->id)->afterCommit();
-    }
-
-    /**
-     * Self-billed invoice snapshot: the partner is the supplier, ONhost's legal entity the customer. Written once; a later change
-     * of the partner's VAT status never rewrites it.
-     *
-     * @param  array{rate:float, category:string, note_vat:string, vat_review:bool, vat_review_reason:?string}  $vat
-     */
-    private function selfBilling(string $number, Partner $partner, Organization $organization, Money $amount, array $commissions, array $vat): array
-    {
-        $entity = $this->invoices->legalEntity();
-        $rate = $vat['rate'];
-        $tax = $amount->percent((string) $rate);
-        $byClient = collect($commissions)->groupBy('organization_id')->map(function (Collection $items, string $clientId) use ($partner) {
-            $client = Organization::query()->find($clientId);
-
-            return ['client' => $client?->name ?? $clientId, 'documents' => $items->count(), 'base' => Money::minor((int) $items->sum('base_minor'), $partner->currency), 'amount' => Money::minor((int) $items->sum('amount_minor'), $partner->currency)];
-        })->values()->all();
-
-        return [
-            'number' => $number, 'period' => now()->format('Y-m'), 'issued_at' => now()->toIso8601String(), 'self_billing' => true,
-            'supplier' => $organization->only(['name', 'ico', 'dic', 'vat_id', 'street', 'city', 'postal_code', 'country']), 'customer' => ['name' => $entity->name ?? 'ONhost', 'ico' => $entity->ico ?? null, 'dic' => $entity->dic ?? null],
-            'lines' => $byClient, 'net' => $amount, 'tax_rate' => $rate, 'tax_category' => $vat['category'], 'tax' => $tax, 'total' => $amount->add($tax), 'currency' => $amount->currency->value,
-            'note_vat' => $vat['note_vat'], 'vat_review' => $vat['vat_review'], 'vat_review_reason' => $vat['vat_review_reason'], 'vat_check' => VatStanding::snapshot($organization),
-            'note' => 'Doklad vystaven odběratelem v režimu samofakturace (§ 28 odst. 7 zákona o DPH) na základě partnerské smlouvy.',
-        ];
     }
 }

@@ -8,6 +8,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
+use Onhost\Domain\Services\Commands\ServiceActionCommand;
 use Onhost\Domain\Services\Commands\ServiceArchiveCommand;
 use Onhost\Domain\Services\DeletionPolicy;
 use Onhost\Domain\Services\FinalArchive;
@@ -74,7 +75,11 @@ final class ArchiveController extends ApiController
     {
         $organization = $this->api->organization($request);
         $data = $request->validate(['service_id' => ['required', 'string', 'max:40']]);
+        // the key of the generic action endpoint (red-team round of the Phase-0 chain): the target and the person, never the archive
+        // alone — `archive.restore:<backup>:<header>` let the bus answer a retry for another target with the first run, and the two
+        // doors to one restore started two operations
+        $context = $this->api->context($request, $organization);
 
-        return $this->dispatch(new ServiceArchiveCommand($organization->id, $this->idempotencyKey($request, 'archive.restore:'.$backup), ['op' => 'restore', 'backup_id' => $backup, 'service_id' => $data['service_id']]), $this->api->context($request));
+        return $this->dispatch(new ServiceArchiveCommand($organization->id, $this->idempotencyKey($request, ServiceActionCommand::keyPrefix((string) $data['service_id'], 'archive.restore', $context)), ['op' => 'restore', 'backup_id' => $backup, 'service_id' => $data['service_id']]), $context);
     }
 }

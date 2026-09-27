@@ -9,8 +9,9 @@ Contract: `contracts/openapi/onhost-v1.yaml` (generated — `php artisan onhost:
   `invalid_transition`, `not_found`, `rate_limited`, `csrf_token_mismatch`, `provider_*` (503/502 with
   `retryable`).
 * Lists: `?limit=&offset=` (+ filters per endpoint), `X-Total-Count` header, `data: [...]`.
-* Mutations: `Idempotency-Key` header (replays return the stored result); `X-Organization` selects the
-  organization for multi-org users.
+* Mutations: `Idempotency-Key` header (replays return the stored result; the same key with another body is 409
+  `idempotency_key_reused`; an answer that handed out a secret — a new API token, an action hook URL, a generated password —
+  is not kept, and its replay is 409 `already_done`); `X-Organization` selects the organization for multi-org users.
 * Money: `{minor, currency, decimal}`. Dates: ISO-8601 with offset.
 * Auth: SPA session (`GET /sanctum/csrf-cookie`, `POST /v1/auth/login`, cookie + `X-XSRF-TOKEN`) or bearer
   tokens `onh_live_…` with scopes (`POST /v1/tokens`); step-up (`POST /v1/auth/step-up`, TOTP) is required for

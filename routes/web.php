@@ -52,14 +52,16 @@ Route::match(['get', 'post'], 'autodiscover/autodiscover.xml', [MailAutoconfigCo
 Route::match(['get', 'post'], 'Autodiscover/Autodiscover.xml', [MailAutoconfigController::class, 'microsoft']); // Outlook asks with capitals
 
 // generated data scripts and static prototype assets
+// TASK-0039 review round 3: every `auth:sanctum` route here also takes `token.scope`, which refuses any API token outside /v1 —
+// these are the portal session's own endpoints (TokenPrincipalTest pins that no web route authenticates without it)
 Route::get('surfaces/game-art/{group}.jpg', [GameArtController::class, 'show'])->where('group', '[a-z0-9-]+')->name('surfaces.game-art');
 Route::get('surfaces/onhost-data.js', [SurfaceDataController::class, 'data'])->name('surfaces.data');
-Route::get('surfaces/onhost-panel.js', [SurfaceDataController::class, 'panel'])->middleware('auth:sanctum')->name('surfaces.panel');
+Route::get('surfaces/onhost-panel.js', [SurfaceDataController::class, 'panel'])->middleware(['auth:sanctum', 'token.scope'])->name('surfaces.panel');
 Route::get('surfaces/{path}', [SurfaceController::class, 'asset'])->where('path', '.*')->name('surfaces.asset');
 
 // console relay hand-off (service-to-service) + browser pre-flight
 Route::get('console/ws/{token}', [ConsoleRelayController::class, 'resolve'])->name('console.relay');
-Route::get('console/check/{token}', [ConsoleRelayController::class, 'check'])->middleware('auth:sanctum')->name('console.check');
+Route::get('console/check/{token}', [ConsoleRelayController::class, 'check'])->middleware(['auth:sanctum', 'token.scope'])->name('console.check');
 
 // the organization's dates as a calendar subscription: the signed link (GET /v1/calendar/feed) is the credential, rotating the feed version revokes it
 // the archive of a cancelled service as one compressed file: the signed link is the credential (audit §5ab)
@@ -96,13 +98,13 @@ Route::get('sla', fn () => redirect('/dokumenty/sla', 301));
 Route::get('obnova-hesla', [AuthPagesController::class, 'resetPassword'])->name('auth.reset');
 Route::get('overeni-emailu', [AuthPagesController::class, 'verifyEmail'])->name('auth.verify');
 Route::get('sprava/nastaveni', fn () => redirect('/sprava/nastaveni/integrace'));
-Route::get('sprava/nastaveni/integrace', [SystemSettingsController::class, 'integrations'])->middleware('auth:sanctum')->name('settings.integrations');
-Route::get('sprava/nastaveni/provoz', [SystemSettingsController::class, 'operations'])->middleware('auth:sanctum')->name('settings.operations');
-Route::get('sprava/nastaveni/hromadne-akce', [SystemSettingsController::class, 'bulk'])->middleware('auth:sanctum')->name('settings.bulk');
-Route::get('sprava/nastaveni/zivotni-cyklus', [SystemSettingsController::class, 'lifecycle'])->middleware('auth:sanctum')->name('settings.lifecycle'); // audit §5ab
-Route::get('sprava/nastaveni/schvalovani', [SystemSettingsController::class, 'approvals'])->middleware('auth:sanctum')->name('settings.approvals'); // four eyes: requests for a second person
-Route::get('sprava/nastaveni/tarify', [SystemSettingsController::class, 'plans'])->middleware('auth:sanctum')->name('settings.plans'); // versions of a plan (H01)
-Route::get('sprava/konzole/{service}', [StaffConsoleController::class, 'show'])->middleware('auth:sanctum')->name('staff.console'); // the staff-side server console (audit §5p-2)
+Route::get('sprava/nastaveni/integrace', [SystemSettingsController::class, 'integrations'])->middleware(['auth:sanctum', 'token.scope'])->name('settings.integrations');
+Route::get('sprava/nastaveni/provoz', [SystemSettingsController::class, 'operations'])->middleware(['auth:sanctum', 'token.scope'])->name('settings.operations');
+Route::get('sprava/nastaveni/hromadne-akce', [SystemSettingsController::class, 'bulk'])->middleware(['auth:sanctum', 'token.scope'])->name('settings.bulk');
+Route::get('sprava/nastaveni/zivotni-cyklus', [SystemSettingsController::class, 'lifecycle'])->middleware(['auth:sanctum', 'token.scope'])->name('settings.lifecycle'); // audit §5ab
+Route::get('sprava/nastaveni/schvalovani', [SystemSettingsController::class, 'approvals'])->middleware(['auth:sanctum', 'token.scope'])->name('settings.approvals'); // four eyes: requests for a second person
+Route::get('sprava/nastaveni/tarify', [SystemSettingsController::class, 'plans'])->middleware(['auth:sanctum', 'token.scope'])->name('settings.plans'); // versions of a plan (H01)
+Route::get('sprava/konzole/{service}', [StaffConsoleController::class, 'show'])->middleware(['auth:sanctum', 'token.scope'])->name('staff.console'); // the staff-side server console (audit §5p-2)
 Route::get('sprava/{path?}', [SurfaceController::class, 'admin'])->where('path', '.*')->name('surface.admin');
 Route::get('partner/{path?}', [SurfaceController::class, 'partner'])->where('path', '.*')->name('surface.partner');
 Route::get('m/{path?}', [SurfaceController::class, 'mobile'])->where('path', '.*')->name('surface.mobile');

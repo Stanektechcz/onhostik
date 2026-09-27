@@ -214,15 +214,19 @@ it('runs price changes with one operator when the server says so', function () {
 
     catalogFourEyesSend($this, $solo, 'PUT', '/v1/staff/pricing/promo-codes', ['code' => 'SOLO-2026', 'kind' => 'percent', 'value' => 10])->assertForbidden()->assertJsonPath('error', 'step_up_required');
     app(StepUpService::class)->grant($solo, 'totp', null, '127.0.0.1');
-    catalogFourEyesSend($this, $solo, 'PUT', '/v1/staff/pricing/promo-codes', ['code' => 'SOLO-2026', 'kind' => 'percent', 'value' => 10])->assertOk();
-    catalogFourEyesSend($this, $solo, 'POST', '/v1/staff/pricing/plans/vps/compute-4/versions', ['reason' => 'Jediný provozovatel', 'entitlements' => ['ram_mb' => 12288]])->assertCreated();
-    expect(Approval::query()->count())->toBe(0)
+    // TASK-0037 (program IF-10): the only approver's own price change waits the time lock instead of running at once
+    $this->soloAfterTimeLock($solo, fn () => catalogFourEyesSend($this, $solo, 'PUT', '/v1/staff/pricing/promo-codes', ['code' => 'SOLO-2026', 'kind' => 'percent', 'value' => 10]))->assertOk();
+    $this->soloAfterTimeLock($solo, fn () => catalogFourEyesSend($this, $solo, 'POST', '/v1/staff/pricing/plans/vps/compute-4/versions', ['reason' => 'Jediný provozovatel', 'entitlements' => ['ram_mb' => 12288]]))->assertCreated();
+    expect(Approval::query()->pluck('state')->unique()->all())->toBe(['consumed'])->and(Approval::query()->count())->toBe(2)
         ->and(AuditEvent::query()->where('action', 'catalog.promo.upsert')->where('result', 'succeeded')->sole()->approval_ids)->toBe(['waived:single-operator'])
         ->and(AuditEvent::query()->where('action', 'catalog.plan.publish')->where('result', 'succeeded')->get()->pluck('approval_ids')->all())->toContain(['waived:single-operator']);
 });
 
-it('keeps the panel navigation an ordinary edit', function () {
+it('keeps the panel navigation one person\'s edit — with the step-up catalog.manage asks for (TASK-0037), never a second person', function () {
     $pm = catalogFourEyesStaff('product_manager', stepUp: false);
+    // the risk never goes below the permission's: catalog.manage is HIGH, so the sidebar takes a step-up like every catalogue edit
+    catalogFourEyesSend($this, $pm, 'PUT', '/v1/staff/settings/panel-nav', ['categories' => ['vps' => ['order' => 3]]])->assertForbidden()->assertJsonPath('error', 'step_up_required');
+    app(StepUpService::class)->grant($pm, 'totp', null, '127.0.0.1');
     catalogFourEyesSend($this, $pm, 'PUT', '/v1/staff/settings/panel-nav', ['categories' => ['vps' => ['order' => 3]]])->assertOk();
     expect(Approval::query()->count())->toBe(0);
 });
@@ -263,7 +267,8 @@ it('pulls a brake again when the withdrawn code came back, instead of answering 
 
     $this->deleteJson('/v1/staff/pricing/promo-codes/ONHOST10')->assertOk()->assertJsonPath('deleted', true);
     $this->travel(2)->minutes();
-    $this->putJson('/v1/staff/pricing/promo-codes', ['code' => 'ONHOST10', 'kind' => 'percent', 'value' => 10])->assertOk();
+    // TASK-0037: putting a code back on sale is a price change; the only approver's own waits the time lock (program IF-10)
+    $this->soloAfterTimeLock($solo, fn () => $this->putJson('/v1/staff/pricing/promo-codes', ['code' => 'ONHOST10', 'kind' => 'percent', 'value' => 10]))->assertOk();
     expect(PromoCode::query()->where('code', 'ONHOST10')->exists())->toBeTrue();
     $this->travel(2)->minutes();
     $this->deleteJson('/v1/staff/pricing/promo-codes/ONHOST10')->assertOk()->assertJsonPath('deleted', true);
@@ -272,10 +277,10 @@ it('pulls a brake again when the withdrawn code came back, instead of answering 
     // the other way round: created, withdrawn, created again with the same body — before the first and the third request
     // there is no code at all, so only the time tells the third request from a retry of the first
     $code = ['code' => 'ZIMA-2026', 'kind' => 'percent', 'value' => 10];
-    $this->putJson('/v1/staff/pricing/promo-codes', $code)->assertOk();
+    $this->soloAfterTimeLock($solo, fn () => $this->putJson('/v1/staff/pricing/promo-codes', $code))->assertOk();
     $this->travel(2)->minutes();
     $this->deleteJson('/v1/staff/pricing/promo-codes/ZIMA-2026')->assertOk()->assertJsonPath('deleted', true);
     $this->travel(2)->minutes();
-    $this->putJson('/v1/staff/pricing/promo-codes', $code)->assertOk();
+    $this->soloAfterTimeLock($solo, fn () => $this->putJson('/v1/staff/pricing/promo-codes', $code))->assertOk();
     expect(PromoCode::query()->where('code', 'ZIMA-2026')->exists())->toBeTrue();
 });

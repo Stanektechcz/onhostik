@@ -29,6 +29,7 @@ use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\Orders\OrderFulfilmentService;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\Models\Operation;
+use Onhost\Domain\Provisioning\OperationKey;
 use Onhost\Domain\Provisioning\OperationService;
 use Onhost\Domain\Tax\TaxEngine;
 use Onhost\Domain\Tax\VatStanding;
@@ -187,7 +188,11 @@ final class DomainService
         if (! $policy->allowsPeriod($period)) {
             throw new DomainError('domain_period_not_allowed', "Registration period {$period} is not allowed for .{$tld}.", 422);
         }
-        $existingOp = Operation::query()->where('idempotency_key', $idempotencyKey)->first();
+        // IF-12 (red-team round of the Phase-0 chain, audit SE-5): the caller's key is theirs for this organization and actor, with the
+        // fingerprint of what makes it this registration (the name and the period) — another customer's key used to answer with that
+        // customer's registration, and the same key for another name with the first one
+        [$idempotencyKey, $requestHash] = OperationKey::scoped($context, [$organization->id, 'domain.register'], $idempotencyKey, 'domain.register', ['fqdn' => $fqdn, 'period' => $period]);
+        $existingOp = OperationKey::replay($idempotencyKey, $requestHash, 'This idempotency key was already used for another domain request.');
         if ($existingOp !== null) {
             return $existingOp;
         }
@@ -227,7 +232,7 @@ final class DomainService
         $operation = $this->operations->start(RegisterDomainWorkflow::class, $idempotencyKey, [
             'domain_id' => $domain->id, 'fqdn' => $fqdn, 'tld' => $tld, 'period' => $period, 'dns_template' => (string) ($request['dns_template'] ?? 'parking'), 'dns_vars' => $this->dnsVars((array) ($request['dns_vars'] ?? [])),
             'nameservers' => $request['nameservers'] ?? null, 'test_mode' => $testMode, 'event' => 'domain.registered', 'registrar_provider' => $provider,
-        ], $context, null, $organization->id, $item?->id, $choice['instance']->id, $domain->id);
+        ] + OperationKey::desired($requestHash), $context, null, $organization->id, $item?->id, $choice['instance']->id, $domain->id);
         $this->audit->record($context->withScope($organization->id), 'domain.register', 'succeeded', ['fqdn' => $fqdn, 'period' => $period, 'operation_id' => $operation->id], 'domain', $domain->id);
         $this->outbox->publish(GenericEvent::of('domain.registration_requested', 'domain', $domain->id, ['fqdn' => $fqdn, 'operation_id' => $operation->id, 'order_item_id' => $item?->id], $organization->id));
 
@@ -294,7 +299,8 @@ final class DomainService
         if (! $this->catalog->tld($domain->tld)->allowsPeriod($years)) {
             throw new DomainError('domain_period_not_allowed', "Renewal period {$years} is not allowed for .{$domain->tld}.", 422);
         }
-        $existing = Operation::query()->where('idempotency_key', $idempotencyKey)->first();
+        [$idempotencyKey, $requestHash] = OperationKey::scoped($context, [$domain->organization_id, $domain->id, 'domain.renew'], $idempotencyKey, 'domain.renew', ['years' => $years]); // IF-12, as register()
+        $existing = OperationKey::replay($idempotencyKey, $requestHash, 'This idempotency key was already used for another domain request.');
         if ($existing !== null) {
             return $existing;
         }
@@ -305,7 +311,7 @@ final class DomainService
         // same hour the scheduler renews: two operations with two keys each reserved the money and each sent its own renewal —
         // two years, two charges. And a registrar that could not be reached AFTER the reservation left the job in HOLD_PLACED,
         // a state nothing ever picks up again: that domain silently never renewed by itself any more.
-        $operation = DB::transaction(function () use ($domain, $years, $context, $idempotencyKey, $job, $organization, $price, $instance) {
+        $operation = DB::transaction(function () use ($domain, $years, $context, $idempotencyKey, $requestHash, $job, $organization, $price, $instance) {
             Domain::query()->whereKey($domain->id)->lockForUpdate()->first();
             $running = Operation::query()->where('domain_id', $domain->id)->where('kind', RenewDomainWorkflow::kind())->whereIn('state', [Operation::PENDING, Operation::RUNNING, Operation::WAITING])->first();
             if ($running !== null) {
@@ -316,7 +322,7 @@ final class DomainService
                 'domain_id' => $domain->id, 'fqdn' => $domain->fqdn_ascii, 'period' => $years, 'wallet_hold_id' => $hold->id, 'renewal_job_id' => $job?->id,
                 'net_minor' => $price['net']->minor, 'tax_minor' => $price['tax']->minor, 'gross_minor' => $price['gross']->minor, 'tax_rate' => $price['rate'], 'tax_category' => $price['category'], 'currency' => $organization->currency,
                 'test_mode' => (bool) config('onhost.wapi.test_mode', false),
-            ], $context, null, $organization->id, null, $instance->id, $domain->id, dispatch: false);
+            ] + OperationKey::desired($requestHash), $context, null, $organization->id, null, $instance->id, $domain->id, dispatch: false);
             $job?->forceFill(['state' => DomainRenewalJob::SENT, 'wallet_hold_id' => $hold->id, 'operation_id' => $operation->id, 'attempts' => $job->attempts + 1])->save();
             $this->audit->record($context->withScope($organization->id), 'domain.renew', 'succeeded', ['fqdn' => $domain->fqdn_ascii, 'years' => $years, 'hold_id' => $hold->id], 'domain', $domain->id);
 
@@ -389,7 +395,8 @@ final class DomainService
         if (! Hostname::isRegistrable($fqdn)) {
             throw new DomainError('domain_invalid', "{$fqdn} is not a registrable domain name.", 422);
         }
-        $existing = Operation::query()->where('idempotency_key', $idempotencyKey)->first();
+        [$idempotencyKey, $requestHash] = OperationKey::scoped($context, [$organization->id, 'domain.transfer_in'], $idempotencyKey, 'domain.transfer_in', ['fqdn' => $fqdn]); // IF-12, as register()
+        $existing = OperationKey::replay($idempotencyKey, $requestHash, 'This idempotency key was already used for another domain request.');
         if ($existing !== null) {
             return $existing;
         }
@@ -416,7 +423,7 @@ final class DomainService
 
             return $domain;
         });
-        $operation = $this->operations->start(TransferDomainInWorkflow::class, $idempotencyKey, ['domain_id' => $domain->id, 'fqdn' => $fqdn, 'tld' => $tld, 'period' => (int) ($request['period'] ?? 1), 'nameservers' => $request['nameservers'] ?? null, 'event' => 'domain.transferred_in', 'registrar_provider' => $provider], $context, null, $organization->id, null, $choice['instance']->id, $domain->id);
+        $operation = $this->operations->start(TransferDomainInWorkflow::class, $idempotencyKey, ['domain_id' => $domain->id, 'fqdn' => $fqdn, 'tld' => $tld, 'period' => (int) ($request['period'] ?? 1), 'nameservers' => $request['nameservers'] ?? null, 'event' => 'domain.transferred_in', 'registrar_provider' => $provider] + OperationKey::desired($requestHash), $context, null, $organization->id, null, $choice['instance']->id, $domain->id);
         $this->audit->record($context->withScope($organization->id), 'domain.transfer_in', 'succeeded', ['fqdn' => $fqdn, 'operation_id' => $operation->id], 'domain', $domain->id, stepUp: $context->stepUpMethod);
 
         return $operation;
@@ -459,11 +466,12 @@ final class DomainService
                 throw new DomainError('nameserver_invalid', "{$ns} is not a valid nameserver hostname.", 422);
             }
         }
-        $existing = Operation::query()->where('idempotency_key', $idempotencyKey)->first();
+        [$idempotencyKey, $requestHash] = OperationKey::scoped($context, [$domain->organization_id, $domain->id, 'domain.nameservers'], $idempotencyKey, 'domain.nameservers', ['nameservers' => $nameservers, 'dns_provider' => $dnsProvider]); // IF-12, as register()
+        $existing = OperationKey::replay($idempotencyKey, $requestHash, 'This idempotency key was already used for another domain request.');
         if ($existing !== null) {
             return $existing;
         }
-        $operation = $this->operations->start(UpdateNameserversWorkflow::class, $idempotencyKey, ['domain_id' => $domain->id, 'fqdn' => $domain->fqdn_ascii, 'nameservers' => $nameservers, 'dns_provider' => $dnsProvider], $context, null, $domain->organization_id, null, $this->registrar->instanceForDomain($domain)->id, $domain->id);
+        $operation = $this->operations->start(UpdateNameserversWorkflow::class, $idempotencyKey, ['domain_id' => $domain->id, 'fqdn' => $domain->fqdn_ascii, 'nameservers' => $nameservers, 'dns_provider' => $dnsProvider] + OperationKey::desired($requestHash), $context, null, $domain->organization_id, null, $this->registrar->instanceForDomain($domain)->id, $domain->id);
         $this->audit->record($context->withScope($domain->organization_id), 'domain.update_ns', 'succeeded', ['fqdn' => $domain->fqdn_ascii, 'nameservers' => $nameservers], 'domain', $domain->id, approvalIds: $context->approvalIds);
 
         return $operation;

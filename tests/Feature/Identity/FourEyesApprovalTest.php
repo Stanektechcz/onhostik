@@ -100,7 +100,7 @@ it('lets a request run out: an approval nobody gave in a day cannot be given any
     expect(app(ApprovalService::class)->expire())->toBe(1)->and(Approval::query()->whereKey($id)->value('state'))->toBe('expired');
 });
 
-it('runs with one operator when the server says so: the step-up stays, the audit says why nobody else signed', function () {
+it('runs with one operator when the server says so: the step-up stays, a time lock stands in for the second person, the audit says why nobody else signed', function () {
     config(['onhost.identity.four_eyes' => false]);
     [, $org] = $this->customerWithOrganization();
     $solo = User::factory()->staff()->create(['email' => 'solo@onhost.test']);
@@ -110,8 +110,9 @@ it('runs with one operator when the server says so: the step-up stays, the audit
 
     $this->postJson("/v1/staff/customers/{$org->id}/legal-hold", $body)->assertForbidden()->assertJsonPath('error', 'step_up_required');
     app(StepUpService::class)->grant($solo, 'totp', null, '127.0.0.1');
-    $this->postJson("/v1/staff/customers/{$org->id}/legal-hold", $body)->assertOk()->assertJsonPath('legal_hold', true);
-    expect(Approval::query()->count())->toBe(0);
+    // TASK-0037 (program IF-10): not at once any more — the only approver's own critical action waits the time lock (24 h)
+    $this->soloAfterTimeLock($solo, fn () => $this->postJson("/v1/staff/customers/{$org->id}/legal-hold", $body))->assertOk()->assertJsonPath('legal_hold', true);
+    expect(Approval::query()->sole()->state)->toBe('consumed')->and(data_get(Approval::query()->sole()->payload, 'time_lock.hours'))->toBe(24);
     expect(AuditEvent::query()->where('action', 'compliance.legal_hold')->where('result', 'succeeded')->latest('id')->firstOrFail()->approval_ids)->toBe(['waived:single-operator']);
     $this->getJson('/v1/staff/approvals')->assertOk()->assertJsonPath('meta.four_eyes', false);
 });

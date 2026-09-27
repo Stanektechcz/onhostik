@@ -6,6 +6,7 @@ namespace Onhost\Domain\Provisioning;
 
 use Illuminate\Contracts\Bus\Dispatcher as BusDispatcher;
 use Illuminate\Support\Facades\DB;
+use Onhost\Domain\Identity\Authorization\StaffActor;
 use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\Provisioning\Jobs\RunOperation;
 use Onhost\Domain\Provisioning\Models\Operation;
@@ -39,6 +40,16 @@ final class OperationService
         if ($existing !== null) {
             return $existing;
         }
+        // ── TASK-0039 review round 1 (permission program §3 "staffMode persisted", IF-8) ──
+        // the run acts later, from the queue, and the runner rebuilds its actor from the operation: `desired.staff_mode` is how a run
+        // started in staff mode stays one (the hold a suspension carries is decided when the run settles it). Written here, from the
+        // starting context alone — a parameter of that name, which the bag of a feature action does not filter, is dropped
+        $desired = array_diff_key($desired, ['staff_mode' => true]) + (StaffActor::acts($actor) ? ['staff_mode' => true] : []);
+        // review round 2 (P0-09 "including queued operations"): a run started with an API token stays on that token — the runner
+        // re-checks each step on the token's view and stops once it is revoked or expired. The id (not the secret) from the
+        // starting context alone; a caller's `token_id` is dropped the same way
+        $desired = array_diff_key($desired, ['token_id' => true]) + (($tokenId = self::tokenIdOf($actor)) !== null ? ['token_id' => $tokenId] : []);
+        // ── end TASK-0039 ──
         $instance = app($workflow);
         $steps = $instance->steps(new Operation(['desired' => $desired, 'context' => [], 'service_id' => $serviceId]));
         $operation = Operation::query()->create([
@@ -74,6 +85,16 @@ final class OperationService
 
         return $operation;
     }
+
+    // ── TASK-0039 review round 2 ──
+    /** The API token a context acts with (`token:<id>`, ApiContext::sessionId), or null for a person in the portal and the system. */
+    public static function tokenIdOf(CommandContext $actor): ?string
+    {
+        $session = (string) $actor->sessionId;
+
+        return str_starts_with($session, 'token:') ? substr($session, 6) : null;
+    }
+    // ── end TASK-0039 ──
 
     public function dispatch(Operation $operation, int $delaySeconds = 0): void
     {

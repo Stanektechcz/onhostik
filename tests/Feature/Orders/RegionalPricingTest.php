@@ -39,19 +39,19 @@ it('applies the region percentage to the list price, lets staff edit the table a
     expect($eu->renewal_total_minor)->toBe($home->renewal_total_minor + Money::minor($home->renewal_total_minor, 'CZK')->percent('5')->minor); // the renewal follows the region too
 
     // staff replace the table: Slovakia at −10 %, everything else at the list price (a price change: step-up, and here one operator —
-    // the second person is tested in tests/Feature/Catalog/CatalogFourEyesTest.php)
+    // the second person is tested in tests/Feature/Catalog/CatalogFourEyesTest.php; the only approver's own change waits the time lock, TASK-0037)
     config(['onhost.identity.four_eyes' => false]);
     $pricingStaff = $this->staff('platform_owner');
     app(StepUpService::class)->grant($pricingStaff, 'totp', null, '127.0.0.1');
     $this->actingAs($pricingStaff, 'sanctum');
-    $this->putJson('/v1/staff/pricing/regions', ['regions' => [['key' => 'sk', 'countries' => ['SK'], 'currency' => 'EUR', 'adjust_pct' => -10]]])->assertOk()->assertJsonPath('regions.sk.adjust_pct', -10);
+    $this->soloAfterTimeLock($pricingStaff, fn () => $this->putJson('/v1/staff/pricing/regions', ['regions' => [['key' => 'sk', 'countries' => ['SK'], 'currency' => 'EUR', 'adjust_pct' => -10]]]))->assertOk()->assertJsonPath('regions.sk.adjust_pct', -10);
     $this->putJson('/v1/staff/pricing/regions', ['regions' => [['key' => 'x', 'countries' => ['Slovensko']]]])->assertStatus(422);
     expect($rules->regionFor('DE')['key'])->toBe('home');
     $sk = $quote('SK');
     expect($sk->subtotal_minor)->toBe($home->subtotal_minor - Money::minor($home->subtotal_minor, 'CZK')->percent('10')->minor);
     $pricing = $this->getJson('/v1/staff/pricing')->assertOk()->json();
     expect(($pricing['data'] ?? $pricing)['regions'][0]['key'])->toBe('sk');
-    $this->putJson('/v1/staff/pricing/regions', ['regions' => []])->assertOk()->assertJsonPath('regions.eu.adjust_pct', 5); // back to the defaults
+    $this->soloAfterTimeLock($pricingStaff, fn () => $this->putJson('/v1/staff/pricing/regions', ['regions' => []]))->assertOk()->assertJsonPath('regions.eu.adjust_pct', 5); // back to the defaults
 
     // the customer picks the account currency
     $this->actingAs($owner, 'sanctum');

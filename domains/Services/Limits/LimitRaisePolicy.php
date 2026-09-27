@@ -197,8 +197,8 @@ final class LimitRaisePolicy
         $ids = $context->verifiedApprovalIds;
         $proven = [];
         if ($staff !== null && app(Authorizer::class)->can($staff, 'staff.service.manage', CommandScope::global())) {
-            if (! ApprovalService::enabled()) {
-                $proven = $ids === ['waived:single-operator'] ? $ids : [];
+            if ($ids === ['waived:single-operator'] && ! ApprovalService::enabled()) { // TASK-0037: only the sole approver is waived; others bring an approval
+                $proven = $ids;
             } else {
                 $hash = HashChain::hashPayload($command->toAudit());
                 $approval = Approval::query()->whereIn('id', $ids)->get()->first(fn (Approval $a) => $a->state === 'consumed' && $a->action === $command->name()

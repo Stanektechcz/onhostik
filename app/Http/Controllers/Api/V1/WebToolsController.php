@@ -6,6 +6,10 @@ namespace App\Http\Controllers\Api\V1;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
+use Onhost\Domain\Identity\Authorization\Authorizer;
+use Onhost\Domain\Services\Commands\PanelLoginCommand;
+use Onhost\Domain\Services\Commands\PanelLoginCommandHandler;
 use Onhost\Domain\Services\Commands\WebToolsCommand;
 use Onhost\Domain\Services\FinalArchive;
 use Onhost\Domain\Services\Models\Backup;
@@ -207,22 +211,36 @@ final class WebToolsController extends ApiController
 
     // ── staff ──────────────────────────────────────────────────────────────────────────────────────────
 
-    /** Staff single sign-on link into the customer's panel account (recorded; expires within a minute). */
-    public function panelLogin(Request $request, ServiceFeatures $features, AuditRecorder $audit, string $service): JsonResponse
+    /**
+     * Staff single sign-on link into the customer's panel account — TASK-0039 (permission program P0-14, IF-16): a bus command
+     * (PanelLoginCommand) bound to an open customer ticket about the service, a reason, the console of the service's family and,
+     * without the customer's consent, a second person; the customer is told at once. `ticket_id` and `reason` come in the body
+     * (POST) or, on the older GET route, in the query. The one-time link is taken out of its parking place once and answered
+     * here only — never stored in the bus's replay, the audit or an event.
+     */
+    public function panelLogin(Request $request, string $service): JsonResponse
     {
         $this->api->authorizeAction($request, 'staff.console', CommandScope::global()); // a login into the customer's panel: a fresh step-up first
         $model = Service::query()->find($service);
         if ($model === null) {
             throw DomainError::notFound('service');
         }
-        [$tools, $ref] = $features->toolsFor($model);
-        $url = $tools->panelLoginUrl($ref);
+        $data = $request->validate(['ticket_id' => ['nullable', 'string', 'max:40'], 'reason' => ['nullable', 'string', 'max:500']]);
+        $context = $this->api->context($request, null, $data['reason'] ?? null);
+        // every sign-on is its own: a key made of the body would replay yesterday's (spent) answer for the same ticket and reason
+        $header = $request->headers->get('Idempotency-Key');
+        $key = 'staff.panel_login:'.$model->id.':'.(is_string($header) && $header !== '' ? hash('sha256', $header) : (string) Str::ulid());
+        $command = new PanelLoginCommand($model->organization_id, $key, ['service_id' => $model->id, 'ticket_id' => (string) ($data['ticket_id'] ?? ''), 'reason' => (string) ($data['reason'] ?? '')]);
+        PanelLoginCommandHandler::assertEligible($command, $context, app(Authorizer::class)); // before anybody is asked to approve it
+        $result = (array) $this->bus->dispatch($command, $context);
+        $url = PanelLoginCommandHandler::take((string) ($result['handle'] ?? ''));
         if ($url === null) {
-            throw new DomainError('panel_login_unavailable', 'This panel offers no staff login link; use the panel credentials from the instance settings.', 409);
+            throw new DomainError('panel_login_spent', 'This sign-on link was handed out already; ask for a new one.', 409);
         }
-        $audit->record($this->api->context($request)->withScope($model->organization_id), 'staff.panel_login', 'succeeded', ['reason' => (string) $request->input('reason', '')], 'service', $model->id);
 
-        return $this->ok(['url' => $url, 'expires_in_seconds' => 60]);
+        // the route bypasses the HTTP replay store (TASK-0039 review round 2); no-store keeps the link out of any cache on the way too
+        return $this->ok(['url' => $url, 'expires_in_seconds' => (int) ($result['expires_in_seconds'] ?? 60), 'ticket_number' => $result['ticket_number'] ?? null, 'consented' => (bool) ($result['consented'] ?? false)])
+            ->header('Cache-Control', 'no-store');
     }
 
     private function resolve(Request $request, string $id, string $permission = 'service.read'): Service

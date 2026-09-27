@@ -17,6 +17,7 @@ use Onhost\Platform\ProviderHttp\ProviderHttpClient;
 use Onhost\Platform\Secrets\DbSecretStore;
 use Onhost\Platform\Secrets\SecretRef;
 use Onhost\Platform\Secrets\SecretStore;
+use Onhost\Providers\AaPanel\AaPanelTenancyGate;
 use Onhost\Providers\AaPanel\AaPanelWebProvider;
 use Onhost\Providers\Contracts\GameProvider;
 use Onhost\Providers\IspConfig\IspConfigWebProvider;
@@ -118,7 +119,16 @@ final class ProviderInstanceService
             $this->verifyRotation($existing, $credentials, $baseUrl, $context);
         }
 
-        return DB::transaction(function () use ($input, $key, $provider, $baseUrl, $existing, $credentials, $secretRef, $hostChanged, $context) {
+        return DB::transaction(function () use ($input, $key, $provider, $baseUrl, $credentials, $secretRef, $hostChanged, $context) {
+            // the row as it is now, locked until this write commits: `options` is merged from it, not from the snapshot read
+            // above before the transaction — otherwise a staff edit racing `operator:aapanel:tenancy --apply` wrote back the
+            // options it had read and silently dropped the closure that committed in between (TASK-0034 review round 2)
+            $existing = ProviderInstance::query()->where('key', $key)->lockForUpdate()->first();
+            if ($existing !== null && $existing->provider !== $provider) {
+                throw new DomainError('instance_provider_immutable', 'The provider of an existing instance cannot change; create a new instance.', 409, ['field' => 'provider']);
+            }
+            $options = array_key_exists('options', $input) ? self::keepOperatorOptions((array) $input['options'], $existing) : ($existing?->options ?? []);
+            $optionsChanged = $existing === null ? [] : self::changedKeys((array) ($existing->options ?? []), $options);
             $ref = $secretRef ?? $existing?->secretRef();
             if ($credentials !== []) {
                 if ($ref === null || $ref->scheme !== 'db') {
@@ -136,7 +146,7 @@ final class ProviderInstanceService
                 'region_code' => array_key_exists('region_code', $input) ? $input['region_code'] : $existing?->region_code,
                 'base_url' => rtrim($baseUrl, '/'),
                 'secret_ref' => (string) $ref,
-                'options' => array_key_exists('options', $input) ? (array) $input['options'] : ($existing?->options ?? []),
+                'options' => $options,
                 'capabilities' => array_key_exists('capabilities', $input) ? (array) $input['capabilities'] : ($existing?->capabilities ?? self::CAPABILITIES[$provider]),
                 'quotas' => array_key_exists('quotas', $input) ? (array) $input['quotas'] : ($existing?->quotas ?? null),
                 'rate_limits' => array_key_exists('rate_limits', $input) ? (array) $input['rate_limits'] : ($existing?->rate_limits ?? null),
@@ -148,10 +158,44 @@ final class ProviderInstanceService
             }
             $this->providers->forget($instance);
             $this->audit->record($context, $existing ? 'provider.instance.update' : 'provider.instance.create', 'succeeded', ['key' => $key, 'provider' => $provider, 'base_url' => $instance->base_url, 'secret_ref' => (string) $ref, 'credentials_forced' => $credentials !== [] && (bool) ($input['force_credentials'] ?? false), 'credential_keys' => array_keys($credentials),
-                'host_changed' => $hostChanged ? ['from' => parse_url((string) $existing?->base_url, PHP_URL_HOST), 'to' => parse_url($baseUrl, PHP_URL_HOST)] : null], 'provider_instance', $instance->id);
+                'host_changed' => $hostChanged ? ['from' => parse_url((string) $existing?->base_url, PHP_URL_HOST), 'to' => parse_url($baseUrl, PHP_URL_HOST)] : null,
+                // which options moved (names only), and a shared node's closure in full: it decides what customers may do (TASK-0034)
+                'options_changed' => $optionsChanged,
+                'tenancy' => in_array(AaPanelTenancyGate::OPTION, $optionsChanged, true) ? ['from' => $existing?->options[AaPanelTenancyGate::OPTION] ?? null, 'to' => $options[AaPanelTenancyGate::OPTION] ?? null] : null], 'provider_instance', $instance->id);
 
             return $instance;
         });
+    }
+
+    /**
+     * `instance.upsert` replaces the options object it is given. An option an operator command owns — `tenancy`, written
+     * by `operator:aapanel:tenancy` to close a shared aaPanel node — is kept when an edit leaves it out: otherwise any
+     * staff edit of the instance silently reopened the node (TASK-0034 review round 1). Sent explicitly, it is replaced.
+     *
+     * @param  array<string, mixed>  $options
+     * @return array<string, mixed>
+     */
+    private static function keepOperatorOptions(array $options, ?ProviderInstance $existing): array
+    {
+        foreach ([AaPanelTenancyGate::OPTION] as $owned) {
+            if (! array_key_exists($owned, $options) && is_array($existing?->options) && array_key_exists($owned, $existing->options)) {
+                $options[$owned] = $existing->options[$owned];
+            }
+        }
+
+        return $options;
+    }
+
+    /**
+     * @param  array<string, mixed>  $before
+     * @param  array<string, mixed>  $after
+     * @return list<string>
+     */
+    private static function changedKeys(array $before, array $after): array
+    {
+        $keys = array_unique(array_merge(array_keys($before), array_keys($after)));
+
+        return array_values(array_filter($keys, fn (string|int $key) => ($before[$key] ?? null) != ($after[$key] ?? null)));
     }
 
     /**

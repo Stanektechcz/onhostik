@@ -164,7 +164,7 @@ it('gives staff the price book: matrix, API refresh, manual costs and TLD pins',
     subregRegistryFake($subreg);
     $wapi = ['registered' => false];
     registryFake($wapi);
-    $staff = $this->staff('platform_owner');
+    $staff = $this->steppedUpStaff('platform_owner');
     $this->actingAs($staff, 'sanctum');
 
     $matrix = $this->getJson('/v1/staff/registrars')->assertOk()->json('data');

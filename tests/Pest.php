@@ -16,6 +16,8 @@ use Onhost\Domain\Invoicing\AccountingClock;
 use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Partners\Models\Partner;
+use Onhost\Domain\Partners\Models\PartnerPayoutAccount;
 use Onhost\Domain\Provisioning\Ipam\IpamService;
 use Onhost\Domain\Provisioning\Models\IpPool;
 use Onhost\Domain\Provisioning\Models\Node;
@@ -565,3 +567,11 @@ function vatOverrideSubject(Organization $organization): array
 
     return ['vat_number' => (string) (VatStanding::subject($current)->value ?? ''), 'organization_name' => (string) $current->name];
 }
+
+// ── TASK-0040 (permission program IF-14): a payout goes to the partner's confirmed payout account, never to the request's IBAN ──
+/** The partner's payout account, set earlier and past its cooling-off, as the owner's own step would leave it. */
+function partnerConfirmedPayoutAccount(Partner $partner, string $iban = 'CZ6508000000192000145399'): void
+{
+    PartnerPayoutAccount::query()->firstOrCreate(['partner_id' => $partner->id, 'iban' => $iban], ['source' => 'owner', 'usable_from' => now()->subDays(8)]);
+}
+// ── end TASK-0040 ──

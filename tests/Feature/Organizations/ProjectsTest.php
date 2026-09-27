@@ -6,6 +6,7 @@ use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Support\Facades\Http;
 use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
+use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Organizations\Models\ProjectMembership;
 use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Domain\Services\Models\Service;
@@ -49,6 +50,7 @@ it('assigns services to projects, reports spend per project and scopes project r
     $dev = $this->customer();
     app(OrganizationService::class)->attachMember($org, $dev, 'viewer', CommandContext::system('test'), true);
     $stranger = $this->customer();
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1'); // a project role is a membership grant: HIGH, fresh step-up (TASK-0036, IF-3)
     $this->postJson("/v1/organizations/{$org->id}/projects/{$shop}/members", ['user_id' => $stranger->id, 'role' => 'developer'])->assertStatus(422)->assertJsonPath('error', 'not_a_member');
     $this->postJson("/v1/organizations/{$org->id}/projects/{$shop}/members", ['email' => $dev->email, 'role' => 'developer'])->assertCreated()->assertJsonPath('membership.role_key', 'developer');
     $this->postJson("/v1/organizations/{$org->id}/projects/{$shop}/members", ['user_id' => $dev->id, 'role' => 'owner'])->assertStatus(422)->assertJsonPath('error', 'invalid_role');

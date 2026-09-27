@@ -178,7 +178,12 @@ final class StagingService
         }
         $sameNode = $from->provider_instance_id !== null && $from->provider_instance_id === $to->provider_instance_id && (string) data_get($from->desired_spec, 'executor') === 'aapanel';
         if ($sameNode) {
-            $cmd = 'rsync -a --delete '.implode(' ', array_map(fn ($e) => '--exclude='.Q::arg($e), $excludes)).' '.Q::arg($fromRoot.'/').' '.Q::arg($toRoot.'/').' && find '.Q::arg($toRoot).' -name .user.ini -prune -o -exec chown '.Q::arg($toTools->siteUser($toRef).':'.$toTools->siteUser($toRef)).' {} +'; // the panel keeps .user.ini immutable
+            // rsync -a copies production's symlinks as symlinks, and a plain `chown` follows them: a link `x -> /etc/shadow`
+            // planted in production handed that file to the site user — root of the node, and every tenant on it
+            // (TASK-0034 review round 2). `chown -h` changes the link itself, and `-execdir` runs it from inside the
+            // folder find already holds, so no folder on the way can be swapped for a link in between. The panel keeps
+            // .user.ini immutable.
+            $cmd = 'rsync -a --delete '.implode(' ', array_map(fn ($e) => '--exclude='.Q::arg($e), $excludes)).' '.Q::arg($fromRoot.'/').' '.Q::arg($toRoot.'/').' && find '.Q::arg($toRoot).' -name .user.ini -prune -o -execdir chown -h '.Q::arg($toTools->siteUser($toRef).':'.$toTools->siteUser($toRef)).' {} +';
             $run = $fromTools->shell($fromRef)->run($cmd, ['timeout' => 900]);
             if (! $run->ok()) {
                 throw new DomainError('staging_sync_failed', 'File copy failed: '.mb_substr($run->output(), 0, 300), 502);

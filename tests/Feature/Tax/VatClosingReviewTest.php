@@ -58,6 +58,7 @@ function vatCrPartner(array $attributes): Organization
 function vatCrPayOut(Organization $org): array
 {
     $partners = app(PartnerService::class);
+    partnerConfirmedPayoutAccount($partners->partnerFor($org)); // TASK-0040: the IBAN comes from the confirmed account
     $payout = $partners->requestPayout($partners->partnerFor($org), Money::minor(100000, 'CZK'), 'CZ6508000000192000145399', CommandContext::system('test')->withScope($org->id));
     $partners->approvePayout($payout, CommandContext::system('test'));
     /** @var PartnerPayout $paid */

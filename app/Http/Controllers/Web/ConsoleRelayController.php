@@ -58,7 +58,11 @@ final class ConsoleRelayController extends Controller
         // Whose console it is comes from the SERVICE the token was issued for. The adapters never wrote an organization into the
         // descriptor, so this check read `null` and let every signed-in user through; a token with no known owner is nobody's.
         $organizationId = $descriptor['organization_id'] ?? (isset($descriptor['service_id']) ? Service::query()->whereKey((string) $descriptor['service_id'])->value('organization_id') : null);
-        $member = $user->is_staff || ($organizationId !== null && OrganizationMembership::query()->where('user_id', $user->id)->where('organization_id', $organizationId)->current()->exists());
+        // TASK-0039 (IF-8, audit SS-14): any member of staff passed here, whoever the console was for. Now the person the token was
+        // issued to (ServiceService::consoleAccess records them, staff included) and the organization's current members only
+        $issuedTo = $descriptor['issued_to'] ?? null;
+        $member = (is_string($issuedTo) && $issuedTo !== '' && hash_equals($issuedTo, (string) $user->getAuthIdentifier()))
+            || ($organizationId !== null && OrganizationMembership::query()->where('user_id', $user->getAuthIdentifier())->where('organization_id', $organizationId)->current()->exists());
 
         return response()->json(['data' => ['valid' => (bool) $member, 'kind' => $descriptor['kind'] ?? null, 'expires_at' => $descriptor['expires_at'] ?? null]]);
     }

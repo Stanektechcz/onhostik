@@ -96,7 +96,7 @@ it('lets staff tune the weights and the hold threshold from the console and rese
     $risk = app(OrderRiskService::class);
     expect($risk->assess($quote, $org, $owner, $ctx))->toMatchArray(['score' => 75, 'hold' => true]);
 
-    $staff = $this->staff('platform_owner');
+    $staff = $this->steppedUpStaff('platform_owner');
     $this->actingAs($staff, 'sanctum');
     $tuned = $this->putJson('/v1/staff/automation/order.risk/tuning', ['weights' => ['disposable_email' => 30], 'hold_score' => 80, 'reason' => 'too many false holds'])->assertOk()->json();
     expect($tuned['weights']['disposable_email'])->toBe(30)->and($tuned['weights']['new_account'])->toBe(25)->and($tuned['hold_score'])->toBe(80)->and($tuned['defaults']['disposable_email'])->toBe(50);

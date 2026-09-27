@@ -38,6 +38,21 @@ final class DomainCommand extends OrganizationCommand implements RiskAwareComman
         return 'domain.'.$this->op();
     }
 
+    /**
+     * The key the BUS keeps its answer under: the caller's key plus a keyed fingerprint of what was asked (TASK-0041,
+     * permission program IF-12 / P0-10 follow-up; the same rule as ServiceActionCommand::idempotencyKey). The bus answers a
+     * known key before the handler runs, so the same key with another body was answered with the first run whenever the
+     * HTTP layer had kept nothing (a crash after the commit, a 5xx) — auto-renew switched off stayed off while the answer
+     * said so, and DomainService's own 409 for a changed request never got the chance. The handler still gets the caller's
+     * key alone (`$this->idempotencyKey`), so an operation is found by it and a changed request is refused there; the
+     * controller refuses it for the instant ops (DomainController::assertKeyUnused). Keyed with app.key: a transfer-in
+     * carries its transfer code, and this key is stored in clear for a day. The same request still replays as before.
+     */
+    public function idempotencyKey(): string
+    {
+        return $this->idempotencyKey.'#'.substr(hash_hmac('sha256', (string) json_encode($this->payload), (string) config('app.key')), 0, 16);
+    }
+
     public function riskLevel(): string
     {
         return match ($this->op()) {

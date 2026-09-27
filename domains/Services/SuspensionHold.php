@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Services;
 
 use Onhost\Domain\Billing\ServiceReinstatement;
-use Onhost\Domain\Identity\Models\User;
+use Onhost\Domain\Identity\Authorization\StaffActor;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Platform\Commands\CommandContext;
 
@@ -31,10 +31,16 @@ final class SuspensionHold
 
     public const KINDS = [self::ABUSE, self::PAYMENT, self::REVIEW, self::WITHDRAWAL];
 
-    /** The hold a suspension carries, judged by who imposed it and why; null = the customer's own pause. */
+    /**
+     * The hold a suspension carries, judged by who imposed it and why; null = the customer's own pause. A person makes an ONhost
+     * hold only as staff, in staff mode (TASK-0039, IF-8): a member of staff pausing a service of their own organization on the
+     * customer route paused it as the customer, and the other members could not switch it back on.
+     */
     public static function kindFor(CommandContext $context, string $reason): ?string
     {
-        if ($context->actorType === 'user' && $context->actorId !== null && ! (bool) User::query()->whereKey($context->actorId)->value('is_staff')) {
+        // staff mode, not a key (P0-16 re-check): the bus already asked the staff key of whatever suspends here (staff.service.manage,
+        // abuse.case.manage for compliance) — and a hold only ever takes a power away from the customer, it gives nobody one
+        if ($context->actorType === 'user' && $context->actorId !== null && ! StaffActor::acts($context)) {
             return null;
         }
 

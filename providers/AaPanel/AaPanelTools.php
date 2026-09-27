@@ -190,6 +190,8 @@ trait AaPanelTools
 
     public function phpSettings(ResourceRef $site): array
     {
+        // the root read of `.user.ini` follows a link the tenant put in its place: closed on a shared node (TASK-0034 review)
+        AaPanelTenancyGate::assertOpen($this->instance);
         $ini = '';
         try {
             $ini = $this->transport($site)->read('.user.ini', 65536);
@@ -221,6 +223,7 @@ trait AaPanelTools
 
     public function setPhpSettings(ResourceRef $site, array $settings): ProviderResult
     {
+        AaPanelTenancyGate::assertOpen($this->instance); // root read + write of `.user.ini` (TASK-0034 review round 1)
         $transport = $this->transport($site);
         $current = '';
         try {
@@ -345,6 +348,11 @@ trait AaPanelTools
         if ($current === null) {
             throw new ProviderException('aapanel', ProviderErrorCode::NOT_FOUND, 'The cron job does not belong to this site');
         }
+        // a shared node the operator closed takes no new shell code (TASK-0034, IF-7). The same command written again is
+        // still accepted: that is how `onhost:services:cron-confine` moves an old root job to the site user.
+        if (array_key_exists('command', $job) && (string) $job['command'] !== (string) $current['command']) {
+            AaPanelTenancyGate::assertOpen($this->instance);
+        }
         [$minute, $hour] = $this->cronFields((string) ($job['schedule'] ?? $current['schedule']));
         $name = Naming::cronLabel($site->serviceId, $job['label'] ?? $current['label'] ?? null);
         $this->post('/crontab?action=modify_crond', [
@@ -376,6 +384,7 @@ trait AaPanelTools
         if (collect($this->listCron($site))->firstWhere('remote_id', $remoteId) === null) {
             throw new ProviderException('aapanel', ProviderErrorCode::NOT_FOUND, 'The cron job does not belong to this site');
         }
+        AaPanelTenancyGate::assertOpen($this->instance); // on demand is at a moment the tenant picks, beside root work on a shared node (TASK-0034)
         $this->post('/crontab?action=StartTask', ['id' => (int) $remoteId], 'cron.run', true);
 
         return ProviderResult::completed(new ResourceRef('cron', $remoteId, $this->instance->key, [], $site->serviceId), ['started' => true]);
@@ -424,7 +433,7 @@ trait AaPanelTools
         if ($file === '') {
             throw new ProviderException('aapanel', ProviderErrorCode::PROVIDER_BUG, 'The panel did not produce a database dump');
         }
-        $this->transportAt($site, dirname($file))->download(basename($file), $localFile);
+        $this->panelFolderTransport($site, dirname($file))->download(basename($file), $localFile);
         try {
             $this->post('/database?action=DelBackup', ['id' => (int) $latest['id']], 'db.backup.delete', false);
         } catch (ProviderException) {
@@ -438,7 +447,7 @@ trait AaPanelTools
     {
         $db = $this->siteDatabase($site, $remoteId);
         $name = 'onhost-import-'.bin2hex(random_bytes(4)).(str_ends_with(strtolower($localFile), '.gz') ? '.sql.gz' : '.sql');
-        $transport = $this->transportAt($site, '/www/backup/database');
+        $transport = $this->panelFolderTransport($site, '/www/backup/database'); // the panel's folder, written as root on purpose: InputSql reads it
         $this->shell($site)->run('mkdir -p /www/backup/database', ['timeout' => 20]);
         $transport->upload($name, $localFile);
         try {
@@ -463,7 +472,7 @@ trait AaPanelTools
     public function downloadBackup(ResourceRef $site, string $backupRemoteId, string $localFile): void
     {
         $file = $this->backupFile($site, $backupRemoteId);
-        $this->transportAt($site, dirname($file))->download(basename($file), $localFile);
+        $this->panelFolderTransport($site, dirname($file))->download(basename($file), $localFile);
     }
 
     /** Restore a site archive over the site root (rsync when present), optionally a database dump made by the panel. */
@@ -471,13 +480,36 @@ trait AaPanelTools
     {
         $file = $this->backupFile($site, $backupRemoteId);
         $root = $this->sitePath($site);
-        $tmp = '/tmp/onhost-restore-'.bin2hex(random_bytes(5));
-        $script = implode(' && ', [
-            'rm -rf '.Q::arg($tmp), 'mkdir -p '.Q::arg($tmp), 'unzip -oq '.Q::arg($file).' -d '.Q::arg($tmp),
-            'src='.Q::arg($tmp).'; if [ -d "$src/'.basename($root).'" ]; then src="$src/'.basename($root).'"; fi',
-            'if command -v rsync >/dev/null; then rsync -a --delete --exclude ".user.ini" "$src/" '.Q::arg($root).'/; else cp -a "$src/." '.Q::arg($root).'/; fi',
-            'chown -R www:www '.Q::arg($root), 'rm -rf '.Q::arg($tmp),
-        ]);
+        $tar = AaPanelArchivePreflight::isTar($file);
+        $closed = AaPanelTenancyGate::closed($this->instance);
+        // aaPanel's backups are .tar.gz, which the restore's `unzip` never unpacked (it failed, every time). Round 1 of the
+        // review unpacked them with a root `tar -x` — a privileged extraction on a node nobody closed, a new way in for
+        // an archive's owners, modes and links (review round 3). Only the site user may unpack one, and only a closed node
+        // has that path: elsewhere it stays refused, as before the task, now with the reason and before anything runs.
+        if ($tar && ! $closed) {
+            throw new ProviderException('aapanel', ProviderErrorCode::VALIDATION, 'A .tar.gz backup is restored only on a server closed as shared, where the site\'s own user unpacks it; on this server it was not unpacked. Download the backup, or ask support to restore it.');
+        }
+        // the entries are listed and judged first, as they will lie in the site once restored: the archive is the site's
+        // own content (TASK-0034, IF-7), and a panel backup's `<site>/` folder is moved up into the site (review round 3)
+        (new AaPanelArchivePreflight($this->shell($site)))->assertSafe($file, $root, $root, $root, basename($root));
+        if ($closed) {
+            // a closed shared node: nothing of the archive is written by root, neither into the live site (the root rsync
+            // would follow a link the tenant planted there) nor anywhere else — the site user unpacks and moves it in
+            // (overlay: what the backup lacks stays; review rounds 1 and 3). The panel's backup lies in its own root-only
+            // folder, so root opens it where it is and hands it over.
+            $script = AaPanelSiteUnpack::unpackAsSiteUser($tar, Q::arg($file), $root, $root, $this->readyAgent($site), true, basename($root));
+        } else {
+            // a zip on a node nobody closed: unpacked where only root reads (in /tmp every site's PHP on the node could read
+            // this site's files), a whole site staged beside the sites, not on /; then the panel's own mirror restore (D11).
+            // `src` is set in a group of its own: chained with `;` as before, a failed unpack left it empty and the copy ran
+            // from "/" into the site (TASK-0034 review)
+            $tmp = AaPanelShell::STAGE_DIR.'/restore-'.bin2hex(random_bytes(5));
+            $script = AaPanelShell::stageDir().' && T='.Q::arg($tmp).' && rm -rf "$T" && mkdir -m 700 "$T" && '
+                .'unzip -oq '.Q::arg($file).' -d "$T"'
+                .' && { src="$T"; if [ -d "$src/'.basename($root).'" ]; then src="$src/'.basename($root).'"; fi; } && '
+                .'{ if command -v rsync >/dev/null; then rsync -a --delete --exclude ".user.ini" "$src/" '.Q::arg($root).'/; else cp -a "$src/." '.Q::arg($root).'/; fi; } && chown -R www:www '.Q::arg($root)
+                .'; rc=$?; rm -rf "$T"; exit $rc';
+        }
         $run = $this->shell($site)->run($script, ['timeout' => 900]);
         if (! $run->ok()) {
             throw new ProviderException('aapanel', ProviderErrorCode::VALIDATION, 'Restore failed on the node: '.$run->output());
@@ -699,9 +731,34 @@ trait AaPanelTools
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
+    /**
+     * A site's files. On a node the operator closed as shared the transport asks the gate at every call and writes into
+     * the site as the site's own shell user (TASK-0034); an unreadable row counts as closed there (null). A download is
+     * given only the agent's name, never readyAgent (TASK-0041 review round 1: a read must not run useradd/setfacl).
+     */
     private function transportAt(ResourceRef $site, string $root): FileTransport
     {
+        return new AaPanelTransport(fn (string $path, array $params, string $action, bool $critical, array $files) => $this->post($path, $params, $action, $critical, $files), $this->shell($site), rtrim($root, '/'), 'www',
+            fn (): ?bool => AaPanelTenancyGate::isClosed($this->instance), fn (): string => $this->readyAgent($site), (string) $site->serviceId !== '' ? $this->agentUser($site) : '');
+    }
+
+    /** A folder of the panel's own (backups, database dumps): root-owned, no tenant can plant anything there. */
+    private function panelFolderTransport(ResourceRef $site, string $root): FileTransport
+    {
         return new AaPanelTransport(fn (string $path, array $params, string $action, bool $critical, array $files) => $this->post($path, $params, $action, $critical, $files), $this->shell($site), rtrim($root, '/'), 'www');
+    }
+
+    /**
+     * The site's own shell user, made if it is not there yet (ensureAgent is idempotent and synchronous on aaPanel). What
+     * writes into a site on a closed shared node: `www` itself may not run a binary on a hardened node (TASK-0034 round 2).
+     */
+    private function readyAgent(ResourceRef $site): string
+    {
+        if (! $this->shellAvailable($site)) {
+            $this->ensureAgent($site);
+        }
+
+        return $this->agentUser($site);
     }
 
     /** Node-level transport (backup folders, vhost configs) — never handed to customers. */

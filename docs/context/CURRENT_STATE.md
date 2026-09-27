@@ -1,8 +1,10 @@
 # Current state
 
-**Updated:** 2026-09-26
-**Branch:** `development` (integrated through TASK-0016, PR #19) + the stack TASK-0017 … TASK-0027 and TASK-0029 …
-TASK-0031 on `fix/TASK-0027-stack-coherence-and-the-docs-that-descri`, waiting for one pull request into `development` (#24)
+**Updated:** 2026-09-27
+**Branch:** `development` (at `3b2a9fb`: the stack TASK-0017 … TASK-0031 merged with PR #24 on 2026-09-26) + Phase 0 of
+the permission program as one chain for PR #25 (`feat/permission-p0`, remote at `45017b7`; wave 2 and TASK-0039 on top of it
+locally on `fix/TASK-0039-staff-act-as-staff-and-a-token-only-for`, not pushed, not merged); TASK-0032 (deploy gate) is
+PR #26
 
 ## Now
 
@@ -540,7 +542,7 @@ TASK-0031 on `fix/TASK-0027-stack-coherence-and-the-docs-that-descri`, waiting f
   `PlanPromises::KNOWN_GAPS` after this task (8 after the stack below) — a ratchet that may only shrink — shown as a standing WARN by `onhost:doctor`; any new,
   untracked gap is a production FAIL.
 
-### The stack TASK-0017 … TASK-0027 (branch `fix/TASK-0027-stack-coherence-and-the-docs-that-descri`, one pull request into `development`, not merged yet)
+### The stack TASK-0017 … TASK-0027 (branch `fix/TASK-0027-stack-coherence-and-the-docs-that-descri`, merged into `development` with PR #24 on 2026-09-26)
 
 - **Owner decisions of 2026-09-25 are recorded in ADR-0007** (TASK-0026, audit row 117): 25 decisions, each naming its
   implementing task TASK-0019 … TASK-0025; the 16 P0 vault cards are `assessed`. The standing rules of 2026-09-24 frame
@@ -682,6 +684,64 @@ are fixed on the same branch (decisions in ADR-0008, audit rows 120–122):
   the rule `tax.vies_recheck`; `onhost:vat:verify` (dry run, `--csv` for the accountant) first, `--apply` after the
   accountant's sign-off.
 
+### Phase 0 of the permission program (one chain for PR #25, not merged, not signed off)
+
+The program (`docs/security/permission-program-2026-09-27.md`, decisions in ADR-0009, audit rows 123–133) closes the
+permission holes that were exploitable on PR #24. Wave 1 (TASK-0033 … TASK-0038) is PR #25 (`feat/permission-p0`, remote at
+`45017b7`); wave 2 (TASK-0040, TASK-0041 with the red-team fixes) and TASK-0039 (P0-08, P0-09, P0-14, with the P0-16 re-check
+fix `c4c43e2`) are rebased on top of it, locally on `fix/TASK-0039-staff-act-as-staff-and-a-token-only-for`. **Phase 0 is not
+signed off:** every HIGH finding has its fix in code, but staff reach on customer keys and tokens bound to no organization are only logged
+until the operator turns their switches on, `GET /v1/me` hands a token its person's other organizations (MEDIUM, no fix yet),
+and `c4c43e2` has had no independent review — the open list is `docs/runbooks/breach-register.md`.
+
+- **Grants never go beyond the granter** (TASK-0036, P0-07/P0-10): one `Organizations\GrantPolicy` decides invite, accept,
+  change, remove, transfer and project roles — the owner cannot be demoted by a mail link, a stranger cannot be made a member
+  by id, only somebody who covers a member's role changes it, project roles take a step-up and an allow-list. Service-action
+  idempotency keys are per organization, service, action and person with a keyed request hash (409 on a changed body).
+- **Risk never goes below the catalogue** (TASK-0037, P0-11/P0-12/P0-18): `effectiveRisk` = max(declared, catalogue floor),
+  `LOWERED_RISK` empty; 61 operations newly take a step-up (3 customer: DS publish, registrant change, archive download). The
+  single-operator waiver covers only the sole approver, whose CRITICAL actions wait a cancellable 24 h time lock. Staff read
+  the ticket queue and finance lists with `staff.*` keys; `RoleResolver` and a transactional, difference-only seeder.
+- **A removed member keeps no side door** (TASK-0035, P0-04/05/06): Discord links revoked and hooks disabled on removal or
+  demotion, `/onhost` reads through `AssistantScope` with the current membership; `archive.restore` needs source
+  `backup.read` + project/org `backup.restore` over a fail-closed copy of the live target; the team page fails closed.
+- **A game panel user is the organization's** (TASK-0033, P0-02): found only by exact `external_id` = organization id, never
+  by e-mail; credentials and collaborators re-verified against the panel's live owner; new users get a synthetic e-mail.
+- **aaPanel nodes keep tenants apart** (TASK-0034, P0-03): every unpack is pre-listed and staged, downloads read a proven
+  copy, temp files are root-only; shared nodes are closed by `onhost:aapanel:tenancy --apply` (dry run by default, waits for
+  the owner's O1 notice and the terminal/Node.js/cron decision); an open node never becomes shared by an order or a staff
+  move (TASK-0041).
+- **Forensic look-back** (TASK-0038, P0-01): `onhost:forensics:lookback` (read-only) and the breach register; the baseline run
+  on production before the first Phase-0 deploy is a go-live blocker.
+- **Partner payouts** (TASK-0040, P0-13): one row-locked payout per allocation, the IBAN only from an owner-confirmed payout
+  account (7-day cooling-off; IBANs paid to before the cut-over grandfathered), CRITICAL payment from `approved` by a third
+  person, anomaly freeze by digest, masked partner view behind `partner.portal.read`.
+- **Wave-1 leftovers** (TASK-0041): legacy project roles listed (`onhost:projects:role-audit`), domain keys per person/target
+  with 409, same-panel game moves need a proven owner, the hardlink download exception is the site's own agent only, sharing
+  compares the person acted for.
+- **Staff act as staff; a token acts for its organization** (TASK-0039, P0-08/P0-09/P0-14): on customer routes a member of
+  staff is the customer they act as there; staff powers only in staff mode on `/v1/staff/*` (`CommandContext::staffMode`,
+  `StaffActor`), with staff keys (`staff.service.manage`, `staff.service.delete`, `billing.dunning.manage`), and in an
+  organization of one's own with a second person. A forced purge is CRITICAL `staff.service.delete`. Staff reach on customer
+  keys is shadow-logged (`security_events` `authz.staff_reach`; `ONHOST_STAFF_REACH_ENFORCED` off) and CRITICAL where the
+  catalogue says so. A token sees only its organization (`token_organization_mismatch`, queued runs included; unbound tokens
+  behind `ONHOST_TOKEN_ORGANIZATION_REQUIRED`). Staff panel SSO is `PanelLoginCommand`: a ticket the customer opened, a
+  reason, the family's console, consent or a second person, and an immediate customer notice.
+- **Red-team fixes** (P0-16): the replay stores keep no secret and are per person, only the owner transfers ownership, a
+  further approver from the CLI waits the time lock, releasing an IBAN hold as confirmed takes a second person (audit row 132);
+  the re-check fix of the staff routes (row 133).
+- **Still open:** IF-4 and staff `archive.restore` (until `ONHOST_STAFF_REACH_ENFORCED=true`), PA-04 for tokens with no
+  organization (until `ONHOST_TOKEN_ORGANIZATION_REQUIRED=true`), `GET /v1/me` across organizations (MEDIUM, no fix yet); SS-7
+  and the LOW red-team items are in `.ai/PROJECT_STATE.md` → Known issues. P0-15 and Slices 1–5 have not started.
+
+**Operator steps of Phase 0** (all read-only first; `docs/runbooks/go-live-checklist.md` §7): the forensic baseline before
+deploying, `onhost:iam:risk-floor-report`, `onhost:game:panel-identity --dry-run`, `onhost:aapanel:tenancy` (dry run, then
+`--apply` after the owner's decision and notice), `operator:integrations:orphan-links`, `onhost:projects:role-audit --dry-run`,
+`onhost:partners:masking-notice`, `onhost:partners:payout-anomalies` (`--apply --digest=`),
+`ONHOST_FOUR_EYES_TIME_LOCK_HOURS` (24) for a solo owner, `operator:tokens:unbound --dry-run` → notice →
+`ONHOST_TOKEN_ORGANIZATION_REQUIRED=true`, and `operator:authz:staff-reach --days=7` daily until it stays empty (after P0-15)
+→ `ONHOST_STAFF_REACH_ENFORCED=true`.
+
 ## Verified baseline
 
 Measured on the stack tip `edb635b` (TASK-0027 C1–C4, before its docs commits) on 2026-09-25 with `.\brain.ps1 gate`
@@ -693,6 +753,13 @@ After TASK-0029 … TASK-0031 (2026-09-26, `.\brain.ps1 gate -Task TASK-0031` on
 errors (baseline 639 entries / 1 010 suppressed: the three tasks only removed entries), Pest **1 558 / 1 558** (20 527
 assertions), frontend build; 62 migrations; OpenAPI regenerated (one new route,
 `POST /v1/staff/customers/{organization}/vat-status`).
+Phase 0 of the permission program (2026-09-27, `.\brain.ps1 gate -Task TASK-0041` on `22ba016`, the stacked chain
+`1fb641e` → TASK-0040 → TASK-0041 with the P0-16 pins): **PASS** — Pint, Larastan 0 errors (baseline unchanged: 639 entries /
+1 010 suppressed), Pest **1 788 / 1 788** (22 620 assertions), frontend build; 63 migrations (`000890` partner payout accounts).
+The final Phase-0 chain (2026-09-27, `.\brain.ps1 gate -Task TASK-0039` on the content of `c4c43e2`, report `650f675`): **PASS**
+— Pint, Larastan 0 errors (`phpstan-baseline.neon` unchanged), Pest **1 825 / 1 825** (22 951 assertions), frontend build;
+63 migrations. PostgreSQL (`pest-postgres`) and E2E have not run on wave 2 or TASK-0039; the row locks of TASK-0040 and
+TASK-0041 and the shadow insert after the transaction are proven only there.
 
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16 — `pest-postgres` is the only
@@ -718,6 +785,17 @@ assertions), frontend build; 62 migrations; OpenAPI regenerated (one new route,
   decision 14; `ONHOST_PASSWORD_CHANGE_REVOKES_API_ACCESS=false` undoes it). The deploy's `AuthorizationSeeder` changes
   roles in every organization (billing_admin gains `billing.wallet.spend`, the panel password becomes owner-only).
 - A solo owner must set `ONHOST_FOUR_EYES=false` before deploying, or every price change waits for a second person.
+  With Phase 0 the solo owner's own CRITICAL actions and price changes wait a 24 h time lock instead (TASK-0037).
+- **Phase 0 of the permission program is not signed off:** staff global reach on customer permissions (IF-4, staff
+  `archive.restore` included) and tokens bound to no organization (PA-04) stay allowed, only logged, until the operator turns
+  on `ONHOST_STAFF_REACH_ENFORCED` and `ONHOST_TOKEN_ORGANIZATION_REQUIRED`; `GET /v1/me` hands a token its person's other
+  organizations (no fix yet) (`docs/runbooks/breach-register.md`). The forensic baseline must run on production **before**
+  the first Phase-0 deploy.
+- Staff tools: `/v1/staff/services/{id}/actions` needs `staff.service.manage` and `…/reinstate` `billing.dunning.manage`
+  (an auditor, IAM admin or sales account loses them); a solo owner acting in staff mode in their own organization waits the
+  time lock.
+- On shared aaPanel nodes the terminal, Node.js projects and existing cron run as the shared `www` user until the owner
+  decides and the operator runs `onhost:aapanel:tenancy --apply` (O1).
 - One staging web service is still stuck mid-termination from before the archive fallback existed; it is unblocked
   with `onhost:services:purge --service=… --force --reason=…`.
 - `s4s.electree.cz` was deleted on the live ISPConfig node by the resource-type confusion fixed in §5z; the site is
@@ -729,11 +807,16 @@ assertions), frontend build; 62 migrations; OpenAPI regenerated (one new route,
 
 ## Next decision
 
-1. The human reviews the stack and decides the one pull request into `development` (push and merge only with their
-   go-ahead); then the post-integration gate and CI `pest-postgres` on the merge.
+1. The stack was merged into `development` with PR #24 on 2026-09-26 (`3b2a9fb`); the post-integration gate and
+   `.\brain.ps1 task finish` for its tasks follow on `development`.
 2. Run the lifecycle verification on staging (archive on each panel with `onhost:services:archive --create`, then the
    purge) and restore `s4s.electree.cz` with `onhost:ispconfig:restore-site`.
 3. Then the go-live checklist on the production host, including the stack's operator steps
    (`docs/runbooks/go-live-checklist.md` §6): `AuthorizationSeeder` and the roles row after deploy,
    `ONHOST_FOUR_EYES=false` for a solo owner, `onhost:catalog:revise --apply`, `onhost:audit:provider-calls` on a
    production copy, and every default-off switch only after its read-only command.
+4. Phase 0 of the permission program, with the human's go-ahead: push the chain to PR #25 and merge it after a green CI
+   including `pest-postgres` and E2E, and merge PR #26 (TASK-0032, deploy gate); then the operator's Phase-0 steps
+   (`docs/runbooks/go-live-checklist.md` §7: the forensic baseline before the first Phase-0 deploy first, the two switches
+   last); then Slice 1 (access wizard, GrantPolicy invariants I1–I12). For the sign-off, alongside: a task for `GET /v1/me`
+   (failing-first test in `TokenPrincipalTest`) and a read-only review of `c4c43e2`.

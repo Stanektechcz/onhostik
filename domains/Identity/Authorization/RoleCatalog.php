@@ -46,6 +46,9 @@ final class RoleCatalog
             'svc_restore' => self::role('Service: restore', 'Restore the service from a backup', 'resource', false, ['service.read', 'backup.read', 'backup.restore']),
             'svc_assistant' => self::role('Service: assistant', 'Use the AI assistant for the shared service', 'resource', false, ['service.read', 'support.chat.use']),
             // ── staff roles ──────────────────────────────────────────────────
+            // TASK-0037 (program IF-18): the support, finance and backup roles gain the staff read keys (staff.support.ticket.read,
+            // staff.billing.read, staff.backup.read) NEXT TO the customer keys they held — expand only; P0-15 removes the customer
+            // keys once the shadow log shows nothing still needs them
             'platform_owner' => self::role('PlatformOwner / SuperAdmin', 'Break-glass only; never a daily account', 'global', true, array_merge($allStaff, array_values(array_diff($allCustomer, self::STAFF_NEVER)))),
             'iam_admin' => self::role('IAMAdmin', 'Users, roles, SSO, JIT approvals; no refunds', 'global', true, ['iam.user.manage', 'iam.role.manage', 'iam.mfa.reset', 'iam.jit.approve', 'iam.approval.decide', 'iam.access_review.manage', 'audit.read.global', 'security.event.read', 'staff.customer.read']),
             'infrastructure_admin' => self::role('InfrastructureAdmin', 'Proxmox, resources, capacity, operations queue', 'global', true, ['provider.instance.read', 'provider.instance.manage', 'capacity.read', 'capacity.manage', 'node.manage', 'provisioning.operation.read', 'provisioning.operation.retry', 'provisioning.operation.cancel', 'provisioning.drift.resolve', 'provisioning.freeze', 'staff.service.manage', 'staff.console', 'backup.policy.manage', 'staff.customer.read', 'iam.jit.request']),
@@ -59,29 +62,31 @@ final class RoleCatalog
             'mail_admin' => self::role('MailAdmin', 'Mailboxes/relay/reputation', 'global', true, ['staff.service.manage', 'provisioning.operation.read', 'provisioning.operation.retry', 'provider.instance.read', 'staff.customer.read', 'iam.jit.request']),
             'database_admin' => self::role('DatabaseAdmin', 'DBaaS', 'global', true, ['staff.service.manage', 'staff.console', 'provisioning.operation.read', 'provisioning.operation.retry', 'staff.customer.read', 'iam.jit.request']),
             'ai_platform_admin' => self::role('AIPlatformAdmin', 'Models, gateway, GPU policies', 'global', true, ['ai.policy.manage', 'ai.ops.read', 'staff.service.manage', 'staff.customer.read', 'iam.jit.request']),
-            'backup_dr_admin' => self::role('BackupDRAdmin', 'PBS/restore/retention', 'global', true, ['backup.read', 'backup.policy.manage', 'backup.restore', 'backup.delete', 'provider.instance.read', 'provisioning.operation.read', 'staff.customer.read', 'iam.jit.request']),
+            'backup_dr_admin' => self::role('BackupDRAdmin', 'PBS/restore/retention', 'global', true, ['staff.backup.read', 'backup.read', 'backup.policy.manage', 'backup.restore', 'backup.delete', 'provider.instance.read', 'provisioning.operation.read', 'staff.customer.read', 'iam.jit.request']),
             'sre' => self::role('SRE', 'Metrics/incidents/maintenance', 'global', true, ['incident.manage', 'incident.publish', 'maintenance.manage', 'capacity.read', 'provider.instance.read', 'provisioning.operation.read', 'provisioning.operation.retry', 'provisioning.freeze', 'sla.credit.manage', 'report.read', 'staff.customer.read', 'iam.jit.request']),
             'incident_commander' => self::role('IncidentCommander', 'Temporary incident authority', 'global', true, ['incident.manage', 'incident.publish', 'provisioning.freeze', 'security.incident.manage', 'notification.mass.send', 'staff.customer.read', 'capacity.read', 'provisioning.operation.read']),
             'security_soc' => self::role('SecuritySOC', 'Detections/quarantine/forensics', 'global', true, ['security.incident.manage', 'security.event.read', 'audit.read.global', 'staff.service.manage', 'provisioning.freeze', 'staff.customer.read', 'iam.jit.request']),
             'abuse_trust_safety' => self::role('AbuseTrustSafety', 'DSA/abuse cases', 'global', true, ['abuse.case.manage', 'staff.customer.read', 'staff.service.manage', 'security.event.read']),
             'compliance_legal' => self::role('ComplianceLegal', 'Regulatory cases/evidence', 'global', true, ['compliance.case.manage', 'compliance.legal_hold.manage', 'abuse.case.manage', 'audit.read.global', 'staff.customer.read', 'report.read']),
-            'billing_finance_admin' => self::role('BillingFinanceAdmin', 'Invoice config/tax/reconciliation', 'global', true, ['billing.invoice.read', 'billing.invoice.manage', 'billing.refund.execute', 'billing.refund.execute_large', 'billing.credit.adjust', 'billing.credit.adjust_mass', 'billing.tax_rule.manage', 'billing.reconcile', 'billing.dunning.manage', 'billing.credit_line.manage', 'sla.credit.manage', 'partner.manage', 'staff.customer.manage', 'catalog.manage', 'report.read', 'staff.customer.read', 'iam.approval.decide', 'billing.limit_raise.waive']),
-            'billing_operator' => self::role('BillingOperator', 'Invoice ops; limited refunds', 'global', true, ['billing.invoice.read', 'billing.invoice.manage', 'billing.refund.execute', 'billing.reconcile', 'billing.dunning.manage', 'report.read', 'staff.customer.read']),
-            'support_manager' => self::role('SupportManager', 'Queues/SLA/escalations', 'global', true, ['support.ticket.read', 'support.ticket.assign', 'support.ticket.manage', 'support.queue.manage', 'support.kb.manage', 'support.customer_impersonate', 'staff.customer.read', 'staff.order.manage', 'incident.manage', 'report.read', 'ai.ops.read', 'iam.jit.request']),
-            'support_l1' => self::role('SupportL1', 'Read basics + safe actions', 'global', true, ['support.ticket.read', 'support.ticket.manage', 'staff.customer.read', 'provisioning.operation.read', 'support.chat.use']),
-            'support_l2' => self::role('SupportL2', 'Deeper diagnostics + service actions', 'global', true, ['support.ticket.read', 'support.ticket.manage', 'support.ticket.assign', 'staff.customer.read', 'staff.service.manage', 'staff.order.manage', 'provisioning.operation.read', 'provisioning.operation.retry', 'staff.console', 'support.chat.use', 'iam.jit.request']),
-            'support_l3' => self::role('SupportL3', 'Engineering escalation', 'global', true, ['support.ticket.read', 'support.ticket.manage', 'support.ticket.assign', 'staff.customer.read', 'staff.service.manage', 'staff.order.manage', 'provisioning.operation.read', 'provisioning.operation.retry', 'provisioning.drift.resolve', 'staff.console', 'provider.instance.read', 'incident.manage', 'iam.jit.request']),
+            'billing_finance_admin' => self::role('BillingFinanceAdmin', 'Invoice config/tax/reconciliation', 'global', true, ['staff.billing.read', 'billing.invoice.read', 'billing.invoice.manage', 'billing.refund.execute', 'billing.refund.execute_large', 'billing.credit.adjust', 'billing.credit.adjust_mass', 'billing.tax_rule.manage', 'billing.reconcile', 'billing.dunning.manage', 'billing.credit_line.manage', 'sla.credit.manage', 'partner.manage', 'staff.customer.manage', 'catalog.manage', 'report.read', 'staff.customer.read', 'iam.approval.decide', 'billing.limit_raise.waive']),
+            'billing_operator' => self::role('BillingOperator', 'Invoice ops; limited refunds', 'global', true, ['staff.billing.read', 'billing.invoice.read', 'billing.invoice.manage', 'billing.refund.execute', 'billing.reconcile', 'billing.dunning.manage', 'report.read', 'staff.customer.read']),
+            'support_manager' => self::role('SupportManager', 'Queues/SLA/escalations', 'global', true, ['staff.support.ticket.read', 'support.ticket.read', 'support.ticket.assign', 'support.ticket.manage', 'support.queue.manage', 'support.kb.manage', 'support.customer_impersonate', 'staff.customer.read', 'staff.order.manage', 'incident.manage', 'report.read', 'ai.ops.read', 'iam.jit.request']),
+            'support_l1' => self::role('SupportL1', 'Read basics + safe actions', 'global', true, ['staff.support.ticket.read', 'support.ticket.read', 'support.ticket.manage', 'staff.customer.read', 'provisioning.operation.read', 'support.chat.use']),
+            'support_l2' => self::role('SupportL2', 'Deeper diagnostics + service actions', 'global', true, ['staff.support.ticket.read', 'support.ticket.read', 'support.ticket.manage', 'support.ticket.assign', 'staff.customer.read', 'staff.service.manage', 'staff.order.manage', 'provisioning.operation.read', 'provisioning.operation.retry', 'staff.console', 'support.chat.use', 'iam.jit.request']),
+            'support_l3' => self::role('SupportL3', 'Engineering escalation', 'global', true, ['staff.support.ticket.read', 'support.ticket.read', 'support.ticket.manage', 'support.ticket.assign', 'staff.customer.read', 'staff.service.manage', 'staff.order.manage', 'provisioning.operation.read', 'provisioning.operation.retry', 'provisioning.drift.resolve', 'staff.console', 'provider.instance.read', 'incident.manage', 'iam.jit.request']),
             'sales' => self::role('Sales', 'Quotes/CRM without infra admin', 'global', true, ['staff.customer.read', 'staff.order.manage', 'report.read']),
             'marketing_content' => self::role('MarketingContent', 'Public content only', 'global', true, ['content.manage']),
             'product_manager' => self::role('ProductManager', 'Catalogue, plan versions and prices, notification templates, feature flags; no customer data beyond the overview', 'global', true, ['catalog.manage', 'notification.template.manage', 'feature_flag.manage', 'content.manage', 'report.read', 'staff.customer.read']),
             'auditor_read_only' => self::role('AuditorReadOnly', 'Immutable audit/evidence read', 'global', true, ['audit.read.global', 'security.event.read', 'report.read', 'staff.customer.read', 'provisioning.operation.read', 'ai.ops.read']),
-            'partner' => self::role('Partner / Reseller', 'Sub-customers, commissions, white-label', 'organization', false, array_merge($customerRead, ['catalog.order.create', 'support.ticket.write', 'support.chat.use'])),
+            // commission only (red-team round of the Phase-0 chain): it never had reseller powers, whatever its old name said; the panel
+            // calls it „partner (jen provize)“ (TASK-0035)
+            'partner' => self::role('Partner (commission only)', 'Read access, orders and support tickets; earns commission only', 'organization', false, array_merge($customerRead, ['catalog.order.create', 'support.ticket.write', 'support.chat.use'], self::PARTNER_PORTAL)),
         ];
     }
 
     // ── TASK-0021 ──
     /** Customer permissions no staff account holds, not even the break-glass one (owner decision 15): they are the organization owner's. */
-    public const STAFF_NEVER = ['service.panel_account.manage'];
+    public const STAFF_NEVER = ['service.panel_account.manage', ...PermissionCatalog::PARTNER_OWNER_ONLY]; // TASK-0040: the partner's payout account too
 
     /**
      * What an organization admin is NOT given — the one place the org_admin line is decided: the owner-only permissions
@@ -103,8 +108,17 @@ final class RoleCatalog
     public const CREDIT_SPENDING = ['billing.wallet.spend'];
 
     /** What the billing admin holds besides the billing line itself (owner decision 20). */
-    public const BILLING_ADMIN_EXTRA = self::CREDIT_SPENDING;
+    public const BILLING_ADMIN_EXTRA = [...self::CREDIT_SPENDING, ...self::PARTNER_PORTAL];
     // ── end TASK-0021 ──
+
+    // ── TASK-0040 (permission program IF-14, audit P5) ──
+    /**
+     * The partner portal (clients, commissions, payouts) is read by the roles that run the partnership: the owner and the
+     * organization admin (every customer permission but the owner's), the billing admin and the partner role. It used to
+     * need `organization.read` only, which every member holds — a viewer or a developer read the partner's client list.
+     */
+    public const PARTNER_PORTAL = ['partner.portal.read'];
+    // ── end TASK-0040 ──
 
     /** @param list<string> $permissions */
     private static function role(string $name, string $description, string $scope, bool $staff, array $permissions): array

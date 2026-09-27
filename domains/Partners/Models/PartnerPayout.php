@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Partners\Models;
 
+use Illuminate\Support\Carbon;
 use Onhost\Platform\Eloquent\Model;
 use Onhost\Platform\Money\Money;
 
@@ -11,6 +12,10 @@ use Onhost\Platform\Money\Money;
  * Payout request with the self-billed invoice snapshot (`self_billing`).
  *
  * @property array<string,mixed>|null $self_billing cast `array` (the column is JSON text; TASK-0031 review round 3 reads it as the document)
+ * @property Carbon|null $requested_at cast `datetime`
+ * @property Carbon|null $paid_at cast `datetime`
+ * @property Carbon|null $approved_at cast `datetime` (TASK-0040: approved by somebody other than who pays)
+ * @property Carbon|null $frozen_at cast `datetime` (TASK-0040: held for a look)
  */
 final class PartnerPayout extends Model
 {
@@ -22,7 +27,19 @@ final class PartnerPayout extends Model
 
     protected function casts(): array
     {
-        return ['self_billing' => 'array', 'amount_minor' => 'integer', 'requested_at' => 'datetime', 'paid_at' => 'datetime'];
+        return ['self_billing' => 'array', 'amount_minor' => 'integer', 'requested_at' => 'datetime', 'paid_at' => 'datetime', 'approved_at' => 'datetime', 'frozen_at' => 'datetime'];
+    }
+
+    /** Held for a look (TASK-0040): neither approved nor paid until finance releases it; a rejection is still possible. */
+    public function isFrozen(): bool
+    {
+        return $this->frozen_at !== null;
+    }
+
+    /** Who approved it: `approved_by` since TASK-0040, `decided_by` for an approval recorded before (the pay overwrote it only then). */
+    public function approver(): ?string
+    {
+        return $this->approved_by ?? ($this->state === 'approved' ? $this->decided_by : null);
     }
 
     /** The commission itself (the self-billing document's net). */

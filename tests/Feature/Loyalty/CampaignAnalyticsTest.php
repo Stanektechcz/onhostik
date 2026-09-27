@@ -26,7 +26,7 @@ it('reports what a campaign reached, awarded and cost', function () {
     [, $other] = $this->customerWithOrganization(['email' => 'other@firma.cz'], ['name' => 'Other s.r.o.']);
     $service = featureGameService($org);
     $missions = app(MissionService::class);
-    $this->actingAs($this->staff('platform_owner'), 'sanctum');
+    $this->actingAs($this->steppedUpStaff('platform_owner'), 'sanctum');
     $this->putJson('/v1/staff/loyalty/campaigns', ['campaigns' => [
         ['key' => 'secure-autumn', 'cs' => 'Bezpečný podzim', 'en' => 'Secure autumn', 'missions' => ['profile', 'monitor'], 'badge' => 'autumn', 'active_from' => now()->subDay()->toDateString(), 'active_to' => now()->addDays(30)->toDateString()],
     ]])->assertOk();

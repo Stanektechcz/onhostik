@@ -71,6 +71,7 @@ function vatR2Payout(Organization $org): array
 {
     $partners = app(PartnerService::class);
     $partner = $partners->partnerFor($org);
+    partnerConfirmedPayoutAccount($partner); // TASK-0040: the IBAN comes from the confirmed account
 
     return (array) $partners->requestPayout($partner, Money::minor(100000, 'CZK'), 'CZ6508000000192000145399', CommandContext::system('test')->withScope($org->id))->self_billing;
 }

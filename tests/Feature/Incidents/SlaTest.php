@@ -118,8 +118,12 @@ it('computes SLA credits from the versioned policy and issues them as a credit n
     $service = businessCloudService($org);
     $sre = $this->staff('sre');
     $this->actingAs($sre, 'sanctum');
+    $incident = ['title' => 'Výpadek cloud CZ1', 'severity' => 'p1', 'components' => ['cloud-cz1'], 'affected_services' => [$service->id], 'started_at' => now()->subHours(10)->toIso8601String()];
 
-    $opened = $this->postJson('/v1/staff/incidents', ['title' => 'Výpadek cloud CZ1', 'severity' => 'p1', 'components' => ['cloud-cz1'], 'affected_services' => [$service->id], 'started_at' => now()->subHours(10)->toIso8601String()])->assertCreated();
+    // TASK-0037: a public incident is work under the HIGH incident.publish — the step-up comes before anything is published
+    $this->postJson('/v1/staff/incidents', $incident)->assertForbidden()->assertJsonPath('error', 'step_up_required');
+    app(StepUpService::class)->grant($sre, 'totp', null, '127.0.0.1');
+    $opened = $this->postJson('/v1/staff/incidents', $incident)->assertCreated();
     $id = $opened->json('id');
     $this->postJson("/v1/staff/incidents/{$id}/sla-credits")->assertStatus(409); // not resolved yet
     $this->postJson("/v1/staff/incidents/{$id}/resolve", ['note' => 'Obnoveno'])->assertOk();
@@ -131,8 +135,6 @@ it('computes SLA credits from the versioned policy and issues them as a credit n
     expect($credit['credit_percent'])->toBe(25)->and($credit['amount']['minor'])->toBe(25000)->and($credit['state'])->toBe('candidate')->and($credit['availability_pct'])->toBeLessThan(99.0)->and($credit['calculation']['policy'])->toBe('sla-business@v1');
     expect($this->postJson("/v1/staff/incidents/{$id}/sla-credits")->json())->toHaveCount(1); // idempotent
 
-    $this->postJson("/v1/staff/sla-credits/{$credit['id']}/issue")->assertForbidden()->assertJsonPath('error', 'step_up_required'); // issuing money needs a fresh step-up
-    app(StepUpService::class)->grant($sre, 'totp', null, '127.0.0.1');
     $this->postJson("/v1/staff/sla-credits/{$credit['id']}/issue")->assertStatus(409); // must be approved first
     $this->postJson("/v1/staff/sla-credits/{$credit['id']}/approve")->assertOk()->assertJsonPath('state', 'approved');
     $issued = $this->postJson("/v1/staff/sla-credits/{$credit['id']}/issue")->assertOk()->assertJsonPath('state', 'issued');

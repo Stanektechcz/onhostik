@@ -31,7 +31,7 @@ it('lets staff edit the catalogue with seasonal missions and evaluates the new c
     $missions = app(MissionService::class);
     expect($missions->catalogue())->toHaveCount(5);
 
-    $staff = $this->staff('platform_owner');
+    $staff = $this->steppedUpStaff('platform_owner');
     $this->actingAs($staff, 'sanctum');
     $initial = $this->getJson('/v1/staff/loyalty/missions')->assertOk()->json('data');
     expect($initial['custom'])->toBeFalse()->and($initial['checks'])->toContain('backup_done')->and($initial['defaults'])->toHaveCount(5);

@@ -121,7 +121,15 @@ final class WebMigrationWorkflow implements Workflow
         ], $service->organization_id));
     }
 
-    /** Which node the site moves to, and which one it is on now. */
+    /**
+     * Which node the site moves to, and which one it is on now.
+     *
+     * An aaPanel node whose tenancy is open takes no second organization (TASK-0041 review round 1, permission program
+     * IF-7 / D11): staff naming a node and the scheduler picking one are judged alike (NodeScheduler::sharedNodeRefusal,
+     * with this site's organization), and the choice is recorded under the placement lock, so the next move of an
+     * evacuation — or an order placed meanwhile — counts this site as already on its way there. Before, an evacuation of
+     * an aaPanel node sent several organizations to one open node with the root file tools still on, and nobody decided it.
+     */
     private function targetStep(): ServiceStep
     {
         return new class extends ServiceStep
@@ -139,40 +147,52 @@ final class WebMigrationWorkflow implements Workflow
                 $sourceNode = $service->node_id ? Node::query()->find($service->node_id) : null;
                 $executor = (string) $service->spec('executor', 'ispconfig');
                 $wanted = trim((string) $context->desired('target_node_id', ''));
-                if ($wanted !== '') {
-                    $target = Node::query()->with('providerInstance')->where(fn ($q) => $q->whereKey($wanted)->orWhere('name', $wanted))->first();
-                    if ($target === null) {
-                        return StepResult::fail("Uzel {$wanted} neexistuje", false);
-                    }
-                } else {
-                    try {
-                        $pick = $context->container->make(NodeScheduler::class)->pick(array_filter([
-                            'role' => $executor === 'aapanel' ? 'managed' : 'web', 'provider' => $executor, 'region' => $service->region_code,
-                            'disk_gb' => (int) data_get($service->entitlements, 'nvme_gb', 0),
-                            'exclude_nodes' => array_values(array_filter([$service->node_id])),
-                        ], fn ($value) => $value !== null && $value !== [] && $value !== ''));
-                    } catch (DomainError $e) {
-                        return StepResult::fail($e->getMessage(), true, $e->extra, 900);
-                    }
-                    $target = $pick['node']->loadMissing('providerInstance');
-                }
-                if ($target->id === $service->node_id) {
-                    return StepResult::fail('Web už na cílovém uzlu běží', false);
-                }
-                if ($target->state !== 'active') {
-                    return StepResult::fail("Uzel {$target->name} není aktivní", false);
-                }
-                $instance = $target->providerInstance;
-                if ($instance === null || $instance->state !== 'active' || $instance->provider !== ($sourceProvider ?: $executor)) {
-                    return StepResult::fail("Panel uzlu {$target->name} není aktivní panel stejného druhu", false);
-                }
+                $tenancy = ['organization' => (string) $service->organization_id, 'except_service' => $service->id];
+                $scheduler = $context->container->make(NodeScheduler::class);
 
-                return StepResult::done([
-                    'source_binding_id' => $source->id, 'source_remote_id' => $source->remote_id, 'source_remote_type' => $source->remote_type,
-                    'source_node_remote_id' => $source->remote_node, 'source_meta' => (array) $source->meta, 'source_node_id' => $service->node_id,
-                    'source_node_name' => $sourceNode?->name, 'source_instance_id' => $service->provider_instance_id,
-                    'target_node_id' => $target->id, 'target_node_name' => $target->name, 'target_instance_id' => $instance->id, 'node_name' => $target->name,
-                ]);
+                return $scheduler->underPlacementLock(function () use ($context, $scheduler, $service, $source, $sourceProvider, $sourceNode, $executor, $wanted, $tenancy): StepResult {
+                    if ($wanted !== '') {
+                        $target = Node::query()->with('providerInstance')->where(fn ($q) => $q->whereKey($wanted)->orWhere('name', $wanted))->first();
+                        if ($target === null) {
+                            return StepResult::fail("Uzel {$wanted} neexistuje", false);
+                        }
+                    } else {
+                        try {
+                            $pick = $scheduler->pick(array_filter([
+                                'role' => $executor === 'aapanel' ? 'managed' : 'web', 'provider' => $executor, 'region' => $service->region_code,
+                                'disk_gb' => (int) data_get($service->entitlements, 'nvme_gb', 0),
+                                'exclude_nodes' => array_values(array_filter([$service->node_id])),
+                            ] + $tenancy, fn ($value) => $value !== null && $value !== [] && $value !== ''));
+                        } catch (DomainError $e) {
+                            return StepResult::fail($e->getMessage(), true, $e->extra, 900);
+                        }
+                        $target = $pick['node']->loadMissing('providerInstance');
+                    }
+                    if ($target->id === $service->node_id) {
+                        return StepResult::fail('Web už na cílovém uzlu běží', false);
+                    }
+                    if ($target->state !== 'active') {
+                        return StepResult::fail("Uzel {$target->name} není aktivní", false);
+                    }
+                    $instance = $target->providerInstance;
+                    if ($instance === null || $instance->state !== 'active' || $instance->provider !== ($sourceProvider ?: $executor)) {
+                        return StepResult::fail("Panel uzlu {$target->name} není aktivní panel stejného druhu", false);
+                    }
+                    // a node staff named is judged like one the scheduler picked; the operator closes it first to share it
+                    if (($refusal = NodeScheduler::sharedNodeRefusal($target, $tenancy)) !== null) {
+                        return StepResult::fail("Web nelze přestěhovat na uzel {$target->name}: {$refusal}", false, ['node' => $target->name, 'tenancy' => 'open']);
+                    }
+                    $facts = [
+                        'source_binding_id' => $source->id, 'source_remote_id' => $source->remote_id, 'source_remote_type' => $source->remote_type,
+                        'source_node_remote_id' => $source->remote_node, 'source_meta' => (array) $source->meta, 'source_node_id' => $service->node_id,
+                        'source_node_name' => $sourceNode?->name, 'source_instance_id' => $service->provider_instance_id,
+                        'target_node_id' => $target->id, 'target_node_name' => $target->name, 'target_instance_id' => $instance->id, 'node_name' => $target->name,
+                    ];
+                    // written while the lock is held: the next placement or move waits for it and counts this site on the target
+                    $context->operation->withContext($facts)->save();
+
+                    return StepResult::done($facts);
+                });
             }
         };
     }

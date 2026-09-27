@@ -56,7 +56,7 @@ it('hosts the sites its plan sells, each one a site of its own', function () {
     $sites = [];
     $blob = gzencode(str_repeat('site files', 50));
     planSitesPanel($sites, $blob);
-    AaPanelWebProvider::$shellFactory = fn () => new ScriptedShell(['/^stat -c %s/' => [0, (string) strlen($blob)]]);
+    AaPanelWebProvider::$shellFactory = fn () => new ScriptedShell(['/exec 3</' => [0, 'SIZE '.strlen($blob)]]);
     [$user, $org] = $this->customerWithOrganization();
     $service = featureWebService($org, 'aapanel');
     $sites[] = ['id' => 41, 'name' => 'shop.cz', 'path' => '/www/wwwroot/shop.cz', 'status' => '1', 'ps' => 'onhost'];
@@ -85,7 +85,7 @@ it('sells no more sites than the plan states', function () {
     $sites = [];
     $blob = gzencode(str_repeat('site files', 50));
     planSitesPanel($sites, $blob);
-    AaPanelWebProvider::$shellFactory = fn () => new ScriptedShell(['/^stat -c %s/' => [0, (string) strlen($blob)]]);
+    AaPanelWebProvider::$shellFactory = fn () => new ScriptedShell(['/exec 3</' => [0, 'SIZE '.strlen($blob)]]);
     [$user, $org] = $this->customerWithOrganization();
     $service = featureWebService($org, 'aapanel');
     $sites[] = ['id' => 41, 'name' => 'shop.cz', 'path' => '/www/wwwroot/shop.cz', 'status' => '1', 'ps' => 'onhost'];
@@ -105,7 +105,7 @@ it('never leaves a site less space than it already stores, and never takes a nam
     planSitesPanel($sites, $blob);
     // the node says the first site already stores 45 of the plan's 50 GB: a new site of 20 GB would leave it 30 and break it
     AaPanelWebProvider::$shellFactory = fn () => new ScriptedShell([
-        '/^stat -c %s/' => [0, (string) strlen($blob)],
+        '/exec 3</' => [0, 'SIZE '.strlen($blob)],
         '/du -sb/' => [0, (string) (45 * 1024 ** 3)."\n1200\n"],
     ]);
     [$user, $org] = $this->customerWithOrganization();
@@ -124,7 +124,7 @@ it('takes a site away only through its own cancellation, and never somebody else
     $sites = [];
     $blob = gzencode(str_repeat('site files', 50));
     planSitesPanel($sites, $blob);
-    AaPanelWebProvider::$shellFactory = fn () => new ScriptedShell(['/^stat -c %s/' => [0, (string) strlen($blob)]]);
+    AaPanelWebProvider::$shellFactory = fn () => new ScriptedShell(['/exec 3</' => [0, 'SIZE '.strlen($blob)]]);
     [$user, $org] = $this->customerWithOrganization();
     $service = featureWebService($org, 'aapanel');
     $sites[] = ['id' => 41, 'name' => 'shop.cz', 'path' => '/www/wwwroot/shop.cz', 'status' => '1', 'ps' => 'onhost'];

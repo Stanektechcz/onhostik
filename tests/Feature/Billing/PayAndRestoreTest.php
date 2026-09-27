@@ -257,7 +257,7 @@ it('does not let the customer undo a cancellation that was refunded through a ch
 
     // staff may still decide to bring it back
     $staff = $this->staff();
-    expect(driveOperation($services->requestAction($service->fresh(), 'resume', $this->contextFor($staff), 'cb-undo-staff', ['reason' => 'rozhodnutí podpory']))->state)->toBe(Operation::SUCCEEDED);
+    expect(driveOperation($services->requestAction($service->fresh(), 'resume', $this->staffContextFor($staff), 'cb-undo-staff', ['reason' => 'rozhodnutí podpory']))->state)->toBe(Operation::SUCCEEDED);
     app(OutboxPublisher::class)->relayPending();
     // … and it is billed again from today: the refunded period is not given a second time
     $subscription = Subscription::query()->where('service_id', $service->id)->firstOrFail();
@@ -518,7 +518,7 @@ it('forgets a restore request once its cancellation is over: a later cancellatio
 
     // staff bring it back on their own; the request of the old cancellation goes with it
     $staff = $this->staff();
-    expect(driveOperation(app(ServiceService::class)->requestAction($service->fresh(), 'resume', $this->contextFor($staff), 'r2-staff-resume', ['reason' => 'rozhodnutí podpory']))->state)->toBe(Operation::SUCCEEDED);
+    expect(driveOperation(app(ServiceService::class)->requestAction($service->fresh(), 'resume', $this->staffContextFor($staff), 'r2-staff-resume', ['reason' => 'rozhodnutí podpory']))->state)->toBe(Operation::SUCCEEDED);
     expect(data_get(Service::query()->findOrFail($service->id)->tags, 'reinstatement'))->toBeNull();
 
     // cancelled again later — the customer chose it; the credit that arrives next pays for nothing
@@ -763,7 +763,7 @@ it('keeps auto-renew off when staff bring back a service whose paid period had e
     $service = reinstateCancelled($org, ['hold' => null, 'reason' => 'customer request', 'period_end' => now()->subDay(), 'auto_renew' => false]);
 
     $staff = $this->staff();
-    expect(driveOperation(app(ServiceService::class)->requestAction($service, 'resume', $this->contextFor($staff), 'c2-staff-1', ['reason' => 'rozhodnutí podpory']))->state)->toBe(Operation::SUCCEEDED);
+    expect(driveOperation(app(ServiceService::class)->requestAction($service, 'resume', $this->staffContextFor($staff), 'c2-staff-1', ['reason' => 'rozhodnutí podpory']))->state)->toBe(Operation::SUCCEEDED);
     app(OutboxPublisher::class)->relayPending();
 
     $subscription = Subscription::query()->where('service_id', $service->id)->firstOrFail();
@@ -781,7 +781,7 @@ it('keeps auto-renew on when staff bring back a service whose customer had it on
     [, $org] = $this->customerWithOrganization();
     $service = reinstateCancelled($org, ['hold' => null, 'reason' => 'customer request', 'period_end' => now()->subDay(), 'auto_renew' => true]);
 
-    driveOperation(app(ServiceService::class)->requestAction($service, 'resume', $this->contextFor($this->staff()), 'c2-staff-on', ['reason' => 'rozhodnutí podpory']));
+    driveOperation(app(ServiceService::class)->requestAction($service, 'resume', $this->staffContextFor($this->staff()), 'c2-staff-on', ['reason' => 'rozhodnutí podpory']));
     app(OutboxPublisher::class)->relayPending();
 
     expect(Subscription::query()->where('service_id', $service->id)->value('auto_renew'))->toBeTrue();
@@ -885,7 +885,14 @@ it('lets staff pay for a customer\'s restore while credit approval is on, as a r
     app(WalletService::class)->topup($org, Money::decimal('1000', 'CZK'), 'bank', 'seed', $this->contextFor($owner, $org));
     $service = reinstateCancelled($org, ['reason' => 'subscription ended']);
 
-    $result = app(ServiceReinstatement::class)->reinstate($service, $this->contextFor($this->staff('cloud_vps_admin')), 'rr1-staff-pay');
+    // TASK-0039 (IF-8): staff pay on the customer's behalf as staff, in staff mode; the same person on the customer's route is
+    // asked like any member who may not spend the credit
+    $staff = $this->staff('billing_operator');
+    expect(fn () => app(ServiceReinstatement::class)->reinstate($service, $this->contextFor($staff), 'rr1-staff-pay-as-customer'))->toThrow(DomainError::class);
+    // P0-16 re-check: in staff mode too, only with the staff billing key — a service role does not spend a customer's credit
+    expect(fn () => app(ServiceReinstatement::class)->reinstate($service, $this->staffContextFor($this->staff('cloud_vps_admin')), 'rr1-staff-pay-no-key'))->toThrow(DomainError::class);
+    expect(reinstateCharges())->toBe(0);
+    $result = app(ServiceReinstatement::class)->reinstate($service, $this->staffContextFor($staff), 'rr1-staff-pay');
 
     expect($result['state'])->toBe('restoring')->and(reinstateCharges())->toBe(1);
 });
@@ -900,7 +907,7 @@ it('ends a restored service again at the renewal pass even when an earlier expir
     expect(Operation::query()->where('service_id', $service->id)->where('idempotency_key', 'like', 'sub_expire:%')->count())->toBe(1);
 
     // staff bring it back: billing restarts today with auto-renew off, and staff are told it will end again
-    $answer = reinstateServiceAction($service, 'resume', $this->contextFor($this->staff(), $org), 'rr1-staff-resume', ['reason' => 'rozhodnutí podpory']);
+    $answer = reinstateServiceAction($service, 'resume', $this->staffContextFor($this->staff(), $org), 'rr1-staff-resume', ['reason' => 'rozhodnutí podpory']);
     expect(data_get($answer, 'warning.code'))->toBe('restore_ends_at_renewal');
     driveOperation(Operation::query()->findOrFail($answer['operation_id']));
     app(OutboxPublisher::class)->relayPending();
@@ -924,6 +931,22 @@ it('does not warn staff when a restore keeps a paid period or the auto-renew the
     $renews = reinstateCancelled($org, ['hold' => null, 'reason' => 'customer request', 'period_end' => now()->subDay(), 'auto_renew' => true, 'remote_id' => '1046']);
     $staff = $this->staff();
     foreach ([$covered, $renews] as $i => $service) {
-        expect(reinstateServiceAction($service, 'resume', $this->contextFor($staff, $org), "rr1-nowarn-{$i}", ['reason' => 'rozhodnutí podpory']))->not->toHaveKey('warning');
+        expect(reinstateServiceAction($service, 'resume', $this->staffContextFor($staff, $org), "rr1-nowarn-{$i}", ['reason' => 'rozhodnutí podpory']))->not->toHaveKey('warning');
     }
 });
+
+// ── TASK-0039 P0-16 re-check (staff mode asks staff keys) ──
+it('undoes a refunded cancellation on the platform authority only for a staff billing key, not for any staff role (P0-16 re-check)', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $service = reinstateCancelled($org, ['hold' => null, 'reason' => 'chargeback cb_p16', 'period_end' => now()->addDays(20), 'operation_id' => 'op_chargeback_p16']);
+    ChargebackRequest::query()->create(['organization_id' => $org->id, 'service_id' => $service->id, 'requested_by' => $owner->id, 'state' => ChargebackRequest::REFUNDED, 'reason' => 'Odcházíme jinam.', 'percent' => 70, 'currency' => 'CZK',
+        'unused_minor' => 24200, 'refund_minor' => 16940, 'operation_id' => 'op_chargeback_p16', 'cancelled_at' => now()->subDays(5), 'refunded_at' => now()->subDays(5)]);
+    $reinstatement = app(ServiceReinstatement::class);
+
+    // support manages services, it does not give the customer's money back: the refunded period is not undone for free by it
+    expect(fn () => $reinstatement->assertCustomerMayResume($service, $this->staffContextFor($this->staff('support_l2'), $org)))
+        ->toThrow(fn (DomainError $e) => expect($e->error)->toBe('chargeback_cancelled'));
+    // the staff billing key decides it (and the staff route asks the same key of the restore itself)
+    expect(fn () => $reinstatement->assertCustomerMayResume($service, $this->staffContextFor($this->staff('billing_operator'), $org)))->not->toThrow(DomainError::class);
+});
+// ── end TASK-0039 P0-16 re-check ──

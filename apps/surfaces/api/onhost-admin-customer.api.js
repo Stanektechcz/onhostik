@@ -154,7 +154,8 @@
     if (!a || state.busy) return;
     if (!window.confirm('Provést na účtu zákazníka: ' + a.label + '?')) return;
     state.busy = true; render();
-    A().post('/services/' + encodeURIComponent(a.service_id) + '/actions', { action: a.action, params: a.params || {}, reason: 'AI asistent · potvrzeno obsluhou' }, Object.assign({}, A().key(), { 'X-Organization': state.id })).then(function () {
+    // staff confirm it as staff (TASK-0039 review round 1): on the customer route a suspend the assistant proposed was the customer's own pause
+    A().post('/staff/services/' + encodeURIComponent(a.service_id) + '/actions', { action: a.action, params: a.params || {}, reason: 'AI asistent · potvrzeno obsluhou' }, Object.assign({}, A().key(), { 'X-Organization': state.id })).then(function () {
       state.busy = false; ai.actions = ai.actions.filter(function (x) { return x !== a; });
       ai.msgs.push({ who: 'bot', text: 'Spuštěno: ' + a.label + '. Průběh uvidíte mezi operacemi služby.' }); render();
     }).catch(function (e) { state.busy = false; ai.msgs.push({ who: 'bot', text: 'Nepodařilo se spustit: ' + ((e && e.message) || 'chyba') }); render(); });

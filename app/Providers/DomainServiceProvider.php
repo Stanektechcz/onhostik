@@ -67,6 +67,7 @@ use Onhost\Domain\Orders\Listeners\SettleOrderPayment;
 use Onhost\Domain\Organizations\Commands\CreateOrganizationCommand;
 use Onhost\Domain\Organizations\Commands\OrganizationCommand;
 use Onhost\Domain\Organizations\Commands\OrganizationsCommandHandler;
+use Onhost\Domain\Organizations\Listeners\RevokeMemberSideDoors; // TASK-0035
 use Onhost\Domain\Partners\Commands\PartnerCommand;
 use Onhost\Domain\Partners\Commands\PartnerPortalCommand;
 use Onhost\Domain\Partners\Commands\PartnersCommandHandler;
@@ -192,6 +193,11 @@ final class DomainServiceProvider extends ServiceProvider
         Event::listen('onhost.organization.member.removed', CloseServiceAccessGrants::class); // whoever left has nothing shared any more
         Event::listen(OutboxEventDispatched::class, RevokeDelegatedAccess::class); // a removed member loses the panel accounts that were theirs (H333)
         Event::listen(OutboxEventDispatched::class, LoyaltyRouter::class); // points for what customers do
+        // ── TASK-0035 ──
+        foreach (['onhost.organization.member.removed', 'onhost.organization.member.role_changed'] as $memberEvent) { // IF-15: no Discord link or action hook outlives the membership or the role that made it
+            Event::listen($memberEvent, RevokeMemberSideDoors::class);
+        }
+        // ── end TASK-0035 ──
 
         $this->app->afterResolving(CommandBus::class, function (CommandBus $bus): void {
             foreach (self::HANDLERS as $command => $handler) {

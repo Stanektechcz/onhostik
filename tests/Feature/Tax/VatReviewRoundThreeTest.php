@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Support\Facades\Http;
+use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Partners\Models\PartnerCommission;
 use Onhost\Domain\Partners\Models\PartnerPayout;
@@ -53,6 +54,8 @@ function vatR3Partner(array $attributes, ?string $viesName = null): Organization
 function vatR3Payout(Organization $org): PartnerPayout
 {
     $partners = app(PartnerService::class);
+
+    partnerConfirmedPayoutAccount($partners->partnerFor($org)); // TASK-0040: the IBAN comes from the confirmed account
 
     return $partners->requestPayout($partners->partnerFor($org), Money::minor(100000, 'CZK'), 'CZ6508000000192000145399', CommandContext::system('test')->withScope($org->id));
 }
@@ -157,6 +160,8 @@ it('answers the partner portal without the review flag and staff with it', funct
     $partner = $partners->approve($partners->apply($org->fresh(), ['model' => 'share'], CommandContext::system('test')), CommandContext::system('test'));
     PartnerCommission::query()->create(['partner_id' => $partner->id, 'organization_id' => $org->id, 'invoice_id' => 'inv-'.uniqid(), 'period' => now()->format('Y-m'), 'kind' => 'share', 'base_minor' => 1000000, 'rate_pct' => 20, 'amount_minor' => 200000, 'currency' => 'CZK', 'state' => 'payable', 'invoice_paid_at' => now()->subDay()]);
 
+    partnerConfirmedPayoutAccount($partner); // TASK-0040: a confirmed account, and a step-up for the request
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
     $this->actingAs($owner, 'sanctum');
     $h = ['X-Organization' => $org->id];
     $created = $this->withHeaders($h + ['Idempotency-Key' => 'vat-r3-payout-'.uniqid()])->postJson('/v1/partner/payouts', ['amount' => 1000, 'iban' => 'CZ6508000000192000145399'])->assertCreated();

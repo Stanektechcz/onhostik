@@ -138,7 +138,7 @@ it('discovers the nodes of a game panel, checks its client key, daemons and temp
             default => Http::response(['errors' => [['code' => 'NotFoundHttpException', 'detail' => 'no fake']]], 404),
         };
     });
-    $staff = $this->staff('infrastructure_admin');
+    $staff = $this->steppedUpStaff('infrastructure_admin');
     $this->actingAs($staff, 'sanctum');
 
     // discovery: one scheduler node per panel node, maintenance mode respected, allocated resources as usage

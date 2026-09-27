@@ -366,6 +366,7 @@ final class AaPanelWebProvider implements SelfProbing, WebHostingProvider, WebTo
 
     public function createCron(ResourceRef $site, array $job): ProviderResult
     {
+        AaPanelTenancyGate::assertOpen($this->instance); // a new shell job on a shared node is new root-launched code beside other tenants (TASK-0034)
         [$minute, $hour] = $this->cronFields((string) $job['schedule']);
         $name = Naming::cronLabel($site->serviceId, $job['label'] ?? null);
         // aaPanel's scheduler is host-wide: hourly jobs run every hour at :minute, daily ones at hour:minute
@@ -408,14 +409,23 @@ final class AaPanelWebProvider implements SelfProbing, WebHostingProvider, WebTo
 
     public function siteFeatures(): array
     {
+        // a node several customers share, closed by the operator (TASK-0034, IF-7): no in-panel file manager there —
+        // browsing and reading included, the panel reads as root and follows a planted link just as it writes through
+        // one — no import (it unpacks as root into the site), no PHP settings (a root read and write of `.user.ini`, which
+        // a link can replace) and no one-click apps (the panel unpacks them as root into the site; review round 1). No git
+        // deploy (the deploy key is written and chowned as root through the panel, old releases pruned as root) and no
+        // staging copy (root rsync into the site, the copy's upload as root) — review round 2. SFTP/FTP, backups and
+        // restores, and cron listings stay. The terminal and Node projects: owner decision, see TASK-0034.
+        $shared = AaPanelTenancyGate::closed($this->instance);
+
         return [
             'php' => true, 'databases' => true, 'ftp' => true, 'ssl' => true, 'https' => true, 'cron' => true, 'logs' => true, 'backups' => true, 'restore' => true,
-            'subdomains' => true, 'redirects' => true, 'ssh' => false, 'mail' => false, 'file_manager' => true, 'usage' => true,
+            'subdomains' => true, 'redirects' => true, 'ssh' => false, 'mail' => false, 'file_manager' => ! $shared, 'usage' => true,
             // extended tabs: file manager, rewrite rules, site password and one-click apps come from the panel API; no per-site DB users or statistics
-            'errpages' => false, 'directives' => true, 'protected' => true, 'db_users' => false, 'stats' => false, 'ssl_upload' => true, 'files' => true, 'apps' => true, 'db_admin' => (bool) $this->instance->option('phpmyadmin_url'),
+            'errpages' => false, 'directives' => true, 'protected' => true, 'db_users' => false, 'stats' => false, 'ssl_upload' => true, 'files' => ! $shared, 'apps' => ! $shared, 'db_admin' => (bool) $this->instance->option('phpmyadmin_url'),
             // tools (WebToolsProvider): the panel API plus the node shell — terminal/WP-CLI instead of SSH keys, restore, exports, security rules, HTTP/3, Node projects
-            'terminal' => true, 'php_settings' => true, 'security' => true, 'rate_limit' => true, 'http3' => true, 'cron_edit' => true, 'cron_logs' => true, 'db_export' => true, 'db_access' => true,
-            'backup_download' => true, 'backup_delete' => true, 'backup_on_demand' => true, 'files_advanced' => true, 'quotas' => true, 'node_projects' => true, 'staging' => true, 'deploy' => true, 'wordpress' => true, 'hsts' => true, 'panel_login' => false, 'proxy' => true, 'default_docs' => true,
+            'terminal' => true, 'php_settings' => ! $shared, 'security' => true, 'rate_limit' => true, 'http3' => true, 'cron_edit' => true, 'cron_logs' => true, 'db_export' => true, 'db_access' => true,
+            'backup_download' => true, 'backup_delete' => true, 'backup_on_demand' => true, 'files_advanced' => ! $shared, 'quotas' => true, 'node_projects' => true, 'staging' => ! $shared, 'deploy' => ! $shared, 'wordpress' => true, 'hsts' => true, 'panel_login' => false, 'proxy' => true, 'default_docs' => true,
         ];
     }
 
@@ -429,7 +439,8 @@ final class AaPanelWebProvider implements SelfProbing, WebHostingProvider, WebTo
 
         return [
             'backup_api' => $this->probe(fn () => $this->listBackups($site)),
-            'files_api' => $this->probe(fn () => $this->transport($site)->list('')),
+            // a closed shared node does not list a site through the root file API at all (TASK-0034): nothing to probe there
+            'files_api' => AaPanelTenancyGate::closed($this->instance) ? 'skipped: the file API is closed on this shared node' : $this->probe(fn () => $this->transport($site)->list('')),
         ];
     }
 
@@ -899,6 +910,7 @@ final class AaPanelWebProvider implements SelfProbing, WebHostingProvider, WebTo
 
     public function listFiles(ResourceRef $site, string $path): array
     {
+        AaPanelTenancyGate::assertOpen($this->instance); // TASK-0034: the file manager of a shared node is closed (siteFeatures says so first)
         $absolute = $this->jail($site, $path);
         $result = $this->post('/files?action=GetDir', ['path' => $absolute, 'p' => 1, 'showRow' => 500], 'files.list');
         if (isset($result['PATH']) && rtrim((string) $result['PATH'], '/') !== rtrim($absolute, '/')) {
@@ -921,6 +933,7 @@ final class AaPanelWebProvider implements SelfProbing, WebHostingProvider, WebTo
 
     public function readFile(ResourceRef $site, string $path): string
     {
+        AaPanelTenancyGate::assertOpen($this->instance);
         $result = $this->post('/files?action=GetFileBody', ['path' => $this->jail($site, $path)], 'files.body');
 
         return is_array($result) ? (string) ($result['data'] ?? '') : (string) $result;
@@ -928,6 +941,7 @@ final class AaPanelWebProvider implements SelfProbing, WebHostingProvider, WebTo
 
     public function writeFile(ResourceRef $site, string $path, string $content): ProviderResult
     {
+        AaPanelTenancyGate::assertOpen($this->instance); // a root write through a link a neighbour planted is the hole itself (PA-02)
         $absolute = $this->jail($site, $path);
         try {
             $this->post('/files?action=SaveFileBody', ['path' => $absolute, 'data' => $content, 'encoding' => 'utf-8'], 'files.save', true);
@@ -945,6 +959,7 @@ final class AaPanelWebProvider implements SelfProbing, WebHostingProvider, WebTo
 
     public function deleteFile(ResourceRef $site, string $path, bool $directory = false): ProviderResult
     {
+        AaPanelTenancyGate::assertOpen($this->instance);
         $absolute = $this->jail($site, $path);
         if ($absolute === $this->sitePath($site)) {
             throw new ProviderException('aapanel', ProviderErrorCode::VALIDATION, 'The site root cannot be deleted');
@@ -956,6 +971,7 @@ final class AaPanelWebProvider implements SelfProbing, WebHostingProvider, WebTo
 
     public function createDirectory(ResourceRef $site, string $path): ProviderResult
     {
+        AaPanelTenancyGate::assertOpen($this->instance);
         $this->post('/files?action=CreateDir', ['path' => $this->jail($site, $path)], 'files.mkdir', true);
 
         return ProviderResult::completed(new ResourceRef('directory', $path, $this->instance->key, [], $site->serviceId), ['created' => true]);
@@ -985,6 +1001,7 @@ final class AaPanelWebProvider implements SelfProbing, WebHostingProvider, WebTo
 
     public function installApp(ResourceRef $site, array $spec): ProviderResult
     {
+        AaPanelTenancyGate::assertOpen($this->instance); // the panel unpacks the app as root into the site (TASK-0034 review round 1)
         $php = str_replace('.', '', (string) ($spec['php_version'] ?? ''));
         $this->post('/deployment?action=SetupPackage', array_filter(['dname' => (string) $spec['name'], 'site_name' => $site->meta['name'] ?? '', 'php_version' => $php !== '' ? $php : null], fn ($v) => $v !== null), 'apps.install', true);
 

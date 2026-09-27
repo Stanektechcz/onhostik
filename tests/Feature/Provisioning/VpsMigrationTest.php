@@ -46,7 +46,7 @@ it('migrates a running VM live to another node of its cluster and switches the b
         PVE.'/nodes/prg1-n2/tasks/*/status' => Http::sequence()->push(['data' => ['status' => 'running']])->push(['data' => ['status' => 'stopped', 'exitstatus' => 'OK']]),
     ]);
 
-    $staff = $this->staff('infrastructure_admin');
+    $staff = $this->steppedUpStaff('infrastructure_admin');
     $this->actingAs($staff, 'sanctum');
     $started = $this->withHeader('Idempotency-Key', 'vmig-1')->postJson("/v1/staff/services/{$service->id}/migrate", ['target_node_id' => 'prg1-n3', 'reason' => 'firmware uzlu'])->assertStatus(202)->json();
     $this->flushHeaders();

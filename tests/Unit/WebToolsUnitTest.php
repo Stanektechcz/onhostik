@@ -165,12 +165,15 @@ it('packs and unpacks the whole site: "." is the site root for both file transpo
 
         return ['status' => true];
     };
-    $panel = new AaPanelTransport(Closure::fromCallable($post), new ScriptedShell, '/www/wwwroot/firma.cz');
+    // the node lists the entries before the panel unpacks as root (TASK-0034, IF-7): a clean site archive
+    $panel = new AaPanelTransport(Closure::fromCallable($post), new ScriptedShell(['/--numeric-owner -tzvf/' => implode("\n", ['N 3 3', 'T - 1', 'T d 2'])]), '/www/wwwroot/firma.cz');
     expect($panel->abs('.'))->toBe('/www/wwwroot/firma.cz');
     $panel->archive(['.'], 'onhost-final-abc.tar.gz');
     $zip = collect($sent)->firstWhere(0, 'files.zip')[1];
     expect($zip['sfile'])->toBe('wp-admin,wp-content,index.php,')->and($zip['dfile'])->toBe('/www/wwwroot/firma.cz/onhost-final-abc.tar.gz')->and($zip['path'])->toBe('/www/wwwroot/firma.cz')->and($zip['z_type'])->toBe('tar.gz');
     $panel->extract('site-files.tar.gz', '.');
-    expect(collect($sent)->firstWhere(0, 'files.unzip')[1])->toMatchArray(['sfile' => '/www/wwwroot/firma.cz/site-files.tar.gz', 'dfile' => '/www/wwwroot/firma.cz']);
+    // … from a copy the tenant cannot swap (TASK-0034 review round 1), into the site root
+    $unzip = collect($sent)->firstWhere(0, 'files.unzip')[1];
+    expect($unzip['sfile'])->toStartWith('/www/.onhost-stage/stage-')->and($unzip['dfile'])->toBe('/www/wwwroot/firma.cz');
     expect(fn () => $panel->abs('../other-site'))->toThrow(ProviderException::class);
 });
