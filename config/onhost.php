@@ -725,7 +725,8 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
     // ── end TASK-0031 VIES ──────────────────────────────────────────────────────────────────────────────────────────
     // ── TASK-0037 four-eyes time lock (permission program IF-10, owner default §10 O4) ──
     // with ONHOST_FOUR_EYES=false the sole approver's own critical action waits this long before it may run, cancellable on the
-    // approvals page, with a notice to staff and the customer concerned (docs/runbooks/approvals.md). Never less than one hour.
+    // approvals page, with a notice to staff only — no customer notice yet (program D7 disclosure_restricted: a legal hold
+    // announced to its subject tips them off; docs/runbooks/approvals.md). Never less than one hour.
     'four_eyes_time_lock_hours' => (int) env('ONHOST_FOUR_EYES_TIME_LOCK_HOURS', 24),
     // ── end TASK-0037 ──
 ];

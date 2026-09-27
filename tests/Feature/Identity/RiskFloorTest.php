@@ -7,6 +7,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Compliance\Commands\DataRequestCommand;
 use Onhost\Domain\Domains\Commands\DomainCommand;
+use Onhost\Domain\Identity\Authorization\ApprovalService;
 use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Authorization\IdentityCommandAuthorizer;
 use Onhost\Domain\Identity\Authorization\Models\Approval;
@@ -15,6 +16,7 @@ use Onhost\Domain\Identity\Authorization\PermissionCatalog;
 use Onhost\Domain\Identity\Authorization\RiskAwareCommand;
 use Onhost\Domain\Identity\Authorization\RoleCatalog;
 use Onhost\Domain\Identity\Authorization\RoleResolver;
+use Onhost\Domain\Identity\Authorization\TokenScopes;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Provisioning\Commands\ProvisioningCommand;
@@ -390,4 +392,153 @@ it('lists, read-only, the API tokens that ran an operation below its catalogue r
         ->assertSuccessful();
 
     expect([AuditEvent::query()->count(), OutboxMessage::query()->count(), Approval::query()->count()])->toBe($before); // it writes nothing
+});
+
+// ── review round 1 (TASK-0037) ────────────────────────────────────────────────────────────────────────────────────
+
+it('spends a due time lock once: a repeat that read it as due too, but lost the write, runs nothing (qa HIGH, IF-10)', function () {
+    // releaseTimeLock is what stands in for the second person when one operator runs the platform: two repeats that both
+    // read the lock as due must not both run the action. The harness puts the other request's write between our read and
+    // our update — exactly the window a plain read-then-save would lose.
+    config(['onhost.identity.four_eyes' => false]);
+    [, $org] = $this->customerWithOrganization();
+    $solo = rftUser('platform_owner', 'rft-race@onhost.test');
+    app(StepUpService::class)->grant($solo, 'totp', null, '127.0.0.1');
+    $this->actingAs($solo, 'sanctum');
+    $id = (string) $this->postJson("/v1/staff/customers/{$org->id}/legal-hold", ['hold' => true, 'reason' => 'Souběh dvou opakování'])->assertForbidden()->json('approval_id');
+    $row = Approval::query()->findOrFail($id);
+    $this->travel(24 * 60 + 1)->minutes();
+
+    $raced = false;
+    DB::listen(function ($query) use (&$raced, $id) {
+        if (! $raced && str_starts_with(strtolower(ltrim($query->sql)), 'select') && str_contains($query->sql, 'approvals')) {
+            $raced = true; // the other repeat wins between our read and our write
+            DB::table('approvals')->where('id', $id)->where('state', 'pending')->update(['state' => 'consumed', 'consumed_at' => now()]);
+        }
+    });
+    expect(ApprovalService::releaseTimeLock($row->action, $row->payload_hash, $solo->id))->toBeNull()->and($raced)->toBeTrue();
+});
+
+it('runs a time-locked action once when it is repeated twice back to back after the delay (qa HIGH, IF-10)', function () {
+    config(['onhost.identity.four_eyes' => false]);
+    [, $org] = $this->customerWithOrganization();
+    $solo = rftUser('platform_owner', 'rft-twice@onhost.test');
+    app(StepUpService::class)->grant($solo, 'totp', null, '127.0.0.1');
+    $url = "/v1/staff/customers/{$org->id}/legal-hold";
+    $body = ['hold' => true, 'reason' => 'Dvojí opakování po lhůtě'];
+    $this->actingAs($solo, 'sanctum');
+    $id = (string) $this->postJson($url, $body)->assertForbidden()->json('approval_id');
+    $row = Approval::query()->findOrFail($id);
+    $this->travel(24 * 60 + 1)->minutes();
+    app(StepUpService::class)->grant($solo, 'totp', null, '127.0.0.1');
+
+    // the lock itself: the first release spends it, the second finds nothing to spend
+    expect(ApprovalService::releaseTimeLock($row->action, $row->payload_hash, $solo->id))->toBe($id)
+        ->and(ApprovalService::releaseTimeLock($row->action, $row->payload_hash, $solo->id))->toBeNull();
+
+    // and through the endpoint: with the lock spent, neither repeat runs; with a fresh lock due, only the first does
+    $this->postJson($url, $body)->assertForbidden()->assertJsonPath('error', 'approval_required');
+    $this->travel(24 * 60 + 1)->minutes();
+    app(StepUpService::class)->grant($solo, 'totp', null, '127.0.0.1');
+    $this->postJson($url, $body)->assertOk();
+    $this->postJson($url, $body)->assertForbidden()->assertJsonPath('error', 'approval_required');
+    expect(AuditEvent::query()->where('action', 'compliance.legal_hold')->where('result', 'succeeded')->count())->toBe(1)
+        ->and(Approval::query()->where('state', 'consumed')->count())->toBe(2)                 // the one spent by hand above and the one that ran
+        ->and(Approval::query()->where('state', 'pending')->count())->toBe(1);                 // the second repeat only opened a new lock
+});
+
+it('turns a request left pending when the other approvers went into the sole approver\'s time lock, instead of leaving it stuck (qa MEDIUM)', function () {
+    // opened while two people could decide: an ordinary request for a second person. The other approver leaves before deciding
+    // it — nobody is left who may decide it, and it used to be handed back as it was on every repeat until it expired.
+    config(['onhost.identity.four_eyes' => false]);
+    [, $org] = $this->customerWithOrganization();
+    $requester = rftUser('platform_owner', 'rft-left-alone@onhost.test');
+    $other = rftUser('iam_admin', 'rft-leaves@onhost.test');
+    app(StepUpService::class)->grant($requester, 'totp', null, '127.0.0.1');
+    $url = "/v1/staff/customers/{$org->id}/legal-hold";
+    $body = ['hold' => true, 'reason' => 'Druhý schvalovatel odešel'];
+    $this->actingAs($requester, 'sanctum');
+    $ordinary = (string) $this->postJson($url, $body)->assertForbidden()->assertJsonPath('error', 'approval_required')->json('approval_id');
+    expect(data_get(Approval::query()->findOrFail($ordinary)->payload, 'time_lock'))->toBeNull();
+
+    PolicyBinding::query()->where('principal_id', $other->id)->delete();
+    app(Authorizer::class)->flush();
+
+    $locked = (string) $this->postJson($url, $body)->assertForbidden()->assertJsonPath('error', 'approval_required')->json('approval_id');
+    expect($locked)->not->toBe($ordinary)
+        ->and(data_get(Approval::query()->findOrFail($locked)->payload, 'time_lock.hours'))->toBe(24);
+
+    $this->travel(24 * 60 + 1)->minutes();
+    app(StepUpService::class)->grant($requester, 'totp', null, '127.0.0.1');
+    $this->postJson($url, $body)->assertOk()->assertJsonPath('legal_hold', true);
+    expect(Approval::query()->findOrFail($locked)->state)->toBe('consumed');
+});
+
+it('keeps the staff ticket queue and the withdrawals list closed to an API token of a member of staff (qa MEDIUM, IF-18)', function () {
+    [, $org] = $this->customerWithOrganization();
+    foreach (['support_l1' => '/v1/staff/tickets', 'billing_operator' => '/v1/staff/withdrawals'] as $role => $url) {
+        $member = rftUser($role, "rft-token-{$role}@onhost.test");
+        $token = $member->createToken('rft-staff', TokenScopes::ALL);
+        $token->accessToken->forceFill(['organization_id' => $org->id])->save();
+        app('auth')->forgetGuards();
+        $this->withToken($token->plainTextToken)->getJson($url)->assertForbidden();
+        $this->flushHeaders();
+        app('auth')->forgetGuards();
+        $this->actingAs($member, 'sanctum')->getJson($url)->assertOk(); // the same person in the console reads it
+        app('auth')->forgetGuards();
+    }
+});
+
+it('runs every critical operation of the sole approver through the time lock — whatever is made critical later inherits it (security MEDIUM, P0-12 → IF-9)', function () {
+    // P0-12's criterion "the solo approver's own force-purge is time-locked with cancel" is met by the mechanism, not by the
+    // force purge itself: the waiver path of IdentityCommandAuthorizer takes every operation that ends up CRITICAL. Swept over
+    // every risk-aware operation, so the day IF-9/P0-08 makes a forced purge CRITICAL (staff.service.delete) it is covered.
+    config(['onhost.identity.four_eyes' => false]);
+    $solo = rftUser('platform_owner', 'rft-solo-sweep@onhost.test');
+    app(StepUpService::class)->grant($solo, 'totp', 'rft-session', '127.0.0.1');
+    expect(ApprovalService::waivesFor($solo->id))->toBeTrue();
+    $authorizer = app(Authorizer::class);
+
+    $critical = 0;
+    $ranAtOnce = [];
+    foreach (rftRiskAwareClasses() as $class) {
+        foreach (rftPayloadsOf($class) as $i => $payload) {
+            $command = is_subclass_of($class, GlobalCommand::class) ? new $class("rft-s{$i}", $payload) : new $class('org_rft_sweep', "rft-s{$i}", $payload);
+            $permission = $command->permission();
+            if ($permission === null || ! $authorizer->can($solo, $permission, $command->scope())) {
+                continue;
+            }
+            $risk = PermissionCatalog::effectiveRisk($permission, $command->riskLevel(), $command->name());
+            if ($risk !== PermissionCatalog::CRITICAL && ! $command->requiresApproval()) {
+                continue;
+            }
+            $critical++;
+            if (rftDecide($command, rftContext($solo)) !== [false, 'approval']) {
+                $ranAtOnce[] = $command->name();
+            }
+        }
+    }
+    expect($ranAtOnce)->toBe([])->and($critical)->toBeGreaterThan(0);
+});
+
+it('pins the open items P0-08/IF-9: staff global reach on a customer CRITICAL key and a forced purge still run at HIGH (security MEDIUM)', function () {
+    // PermissionCatalog::floor lowers a customer CRITICAL key to HIGH whoever holds it — also a member of staff whose reach is
+    // a GLOBAL binding (backup_dr_admin deleting any organization's backups, platform_owner filing another organization's
+    // erasure), and a forced purge is still `service.delete` HIGH. Telling the customer's reach from the staff's is the
+    // mode-aware Authorizer of P0-08; the forced purge becomes CRITICAL `staff.service.delete` in IF-9. When either lands this
+    // test fails on purpose: turn it into the proof that staff reach is CRITICAL and that the forced purge waits the time lock.
+    config(['onhost.identity.four_eyes' => false]);
+    [, $org] = $this->customerWithOrganization();
+    $solo = rftUser('platform_owner', 'rft-open-items@onhost.test');
+    $backupAdmin = rftUser('backup_dr_admin', 'rft-backup-admin@onhost.test');
+    app(StepUpService::class)->grant($solo, 'totp', 'rft-session', '127.0.0.1');
+    app(StepUpService::class)->grant($backupAdmin, 'totp', 'rft-session', '127.0.0.1');
+    $deleteBackup = new ServiceActionCommand($org->id, 'rft-open-bdel', ['action' => 'backup.delete', 'params' => []]);
+
+    expect(PermissionCatalog::risk('backup.delete'))->toBe(PermissionCatalog::CRITICAL)->and(PermissionCatalog::floor('backup.delete'))->toBe(PermissionCatalog::HIGH)
+        ->and(PermissionCatalog::risk('service.delete'))->toBe(PermissionCatalog::HIGH);
+    expect(rftDecide($deleteBackup, rftContext($backupAdmin)))->toBe([true, null])
+        ->and(rftDecide($deleteBackup, rftContext($solo)))->toBe([true, null])
+        ->and(rftDecide(new DataRequestCommand($org->id, 'rft-open-erase', ['op' => 'request', 'kind' => 'deletion']), rftContext($solo)))->toBe([true, null])
+        ->and(rftDecide(new ServiceActionCommand($org->id, 'rft-open-purge', ['action' => 'purge', 'params' => ['force' => true, 'reason' => 'podvodná objednávka']]), rftContext($solo)))->toBe([true, null]);
 });

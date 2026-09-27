@@ -114,12 +114,17 @@ final class ApprovalService
     public function request(Command $command, CommandContext $context): Approval
     {
         $hash = HashChain::hashPayload($command->toAudit());
+        // TASK-0037 review round 1 (qa MEDIUM): the sole approver is answered only by a time lock. An ordinary request opened
+        // while somebody else could still decide it has nobody left to decide it once they are gone; handing it back on every
+        // repeat left the action stuck until it expired. It stays on the page (it expires); the lock is what runs out.
+        $waived = self::waivesFor((string) $context->actorId);
         $existing = Approval::query()->where('action', $command->name())->where('payload_hash', $hash)->where('requested_by', (string) $context->actorId)
-            ->where('state', 'pending')->where('expires_at', '>', now())->first();
+            ->where('state', 'pending')->where('expires_at', '>', now())->orderBy('created_at')->get()
+            ->first(fn (Approval $a) => ! $waived || self::timeLockOf($a) !== null);
         if ($existing !== null) {
             return $existing;
         }
-        if (self::waivesFor((string) $context->actorId)) {
+        if ($waived) {
             return $this->requestTimeLock($command, $context, $hash);
         }
         $scope = $command->scope();
