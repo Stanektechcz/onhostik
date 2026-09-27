@@ -49,9 +49,14 @@ Then install the gated deployer from the same SHA (root-owned, outside the site 
 ```bash
 chown -R root:root /www/wwwroot/staging.onhost.cz/.git && chmod -R go-w /www/wwwroot/staging.onhost.cz/.git
 git -C /www/wwwroot/staging.onhost.cz show $SHA:infra/aapanel/install-deployer.sh > /root/install-deployer.sh
-SHA=$SHA FIRST=1 bash /root/install-deployer.sh
+SHA=$SHA FIRST=1 bash /root/install-deployer.sh   # production: SHA=$SHA TAG=<the owner's signed tag> FIRST=1 …
 cat /usr/local/lib/onhost-deploy/source-sha  # = $SHA
 ```
+
+The installer holds the judge to the release rules: in production (`APP_ENV` of `/etc/onhost/app.env`, fail closed) it
+takes a SHA only together with the owner's SSH-signed tag pointing at it (verified against `allowed_signers`, as a
+release is); it only moves forward; `FIRST=1` is refused on a host that already has a deployer. The deployer reads
+`APP_ENV` from `/etc/onhost/app.env` itself and refuses to run when `$APP_DIR/.env` is not that file (install.sh links it).
 
 Then paste `infra/aapanel/nginx-site.conf` into Website → staging.onhost.cz → Config (root = `…/public`), reload nginx
 and open `https://staging.onhost.cz/up` (200) and `https://staging.onhost.cz/healthz`. On staging the site sits behind
