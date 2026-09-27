@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Onhost\Domain\Identity\Authorization\Models\Approval;
 use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
 use Onhost\Domain\Identity\Authorization\TokenScopes;
 use Onhost\Domain\Identity\Models\User;
@@ -20,7 +21,9 @@ use Onhost\Domain\Services\FinalArchive;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Services\ServiceArchiveService;
 use Onhost\Platform\Commands\CommandContext;
+use Onhost\Platform\Errors\DomainError;
 use Onhost\Providers\Contracts\ActualState;
 use Onhost\Providers\Contracts\BackupCapable;
 use Onhost\Providers\Contracts\FileTransport;
@@ -167,20 +170,25 @@ function lpzlCustomerDoors(object $test, Organization $org, Backup $archive, Ser
     ];
 }
 
-it('refuses on the customer routes an archive restore that only a global staff binding allows (IF-4 archive.restore, P0-08)', function () {
+// Each door on its own (review round 1, LOW). A staff role that reaches the door reaches assertMayRestore, where the source
+// check answers first: the archive does not exist for somebody who reads customer backups only through a staff role (404
+// `not_found`, as for a stranger). backup_dr_admin holds no `service.read`, so the action endpoint never let it in (it finds the
+// service as a reader first, 403) — through that door the leak was platform_owner's, whose role carries every customer key.
+it('refuses on the customer routes an archive restore that only a global staff binding allows (IF-4 archive.restore, P0-08)', function (int $door, string $role, int $status, string $error) {
     [, $org] = $this->customerWithOrganization();
     [$archive, $target] = lpzlArchiveAndTarget($org);
-    $backupAdmin = $this->steppedUpStaff('backup_dr_admin'); // backup.read + backup.restore globally, a member of nothing
+    $this->actingAs($this->steppedUpStaff($role), 'sanctum'); // the customer keys through a global staff binding, a member of nothing
 
-    foreach (lpzlCustomerDoors($this, $org, $archive, $target) as $door) {
-        $this->actingAs($backupAdmin, 'sanctum');
-        expect($door()->status())->toBeIn([403, 404]);
-        app('auth')->forgetGuards();
-        $this->flushHeaders();
-    }
+    lpzlCustomerDoors($this, $org, $archive, $target)[$door]()->assertStatus($status)->assertJsonPath('error', $error);
+
     expect(Operation::query()->where('service_id', $target->id)->count())->toBe(0)
         ->and(data_get($archive->fresh()->meta, 'download.waived'))->toBeNull(); // nor did the attempt make the download free
-});
+})->with([
+    'backup_dr_admin, the archive endpoint' => [0, 'backup_dr_admin', 404, 'not_found'],
+    'platform_owner, the archive endpoint' => [0, 'platform_owner', 404, 'not_found'],
+    'platform_owner, the action endpoint' => [1, 'platform_owner', 404, 'not_found'],
+    'backup_dr_admin, the action endpoint (no service.read: refused before, a pin)' => [1, 'backup_dr_admin', 403, 'access_not_approved'],
+]);
 
 it('lets a member of staff restore an archive in staff mode on the platform\'s authority, and a member of the organization as its member', function () {
     [$owner, $org] = $this->customerWithOrganization();
@@ -217,6 +225,60 @@ it('refuses a staff-mode archive restore to a member of staff whose staff role c
     $this->actingAs($support, 'sanctum')->withHeader('Idempotency-Key', (string) Str::ulid())
         ->postJson("/v1/staff/services/{$target->id}/actions", ['action' => 'archive.restore', 'params' => ['backup_id' => $archive->id], 'reason' => 'ticket 4712'])->assertForbidden();
     expect(Operation::query()->where('service_id', $target->id)->count())->toBe(0);
+});
+
+it('asks a member of staff on the staff route for the staff keys, not for their membership of the organization', function () {
+    [, $org] = $this->customerWithOrganization();
+    [$archive, $target] = lpzlArchiveAndTarget($org);
+    $l2 = $this->steppedUpStaff('support_l2'); // staff.service.manage; no staff.backup.read, no staff role carrying the restore
+    OrganizationMembership::query()->create(['organization_id' => $org->id, 'user_id' => $l2->id, 'state' => 'active', 'role_key' => 'org_admin', 'joined_at' => now()]);
+    PolicyBinding::query()->create(['principal_type' => 'user', 'principal_id' => $l2->id, 'role_key' => 'org_admin', 'scope_type' => 'organization', 'scope_id' => $org->id, 'organization_id' => $org->id]);
+    $second = $this->steppedUpStaff('iam_admin');
+    $send = function () use ($l2, $target, $archive) {
+        app('auth')->forgetGuards();
+        $this->flushHeaders();
+
+        return $this->actingAs($l2, 'sanctum')->withHeader('Idempotency-Key', (string) Str::ulid())
+            ->postJson("/v1/staff/services/{$target->id}/actions", ['action' => 'archive.restore', 'params' => ['backup_id' => $archive->id], 'reason' => 'ticket 4713']);
+    };
+
+    // staff mode in an organization of one's own takes a second person first (TASK-0039); given, the restore itself is asked
+    $send()->assertForbidden()->assertJsonPath('error', 'approval_required');
+    Approval::query()->where('requested_by', $l2->id)->where('state', 'pending')->sole()
+        ->forceFill(['state' => 'approved', 'decided_by' => $second->id, 'decided_at' => now(), 'expires_at' => now()->addHour()])->save();
+    $send()->assertNotFound()->assertJsonPath('error', 'not_found'); // the org_admin membership is no staff key
+    expect(Operation::query()->where('service_id', $target->id)->count())->toBe(0);
+
+    // on the customer route the same person is the org_admin they are, and restores
+    app('auth')->forgetGuards();
+    $this->flushHeaders();
+    $this->actingAs($l2, 'sanctum');
+    lpzlCustomerDoors($this, $org, $archive, $target)[0]()->assertOk()->assertJsonPath('service_id', $target->id);
+});
+
+// Defence in depth behind the bus (review round 1, LOW): at HTTP the bus decides first, on the same token view
+// (IdentityCommandAuthorizer::asToken), so a gone token never reaches the service there. This pins that the service itself
+// never falls back to the PERSON's view when the context says a token sent it — the unfixed code asked the person and allowed.
+it('decides a restore sent with a token on that token, never falling back to the person behind it', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    [$archive, $target] = lpzlArchiveAndTarget($org);
+    $archives = app(ServiceArchiveService::class);
+    $context = fn (string $session) => new CommandContext('user', $owner->id, $org->id, null, '127.0.0.1', 'pest', $session);
+    $refused = fn (string $session, string $key) => expect(fn () => $archives->restore($archive, $target, $context($session), $key))
+        ->toThrow(fn (DomainError $e) => expect($e->error)->toBe('access_not_approved')->and($e->status)->toBe(403)); // DomainError::forbidden: "An archive is restored by a person."
+
+    $revoked = $owner->createToken('lpzl-revoked', TokenScopes::ALL)->accessToken;
+    $revoked->forceFill(['organization_id' => $org->id, 'revoked_at' => now()])->save();
+    $refused('token:'.$revoked->getKey(), 'lpzl-token-revoked');
+    $foreign = User::factory()->create()->createToken('lpzl-foreign', TokenScopes::ALL)->accessToken; // a token of somebody else
+    $refused('token:'.$foreign->getKey(), 'lpzl-token-foreign');
+    $refused('token:abc', 'lpzl-token-word'); // no bigint compared with a word (PostgreSQL)
+    expect(Operation::query()->where('service_id', $target->id)->count())->toBe(0);
+
+    // the owner's own token, and the portal session: restored
+    $own = $owner->createToken('lpzl-own', TokenScopes::ALL)->accessToken;
+    $own->forceFill(['organization_id' => $org->id])->save();
+    expect($archives->restore($archive, $target, $context('token:'.$own->getKey()), 'lpzl-token-own')->service_id)->toBe($target->id);
 });
 
 // ── 3. the secondary gates ask the action map ────────────────────────────────────────────────────────────────────────
