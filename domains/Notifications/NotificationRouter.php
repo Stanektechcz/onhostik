@@ -9,6 +9,7 @@ use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Orders\CreditOrderPolicy;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Services\Metering\WebDiskTotal;
 use Onhost\Domain\Services\UsageWatch;
 use Onhost\Domain\Tax\VatNumber;
@@ -241,6 +242,17 @@ final class NotificationRouter
             'identity.registered' => $this->mailOnly($m, (string) ($p['email'] ?? ''), 'welcome', ['jmeno' => $p['name'] ?? '', 'organizace' => $org?->name ?? '', 'url' => "{$portal}/panel"], $locale),
             'organization.invitation.created' => $this->internal($m, 'account', 'Pozvánka do organizace odeslána', ($org?->name ?? '').' · '.($p['email'] ?? '').' · '.($p['role'] ?? ''), '/sprava/zakaznici'),
             'organization.invitation.cancelled' => $this->internal($m, 'account', 'Pozvánka do organizace zrušena', ($org?->name ?? '').' · '.($p['email'] ?? '').' · '.($p['role'] ?? ''), '/sprava/zakaznici'),
+            // ── TASK-0042 (permission program S1-02, D21): ownership in two steps, access given back, grants left unbacked, owner recovery ──
+            'organization.ownership.offered' => $this->ownershipOffered($m, $p, $org, $portal),
+            'organization.ownership.accepted' => $this->ownershipAccepted($m, $p, $org, $portal),
+            'organization.ownership.declined' => $this->customer($m, 'account', 'Nabídka vlastnictví odmítnuta', 'Člen, kterému bylo nabídnuto vlastnictví organizace, ji odmítl. Vlastník se nemění.', '/panel/tym'),
+            'organization.ownership.cancelled' => $this->customer($m, 'account', 'Nabídka vlastnictví zrušena', 'Nabídka převodu vlastnictví organizace byla stažena; nic se nezměnilo.', '/panel/tym'),
+            'organization.access.restored' => $this->customer($m, 'account', 'Přístup obnoven: '.(string) ($p['name'] ?? $p['email'] ?? ''), 'Přístup této osoby byl obnoven ze zálohy oprávnění do stavu před odebráním nebo změnou role. SSH klíče a účty spolupracovníka na panelech si osoba přidá znovu.', '/panel/tym'),
+            'organization.grants.unbacked' => $this->customer($m, 'account', 'Přístupy od člena, který už je nemůže udělit', ((bool) ($p['revoked'] ?? false) ? 'Odebrali jsme ' : 'Evidujeme ').(int) ($p['count'] ?? 0).' přístupů, které udělil člen, jenž je už udělit nemůže (odešel nebo má nižší roli). '.((bool) ($p['revoked'] ?? false) ? 'Každý lze v Týmu obnovit ze zálohy oprávnění.' : 'Zatím zůstávají platné; zkontrolujte je v Týmu.'), '/panel/tym', 'warn'),
+            'organization.owner_recovery.opened' => $this->ownerRecoveryOpened($m, $p, $org, $portal),
+            'organization.owner_recovery.cancelled' => $this->both($m, 'security', 'Obnova vlastníka zrušena', ($org->name ?? '').' · '.(string) ($p['recovery_id'] ?? ''), 'Obnova přístupu vlastníka zrušena', 'Obnova přístupu vlastníka organizace byla zrušena; nic se nezměnilo.', '/sprava/zakaznici', '/panel/tym'),
+            'organization.owner_recovery.completed' => $this->both($m, 'security', 'Obnova vlastníka dokončena', ($org->name ?? '').' · '.(string) ($p['mode'] ?? ''), 'Obnova přístupu vlastníka dokončena', (($p['mode'] ?? '') === 'transfer' ? 'Vlastnictví organizace přešlo na určeného člena.' : 'Dvoufázové ověření vlastníka bylo zrušeno; při příštím přihlášení si ho nastaví znovu.'), '/sprava/zakaznici', '/panel/tym', 'warn'),
+            // ── end TASK-0042 ──
             'ticket.created' => $this->both($m, 'ticket', "Nový tiket {$p['number']}", ($p['name'] ?? $p['email'] ?? '').' · '.($p['subject'] ?? ''), "Přijali jsme váš požadavek {$p['number']}", (string) ($p['subject'] ?? ''), '/sprava/fronta', '/panel/tikety', ($p['priority'] ?? 'p3') === 'p1' ? 'hot' : 'info', (string) ($p['email'] ?? $email), 'ticket-ack', ['cislo' => $p['number'], 'predmet' => $p['subject'] ?? '', 'sla' => $p['first_response_minutes'] ?? '', 'url' => "{$portal}/panel/tikety"]),
             'ticket.replied' => (($p['author_type'] ?? '') === 'staff' || ($p['author_type'] ?? '') === 'ai')
                 ? $this->customer($m, 'ticket', "Odpověď podpory · {$p['number']}", (string) ($p['subject'] ?? ''), '/panel/tikety', 'info', (string) ($p['email'] ?? $email), 'ticket-reply', ['cislo' => $p['number'], 'predmet' => $p['subject'] ?? '', 'uryvek' => mb_substr((string) ($p['excerpt'] ?? ''), 0, 300), 'url' => "{$portal}/panel/tikety"])
@@ -589,6 +601,51 @@ final class NotificationRouter
         }
     }
 
+    // ── TASK-0042 (permission program S1-02, D21) ──
+    /** The member the ownership is offered to hears it in person (in-app and by mail); the organization keeps the line. @param array<string,mixed> $p */
+    private function ownershipOffered(OutboxMessage $m, array $p, ?Organization $org, string $portal): void
+    {
+        $this->notifications->notify('customer', 'account', 'Nabídka vlastnictví organizace', 'Vlastnictví bylo nabídnuto členovi '.(string) ($p['name'] ?? $p['email'] ?? '').'; převede se, až ho přijme.', '/panel/tym', $m->organization_id, null, $m->aggregate_type, $m->aggregate_id, $m->name, 'info');
+        $heir = User::query()->find((string) ($p['to_user_id'] ?? ''));
+        if ($heir === null) {
+            return;
+        }
+        $from = User::query()->find((string) ($p['from_user_id'] ?? ''));
+        $this->notifications->notify('customer', 'account', 'Byla vám nabídnuta organizace '.($org->name ?? ''), 'Přijměte nebo odmítněte ji v Týmu do '.substr((string) ($p['expires_at'] ?? ''), 0, 10).'.', '/panel/tym', $m->organization_id, $heir->id, $m->aggregate_type, $m->aggregate_id, $m->name, 'warn', $heir->locale ?? 'cs');
+        $this->notifications->queueMail('ownership-offered', $heir->email, ['organizace' => (string) ($org->name ?? ''), 'od' => (string) ($from->name ?? ''), 'do' => substr((string) ($p['expires_at'] ?? ''), 0, 10), 'url' => "{$portal}/panel/tym"], $m->aggregate_type, $m->aggregate_id, $m->organization_id, $heir->locale ?? 'cs', $heir->id);
+    }
+
+    /** The ownership moved: the organization sees it, the previous owner hears it by mail (a mandatory account notice). @param array<string,mixed> $p */
+    private function ownershipAccepted(OutboxMessage $m, array $p, ?Organization $org, string $portal): void
+    {
+        $this->customer($m, 'account', 'Vlastnictví organizace převedeno', 'Novým vlastníkem je '.(string) ($p['name'] ?? '').'; předchozí vlastník je správcem organizace.', '/panel/tym', 'warn');
+        $previous = (string) ($p['previous_email'] ?? '');
+        if ($previous !== '') {
+            $this->notifications->queueMail('ownership-transferred', $previous, ['organizace' => (string) ($org->name ?? ''), 'novy' => (string) ($p['name'] ?? ''), 'url' => "{$portal}/panel/tym"], $m->aggregate_type, $m->aggregate_id, $m->organization_id, $org->locale ?? 'cs');
+        }
+    }
+
+    /**
+     * D21: an owner recovery is announced to EVERY current member and to the owner's own address, in person — the notice is what
+     * lets anybody who knows better stop it. Staff hear it too. @param array<string,mixed> $p
+     */
+    private function ownerRecoveryOpened(OutboxMessage $m, array $p, ?Organization $org, string $portal): void
+    {
+        $this->internal($m, 'security', 'Obnova vlastníka zahájena: '.($org->name ?? ''), (string) ($p['mode'] ?? '').' · od '.substr((string) ($p['not_before'] ?? ''), 0, 10).' · '.(string) ($p['ticket_ref'] ?? ''), '/sprava/zakaznici', 'warn');
+        $mode = ($p['mode'] ?? '') === 'transfer' ? 'převod vlastnictví na jiného člena organizace' : 'zrušení dvoufázového ověření vlastníka';
+        $vars = ['organizace' => (string) ($org->name ?? ''), 'zpusob' => $mode, 'od' => substr((string) ($p['not_before'] ?? ''), 0, 10), 'url' => "{$portal}/panel/tym"];
+        $people = User::query()->whereIn('id', OrganizationMembership::query()->where('organization_id', (string) $m->organization_id)->current()->select('user_id'))->get();
+        $owner = User::query()->find((string) ($p['owner_user_id'] ?? ''));
+        if ($owner !== null && ! $people->contains('id', $owner->id)) {
+            $people->push($owner);
+        }
+        foreach ($people as $person) {
+            $this->notifications->notify('customer', 'security.login', 'Probíhá obnova přístupu vlastníka', 'Podpora ONhost zahájila '.$mode.'. Provede se nejdříve '.$vars['od'].'; pokud o tom nevíte, zrušte ji v Týmu.', '/panel/tym', $m->organization_id, $person->id, $m->aggregate_type, $m->aggregate_id, $m->name, 'hot', $person->locale ?? 'cs');
+            $this->notifications->queueMail('owner-recovery-opened', $person->email, $vars, $m->aggregate_type, $m->aggregate_id, $m->organization_id, $person->locale ?? 'cs', $person->id);
+        }
+    }
+
+    // ── end TASK-0042 ──
     // ── TASK-0021 (owner decision 20) ──
     /** Every owner and billing admin of the organization, each in person: in-app and by mail. @param array<string,string> $vars */
     private function creditApprovers(OutboxMessage $m, string $title, string $body, array $vars): void

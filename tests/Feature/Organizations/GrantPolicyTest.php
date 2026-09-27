@@ -10,6 +10,8 @@ use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Organizations\Commands\OrganizationCommand;
 use Onhost\Domain\Organizations\Commands\OrganizationsCommandHandler;
+use Onhost\Domain\Organizations\Commands\OwnershipCommand;
+use Onhost\Domain\Organizations\Commands\OwnershipCommandHandler;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationInvitation;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
@@ -153,6 +155,9 @@ it('tells the listeners that the previous owner was moved to another role by an 
     $heir = grantPolicyMember($org, 'org_admin');
     $command = new OrganizationCommand($org->id, 'transfer-heir', ['op' => 'transfer_ownership', 'user_id' => $heir->id]);
     app(OrganizationsCommandHandler::class)->handle($command, $this->contextFor($owner, $org, 'totp'));
+    // TASK-0042 (I4, TD-9): transfer_ownership OFFERS the ownership; it moves when the heir accepts
+    expect($org->fresh()->owner_user_id)->toBe($owner->id);
+    app(OwnershipCommandHandler::class)->handle(new OwnershipCommand($org->id, 'accept-heir', ['op' => 'accept']), $this->contextFor($heir, $org, 'totp'));
 
     expect($org->fresh()->owner_user_id)->toBe($heir->id)->and(grantPolicyRole($org, $owner))->toBe('org_admin')->and(grantPolicyRole($org, $heir))->toBe('owner');
     $changed = OutboxMessage::query()->where('name', 'organization.member.role_changed')->where('organization_id', $org->id)->get();
@@ -175,8 +180,9 @@ it('lets only the current owner give the organization away — not an administra
         expect($org->fresh()->owner_user_id)->toBe($owner->id, $who);
     }
 
-    // what stays: the owner gives it away
+    // what stays: the owner gives it away — offered, and moved once the heir accepts (TASK-0042, I4)
     $transfer($this->contextFor($owner, $org, 'totp'));
+    app(OwnershipCommandHandler::class)->handle(new OwnershipCommand($org->id, (string) Str::ulid(), ['op' => 'accept']), $this->contextFor($heir, $org, 'totp'));
     expect($org->fresh()->owner_user_id)->toBe($heir->id);
 });
 

@@ -8,6 +8,7 @@ use Onhost\Domain\Compliance\ComplianceService;
 use Onhost\Domain\Compliance\Models\DataRequest;
 use Onhost\Domain\Incidents\Presenters;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Organizations\OwnerRecoveries;
 use Onhost\Platform\Commands\Command;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Commands\CommandHandler;
@@ -24,6 +25,9 @@ final class DataRequestCommandHandler implements CommandHandler
         }
         $organization = Organization::query()->find($command->organizationId) ?? throw DomainError::notFound('organization');
         $reason = $command->get('reason');
+        if ($command->op() === 'request' && in_array((string) $command->get('kind', ''), ['export', 'switching'], true)) {
+            OwnerRecoveries::assertNoHold($organization, 'data_export'); // TASK-0042 (D21): no export while the owner is being recovered
+        }
 
         return ['data' => Presenters::dataRequest(match ($command->op()) {
             'request' => $this->compliance->requestData($organization, (string) $command->get('kind', ''), $context, is_string($reason) ? $reason : null),

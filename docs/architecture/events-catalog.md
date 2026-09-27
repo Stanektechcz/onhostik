@@ -256,3 +256,21 @@ Payload unchanged, meaning sharpened: `partner.payout.requested` is published on
 | --- | --- | --- | --- |
 | `service.staff_panel_login` | service | `service` (label), `ticket_number`, `ticket_id`, `staff_name`, `reason`, `consented` (bool), `at` — a member of staff signed on to the customer's hosting panel through `PanelLoginCommand` (permission program P0-14, IF-16): an open ticket a member opened in the portal about that service, a reason of ≥ 10 characters, the console of the service's family, and without the customer's consent on the ticket a second person or the sole approver's time lock. The one-time link itself is never in the payload. Customer in-app *Podpora ONhost se přihlásila do panelu služby …* (security, warn) + mandatory mail `staff-panel-login` to the owner; staff security line with the reason | PanelLoginCommandHandler |
 <!-- TASK-0039 staff-panel-login: end -->
+
+<!-- TASK-0042 grants-and-restore: begin -->
+Producer additions (TASK-0042, permission program S1-01, S1-02, D21). Existing payloads gained keys only: `organization.member.removed`
+carries `snapshot_id` (the access snapshot taken just before, restorable 90 days; null when the person had nothing), and
+`organization.member.role_changed` carries `via` when it was not a `change_role` — `ownership_transfer` (the cascade of I6 skips
+it: the organization keeps what a previous owner gave) or `access_restore` (a restore that changed a current role).
+`security.mfa` has the new `change` value `reset_by_support` (MfaResetCommand, a completed owner recovery of mode `mfa_reset`).
+
+| Event | Aggregate | Payload / meaning | Source |
+| --- | --- | --- | --- |
+| `organization.ownership.offered` | organization | `transfer_id`, `from_user_id`, `to_user_id`, `email`, `name` (the heir), `expires_at` — the owner offered the ownership to a current member; nothing moved yet. The heir is told in person (in-app, mail `ownership-offered`), the organization in-app | OwnershipTransfers::offer |
+| `organization.ownership.accepted` | organization | `transfer_id`, `from_user_id`, `to_user_id`, `name` (the new owner), `previous_email` — the heir accepted with a fresh step-up; the owner binding moved (both people were snapshotted first). The organization in-app, the previous owner by mail (`ownership-transferred`, mandatory) | OwnershipTransfers::accept |
+| `organization.ownership.declined` / `organization.ownership.cancelled` | organization | `transfer_id`, `from_user_id`, `to_user_id`, `why` (`declined`, `cancelled`, `superseded` by a newer offer) — nothing moved; the organization in-app | OwnershipTransfers |
+| `organization.access.restored` | organization | `user_id`, `email`, `name`, `snapshot_id`, `reason` (the snapshot's), `role` — a person's access was given back exactly as an access snapshot recorded it (organization role and end, project roles, `svc_*` bindings, shares). Panel artefacts (SSH keys, sub-users) are not restored. The organization in-app | AccessSnapshots::restore |
+| `organization.grants.unbacked` | organization | `grantor_id`, `count`, `revoked` (bool: false while `onhost.grants.cascade_enabled` is off — the grants were only recorded), `kinds` (`membership`, `project_role`, `service_share`), `reason` (`member_removed`, `role_changed`) — somebody lost the right to give what they had given; one audit row per grant (`organization.grant.cascade.flag` or `.revoke`); the organization in-app (warn) | GrantCascade |
+| `organization.owner_recovery.opened` | organization | `recovery_id`, `mode` (`mfa_reset` / `transfer`), `owner_user_id`, `new_owner_user_id`, `not_before`, `ticket_ref` — support opened a recovery of a lost owner (a second person approved it). EVERY current member and the owner are told in person (in-app `security.login`, mail `owner-recovery-opened`, mandatory); staff in-app (security). The reason stays with support | OwnerRecoveries::open |
+| `organization.owner_recovery.cancelled` / `organization.owner_recovery.completed` | organization | `recovery_id`, `mode`, `cancelled_by` / `new_owner_user_id` — an org_admin, the owner or support stopped it; or, after the notice period, the owner's MFA was reset or the ownership moved to the named member. Organization and staff in-app | OwnerRecoveries |
+<!-- TASK-0042 grants-and-restore: end -->

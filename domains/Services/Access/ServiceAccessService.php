@@ -11,6 +11,7 @@ use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
 use Onhost\Domain\Identity\Authorization\RoleCatalog;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Notifications\NotificationService;
+use Onhost\Domain\Organizations\AccessSnapshots;
 use Onhost\Domain\Organizations\GrantPolicy;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationInvitation;
@@ -92,6 +93,9 @@ final class ServiceAccessService
         return DB::transaction(function () use ($organization, $service, $email, $capabilities, $context, $until, $note, $user, $member) {
             $grant = $this->openGrant($service, $email) ?? new ServiceAccessGrant(['organization_id' => $organization->id, 'service_id' => $service->id, 'email' => $email]);
             $before = $grant->exists && $grant->state === ServiceAccessGrant::ACTIVE && $grant->user_id !== null ? (array) $grant->capabilities : [];
+            if ($before !== [] && ($before !== $capabilities || $grant->expires_at?->toIso8601String() !== $until?->toIso8601String())) {
+                app(AccessSnapshots::class)->take($organization, (string) $grant->user_id, 'service_access_changed', $context); // I10 (TASK-0042)
+            }
             $grant->forceFill(['capabilities' => $capabilities, 'expires_at' => $until, 'note' => $note !== null ? mb_substr(trim($note), 0, 250) : $grant->note, 'granted_by' => $context->onBehalfOfUserId ?? $context->actorId]);
             $vars = ['sluzba' => $this->serviceName($service), 'organizace' => (string) $organization->name, 'opravneni' => $this->describe($capabilities, (string) ($organization->locale ?? 'cs')), 'do' => $until?->format('j. n. Y') ?? '—'];
             if ($member && $user !== null) {
@@ -158,6 +162,9 @@ final class ServiceAccessService
 
         return DB::transaction(function () use ($organization, $service, $grant, $context, $state) {
             $user = $grant->user_id !== null ? User::query()->find($grant->user_id) : null;
+            if ($user !== null && $grant->state === ServiceAccessGrant::ACTIVE) {
+                app(AccessSnapshots::class)->take($organization, $user->id, 'service_access_revoked', $context); // I10 (TASK-0042): restorable for 90 days
+            }
             if ($user !== null) {
                 $this->unbind($user, $service->id);
             }

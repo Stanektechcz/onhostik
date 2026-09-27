@@ -8,6 +8,7 @@ use Onhost\Domain\Identity\Models\PersonalAccessToken;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Organizations\GrantPolicy;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Organizations\OwnerRecoveries;
 use Onhost\Platform\Commands\Command;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Commands\CommandHandler;
@@ -47,6 +48,7 @@ final class IdentityCommandHandler implements CommandHandler
         // TASK-0042 (permission program S1-01, I5 I8): a token is its person's credential for one organization — only a current
         // member gets one, and it ends no later than their membership does (a member on access until the 10th got a year)
         $organization = Organization::query()->find($command->organizationId) ?? throw DomainError::notFound('organization');
+        OwnerRecoveries::assertNoHold($organization, 'api_token'); // D21: no credential leaves an organization whose owner is being recovered
         $expires = app(GrantPolicy::class)->assertMayIssueToken($organization, $user, now()->addDays(max(1, min(365, $days))));
         $name = trim((string) $command->get('name', ''));
         if ($name === '') {

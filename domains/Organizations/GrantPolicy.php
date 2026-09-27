@@ -13,9 +13,11 @@ use Onhost\Domain\Identity\Authorization\RoleCatalog;
 use Onhost\Domain\Identity\Authorization\RoleResolver;
 use Onhost\Domain\Identity\Models\ServiceAccount;
 use Onhost\Domain\Identity\Models\User;
+use Onhost\Domain\Organizations\Models\AccessSnapshot;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationInvitation;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
+use Onhost\Domain\Organizations\Models\OwnershipTransfer;
 use Onhost\Domain\Organizations\Models\Project;
 use Onhost\Domain\Organizations\Models\ProjectMembership;
 use Onhost\Domain\Services\Access\ServiceAccessService;
@@ -234,6 +236,9 @@ final class GrantPolicy
         if ($context->actorType !== 'user' || $owner === '' || $person !== $owner || (string) $context->actorId !== $owner) {
             throw new DomainError('owner_transfer_only', 'Only the owner of the organization transfers its ownership.', 403);
         }
+        if ($target->id === $owner) { // I2: an offer to oneself is no transfer
+            throw new DomainError('owner_transfer_self', 'You own the organization already; offer it to another member.', 422, ['field' => 'user_id']);
+        }
 
         return $membership;
     }
@@ -352,6 +357,95 @@ final class GrantPolicy
         if (! RoleResolver::exists($roleKey) || in_array($roleKey, RoleCatalog::customerRoleKeys(), true) || RoleCatalog::isResourceRole($roleKey)) {
             throw new DomainError('invalid_role', "Role {$roleKey} is not a staff role; a staff account takes a staff role only.", 422, ['field' => 'role']);
         }
+    }
+
+    /**
+     * Restoring an access snapshot (I10, S1-02) is a grant like any other: the snapshot must be this organization's, unspent and
+     * inside its retention; the restorer is not the person restored (I2), covers what that person holds now (I3) and holds every
+     * role the snapshot gives back at its scope (I1); the owner binding is never restored (I4: an old owner comes back only by a
+     * transfer) and every role must still be one of its scope's allow-list (I11 — a legacy `org_admin` project role stays gone).
+     * I8's one exception: the snapshot proves the person was a member within the retention, so a restore needs no new invitation.
+     */
+    public function assertMayRestore(Organization $organization, CommandContext $context, AccessSnapshot $snapshot): User
+    {
+        if ($snapshot->organization_id !== $organization->id) {
+            throw DomainError::notFound('access snapshot');
+        }
+        if ($snapshot->restored_at !== null) {
+            throw new DomainError('snapshot_restored', 'This snapshot has been restored already; a newer one was taken before that restore.', 409);
+        }
+        if ($snapshot->expires_at->isPast()) {
+            throw new DomainError('snapshot_expired', 'This snapshot is older than its retention and can no longer be restored; invite the person again.', 410);
+        }
+        $target = User::query()->find($snapshot->user_id) ?? throw DomainError::notFound('user');
+        $access = (array) $snapshot->access;
+        $role = $access['membership']['role'] ?? null;
+        if ($role === 'owner' || $organization->owner_user_id === $target->id) {
+            throw new DomainError('owner_role_locked', 'The owner binding is not restored; ownership moves by a transfer.', 403);
+        }
+        foreach ((array) ($access['bindings'] ?? []) as $binding) {
+            $allowed = match ((string) $binding['scope_type']) {
+                'organization' => in_array((string) $binding['role'], RoleCatalog::customerRoleKeys(), true) && $binding['role'] !== 'owner',
+                'project' => in_array((string) $binding['role'], self::PROJECT_ROLES, true),
+                'resource' => RoleCatalog::isResourceRole((string) $binding['role']),
+                default => false,
+            };
+            if (! $allowed) {
+                throw new DomainError('invalid_role', "Role {$binding['role']} cannot be restored at {$binding['scope_type']} scope.", 422);
+            }
+        }
+        foreach ((array) ($access['projects'] ?? []) as $project) {
+            if (! in_array((string) $project['role'], self::PROJECT_ROLES, true)) {
+                throw new DomainError('invalid_role', "Role {$project['role']} cannot be restored inside a project.", 422);
+            }
+        }
+        $actor = $this->grantor($context);
+        if ($actor === null) {
+            return $target;
+        }
+        if ($actor instanceof User && $actor->id === $target->id) {
+            throw new DomainError('self_membership_locked', 'Nobody restores their own access; ask another administrator.', 403);
+        }
+        $current = OrganizationMembership::query()->where('organization_id', $organization->id)->where('user_id', $target->id)->first();
+        if ($current !== null) {
+            $this->assertCovers($organization, $actor, $current->role_key);
+        }
+        if (is_string($role)) { // the membership row is a grant of its own (which organization a request speaks for), binding or not
+            $this->assertGrantorHolds($organization, $context, $role, CommandScope::organization($organization->id));
+        }
+        foreach ((array) ($access['bindings'] ?? []) as $binding) {
+            $scope = match ((string) $binding['scope_type']) {
+                'organization' => CommandScope::organization($organization->id),
+                'project' => CommandScope::project((string) $binding['scope_id'], $organization->id),
+                default => CommandScope::resource((string) $binding['scope_id'], $organization->id, Service::query()->whereKey((string) $binding['scope_id'])->value('project_id')),
+            };
+            $missing = array_values(array_diff(self::permissionsOf((string) $binding['role']) ?? [], $this->authorizer->customerPermissionsAt($actor, $scope)));
+            if ($missing !== []) {
+                throw new DomainError('role_above_own', 'A snapshot can be restored only by somebody whose own role covers everything in it.', 403, ['role' => $binding['role'], 'missing' => array_slice($missing, 0, 5)]);
+            }
+        }
+
+        return $target;
+    }
+
+    /**
+     * Accepting an offered ownership (I4, I6, I8; S1-02, audit TD-9): only the heir it was offered to, in person, while they are
+     * a current member and while whoever offered it is still the owner — ownership that moved meanwhile (an owner recovery, an
+     * earlier transfer) takes the offer with it.
+     */
+    public function assertMayAcceptOwnership(Organization $organization, CommandContext $context, OwnershipTransfer $transfer): User
+    {
+        $person = (string) ($context->onBehalfOfUserId ?? $context->actorId);
+        if ($context->actorType !== 'user' || $person !== (string) $context->actorId || $person !== $transfer->to_user_id) {
+            throw new DomainError('owner_transfer_heir_only', 'Only the member the ownership was offered to accepts it, in person.', 403);
+        }
+        if ($organization->owner_user_id !== $transfer->from_user_id) {
+            throw new DomainError('ownership_offer_invalid', 'This ownership offer is no longer valid: the organization has another owner now.', 409);
+        }
+        $heir = User::query()->find($transfer->to_user_id) ?? throw DomainError::notFound('user');
+        self::currentMembership($organization, $heir);
+
+        return $heir;
     }
 
     /**

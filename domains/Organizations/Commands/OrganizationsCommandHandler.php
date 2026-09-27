@@ -8,12 +8,16 @@ use Illuminate\Support\Carbon;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Incidents\OrganizationStatusService;
 use Onhost\Domain\Notifications\CalendarFeed;
+use Onhost\Domain\Organizations\AccessSnapshots;
 use Onhost\Domain\Organizations\GrantPolicy;
+use Onhost\Domain\Organizations\Models\AccessSnapshot;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationInvitation;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Organizations\Models\Project;
 use Onhost\Domain\Organizations\OrganizationService;
+use Onhost\Domain\Organizations\OwnerRecoveries;
+use Onhost\Domain\Organizations\OwnershipTransfers;
 use Onhost\Domain\Organizations\ProjectService;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Platform\Commands\Command;
@@ -74,12 +78,16 @@ final class OrganizationsCommandHandler implements CommandHandler
             })(),
             'assign_service_project' => ['service' => $this->projects->assignService($organization, $this->service($organization, $command), $command->get('project_id') ? $this->project($organization, $command) : null, $context)],
             'rotate_calendar_feed' => ['feed' => $this->calendar->rotate($organization, $context)],
-            'transfer_ownership' => (function () use ($organization, $command, $context) {
-                $heir = $this->user($command);
-                $this->grants->assertMayTransferOwnership($organization, $context, $heir);
+            // TASK-0042 (I4, audit TD-9): an offer the heir accepts (OwnershipCommand), never a move made for them
+            'transfer_ownership' => ['transfer' => OwnershipTransfers::present(app(OwnershipTransfers::class)->offer($organization, $this->user($command), $context))],
+            'restore_access' => (function () use ($organization, $command, $context) {
+                OwnerRecoveries::assertNoHold($organization, 'access_restore'); // nobody is let back in while the owner is being recovered
+                $snapshot = AccessSnapshot::query()->where('organization_id', $organization->id)->find((string) $command->get('snapshot_id')) ?? throw DomainError::notFound('access snapshot');
+                $this->grants->assertMayRestore($organization, $context, $snapshot);
 
-                return ['organization' => $this->organizations->transferOwnership($organization, $heir, $context)];
+                return app(AccessSnapshots::class)->restore($organization, $snapshot, $context);
             })(),
+            'cancel_owner_recovery' => ['recovery' => OwnerRecoveries::present(app(OwnerRecoveries::class)->cancel($organization, $context))],
             default => throw new DomainError('organization_op_unknown', "Unknown organization operation {$command->op()}.", 422),
         };
     }

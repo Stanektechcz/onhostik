@@ -29,10 +29,10 @@ final class AccessExpiry
         private readonly OutboxPublisher $outbox,
     ) {}
 
-    /** @return array{memberships:int, project_roles:int, errors:int} */
+    /** @return array{memberships:int, project_roles:int, errors:int, snapshots_pruned:int} */
     public function sweep(): array
     {
-        $stats = ['memberships' => 0, 'project_roles' => 0, 'errors' => 0];
+        $stats = ['memberships' => 0, 'project_roles' => 0, 'errors' => 0, 'snapshots_pruned' => 0];
         $context = CommandContext::system('access expired');
 
         // project roles first: an expired membership removes the person from the organization's projects anyway
@@ -80,6 +80,9 @@ final class AccessExpiry
                 $stats['errors']++;
             }
         }
+
+        // I10 (TASK-0042): an access snapshot is restorable for its retention (90 days) and then gone for good
+        $stats['snapshots_pruned'] = app(AccessSnapshots::class)->prune();
 
         return $stats;
     }

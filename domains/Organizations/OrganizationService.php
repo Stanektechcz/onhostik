@@ -18,6 +18,7 @@ use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationInvitation;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Organizations\Models\Project;
+use Onhost\Domain\Organizations\Models\ProjectMembership;
 use Onhost\Domain\Tax\Jobs\CheckVatNumber;
 use Onhost\Domain\Tax\VatNumber;
 use Onhost\Domain\Tax\VatNumberChecks;
@@ -129,7 +130,11 @@ final class OrganizationService
         if ($current === null) { // IF-2 (TD-2): a role change made a stranger a member — the way in is an invitation, never an id
             throw DomainError::notFound('member');
         }
-        $membership = $this->attachMember($organization, $user, $roleKey, $context, joinedNow: false, accessUntil: $setAccess ? $accessUntil : $current->expires_at);
+        $until = $setAccess ? $accessUntil : $current->expires_at;
+        if ($current->role_key !== $roleKey || $current->expires_at?->toIso8601String() !== $until?->toIso8601String()) {
+            app(AccessSnapshots::class)->take($organization, $user->id, 'role_changed', $context); // I10 (TASK-0042): restorable for 90 days
+        }
+        $membership = $this->attachMember($organization, $user, $roleKey, $context, joinedNow: false, accessUntil: $until);
         // a smaller role may no longer cover what the old one put on the panels (H332): the listener takes back the person's
         // SSH keys and collaborator accounts on the services they can no longer manage
         if ($current->role_key !== $roleKey) {
@@ -144,19 +149,24 @@ final class OrganizationService
         if ($organization->owner_user_id === $user->id) {
             throw new DomainError('owner_cannot_be_removed', 'Transfer ownership before removing the owner.');
         }
-        $removed = DB::transaction(function () use ($organization, $user, $context) {
+        [$removed, $snapshot] = DB::transaction(function () use ($organization, $user, $context) {
+            // I10 (TASK-0042): what the person could do here is kept 90 days first — one restore gives it back exactly
+            $snapshot = app(AccessSnapshots::class)->take($organization, $user->id, 'member_removed', $context);
             $removed = OrganizationMembership::query()->where('organization_id', $organization->id)->where('user_id', $user->id)->delete();
             PolicyBinding::query()->where('principal_type', 'user')->where('principal_id', $user->id)
                 ->where('organization_id', $organization->id)->delete();
-            $this->audit->record($context->withScope($organization->id), 'organization.member.remove', 'succeeded', ['user_id' => $user->id], 'organization', $organization->id);
+            // the project-role rows mirrored bindings that are gone now; left behind they made a later member look like a project member
+            ProjectMembership::query()->where('user_id', $user->id)->whereIn('project_id', Project::query()->where('organization_id', $organization->id)->select('id'))->delete();
+            app(Authorizer::class)->forget($user);
+            $this->audit->record($context->withScope($organization->id), 'organization.member.remove', 'succeeded', ['user_id' => $user->id, 'snapshot_id' => $snapshot?->id], 'organization', $organization->id);
 
-            return $removed;
+            return [$removed, $snapshot];
         });
         if ($removed === 0) { // TASK-0036: nobody left who was never in — the listeners (TASK-0035) act on this event
             return;
         }
         // panel accounts are keyed by e-mail and would outlive the membership (H333): the listener removes them through audited operations
-        $this->outbox->publish(GenericEvent::of('organization.member.removed', 'organization', $organization->id, ['user_id' => $user->id, 'email' => mb_strtolower((string) $user->email)], $organization->id));
+        $this->outbox->publish(GenericEvent::of('organization.member.removed', 'organization', $organization->id, ['user_id' => $user->id, 'email' => mb_strtolower((string) $user->email), 'snapshot_id' => $snapshot?->id], $organization->id));
     }
 
     /**
@@ -276,6 +286,9 @@ final class OrganizationService
             if ($current !== null && ! GrantPolicy::widens($current, $invitation->role_key, $until)) {
                 return $current;
             }
+            if ($current !== null) {
+                app(AccessSnapshots::class)->take($organization, $user->id, 'invitation_widened', $context); // I10: a role change like any other
+            }
 
             return $this->attachMember($organization, $user, $invitation->role_key, $context, joinedNow: true, accessUntil: $until, grantedBy: $invitation->invited_by !== null ? (string) $invitation->invited_by : null);
         });
@@ -289,6 +302,9 @@ final class OrganizationService
                 return $organization;
             }
             $heirRole = OrganizationMembership::query()->where('organization_id', $organization->id)->where('user_id', $newOwner->id)->value('role_key');
+            foreach ([$previous, $newOwner] as $person) { // I10 (TASK-0042): both people change role
+                app(AccessSnapshots::class)->take($organization, $person->id, 'ownership_transferred', $context);
+            }
             $organization->forceFill(['owner_user_id' => $newOwner->id])->save();
             $this->attachMember($organization, $newOwner, 'owner', $context, joinedNow: true);
             $this->attachMember($organization, $previous, 'org_admin', $context);

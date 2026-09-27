@@ -19,6 +19,7 @@ use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Organizations\Commands\AcceptInvitationCommand;
 use Onhost\Domain\Organizations\Commands\OrganizationCommand;
 use Onhost\Domain\Organizations\Commands\OwnershipCommand;
+use Onhost\Domain\Organizations\Commands\OwnershipCommandHandler;
 use Onhost\Domain\Organizations\GrantPolicy;
 use Onhost\Domain\Organizations\Models\AccessSnapshot;
 use Onhost\Domain\Organizations\Models\Organization;
@@ -649,7 +650,8 @@ function gmxMatrix(): array
                 [$owner, $org] = $t->customerWithOrganization();
                 $admin = gmxMember($org, 'org_admin');
                 $heir = gmxMember($org, 'developer');
-                gmxRefuses(fn () => gmxOwnership($admin, $org, ['op' => 'offer', 'user_id' => $heir->id]), 'owner_transfer_only');
+                gmxRefuses(fn () => gmxOwnership($admin, $org, ['op' => 'offer', 'user_id' => $heir->id]), 'access_not_approved'); // organization.close is the owner's alone
+                gmxRefuses(fn () => app(OwnershipCommandHandler::class)->handle(new OwnershipCommand($org->id, 'gmx-own-'.Str::ulid(), ['op' => 'offer', 'user_id' => $heir->id]), gmxContext($admin, $org)), 'owner_transfer_only'); // and the policy says so too
                 gmxOwnership($owner, $org, ['op' => 'offer', 'user_id' => $heir->id]);
                 expect($org->fresh()->owner_user_id)->toBe($owner->id); // an offer moves nothing: the heir accepts it
                 gmxOwnership($heir, $org, ['op' => 'accept']);
@@ -863,7 +865,10 @@ function gmxMatrix(): array
                 [$owner, $org] = $t->customerWithOrganization();
                 $heir = gmxMember($org, 'org_admin');
                 $staff = $t->steppedUpStaff('platform_owner');
-                gmxRefuses(fn () => gmxOwnership($staff, $org, ['op' => 'offer', 'user_id' => $heir->id]), 'owner_transfer_only');
+                // at the bus a global binding on organization.close is staff reach on a customer CRITICAL key: a second person (P0-08);
+                // with one, the policy still says no — the owner alone offers the ownership
+                gmxRefuses(fn () => gmxOwnership($staff, $org, ['op' => 'offer', 'user_id' => $heir->id]), 'approval_required');
+                gmxRefuses(fn () => app(OwnershipCommandHandler::class)->handle(new OwnershipCommand($org->id, 'gmx-own-'.Str::ulid(), ['op' => 'offer', 'user_id' => $heir->id]), gmxContext($staff, $org)), 'owner_transfer_only');
                 // D21: a lost owner is recovered by the owner recovery, never by resetting their MFA on the side
                 $iam = $t->steppedUpStaff('iam_admin');
                 gmxRefuses(fn () => app(CommandBus::class)->dispatch(new MfaResetCommand('gmx-mfa-'.Str::ulid(), ['user_id' => $owner->id, 'reason' => 'ztratil telefon']), new CommandContext('user', $iam->id, null, null, '127.0.0.1', 'pest', 'gmx-staff', staffMode: true)), 'owner_recovery_required');
