@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -11,15 +12,19 @@ use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Organizations\Models\Project;
+use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderBinding;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
+use Onhost\Domain\Provisioning\OperationService;
 use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Provisioning\Workflows\ServiceActionWorkflow;
 use Onhost\Domain\Services\FinalArchive;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Services\ServiceService;
+use Onhost\Platform\Commands\CommandContext;
 use Onhost\Providers\Contracts\ActualState;
 use Onhost\Providers\Contracts\BackupCapable;
 use Onhost\Providers\Contracts\FileTransport;
@@ -216,4 +221,97 @@ it('keeps a failed copy failed on the retry, so a restore in place writes nothin
     expect(driveOperation(Operation::query()->findOrFail($id))->state)->toBe(Operation::FAILED)
         ->and($log)->not->toContain('upload')->not->toContain('extract')
         ->and(Backup::query()->where('service_id', $site->id)->where('kind', 'pre_restore')->where('state', 'completed')->count())->toBe(0);
+});
+
+// TASK-0035 review round 1 (qa, HIGH): the two checks of assertMayRestore apart. This person MAY read the archive's source (an
+// organization-wide viewer) — so no 404 from the source check hides the answer — and holds `backup.restore` only through a
+// share of the target (`svc_restore`, the exploit of ruling #10). The bus lets the command through (it asks on the target
+// service, where the share is); the refusal can only come from the target check, and it names the scope it wanted.
+it('refuses a restore held only through a share of the target, even to a person who may read the source', function () {
+    [, $org] = $this->customerWithOrganization();
+    $alpha = Project::query()->create(['organization_id' => $org->id, 'slug' => 'alpha', 'name' => 'Alpha']);
+    $old = arsWebService($org, 'stary.cz');
+    $archive = arsArchive($old);
+    arsCancelled($old);
+    $mine = arsWebService($org, 'muj.cz');
+    $inProject = arsWebService($org, 'projekt.cz', $alpha->id);
+    $reader = arsPerson($org, 'viewer', 'organization', null); // backup.read on every service of the organization, no restore anywhere
+    foreach ([$mine, $inProject] as $target) {
+        PolicyBinding::query()->create(['principal_type' => 'user', 'principal_id' => $reader->id, 'role_key' => 'svc_restore', 'scope_type' => 'resource', 'scope_id' => $target->id, 'organization_id' => $org->id]);
+    }
+    $this->actingAs($reader, 'sanctum');
+
+    arsGeneric($this, $mine, $archive)->assertForbidden()->assertJsonPath('error', 'forbidden')->assertJsonPath('permission', 'backup.restore')->assertJsonPath('scope', 'organization');
+    arsGeneric($this, $inProject, $archive)->assertForbidden()->assertJsonPath('error', 'forbidden')->assertJsonPath('permission', 'backup.restore')->assertJsonPath('scope', 'project');
+    expect(Operation::query()->whereIn('service_id', [$mine->id, $inProject->id])->count())->toBe(0)
+        ->and(data_get($archive->fresh()->meta, 'download.waived'))->toBeNull();
+});
+
+/** A delivered VPS on the Proxmox lab cluster (the shape SafetyCopyTest uses), for the hypervisor side of the safety copy. */
+function arsVps(Organization $org): Service
+{
+    $instance = pveLab();
+    $node = Node::query()->where('name', 'prg1-n2')->firstOrFail();
+    $service = Service::query()->create([
+        'organization_id' => $org->id, 'product_key' => 'vps', 'family' => 'cloud', 'name' => 'Compute 4', 'hostname' => 'vm-ars.cust.onhost.cz', 'state' => ServiceStateMachine::ACTIVE,
+        'region_code' => 'cz1', 'provider_instance_id' => $instance->id, 'node_id' => $node->id, 'desired_spec' => ['executor' => 'proxmox', 'family' => 'cloud'],
+        'entitlements' => ['vcpu' => 4, 'ram_mb' => 8192, 'nvme_gb' => 160, 'snapshots' => 5], 'sla_class' => 'standard', 'activated_at' => now(), 'tags' => [],
+    ]);
+    ProviderBinding::query()->create(['service_id' => $service->id, 'provider_instance_id' => $instance->id, 'remote_type' => 'qemu', 'remote_id' => '1042', 'remote_node' => 'prg1-n2', 'meta' => ['name' => 'vm-ars'], 'ownership' => ['managed_by' => 'onhost'], 'idempotency_key' => "ars-vps:{$service->id}", 'adapter_version' => '1.0.0']);
+
+    return $service;
+}
+
+// TASK-0035 review round 1 (security, MEDIUM): "fails closed" for the hypervisor too. The safety snapshot's task was never
+// confirmed — its state stayed unknown, then the hypervisor reported it failed — and the operator's retry used to find the row
+// still "running", call it completed and roll the server back with no copy. Now the retry asks the hypervisor about that very
+// task, fails the row and takes a NEW snapshot; the rollback runs only after a snapshot the hypervisor confirmed.
+it('rolls a server back only over a snapshot the hypervisor confirmed, also on the operator retry', function () {
+    $calls = [];
+    $firstPolls = 0;
+    Http::fake(function (Request $request) use (&$calls, &$firstPolls) {
+        $url = $request->url();
+        if (! str_starts_with($url, 'https://pve.mgmt.test:8006')) {
+            return null;
+        }
+        if (str_contains($url, '/snapshot/vcerejsi/rollback')) {
+            $calls[] = 'rollback';
+
+            return Http::response(['data' => 'UPID:prg1-n2:0000C0C0:00000001:66F0AA19:qmrollback:1042:onhost@pve!cp:']);
+        }
+        if (str_ends_with($url, '/qemu/1042/snapshot') && $request->method() === 'POST') {
+            $calls[] = 'snapshot';
+
+            return Http::response(['data' => count($calls) === 1
+                ? 'UPID:prg1-n2:0000AAAA:00000001:66F0AA19:qmsnapshot:1042:onhost@pve!cp:'   // the first safety snapshot: never confirmed
+                : 'UPID:prg1-n2:0000BBBB:00000002:66F0AA19:qmsnapshot:1042:onhost@pve!cp:']); // the one the retry takes
+        }
+        if (str_contains($url, '/tasks/') && str_contains($url, '0000AAAA')) {
+            return $firstPolls++ === 0
+                ? Http::response(['errors' => ['upid' => 'no such task']], 404) // AsyncStatus::UNKNOWN — the runner polls again
+                : Http::response(['data' => ['status' => 'stopped', 'exitstatus' => 'snapshot feature is not available']]);
+        }
+        if (str_contains($url, '/tasks/')) {
+            return Http::response(['data' => ['status' => 'stopped', 'exitstatus' => 'OK']]);
+        }
+
+        return Http::response(['data' => []]);
+    });
+    [$user, $org] = $this->customerWithOrganization();
+    $service = arsVps($org);
+
+    $operation = driveOperation(app(ServiceService::class)->requestAction($service, 'rollback_snapshot', $this->contextFor($user, $org, 'webauthn'), 'ars-roll-1', ['name' => 'vcerejsi']));
+    expect($operation->state)->toBe(Operation::FAILED)->and($calls)->toBe(['snapshot']) // nothing rolled back
+        ->and($firstPolls)->toBeGreaterThanOrEqual(2);                                   // UNKNOWN first, then the task's failure
+
+    app(OperationService::class)->retry($operation, CommandContext::system('test'), 'the storage was fixed');
+    $operation = driveOperation($operation);
+
+    expect($calls)->toBe(['snapshot', 'snapshot', 'rollback']) // a new copy, confirmed, THEN the rollback — against the old code: ['snapshot', 'rollback']
+        ->and($operation->state)->toBe(Operation::SUCCEEDED);
+    $copies = Backup::query()->where('service_id', $service->id)->where('kind', 'pre_rollback')->orderBy('started_at')->get();
+    expect($copies)->toHaveCount(2)
+        ->and($copies->where('state', 'completed')->count())->toBe(1)
+        ->and($copies->where('state', 'failed')->count())->toBe(1)
+        ->and((string) data_get($copies->firstWhere('state', 'completed')?->meta, 'task.handle'))->toContain('0000BBBB');
 });

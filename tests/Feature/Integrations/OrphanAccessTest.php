@@ -9,12 +9,14 @@ use Onhost\Domain\Integrations\ActionHookService;
 use Onhost\Domain\Integrations\DiscordService;
 use Onhost\Domain\Integrations\Models\ActionHook;
 use Onhost\Domain\Integrations\Models\DiscordLink;
+use Onhost\Domain\Organizations\Listeners\RevokeMemberSideDoors;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Platform\Audit\AuditEvent;
 use Onhost\Platform\Commands\CommandContext;
+use Onhost\Platform\Outbox\OutboxMessage;
 use Onhost\Platform\Outbox\OutboxPublisher;
 
 /*
@@ -100,6 +102,35 @@ it('gives a removed member nothing through Discord and disables the hooks they m
     // let back in later as a viewer: the old hook stays off — it was hers, it is not re-armed by a new membership
     app(OrganizationService::class)->attachMember($org, $jana, 'viewer', CommandContext::system('test'), joinedNow: true);
     expect($hook->fresh()->enabled)->toBeFalse();
+});
+
+// TASK-0035 review round 1 (qa, MEDIUM): the outbox delivers at least once. The same removal delivered again changes nothing
+// and records nothing more — and a late copy that arrives after the person was let back in as an administrator does not take
+// the NEW link they made since (the listener asks today's membership, not the event).
+it('does nothing more when the same removal is delivered again, even after the person was let back in', function () {
+    [, $org] = $this->customerWithOrganization();
+    featureWebService($org, 'aapanel');
+    $service = Service::query()->where('organization_id', $org->id)->sole();
+    $eva = orphanMember($org, 'org_admin', 'eva@orphan.test');
+    orphanLinkDiscord($org, $eva, '5008');
+    orphanHook($org, $eva, $service);
+
+    app(OrganizationService::class)->removeMember($org, $eva, CommandContext::system('test'));
+    orphanRelay();
+    $removed = OutboxMessage::query()->where('name', 'organization.member.removed')->where('aggregate_id', $org->id)->sole();
+    $listener = app(RevokeMemberSideDoors::class);
+
+    $listener->handle($removed); // delivered a second time
+    orphanRelay();               // and the relay run once more
+    expect(AuditEvent::query()->where('action', 'integration.discord.revoke')->count())->toBe(1)
+        ->and(AuditEvent::query()->where('action', 'integration.hook.disable')->count())->toBe(1);
+
+    app(OrganizationService::class)->attachMember($org, $eva, 'org_admin', CommandContext::system('test'), joinedNow: true);
+    $newLink = orphanLinkDiscord($org, $eva, '5009');
+    $listener->handle($removed); // a late copy of the old removal
+    expect($newLink->fresh()->state)->toBe('linked')
+        ->and(AuditEvent::query()->where('action', 'integration.discord.revoke')->count())->toBe(1)
+        ->and(AuditEvent::query()->where('action', 'integration.hook.disable')->count())->toBe(1);
 });
 
 it('answers a Discord command with the current membership even before the listener ran', function () {
