@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Onhost\Providers\Contracts;
 
+use Onhost\Platform\Errors\ProviderException;
+
 /**
  * A panel that can say whose account a server sits under today, judged against the organization it is sold to (TASK-0033,
  * permission program IF-6). What a domain needs to know before it acts on the panel's account for a customer — nothing more.
@@ -19,7 +21,7 @@ interface ServerOwnership
     /**
      * One of owned | foreign | unmarked | administrator | missing | moved (the vocabulary of `onhost:game:panel-identity`).
      *
-     * @throws \Onhost\Platform\Errors\ProviderException when the panel cannot be asked
+     * @throws ProviderException when the panel cannot be asked
      */
     public function ownerVerdict(ResourceRef $server, string $organizationId): string;
 }
