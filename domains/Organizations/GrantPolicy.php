@@ -13,6 +13,7 @@ use Onhost\Domain\Identity\Authorization\RoleResolver;
 use Onhost\Domain\Identity\Models\ServiceAccount;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Organizations\Models\OrganizationInvitation;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Organizations\Models\Project;
 use Onhost\Domain\Organizations\Models\ProjectMembership;
@@ -35,8 +36,10 @@ use Onhost\Platform\Errors\DomainError;
  *  · I9  accepting an invitation never lowers a current membership;
  *  · I11 a project role comes from an allow-list.
  * Unknown role keys fail closed: they grant nothing, and a member holding one is covered only by somebody who holds every
- * customer permission (the owner). The system actor (sweeps, an accepted invitation) is bound by the target invariants but
- * has no grantor to compare. Staff acting for a customer are not compared either — that is P0-08 (`StaffActor`, IF-8).
+ * customer permission (the owner). The system actor (sweeps) is bound by the target invariants but has no grantor to compare.
+ * Staff are compared by what they hold in the organization, never by a global binding (red-team round, audit SS-1); staff
+ * tooling for customer memberships needs a staff permission and command of its own (P0-08, `StaffActor`, IF-8).
+ * An invitation is a grant that has not landed yet: it counts only while its sender could still send it (backs(), I6).
  */
 final class GrantPolicy
 {
@@ -142,6 +145,44 @@ final class GrantPolicy
     }
 
     /**
+     * Whether the person who sent an invitation could send it NOW (program I6, audit TD-6; red-team round of the Phase-0 chain).
+     * A link used to be good for its seven days whoever sent it and whatever became of them: an org_admin invited a second
+     * mailbox of their own as org_admin, was removed, clicked and was back. Asked when the link is clicked (fail closed) and by
+     * the member listener, which withdraws what no longer holds. The sender must still be a current member (a service account:
+     * an active one of this organization) who holds organization.members.manage — what inviting and sharing ask — and every
+     * permission of the role (I1), all of it by their bindings IN this organization (customerPermissionsAt). No sender on
+     * record, an unknown role or the owner role back nothing.
+     */
+    public function backs(Organization $organization, OrganizationInvitation $invitation): bool
+    {
+        $granted = $invitation->role_key === 'owner' ? null : self::permissionsOf((string) $invitation->role_key);
+        $sender = self::sender($organization, $invitation);
+        if ($granted === null || $sender === null) {
+            return false;
+        }
+        $this->authorizer->forget($sender); // asked right after the change that may have taken it (the listener runs in that request)
+        $held = $this->authorizer->customerPermissionsAt($sender, CommandScope::organization($organization->id));
+
+        return in_array('organization.members.manage', $held, true) && array_diff($granted, $held) === [];
+    }
+
+    /** The invitation's sender while they still belong to the organization, else null. */
+    private static function sender(Organization $organization, OrganizationInvitation $invitation): User|ServiceAccount|null
+    {
+        $id = (string) ($invitation->invited_by ?? '');
+        if ($id === '') {
+            return null;
+        }
+        $user = User::query()->find($id);
+        if ($user !== null) {
+            return OrganizationMembership::query()->where('organization_id', $organization->id)->where('user_id', $user->id)->current()->exists() ? $user : null;
+        }
+        $account = ServiceAccount::query()->find($id);
+
+        return $account !== null && $account->organization_id === $organization->id ? $account : null;
+    }
+
+    /**
      * I9: does accepting an invitation for `$offered` (ending at `$offeredUntil`) give the member strictly more than the
      * current membership? Anything else — a smaller or sideways role, an access that would end sooner — keeps what they have.
      */
@@ -206,7 +247,7 @@ final class GrantPolicy
         if ($granted === null) {
             throw new DomainError('invalid_role', "Role {$roleKey} does not exist.", 422, ['field' => 'role']);
         }
-        $missing = array_values(array_diff($granted, $this->authorizer->permissionsAt($actor, $scope)));
+        $missing = array_values(array_diff($granted, $this->authorizer->customerPermissionsAt($actor, $scope)));
         if ($missing !== []) {
             throw new DomainError('role_above_own', 'A role can be granted only by somebody whose own role covers it.', 403, ['field' => 'role', 'missing' => array_slice($missing, 0, 5)]);
         }
@@ -215,7 +256,7 @@ final class GrantPolicy
     /** I3: the actor holds everything the target's current role carries; a role nobody knows is covered by the owner alone. */
     private function assertCovers(Organization $organization, User|ServiceAccount $actor, string $targetRole, ?CommandScope $scope = null): void
     {
-        $held = $this->authorizer->permissionsAt($actor, $scope ?? CommandScope::organization($organization->id));
+        $held = $this->authorizer->customerPermissionsAt($actor, $scope ?? CommandScope::organization($organization->id));
         $theirs = self::permissionsOf($targetRole) ?? array_values(array_filter(PermissionCatalog::keys(), fn ($k) => PermissionCatalog::all()[$k]['audience'] === 'customer'));
         if (array_diff($theirs, $held) !== []) {
             throw new DomainError('member_above_own', 'You can change or remove only somebody whose role your own role covers.', 403, ['role' => $targetRole]);
@@ -223,8 +264,10 @@ final class GrantPolicy
     }
 
     /**
-     * The person whose rights a grant is compared with: null for the system (nothing to compare) and for staff acting for a
-     * customer (IF-8 replaces that shortcut). An actor that cannot be found grants nothing.
+     * The person whose rights a grant is compared with: null for the system (nothing to compare). Staff are compared like
+     * everybody else, by what they hold in THIS organization (Authorizer::customerPermissionsAt): a global binding is no
+     * customer grant right (red-team round of the Phase-0 chain, audit SS-1 — `is_staff` returned null here and skipped
+     * I1–I3). An actor that cannot be found grants nothing.
      */
     private function grantor(CommandContext $context): User|ServiceAccount|null
     {
@@ -234,11 +277,7 @@ final class GrantPolicy
         if ($context->actorType === 'service_account') {
             return ServiceAccount::query()->find((string) $context->actorId) ?? throw DomainError::forbidden('Unknown actor.');
         }
-        $user = User::query()->find((string) ($context->onBehalfOfUserId ?? $context->actorId));
-        if ($user === null) {
-            throw DomainError::forbidden('Unknown actor.');
-        }
 
-        return $user->is_staff ? null : $user;
+        return User::query()->find((string) ($context->onBehalfOfUserId ?? $context->actorId)) ?? throw DomainError::forbidden('Unknown actor.');
     }
 }

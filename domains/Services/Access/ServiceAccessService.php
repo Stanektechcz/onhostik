@@ -279,17 +279,21 @@ final class ServiceAccessService
 
     /**
      * Nobody hands out what they do not hold themselves on that service (the rule of the team page, asked at the service).
+     * Staff included, by what they hold in the customer's organization: `is_staff` skipped the rule, and a global binding shared
+     * any customer's service — the console with it — with any address (red-team round of the Phase-0 chain, audit SS-1; staff
+     * tooling needs a staff permission of its own, P0-08).
      *
      * @param  list<string>  $capabilities
      */
     private function assertMayGrant(?User $actor, Service $service, array $capabilities, CommandContext $context): void
     {
-        if ($actor === null || $actor->is_staff) {
-            return; // the platform and its staff act under their own permissions (checked by the command)
+        if ($actor === null) {
+            return; // the platform acts under its own permissions (checked by the command)
         }
         $scope = CommandScope::resource($service->id, $service->organization_id, $service->project_id);
+        $held = $this->authorizer->customerPermissionsAt($actor, $scope);
         foreach ($this->permissionsOf($capabilities) as $permission) {
-            if (! $this->authorizer->can($actor, $permission, $scope)) {
+            if (! in_array($permission, $held, true)) {
                 throw new DomainError('capability_above_own', "You cannot hand out {$permission}: you do not hold it on this service yourself.", 403, ['field' => 'capabilities']);
             }
         }

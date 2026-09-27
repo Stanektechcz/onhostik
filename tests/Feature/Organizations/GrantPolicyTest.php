@@ -37,11 +37,14 @@ function grantPolicyMember(Organization $org, string $role, array $attributes = 
     return $user;
 }
 
-/** An invitation whose token the test knows — a link that was mailed earlier and is still valid. */
+/**
+ * An invitation whose token the test knows — a link the owner mailed earlier and is still valid. Sent by the owner: a link
+ * counts only while its sender could still send it, and a link with no sender on record counts for nothing (GrantBackingTest).
+ */
 function grantPolicyInvitation(Organization $org, string $email, string $role): string
 {
     $token = Str::random(48);
-    OrganizationInvitation::query()->create(['organization_id' => $org->id, 'email' => mb_strtolower($email), 'role_key' => $role, 'token_hash' => hash('sha256', $token), 'expires_at' => now()->addDays(7)]);
+    OrganizationInvitation::query()->create(['organization_id' => $org->id, 'email' => mb_strtolower($email), 'role_key' => $role, 'token_hash' => hash('sha256', $token), 'expires_at' => now()->addDays(7), 'invited_by' => $org->owner_user_id]);
 
     return $token;
 }

@@ -20,7 +20,7 @@ use Onhost\Platform\Commands\CommandScope;
  */
 final class Authorizer
 {
-    /** @var array<string, list<array{role:string, scope_type:string, scope_id:?string, organization_id:?string}>> */
+    /** @var array<string, list<array{role:string, scope_type:string, scope_id:?string, organization_id:?string, elevation:bool}>> */
     private array $bindingCache = [];
 
     /** @var array<string, list<string>> */
@@ -57,6 +57,29 @@ final class Authorizer
         $permissions = [];
         foreach ($this->bindings($principal) as $binding) {
             if ($this->bindingCovers($binding, $scope)) {
+                $permissions = array_merge($permissions, $this->rolePermissions($binding['role']));
+            }
+        }
+
+        return array_values(array_unique($permissions));
+    }
+
+    /**
+     * What the principal holds at a customer scope as a CUSTOMER: its organization, project and resource bindings only. A global
+     * binding (every staff role, platform_owner above all) and a JIT elevation are the platform's reach, never a customer's grant
+     * right — GrantPolicy and the service share skipped every rule for `is_staff` instead, so a staff account holding
+     * organization.members.manage globally made anybody anything in any customer organization, itself included (red-team round
+     * of the Phase-0 chain, audit SS-1). Staff tooling that changes customer memberships needs a staff permission of its own
+     * (P0-08). An inactive principal holds nothing. @return list<string>
+     */
+    public function customerPermissionsAt(Authenticatable|ServiceAccount $principal, CommandScope $scope): array
+    {
+        if (($principal instanceof User || $principal instanceof ServiceAccount) && ! $principal->isActive()) {
+            return [];
+        }
+        $permissions = [];
+        foreach ($this->bindings($principal) as $binding) {
+            if ($binding['scope_type'] !== 'global' && ! $binding['elevation'] && $this->bindingCovers($binding, $scope)) {
                 $permissions = array_merge($permissions, $this->rolePermissions($binding['role']));
             }
         }
@@ -134,7 +157,7 @@ final class Authorizer
         $this->rolePermissionCache = [];
     }
 
-    /** @return list<array{role:string, scope_type:string, scope_id:?string, organization_id:?string}> */
+    /** @return list<array{role:string, scope_type:string, scope_id:?string, organization_id:?string, elevation:bool}> */
     private function bindings(Authenticatable|ServiceAccount $principal): array
     {
         $key = $this->cacheKey($principal);
@@ -147,7 +170,7 @@ final class Authorizer
             ->where('principal_id', $principal->getAuthIdentifier())
             ->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))
             ->get(['role_key', 'scope_type', 'scope_id', 'organization_id']);
-        $bindings = $rows->map(fn ($r) => ['role' => $r->role_key, 'scope_type' => $r->scope_type, 'scope_id' => $r->scope_id, 'organization_id' => $r->organization_id])->all();
+        $bindings = $rows->map(fn ($r) => ['role' => $r->role_key, 'scope_type' => $r->scope_type, 'scope_id' => $r->scope_id, 'organization_id' => $r->organization_id, 'elevation' => false])->all();
 
         if ($type === 'user') {
             $elevations = JitElevation::query()
@@ -157,14 +180,14 @@ final class Authorizer
                 ->where('expires_at', '>', now())
                 ->get(['role_key', 'scope_type', 'scope_id']);
             foreach ($elevations as $e) {
-                $bindings[] = ['role' => $e->role_key, 'scope_type' => $e->scope_type, 'scope_id' => $e->scope_id, 'organization_id' => $e->scope_type === 'organization' ? $e->scope_id : null];
+                $bindings[] = ['role' => $e->role_key, 'scope_type' => $e->scope_type, 'scope_id' => $e->scope_id, 'organization_id' => $e->scope_type === 'organization' ? $e->scope_id : null, 'elevation' => true];
             }
         }
 
         return $this->bindingCache[$key] = $bindings;
     }
 
-    /** @param array{role:string, scope_type:string, scope_id:?string, organization_id:?string} $binding */
+    /** @param array{role:string, scope_type:string, scope_id:?string, organization_id:?string, elevation:bool} $binding */
     private function bindingCovers(array $binding, CommandScope $scope): bool
     {
         return match ($binding['scope_type']) {

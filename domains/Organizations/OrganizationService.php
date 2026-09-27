@@ -215,6 +215,33 @@ final class OrganizationService
         return $invitation;
     }
 
+    /**
+     * The pending links `$userId` sent that they could no longer send (GrantPolicy::backs) are withdrawn — every one of them
+     * after a removal, those above the new role after a demotion. Called by the member listener (the outbox may deliver twice:
+     * a withdrawn link is no longer pending, so a second run finds nothing). Withdrawn as cancelInvitation does: the mailed
+     * link stops working, the row stays for the team page's history. @return int how many were withdrawn
+     */
+    public function revokeUnbackedInvitations(Organization $organization, string $userId, string $reason, CommandContext $context): int
+    {
+        $policy = app(GrantPolicy::class);
+        $revoked = 0;
+        $pending = OrganizationInvitation::query()->where('organization_id', $organization->id)->where('invited_by', $userId)
+            ->whereNull('accepted_at')->where('expires_at', '>', now())->get();
+        foreach ($pending as $invitation) {
+            if ($policy->backs($organization, $invitation)) {
+                continue;
+            }
+            $invitation->forceFill(['expires_at' => now()->subSecond()])->save();
+            $this->audit->record($context->withScope($organization->id), 'organization.member.invite.revoke', 'succeeded', ['email' => $invitation->email, 'role' => $invitation->role_key, 'invited_by' => $userId, 'reason' => $reason], 'organization', $organization->id);
+            $this->outbox->publish(GenericEvent::of('organization.invitation.cancelled', 'organization', $organization->id, [
+                'invitation_id' => $invitation->id, 'email' => $invitation->email, 'role' => $invitation->role_key,
+            ], $organization->id));
+            $revoked++;
+        }
+
+        return $revoked;
+    }
+
     public function acceptInvitation(string $token, User $user, CommandContext $context): OrganizationMembership
     {
         $invitation = OrganizationInvitation::query()->where('token_hash', hash('sha256', $token))->first();
@@ -225,6 +252,11 @@ final class OrganizationService
             throw new DomainError('invitation_email_mismatch', 'The invitation was issued for a different e-mail address.', 403);
         }
         $organization = Organization::query()->findOrFail($invitation->organization_id);
+        // I6 (red-team round of the Phase-0 chain): the link counts only while its sender could still send it — a removed or
+        // demoted admin's link used to let them (or anybody they mailed it to) back in. Fail closed: the same answer as a dead link.
+        if (! app(GrantPolicy::class)->backs($organization, $invitation)) {
+            throw new DomainError('invitation_invalid', 'This invitation is invalid or has expired.', 410);
+        }
 
         return DB::transaction(function () use ($invitation, $organization, $user, $context) {
             $invitation->forceFill(['accepted_at' => now()])->save();
