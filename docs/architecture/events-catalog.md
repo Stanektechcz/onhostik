@@ -263,6 +263,12 @@ carries `snapshot_id` (the access snapshot taken just before, restorable 90 days
 `organization.member.role_changed` carries `via` when it was not a `change_role` — `ownership_transfer` (the cascade of I6 skips
 it: the organization keeps what a previous owner gave) or `access_restore` (a restore that changed a current role).
 `security.mfa` has the new `change` value `reset_by_support` (MfaResetCommand, a completed owner recovery of mode `mfa_reset`).
+S1-07 red team: an access restore publishes, beside `organization.access.restored`, the event of every loss it makes, each with
+`via: access_restore` — `organization.member.removed`, `service.access.revoked`, `service.access.reduced` (`capabilities`, `dropped`),
+`project.member.removed` (`from`, `to`: the project role before and after, `to` null when gone) — so `RevokeDelegatedAccess` takes
+what the lost console put on the panels. `organization.member.removed` carries `via: owner_recovery` when a completed recovery of mode
+`transfer` took the previous owner out (the cascade of I6 skips it, as for an ownership transfer). `api_token.revoked` carries
+`reason` (`member_removed`, `role_changed`) when `RevokeMemberSideDoors` ended a person's tokens of the organization; no notice.
 
 | Event | Aggregate | Payload / meaning | Source |
 | --- | --- | --- | --- |

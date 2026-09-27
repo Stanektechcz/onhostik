@@ -8,6 +8,7 @@ use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Commands\MfaResetCommandHandler;
+use Onhost\Domain\Identity\Models\StepUpGrant;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
@@ -30,7 +31,8 @@ use Onhost\Platform\Outbox\OutboxPublisher;
  *  · while it waits, nothing that would let a caller walk away with the organization leaves it: no API token, no data export,
  *    no ownership offer, no restore of an access snapshot (assertNoHold);
  *  · it then either resets the owner's MFA (mode mfa_reset — they sign in with their password and enrol again) or hands the
- *    ownership to a named current member (mode transfer — the owner is gone for good);
+ *    ownership to a named current member (mode transfer — the owner is gone for good, so their account leaves the organization
+ *    with its tokens and step-up: takeOutPreviousOwner);
  *  · `iam.mfa.reset` of a customer owner outside it is refused (MfaResetCommandHandler).
  *
  * Review round 1 (TASK-0042): the MFA is the PERSON's, not the organization's. A recovery opened on a small organization reset the
@@ -180,6 +182,7 @@ final class OwnerRecoveries
             $heir = User::query()->find((string) $recovery->new_owner_user_id) ?? throw DomainError::notFound('member');
             app(GrantPolicy::class)->assertMayTransferOwnership($named, CommandContext::system('owner recovery '.$recovery->id), $heir); // still a current member (I8)
             app(OrganizationService::class)->transferOwnership($named, $heir, $context);
+            $this->takeOutPreviousOwner($named->refresh(), $owner, $context);
         }
         foreach ($rows as $row) {
             $row->forceFill(['state' => OwnerRecovery::COMPLETED, 'completed_at' => now(), 'completed_by' => $context->actorId])->save();
@@ -198,6 +201,22 @@ final class OwnerRecoveries
             'cancelled_at' => $recovery->cancelled_at?->toIso8601String(), 'completed_at' => $recovery->completed_at?->toIso8601String()]
             + ($staff ? ['reason' => $recovery->reason, 'ticket_ref' => $recovery->ticket_ref, 'requested_by' => $recovery->requested_by, 'group_id' => $recovery->group_id,
                 'organization_ids' => array_map(fn (OwnerRecovery $row) => $row->organization_id, self::group($recovery, pendingOnly: false))] : []);
+    }
+
+    /**
+     * S1-07 red team (TASK-0042, D21): a transfer is the recovery of an owner who is gone for good — or whose account somebody
+     * else now holds. transferOwnership keeps the previous owner as org_admin, which left that account managing the members with
+     * its web sessions, its API tokens and a fresh step-up: whoever hijacked it stayed in. So the account goes: removed like any
+     * member (a snapshot first, so the new owner — and only a role that covers support's change, i.e. the owner — can give it
+     * back), its tokens of the organization revoked by the member listener, and its step-up grants ended now, everywhere (a
+     * step-up is minutes long and says "this is the person", which is what is in doubt). Its web sessions reach nothing here once
+     * the membership is gone; its other organizations are not this recovery's to touch.
+     */
+    private function takeOutPreviousOwner(Organization $organization, User $previous, CommandContext $context): void
+    {
+        app(OrganizationService::class)->removeMember($organization, $previous, $context, 'owner_recovery');
+        StepUpGrant::query()->where('user_id', $previous->id)->whereNull('revoked_at')->update(['revoked_at' => now()]);
+        app(Authorizer::class)->forget($previous);
     }
 
     /** @return list<OwnerRecovery> the rows of one recovery, one per organization it reaches, the named organization's first */

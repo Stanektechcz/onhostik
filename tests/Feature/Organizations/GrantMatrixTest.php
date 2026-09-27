@@ -762,7 +762,7 @@ function gmxMatrix(): array
                 $end = now()->addDays(10)->startOfSecond();
                 $admin = gmxMember($org, 'org_admin', $end);
                 $member = gmxMember($org, 'developer');
-                gmxOrgOp($owner, $org, ['op' => 'remove_member', 'user_id' => $member->id]);
+                gmxOrgOp($admin, $org, ['op' => 'remove_member', 'user_id' => $member->id]); // the admin's own removal: an owner's is the owner's to undo (S1-07)
                 gmxOrgOp($admin, $org, ['op' => 'restore_access', 'snapshot_id' => gmxSnapshotOf($org, $member, 'member_removed')?->id]);
                 expect(gmxRole($org, $member))->toBe('developer')->and(gmxEnd($org, $member))->toBe($end->toIso8601String());
             },
@@ -959,4 +959,26 @@ it('decides every invariant for every grant entry point — a proof or a stated 
     foreach (array_keys(GrantPolicy::INVARIANTS) as $invariant) {
         expect(collect(gmxMatrix())->filter(fn (array $cells) => $cells[$invariant] instanceof Closure)->isNotEmpty())->toBeTrue($invariant);
     }
+});
+
+// S1-07 red team (TASK-0042, restore × I3): I3 compared the restorer only with the person's CURRENT role, and a removed person has
+// none — so the owner removed an admin and any other admin put them straight back, two admins restoring each other for ever
+it('keeps an owner\'s removal final against the other admins: only a role that covers the remover\'s restores it', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $first = gmxMember($org, 'org_admin');
+    $second = gmxMember($org, 'org_admin');
+
+    gmxOrgOp($owner, $org, ['op' => 'remove_member', 'user_id' => $first->id]);
+    $byOwner = gmxSnapshotOf($org, $first, 'member_removed');
+    gmxRefuses(fn () => gmxOrgOp($second, $org, ['op' => 'restore_access', 'snapshot_id' => $byOwner?->id]), 'snapshot_above_own');
+    expect(gmxRole($org, $first))->toBeNull();
+
+    // an admin's removal of an admin is undone by an admin (the loop is the owner's to end, not to start)
+    gmxOrgOp($owner, $org, ['op' => 'restore_access', 'snapshot_id' => $byOwner?->id]);
+    expect(gmxRole($org, $first))->toBe('org_admin');
+    gmxOrgOp($second, $org, ['op' => 'remove_member', 'user_id' => $first->id]);
+    $third = gmxMember($org, 'org_admin');
+    $byAdmin = AccessSnapshot::query()->where('organization_id', $org->id)->where('user_id', $first->id)->where('reason', 'member_removed')->whereNull('restored_at')->sole();
+    gmxOrgOp($third, $org, ['op' => 'restore_access', 'snapshot_id' => $byAdmin->id]);
+    expect(gmxRole($org, $first))->toBe('org_admin');
 });

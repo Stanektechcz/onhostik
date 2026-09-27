@@ -15,6 +15,7 @@ use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Organizations\Models\Project;
 use Onhost\Domain\Organizations\Models\ProjectMembership;
+use Onhost\Domain\Services\Listeners\RevokeDelegatedAccess;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceAccessGrant;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
@@ -32,8 +33,9 @@ use Onhost\Platform\Outbox\OutboxPublisher;
  * 90 days and restorable once, exactly: remove + restore gives back the same rows (AccessRestoreTest compares capture()).
  *
  * What a restore cannot give back is outside the platform's rows: the SSH keys and panel sub-users the listeners took off the
- * panels (the person adds them again), and a Discord link or hook that was switched off (it stays in the owner's list with its
- * reason). The restore is a grant like any other — GrantPolicy::assertMayRestore decides who may make it — and it takes a
+ * panels (the person adds them again), a Discord link or hook that was switched off (it stays in the owner's list with its
+ * reason), and the person's API tokens of the organization, which a removal revokes for good (S1-07 red team: a restore gives
+ * back access, never a credential that may have leaked). The restore is a grant like any other — GrantPolicy::assertMayRestore decides who may make it — and it takes a
  * snapshot of what it replaces first, so it can be undone the same way.
  */
 final class AccessSnapshots
@@ -77,10 +79,27 @@ final class AccessSnapshots
             return null;
         }
 
+        $takenBy = $context->actorType === 'system' ? null : ($context->onBehalfOfUserId ?? $context->actorId);
+
         return AccessSnapshot::query()->create([
             'organization_id' => $organization->id, 'user_id' => $userId, 'reason' => $reason, 'access' => $access,
-            'taken_by' => $context->actorType === 'system' ? null : ($context->onBehalfOfUserId ?? $context->actorId), 'expires_at' => now()->addDays(self::retentionDays()),
+            'taken_by' => $takenBy, 'taken_by_role' => $takenBy === null ? null : self::roleOf($organization, (string) $takenBy), 'expires_at' => now()->addDays(self::retentionDays()),
         ]);
+    }
+
+    /**
+     * S1-07 red team (restore × I3): the organization role the change was made with, which a restore must cover — the owner's for
+     * the owner, the membership's (or a service account's organization binding) otherwise, null for somebody with none there.
+     */
+    private static function roleOf(Organization $organization, string $actorId): ?string
+    {
+        if ((string) $organization->owner_user_id === $actorId) {
+            return 'owner';
+        }
+        $role = OrganizationMembership::query()->where('organization_id', $organization->id)->where('user_id', $actorId)->current()->value('role_key')
+            ?? PolicyBinding::query()->where('principal_id', $actorId)->where('scope_type', 'organization')->where('scope_id', $organization->id)->value('role_key');
+
+        return is_string($role) ? $role : null;
     }
 
     /**
@@ -110,6 +129,7 @@ final class AccessSnapshots
             }
             $current = OrganizationMembership::query()->where('organization_id', $organization->id)->where('user_id', $user->id)->first();
             $previousRole = $current?->role_key;
+            $was = $this->capture($organization, $user->id); // what the restore may take away (S1-07 red team: the listeners must hear it)
             $before = $this->take($organization, $user->id, 'before_restore', $context);
 
             PolicyBinding::query()->where('principal_type', 'user')->where('principal_id', $user->id)->where('organization_id', $organization->id)->delete();
@@ -163,6 +183,10 @@ final class AccessSnapshots
             app(Authorizer::class)->forget($user);
 
             $role = $membership['role'] ?? null;
+            // S1-07 red team: a guest the restore leaves with nothing shared goes, as revoking their last share lets them go
+            // (ServiceAccessService::releaseGuest) — a guest membership with nothing behind it is only a way back in
+            $released = $this->releaseEmptyGuest($organization, $user, $role, $context);
+            $role = $released ? null : $role;
             $this->audit->record($context->withScope($organization->id), 'organization.access.restore', 'succeeded', ['user_id' => $user->id, 'snapshot_id' => $snapshot->id, 'reason' => $snapshot->reason, 'before_restore' => $before?->id, 'role' => $role], 'organization', $organization->id);
             $this->outbox->publish(GenericEvent::of('organization.access.restored', 'organization', $organization->id, [
                 'user_id' => $user->id, 'email' => mb_strtolower((string) $user->email), 'name' => $user->name, 'snapshot_id' => $snapshot->id, 'reason' => $snapshot->reason, 'role' => $role,
@@ -171,9 +195,73 @@ final class AccessSnapshots
             if ($previousRole !== null && $role !== null && $previousRole !== $role) {
                 $this->outbox->publish(GenericEvent::of('organization.member.role_changed', 'organization', $organization->id, ['user_id' => $user->id, 'email' => mb_strtolower((string) $user->email), 'from' => $previousRole, 'to' => $role, 'via' => 'access_restore'], $organization->id));
             }
+            $this->publishWhatItTook($organization, $user, $was, $this->capture($organization, $user->id), $before?->id, $released);
 
             return ['restored' => true, 'snapshot_id' => $snapshot->id, 'before_restore' => $before?->id, 'role' => $role];
         });
+    }
+
+    /**
+     * S1-07 red team (TASK-0042; H185/H333 class): a restore takes away what the person holds now and the snapshot does not — it
+     * revokes shares, narrows them, drops project roles, deletes the membership — and it published only `role_changed`. So
+     * RevokeDelegatedAccess never ran: the person lost the console on paper and kept their SSH keys and game sub-users. Each loss
+     * is now told with the event its own command publishes, so the same listeners act (each re-checks that no other role still
+     * gives the console): leaving → `organization.member.removed`; a share gone → `service.access.revoked`; a share that lost the
+     * console → `service.access.reduced`; a project role gone or changed → `project.member.removed`. All carry `via: access_restore`.
+     *
+     * @param  array{membership: ?array<string,mixed>, bindings: list<array<string,mixed>>, projects: list<array{project_id: string, role: string, expires_at: ?string}>, shares: list<array{grant_id: string, service_id: string, capabilities: list<string>, expires_at: ?string}>}  $was
+     * @param  array{membership: ?array<string,mixed>, bindings: list<array<string,mixed>>, projects: list<array{project_id: string, role: string, expires_at: ?string}>, shares: list<array{grant_id: string, service_id: string, capabilities: list<string>, expires_at: ?string}>}  $now
+     */
+    private function publishWhatItTook(Organization $organization, User $user, array $was, array $now, ?string $snapshotId, bool $released): void
+    {
+        $email = mb_strtolower((string) $user->email);
+        if ($was['membership'] !== null && $now['membership'] === null) {
+            if (! $released) { // a released guest was removed by removeMember, which told the listeners itself
+                $this->outbox->publish(GenericEvent::of('organization.member.removed', 'organization', $organization->id, ['user_id' => $user->id, 'email' => $email, 'snapshot_id' => $snapshotId, 'via' => 'access_restore'], $organization->id));
+            }
+
+            return; // leaving covers every service of the organization (RevokeDelegatedAccess, CloseServiceAccessGrants)
+        }
+        $shares = collect($now['shares'])->keyBy('grant_id');
+        foreach ($was['shares'] as $share) {
+            $service = Service::query()->find($share['service_id']);
+            if ($service === null) {
+                continue;
+            }
+            $payload = ['grant_id' => $share['grant_id'], 'user_id' => $user->id, 'email' => $email, 'organization_id' => $organization->id, 'service' => (string) ($service->label ?: ($service->hostname ?: $service->name)), 'via' => 'access_restore'];
+            $kept = $shares->get($share['grant_id']);
+            if ($kept === null) {
+                $this->outbox->publish(GenericEvent::of('service.access.revoked', 'service', $service->id, $payload, $organization->id));
+
+                continue;
+            }
+            $lost = array_diff(GrantPolicy::capabilityPermissions($share['capabilities']), GrantPolicy::capabilityPermissions($kept['capabilities']));
+            if (in_array(RevokeDelegatedAccess::ARTEFACT_PERMISSION, $lost, true)) {
+                $this->outbox->publish(GenericEvent::of('service.access.reduced', 'service', $service->id, $payload + ['capabilities' => $kept['capabilities'], 'dropped' => array_values(array_diff($share['capabilities'], $kept['capabilities']))], $organization->id));
+            }
+        }
+        $projects = collect($now['projects'])->keyBy('project_id');
+        foreach ($was['projects'] as $project) {
+            $to = $projects->get($project['project_id'])['role'] ?? null;
+            if ($to !== $project['role']) { // gone, or another role: the listener keeps what the role now still gives the console to
+                $this->outbox->publish(GenericEvent::of('project.member.removed', 'project', $project['project_id'], ['user_id' => $user->id, 'email' => $email, 'organization_id' => $organization->id, 'from' => $project['role'], 'to' => $to, 'via' => 'access_restore'], $organization->id));
+            }
+        }
+    }
+
+    private function releaseEmptyGuest(Organization $organization, User $user, ?string $role, CommandContext $context): bool
+    {
+        if ($role !== 'guest') {
+            return false;
+        }
+        $shared = ServiceAccessGrant::query()->where('organization_id', $organization->id)->where('user_id', $user->id)->where('state', ServiceAccessGrant::ACTIVE)->exists();
+        $projects = ProjectMembership::query()->where('user_id', $user->id)->whereIn('project_id', Project::query()->where('organization_id', $organization->id)->select('id'))->exists();
+        if ($shared || $projects) {
+            return false;
+        }
+        app(OrganizationService::class)->removeMember($organization, $user, $context, 'access_restore');
+
+        return true;
     }
 
     /** Snapshots past their retention are gone for good (onhost:access:expire). @return int how many */
@@ -204,7 +292,8 @@ final class AccessSnapshots
         return match ($type) {
             'organization' => CommandScope::organization($organization->id),
             'project' => Project::query()->where('organization_id', $organization->id)->whereKey((string) $id)->exists() ? CommandScope::project((string) $id, $organization->id) : null,
-            'resource' => ($service = Service::query()->where('organization_id', $organization->id)->find((string) $id)) !== null ? CommandScope::resource($service->id, $organization->id, $service->project_id) : null,
+            // a service that has ended gets no `svc_*` binding back — its share is skipped below for the same reason (S1-07 red team)
+            'resource' => ($service = Service::query()->where('organization_id', $organization->id)->whereNotIn('state', [ServiceStateMachine::TERMINATED, ServiceStateMachine::TERMINATING])->find((string) $id)) !== null ? CommandScope::resource($service->id, $organization->id, $service->project_id) : null,
             default => null,
         };
     }

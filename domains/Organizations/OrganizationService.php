@@ -144,7 +144,8 @@ final class OrganizationService
         return $membership;
     }
 
-    public function removeMember(Organization $organization, User $user, CommandContext $context): void
+    /** `$via`: what removed the person when it was not the team page (`access_restore`, `owner_recovery`); listeners read it. */
+    public function removeMember(Organization $organization, User $user, CommandContext $context, ?string $via = null): void
     {
         if ($organization->owner_user_id === $user->id) {
             throw new DomainError('owner_cannot_be_removed', 'Transfer ownership before removing the owner.');
@@ -166,7 +167,7 @@ final class OrganizationService
             return;
         }
         // panel accounts are keyed by e-mail and would outlive the membership (H333): the listener removes them through audited operations
-        $this->outbox->publish(GenericEvent::of('organization.member.removed', 'organization', $organization->id, ['user_id' => $user->id, 'email' => mb_strtolower((string) $user->email), 'snapshot_id' => $snapshot?->id], $organization->id));
+        $this->outbox->publish(GenericEvent::of('organization.member.removed', 'organization', $organization->id, ['user_id' => $user->id, 'email' => mb_strtolower((string) $user->email), 'snapshot_id' => $snapshot?->id] + ($via !== null ? ['via' => $via] : []), $organization->id));
     }
 
     /**

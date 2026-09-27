@@ -53,14 +53,25 @@ theirs there, their project roles and their active shares. Kept 90 days (`onhost
   `{restored: true, snapshot_id, before_restore, role}`. Refusals: `not_found` (another organization's snapshot), `snapshot_expired`
   (410), `snapshot_restored` (409, once only), `snapshot_lapsed` (409, the access ended on its own date since),
   `owner_role_locked` (the owner binding is never restored), `self_membership_locked`, `member_above_own`, `role_above_own`,
-  `invalid_role` (a legacy project role outside the allow-list), `owner_recovery_hold`, `share_above_own`.
+  `invalid_role` (a legacy project role outside the allow-list), `owner_recovery_hold`, `share_above_own`, `snapshot_above_own`.
+- **The remover's role (S1-07 red team).** The restorer must also cover the role the undone change was made with
+  (`access_snapshots.taken_by_role`, migration `0001_01_01_000910`): an owner's removal of an admin is undone by the owner, never
+  by the other admins (`snapshot_above_own`, 403) — before, two admins could restore each other for ever. A change made by
+  somebody with no role in the organization (support, an owner recovery) counts as the owner's; a system change (expiry, cascade) binds nobody.
 - A restore also takes away what the person holds now and the snapshot does not (a snapshot is a state). The restorer must cover
   each of those like a removal or a revoke of it (I3): every project role and project/resource binding at its own scope
   (`member_above_own`) and every active share that would be revoked (`share_above_own`). Two restores of one snapshot that race
   are decided by a conditional claim of `restored_at` inside the transaction: the second answers `snapshot_restored` (review round 1).
 - Exact means exact: `AccessSnapshots::capture()` before the removal equals it after the restore (`AccessRestoreTest`). What the
   restore replaces is snapshotted first (`before_restore`). **Not** restored: SSH keys and panel sub-users the listeners took off
-  the panels, Discord links and hooks that were switched off — the person adds them again.
+  the panels, Discord links and hooks that were switched off — the person adds them again — and API tokens: a removal revokes the
+  person's tokens bound to the organization for good, a demotion those carrying a scope the new role no longer covers
+  (`RevokeMemberSideDoors` → `ApiAccessRevocation::revokeForOrganization`; S1-07 red team).
+- **What a restore takes away is told (S1-07 red team).** Each loss publishes the event of its own command, `via: access_restore`,
+  so `RevokeDelegatedAccess` takes the SSH keys and game sub-users the lost console had put on the panels: the membership gone →
+  `organization.member.removed`; a share gone → `service.access.revoked`; a share that lost the console → `service.access.reduced`;
+  a project role gone or changed → `project.member.removed`. A guest the restore leaves with nothing shared is released like after
+  revoking their last share. A `svc_*` binding of a service that has ended is not given back.
 
 ## 4. Ownership in two steps (I4, audit TD-9)
 
@@ -97,7 +108,9 @@ theirs there, their project roles and their active shares. Kept 90 days (`onhost
   `DELETE /v1/staff/customers/{organization}/owner-recovery` — support.
 - `POST /v1/staff/customers/{organization}/owner-recovery/complete` — after the notice period (`owner_recovery_locked` before):
   `mfa_reset` clears the owner's authenticator, recovery codes, security keys and trusted devices (mail `security-mfa`);
-  `transfer` hands the ownership to the named current member.
+  `transfer` hands the ownership to the named current member and takes the previous owner out (S1-07 red team: the account may be
+  the hijacked one): removed like any member (snapshot `member_removed`, restorable by the new owner only), its API tokens of the
+  organization revoked, its step-up grants ended.
 - `POST /v1/staff/users/{user}/mfa-reset` `{reason}` — `iam.mfa.reset`, HIGH; **refused for a customer owner**
   (`owner_recovery_required`, 409) — the recovery above is the only way. **CRITICAL** (a second person; `approval_required`
   first) for a staff account and for anybody who manages the members of a customer organization (review round 1). Every
@@ -109,7 +122,8 @@ theirs there, their project roles and their active shares. Kept 90 days (`onhost
 `config/onhost.php` → `grants`: `cascade_enabled` (`ONHOST_GRANT_CASCADE_ENABLED`, false), `snapshot_retention_days` (90),
 `owner_recovery_days` (`ONHOST_OWNER_RECOVERY_DAYS`, 7, floor 7), `ownership_offer_days` (7). Migration
 `0001_01_01_000900_grants_follow_one_policy.php` adds `access_snapshots`, `ownership_transfers`, `owner_recoveries` (with the partial
-unique indexes `ownership_transfers_one_pending`, `owner_recoveries_one_pending`); nothing existing is altered. Mail templates
+unique indexes `ownership_transfers_one_pending`, `owner_recoveries_one_pending`); nothing existing is altered.
+`0001_01_01_000910_access_snapshots_remember_the_remover.php` adds the nullable `access_snapshots.taken_by_role` (S1-07 red team). Mail templates
 `ownership-offered`, `ownership-transferred` (mandatory), `owner-recovery-opened` (mandatory), `member-mfa-reset` (mandatory)
 come with `NotificationTemplateSeeder` (run it on deploy as usual). Events: `docs/architecture/events-catalog.md` (TASK-0042 block).
 
@@ -119,7 +133,9 @@ come with `NotificationTemplateSeeder` (run it on deploy as usual). Events: `doc
 - Handing over ownership now needs the new owner to accept it (they get a mail and see it in Team).
 - A member with access until a date can no longer hand out access — invitations, project roles, shares, API tokens — that lasts
   longer than their own; the end is shortened automatically and shown.
-- Removing a member or changing their role can be undone for 90 days from the Team page.
+- Removing a member or changing their role can be undone for 90 days from the Team page — by somebody whose role covers the one
+  that made the change (the owner's removals by the owner). A removed member's API tokens of the organization stop for good, also
+  when the access is restored; a demoted member's tokens that need the old role stop too. A new token is made in a minute.
 - An admin who could not grant the console cannot take it from somebody else by re-sharing or revoking.
 - A lost owner is recovered by support only with a week's notice to everybody in every organization the owner owns or manages,
   any of whose admins can stop it.

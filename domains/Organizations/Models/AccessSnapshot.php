@@ -15,6 +15,7 @@ use Onhost\Platform\Eloquent\Model;
  * @property string $reason
  * @property array{membership: ?array{role: string, state: string, expires_at: ?string}, bindings: list<array{role: string, scope_type: string, scope_id: ?string, expires_at: ?string}>, projects: list<array{project_id: string, role: string, expires_at: ?string}>, shares: list<array{grant_id: string, service_id: string, capabilities: list<string>, expires_at: ?string}>} $access
  * @property ?string $taken_by
+ * @property ?string $taken_by_role the organization role of `taken_by` when the change was made (S1-07: a restore must cover it)
  * @property Carbon $expires_at
  * @property ?Carbon $restored_at
  * @property ?string $restored_by

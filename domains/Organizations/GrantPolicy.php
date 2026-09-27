@@ -425,6 +425,17 @@ final class GrantPolicy
                 throw new DomainError('role_above_own', 'A snapshot can be restored only by somebody whose own role covers everything in it.', 403, ['role' => $binding['role'], 'missing' => array_slice($missing, 0, 5)]);
             }
         }
+        // S1-07 red team (TASK-0042, I3): the change being undone was made with a role, and whoever undoes it covers that role too.
+        // I3 above compares with the person's role NOW — a removed person has none — so the owner removed an admin and any other
+        // admin let them straight back in: two admins restoring each other made an owner's removal never final. A change by
+        // somebody with no role here (support, a row from before taken_by_role) counts as the owner's: fail closed.
+        if ($snapshot->taken_by !== null) {
+            $remover = $snapshot->taken_by_role ?? 'owner';
+            $missing = array_values(array_diff(self::permissionsOf($remover) ?? self::permissionsOf('owner') ?? [], $this->authorizer->customerPermissionsAt($actor, CommandScope::organization($organization->id))));
+            if ($missing !== []) {
+                throw new DomainError('snapshot_above_own', 'This change was made with a role yours does not cover (an owner\'s removal is undone by the owner); ask them.', 403, ['taken_by_role' => $remover, 'missing' => array_slice($missing, 0, 5)]);
+            }
+        }
 
         return $target;
     }

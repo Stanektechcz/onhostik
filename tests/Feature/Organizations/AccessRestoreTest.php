@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Onhost\Domain\Compliance\Commands\DataRequestCommand;
 use Onhost\Domain\Identity\Commands\ApiTokenCommand;
+use Onhost\Domain\Identity\Models\PersonalAccessToken;
 use Onhost\Domain\Identity\Models\StepUpGrant;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Identity\StepUp\StepUpService;
@@ -27,10 +28,12 @@ use Onhost\Domain\Organizations\Models\Project;
 use Onhost\Domain\Organizations\Models\ProjectMembership;
 use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Domain\Organizations\OwnerRecoveries;
+use Onhost\Domain\Services\Access\ServiceAccessService;
 use Onhost\Domain\Services\Commands\ServiceAccessCommand;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceAccessGrant;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Services\Models\SshKeyGrant;
 use Onhost\Platform\Audit\AuditEvent;
 use Onhost\Platform\Commands\CommandBus;
 use Onhost\Platform\Commands\CommandContext;
@@ -358,8 +361,10 @@ it('recovers an organization whose owner is gone by handing it to a member, afte
     $this->flushHeaders()->actingAs($iam, 'sanctum')->withHeader('Idempotency-Key', (string) Str::ulid())->postJson("/v1/staff/customers/{$org->id}/owner-recovery/complete")->assertOk();
 
     expect($org->fresh()->owner_user_id)->toBe($admin->id)
-        ->and(OrganizationMembership::query()->where('organization_id', $org->id)->where('user_id', $owner->id)->value('role_key'))->toBe('org_admin')
-        ->and(AccessSnapshot::query()->where('organization_id', $org->id)->where('user_id', $owner->id)->where('reason', 'ownership_transferred')->exists())->toBeTrue();
+        // S1-07 red team: the previous owner leaves (takeOutPreviousOwner) — restorable from the snapshot by the new owner
+        ->and(OrganizationMembership::query()->where('organization_id', $org->id)->where('user_id', $owner->id)->exists())->toBeFalse()
+        ->and(AccessSnapshot::query()->where('organization_id', $org->id)->where('user_id', $owner->id)->where('reason', 'ownership_transferred')->exists())->toBeTrue()
+        ->and(AccessSnapshot::query()->where('organization_id', $org->id)->where('user_id', $owner->id)->where('reason', 'member_removed')->exists())->toBeTrue();
 });
 
 it('refuses iam.mfa.reset on a customer owner — the owner recovery is the only way — and resets anybody else', function () {
@@ -544,4 +549,125 @@ it('records a lost grantor\'s grant once however many audit rows came in between
 
     expect($stats['flagged'])->toBe(0)
         ->and(AuditEvent::query()->where('organization_id', $org->id)->where('action', 'organization.grant.cascade.flag')->where('detail->grantor_id', $admin->id)->count())->toBe(3);
+});
+
+// ── S1-07 red team (TASK-0042): a restore that takes access away, removed members' tokens, the remover's role, a recovery transfer ──
+
+function arxSshKey(Organization $org, Service $service, User $owner): SshKeyGrant
+{
+    return SshKeyGrant::query()->create(['organization_id' => $org->id, 'service_id' => $service->id, 'target_remote_id' => '30', 'target_label' => 'deploy', 'owner_user_id' => $owner->id,
+        'key_type' => 'ssh-ed25519', 'fingerprint' => 'SHA256:'.Str::random(43), 'state' => SshKeyGrant::ACTIVE, 'installed_at' => now()]);
+}
+
+/** @param list<string> $scopes */
+function arxToken(User $person, Organization $org, array $scopes): PersonalAccessToken
+{
+    $id = app(CommandBus::class)->dispatch(new ApiTokenCommand($org->id, 'arx-token-'.Str::ulid(), ['op' => 'create', 'name' => 'ci', 'scopes' => $scopes]), arxContext($person, $org))['id'];
+
+    return PersonalAccessToken::query()->findOrFail($id);
+}
+
+it('takes off the panels what a restore takes away: a console share the older snapshot lacks, a console it narrows, a project role it drops', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    arxMember($org, 'viewer');
+    $member = arxMember($org, 'viewer');
+    $narrowed = arxService($org);
+    arxShare($owner, $org, $narrowed, ['op' => 'share', 'email' => $member->email, 'capabilities' => ['backups']]);
+    $older = app(AccessSnapshots::class)->take($org, $member->id, 'role_changed', arxContext($owner, $org));
+    // since the snapshot: another service's console shared, the first raised to the console, a project role that gives it
+    $added = arxService($org);
+    arxShare($owner, $org, $added, ['op' => 'share', 'email' => $member->email, 'capabilities' => ['console']]);
+    arxShare($owner, $org, $narrowed, ['op' => 'share', 'email' => $member->email, 'capabilities' => ['console', 'backups']]);
+    $project = Project::query()->create(['organization_id' => $org->id, 'slug' => 'eshop', 'name' => 'E-shop']);
+    $inProject = arxService($org);
+    $inProject->forceFill(['project_id' => $project->id])->save();
+    arxOp($owner, $org, ['op' => 'add_project_member', 'project_id' => $project->id, 'user_id' => $member->id, 'role' => 'cloud_operator']);
+    $keys = [arxSshKey($org, $added, $member), arxSshKey($org, $narrowed, $member), arxSshKey($org, $inProject, $member)];
+    app(OutboxPublisher::class)->relayPending();
+
+    arxOp($owner, $org, ['op' => 'restore_access', 'snapshot_id' => $older?->id]);
+    app(OutboxPublisher::class)->relayPending();
+
+    // the person is back where the snapshot was, and what they put on the panels with the console they lost goes with it (H185, H333)
+    expect(array_map(fn (SshKeyGrant $key) => $key->fresh()?->state, $keys))->toBe([SshKeyGrant::REVOKING, SshKeyGrant::REVOKING, SshKeyGrant::REVOKING])
+        ->and(OutboxMessage::query()->where('name', 'service.access.revoked')->where('aggregate_id', $added->id)->exists())->toBeTrue()
+        ->and(data_get(OutboxMessage::query()->where('name', 'service.access.reduced')->where('aggregate_id', $narrowed->id)->value('payload'), 'dropped'))->toContain('console')
+        ->and(OutboxMessage::query()->where('name', 'project.member.removed')->where('aggregate_id', $project->id)->exists())->toBeTrue();
+});
+
+it('releases a guest a restore leaves with nothing, as revoking their last share does', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    arxMember($org, 'viewer');
+    $guest = arxMember($org, 'guest');
+    $gone = arxService($org);
+    $kept = arxService($org);
+    arxShare($owner, $org, $gone, ['op' => 'share', 'email' => $guest->email, 'capabilities' => ['console']]);
+    $older = app(AccessSnapshots::class)->take($org, $guest->id, 'role_changed', arxContext($owner, $org));
+    arxShare($owner, $org, $kept, ['op' => 'share', 'email' => $guest->email, 'capabilities' => ['console']]);
+    $grant = ServiceAccessGrant::query()->where('service_id', $gone->id)->where('user_id', $guest->id)->firstOrFail();
+    app(ServiceAccessService::class)->revoke($org, $gone, $grant->id, arxContext($owner, $org));
+    $gone->forceFill(['state' => ServiceStateMachine::TERMINATED])->save(); // the service the snapshot shared has ended since
+    $key = arxSshKey($org, $kept, $guest);
+    app(OutboxPublisher::class)->relayPending();
+
+    arxOp($owner, $org, ['op' => 'restore_access', 'snapshot_id' => $older?->id]);
+    app(OutboxPublisher::class)->relayPending();
+
+    expect(OrganizationMembership::query()->where('organization_id', $org->id)->where('user_id', $guest->id)->exists())->toBeFalse()
+        ->and(app(AccessSnapshots::class)->capture($org, $guest->id))->toBe(['membership' => null, 'bindings' => [], 'projects' => [], 'shares' => []])
+        ->and($key->fresh()?->state)->toBe(SshKeyGrant::REVOKING)
+        ->and(OutboxMessage::query()->where('name', 'organization.member.removed')->where('aggregate_id', $org->id)->get()->contains(fn (OutboxMessage $m) => data_get($m->payload, 'user_id') === $guest->id))->toBeTrue();
+});
+
+it('ends a removed member\'s tokens of the organization for good: a restore does not bring them back, a demotion ends what the new role cannot carry', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    [, $elsewhere] = $this->customerWithOrganization();
+    $member = arxMember($org, 'org_admin'); // who may hold tokens at all
+    app(OrganizationService::class)->attachMember($elsewhere, $member, 'org_admin', CommandContext::system('arx other org'), true);
+    $ci = arxToken($member, $org, ['services:read', 'services:console']);
+    $theirOther = arxToken($member, $elsewhere, ['services:read']);
+
+    arxOp($owner, $org, ['op' => 'remove_member', 'user_id' => $member->id]);
+    app(OutboxPublisher::class)->relayPending();
+    expect($ci->fresh()?->revoked_at)->not->toBeNull()->and($theirOther->fresh()?->revoked_at)->toBeNull(); // another organization's token is not this one's to end
+
+    arxOp($owner, $org, ['op' => 'restore_access', 'snapshot_id' => arxSnapshot($org, $member, 'member_removed')->id]);
+    app(OutboxPublisher::class)->relayPending();
+    expect(OrganizationMembership::query()->where('organization_id', $org->id)->where('user_id', $member->id)->value('role_key'))->toBe('org_admin')
+        ->and($ci->fresh()?->revoked_at)->not->toBeNull(); // the person is back, the token handed to CI is not
+
+    // a demotion: the token the new role still carries stays, the console one goes
+    $this->travel(1)->seconds();
+    $read = arxToken($member, $org, ['services:read']);
+    $console = arxToken($member, $org, ['services:read', 'services:console']);
+    arxOp($owner, $org, ['op' => 'change_role', 'user_id' => $member->id, 'role' => 'viewer']);
+    app(OutboxPublisher::class)->relayPending();
+    expect($read->fresh()?->revoked_at)->toBeNull()->and($console->fresh()?->revoked_at)->not->toBeNull();
+});
+
+it('hands an organization whose owner is gone to the heir and takes the old owner out, their tokens and step-up with them', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $heir = arxMember($org, 'org_admin');
+    $admin = arxMember($org, 'org_admin');
+    $token = arxToken($owner, $org, ['services:read']);
+    $iam = $this->steppedUpStaff('iam_admin');
+
+    arxOpenRecovery($iam, $org, ['mode' => 'transfer', 'new_owner_user_id' => $heir->id, 'reason' => 'Účet vlastníka byl převzat útočníkem', 'ticket_ref' => 'T-4713']);
+    $this->travel(7)->days();
+    $this->travel(2)->minutes();
+    app(StepUpService::class)->grant($owner, 'totp', 'hijacked-session', '127.0.0.1'); // whoever holds the old owner's account has a fresh step-up
+    app(StepUpService::class)->grant($iam, 'totp', null, '127.0.0.1');
+    $this->flushHeaders()->actingAs($iam, 'sanctum')->withHeader('Idempotency-Key', (string) Str::ulid())->postJson("/v1/staff/customers/{$org->id}/owner-recovery/complete")->assertOk();
+    app(OutboxPublisher::class)->relayPending();
+
+    expect($org->fresh()->owner_user_id)->toBe($heir->id)
+        ->and(OrganizationMembership::query()->where('organization_id', $org->id)->where('user_id', $owner->id)->exists())->toBeFalse()
+        ->and($token->fresh()?->revoked_at)->not->toBeNull()
+        ->and(StepUpGrant::query()->where('user_id', $owner->id)->whereNull('revoked_at')->exists())->toBeFalse();
+    // the removal is restorable — by the new owner, never by an admin beside them (support made it)
+    $snapshot = arxSnapshot($org, $owner, 'member_removed');
+    arxRefuses(fn () => arxOp($admin, $org, ['op' => 'restore_access', 'snapshot_id' => $snapshot->id]), 'snapshot_above_own');
+    arxOp($heir, $org, ['op' => 'restore_access', 'snapshot_id' => $snapshot->id]);
+    expect(OrganizationMembership::query()->where('organization_id', $org->id)->where('user_id', $owner->id)->value('role_key'))->toBe('org_admin')
+        ->and($token->fresh()?->revoked_at)->not->toBeNull();
 });

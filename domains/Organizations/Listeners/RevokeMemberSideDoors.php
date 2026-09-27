@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Organizations\Listeners;
 
+use Onhost\Domain\Identity\ApiAccessRevocation;
 use Onhost\Domain\Integrations\ActionHookService;
 use Onhost\Domain\Integrations\DiscordService;
 use Onhost\Domain\Organizations\GrantCascade;
@@ -42,6 +43,11 @@ final class RevokeMemberSideDoors
         foreach ($this->hooks->orphans($organizationId, $userId) as $orphan) {
             $this->hooks->disable($orphan['hook'], $removed ? 'member_removed' : $orphan['reason'], $context);
         }
+        // S1-07 red team (TASK-0042): the person's API tokens of this organization — every one after a removal, those with a scope
+        // the new role no longer carries after a demotion. Revoked, not switched off: a restore or a new invitation gives access back,
+        // never a token handed to CI, and never the leaked one that was the reason for the removal
+        app(ApiAccessRevocation::class)->revokeForOrganization($userId, $organizationId, $removed ? 'member_removed' : 'role_changed', $message->created_at,
+            $removed ? null : ApiAccessRevocation::scopesHeldIn($userId, $organizationId));
         // red-team round of the Phase-0 chain (I6): the links the person sent and could no longer send — all of them after a
         // removal, those above the new role after a demotion. An admin's second mailbox was their way back in.
         $organization = Organization::query()->find($organizationId);
@@ -49,7 +55,7 @@ final class RevokeMemberSideDoors
             $this->organizations->revokeUnbackedInvitations($organization, $userId, $removed ? 'member_removed' : 'role_changed', $context);
             // TASK-0042 (I6): the grants they GAVE that they could not give now — pending shares cancelled, active grants recorded
             // (revoked behind onhost.grants.cascade_enabled). An ownership transfer is no loss: the organization keeps what was given
-            if (data_get($message->payload, 'via') !== 'ownership_transfer') {
+            if (! in_array(data_get($message->payload, 'via'), ['ownership_transfer', 'owner_recovery'], true)) { // a recovery hands over, then removes
                 app(GrantCascade::class)->onGrantorLoss($organization, $userId, $removed ? 'member_removed' : 'role_changed', $context);
             }
         }
