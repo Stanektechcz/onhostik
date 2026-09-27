@@ -119,7 +119,10 @@ function lpzlWebService(Organization $org, string $domain): Service
     $instance = ProviderInstance::query()->firstOrCreate(['key' => 'ispconfig-lpzl'], ['provider' => 'ispconfig', 'name' => 'ISPConfig lpzl', 'base_url' => 'https://lpzl.test:8080', 'secret_ref' => 'env://ISPCONFIG_LPZL', 'state' => 'active', 'options' => []]);
     $service = Service::query()->create(['organization_id' => $org->id, 'product_key' => 'web-hosting', 'family' => 'web', 'name' => 'Web '.$domain, 'hostname' => $domain, 'state' => ServiceStateMachine::ACTIVE,
         'region_code' => 'cz1', 'entitlements' => ['nvme_gb' => 50], 'desired_spec' => ['domain' => $domain, 'executor' => 'ispconfig'], 'sla_class' => 'standard', 'provider_instance_id' => $instance->id]);
-    ProviderBinding::query()->create(['service_id' => $service->id, 'provider_instance_id' => $instance->id, 'remote_type' => 'web_domain', 'remote_id' => (string) random_int(100, 999), 'remote_node' => '1',
+    // a counter, not random_int(): two sites of one test drawing the same number hit the (instance, type, remote_id)
+    // unique key — pest-postgres saw it; SQLite runs rarely did
+    static $remoteId = 500;
+    ProviderBinding::query()->create(['service_id' => $service->id, 'provider_instance_id' => $instance->id, 'remote_type' => 'web_domain', 'remote_id' => (string) ++$remoteId, 'remote_node' => '1',
         'meta' => ['domain' => $domain, 'system_user' => 'web41'], 'idempotency_key' => 'lpzl-'.$service->id]);
 
     return $service->refresh();
