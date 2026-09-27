@@ -20,9 +20,12 @@ use Onhost\Domain\Organizations\Models\ProjectMembership;
 use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\Operation;
+use Onhost\Domain\Provisioning\Models\ProviderBinding;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\Models\Region;
 use Onhost\Domain\Provisioning\Scheduling\NodeScheduler;
+use Onhost\Domain\Provisioning\ServiceMigrationService;
+use Onhost\Domain\Provisioning\Workflows\WebMigrationWorkflow;
 use Onhost\Domain\Services\Access\ServiceAccessService;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceAccessGrant;
@@ -32,6 +35,9 @@ use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Errors\ProviderErrorCode;
 use Onhost\Platform\Errors\ProviderException;
 use Onhost\Providers\AaPanel\AaPanelTransport;
+use Onhost\Providers\AaPanel\AaPanelWebProvider;
+use Onhost\Providers\Contracts\Naming;
+use Onhost\Providers\Contracts\ResourceRef;
 use Onhost\Providers\Shell\ScriptedShell;
 
 /*
@@ -242,14 +248,18 @@ it('refuses to move a game server within its panel unless the panel proves the o
 
 // ── (e) the hardlink exception of a download ───────────────────────────────────────────────────────────────────────
 
-/** A site transport on an open node whose own agent user is `$agent`; the chunk comes back as `hello`. */
-function wolTransport(ScriptedShell $shell, ?Closure $agent): AaPanelTransport
+/**
+ * A site transport on an open node whose own agent user is named `$agent`; the chunk comes back as `hello`. Making the
+ * agent ready fails loudly: a download must never ask for it (review round 1 — readying runs useradd/setfacl as root).
+ */
+function wolTransport(ScriptedShell $shell, ?string $agent): AaPanelTransport
 {
     $post = fn (string $path, array $params, string $action, bool $critical, array $files) => str_contains($path, 'GetFileBody') ? ['status' => true, 'data' => base64_encode('hello')] : ['status' => true];
+    $neverReady = fn (): string => throw new ProviderException('aapanel', ProviderErrorCode::TRANSIENT, 'a download asked to make the agent ready');
 
     return $agent === null
         ? new AaPanelTransport($post, $shell, '/www/backup/site', 'www')
-        : new AaPanelTransport($post, $shell, '/www/wwwroot/shop.cz', 'www', fn (): ?bool => false, $agent);
+        : new AaPanelTransport($post, $shell, '/www/wwwroot/shop.cz', 'www', fn (): ?bool => false, $neverReady, $agent);
 }
 
 function wolDownloadScript(AaPanelTransport $transport, ScriptedShell $shell): string
@@ -267,17 +277,16 @@ function wolDownloadScript(AaPanelTransport $transport, ScriptedShell $shell): s
 
 it('lets a file with a second name come back only when it is www\'s or this site\'s own agent\'s, never another site\'s agent', function () {
     $shell = new ScriptedShell(['/exec 3</' => "SIZE 5\n"]);
-    $script = wolDownloadScript(wolTransport($shell, fn (): string => 'oh1a2b3cag'), $shell);
+    $script = wolDownloadScript(wolTransport($shell, 'oh1a2b3cag'), $shell);
     expect($script)->toContain("in 'www'|'oh1a2b3cag') ;;")->not->toContain('oh*ag');
 
     // a panel folder's transport (backups, dumps) has no site user of its own: only www
     $shell = new ScriptedShell(['/exec 3</' => "SIZE 5\n"]);
     expect(wolDownloadScript(wolTransport($shell, null), $shell))->toContain("in 'www') ;;")->not->toContain('oh*ag');
 
-    // the site's agent could not be made ready: stricter, not looser — only www, and an ordinary file still downloads
+    // a site with no agent name (no service): stricter, not looser — only www, and an ordinary file still downloads
     $shell = new ScriptedShell(['/exec 3</' => "SIZE 5\n"]);
-    $broken = fn (): string => throw new ProviderException('aapanel', ProviderErrorCode::TRANSIENT, 'agent not ready');
-    expect(wolDownloadScript(wolTransport($shell, $broken), $shell))->toContain("in 'www') ;;")->not->toContain('oh*ag');
+    expect(wolDownloadScript(wolTransport($shell, ''), $shell))->toContain("in 'www') ;;")->not->toContain('oh*ag');
 });
 
 // ── (f) sharing compares the rights of the person acted for ────────────────────────────────────────────────────────
@@ -299,4 +308,77 @@ it('shares a service with the rights of the person acted for, not of whoever car
     $forOwner = new CommandContext('user', $this->customer()->id, $org->id, onBehalfOfUserId: $owner->id);
     $grant = $access->share($org, $service, 'wol-friend@example.cz', ['view'], $forOwner);
     expect($grant->granted_by)->toBe($owner->id);
+});
+
+// ── review round 1: the staff/CLI move of a site, and a download that must not build a user ──────────────────────────
+
+/** A managed site of an organization on an aaPanel node, bound the way the platform binds its own sites, ready to move. */
+function wolMovableSite(Organization $org, Node $on): Service
+{
+    $service = wolManagedService($org, $on);
+    ProviderBinding::query()->create(['service_id' => $service->id, 'provider_instance_id' => $on->provider_instance_id, 'remote_type' => 'site', 'remote_id' => (string) (41 + ProviderBinding::query()->count()), 'remote_node' => $on->name,
+        'meta' => ['name' => 'wol-shop.cz', 'path' => '/www/wwwroot/wol-shop.cz'], 'ownership' => ['managed_by' => 'onhost'], 'idempotency_key' => "wol-move:{$service->id}", 'adapter_version' => '1.0.0']);
+
+    return $service->refresh();
+}
+
+/** A move of another site that already chose `$to` and has not finished: it counts as its organization's on that node. */
+function wolMoveUnderWay(Service $site, Node $to): Operation
+{
+    return Operation::query()->create(['organization_id' => $site->organization_id, 'service_id' => $site->id, 'kind' => WebMigrationWorkflow::kind(), 'workflow' => WebMigrationWorkflow::class,
+        'state' => Operation::RUNNING, 'step' => 3, 'steps_total' => 9, 'idempotency_key' => "wol-move-under-way:{$site->id}", 'actor_type' => 'system',
+        'context' => ['target_node_id' => $to->id, 'target_instance_id' => $to->provider_instance_id], 'desired' => ['target_node_id' => $to->id]]);
+}
+
+it('refuses a staff move of a site onto an open aaPanel node another organization uses, named or picked', function (bool $named) {
+    [$user, $first] = $this->customerWithOrganization();
+    [, $second] = $this->customerWithOrganization();
+    $source = wolAaPanelNode('aapanel-wol-src', ['tenancy' => ['closed' => true]]); // shared on purpose: closed by the operator
+    $open = wolAaPanelNode('aapanel-wol-dst');
+    wolManagedService($first, $open);
+    $site = wolMovableSite($second, $source);
+
+    $operation = driveOperation(app(ServiceMigrationService::class)->start($site, $named ? $open->id : null, 'evacuation', $this->contextFor($user, $second)));
+
+    expect((string) data_get($operation->error, 'message', ''))->toContain('aapanel-wol-dst')->toContain('onhost:aapanel:tenancy --apply')
+        ->and(data_get($operation->context, 'target_node_id'))->toBeNull()          // no target was ever decided
+        ->and($site->refresh()->node_id)->toBe($source->id);
+})->with(['named by staff' => [true], 'picked by the scheduler' => [false]]);
+
+it('counts a move already heading for an empty open node as its organization\'s: no second organization follows it there', function () {
+    [$user, $first] = $this->customerWithOrganization();
+    [, $second] = $this->customerWithOrganization();
+    $source = wolAaPanelNode('aapanel-wol-src2', ['tenancy' => ['closed' => true]]);
+    $empty = wolAaPanelNode('aapanel-wol-dst2');
+    wolMoveUnderWay(wolMovableSite($first, $source), $empty); // evacuate: the first site's move chose the empty node and is copying
+
+    // neither an order nor the next move of the evacuation lands beside it (the draining source itself is out of the pick)
+    $notSource = wolManagedWant() + ['exclude_nodes' => [$source->id]];
+    expect(fn () => app(NodeScheduler::class)->place(wolManagedService($second), $notSource))
+        ->toThrow(fn (DomainError $e) => expect($e->getMessage())->toContain('aapanel-wol-dst2')->toContain('is receiving a site of another customer'));
+    $operation = driveOperation(app(ServiceMigrationService::class)->start(wolMovableSite($second, $source), $empty->id, 'evacuation', $this->contextFor($user, $second)));
+    expect((string) data_get($operation->error, 'message', ''))->toContain('aapanel-wol-dst2')->toContain('onhost:aapanel:tenancy')
+        ->and(data_get($operation->context, 'target_node_id'))->toBeNull();
+
+    // the same organization's next site may follow its own move
+    expect(app(NodeScheduler::class)->place(wolManagedService($first), $notSource)['node']->id)->toBe($empty->id);
+});
+
+it('names this site\'s agent for a download on an open node without making it: no useradd, no setfacl, no id -u', function () {
+    Http::fake(fn ($request) => Http::response(str_contains($request->url(), 'GetFileBody') ? ['status' => true, 'data' => base64_encode('hello')] : ['status' => true, 'msg' => 'ok']));
+    $shell = new ScriptedShell(['/exec 3</' => "SIZE 5\n"]); // `id -u` answers nothing: the agent user is not there (terminated, never made)
+    AaPanelWebProvider::$shellFactory = fn () => $shell;
+    $local = (string) tempnam(sys_get_temp_dir(), 'wol');
+    $site = new ResourceRef('site', '41', 'aapanel-managed01', ['name' => 'shop.cz', 'path' => '/www/wwwroot/shop.cz'], 'srv_wolagent');
+
+    try {
+        aaToolsAdapter()->transport($site)->download('onhost-final-abc123.tar.gz', $local);
+        expect(file_get_contents($local))->toBe('hello');
+    } finally {
+        @unlink($local);
+        AaPanelWebProvider::$shellFactory = null;
+    }
+    $copy = (string) collect($shell->commands())->first(fn (string $c) => str_contains($c, 'exec 3<'));
+    expect($copy)->toContain("in 'www'|'".Naming::prefix('srv_wolagent')."ag') ;;")
+        ->and($shell->ran('useradd'))->toBeFalse()->and($shell->ran('setfacl'))->toBeFalse()->and($shell->ran('id -u'))->toBeFalse();
 });

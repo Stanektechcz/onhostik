@@ -733,12 +733,13 @@ trait AaPanelTools
 
     /**
      * A site's files. On a node the operator closed as shared the transport asks the gate at every call and writes into
-     * the site as the site's own shell user (TASK-0034); an unreadable row counts as closed there (null).
+     * the site as the site's own shell user (TASK-0034); an unreadable row counts as closed there (null). A download is
+     * given only the agent's name, never readyAgent (TASK-0041 review round 1: a read must not run useradd/setfacl).
      */
     private function transportAt(ResourceRef $site, string $root): FileTransport
     {
         return new AaPanelTransport(fn (string $path, array $params, string $action, bool $critical, array $files) => $this->post($path, $params, $action, $critical, $files), $this->shell($site), rtrim($root, '/'), 'www',
-            fn (): ?bool => AaPanelTenancyGate::isClosed($this->instance), fn (): string => $this->readyAgent($site));
+            fn (): ?bool => AaPanelTenancyGate::isClosed($this->instance), fn (): string => $this->readyAgent($site), (string) $site->serviceId !== '' ? $this->agentUser($site) : '');
     }
 
     /** A folder of the panel's own (backups, database dumps): root-owned, no tenant can plant anything there. */

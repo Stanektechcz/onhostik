@@ -32,8 +32,9 @@ final class AaPanelTransport implements FileTransport
      * @param  Closure(string, array<string,mixed>, string, bool, array<string,mixed>): mixed  $post  the adapter's signed request (path, params, action, critical, files)
      * @param  (Closure(): ?bool)|null  $sharedNode  whether the operator closed the node as shared (AaPanelTenancyGate::isClosed; null = the row could not be read), asked at every call
      * @param  (Closure(): string)|null  $siteWriter  the site's own shell user, made ready (AaPanelTools::readyAgent): who writes into the site on a closed node
+     * @param  string  $siteAgent  the NAME of the site's own shell user, nothing asked of the node ('' = none): whose hardlinked file a download may return (ownOwners)
      */
-    public function __construct(private readonly Closure $post, private readonly NodeShell $shell, private readonly string $root, private readonly string $siteUser = 'www', private readonly ?Closure $sharedNode = null, private readonly ?Closure $siteWriter = null) {}
+    public function __construct(private readonly Closure $post, private readonly NodeShell $shell, private readonly string $root, private readonly string $siteUser = 'www', private readonly ?Closure $sharedNode = null, private readonly ?Closure $siteWriter = null, private readonly string $siteAgent = '') {}
 
     /**
      * On a node the operator closed as shared the panel's root file API is not used inside the site at all — not only
@@ -204,22 +205,17 @@ final class AaPanelTransport implements FileTransport
      * P0-03 follow-up). It was `www|oh*ag` — and `oh*ag` is every site's agent user on the node, not this one's. The agents
      * are members of `www` with ACLs on their sites, so a neighbour's agent-owned file is one this site's PHP (`www`) can
      * give a second name inside its own root; root then copied the neighbour's bytes out as this site's download. Now only
-     * `www` and THIS site's own agent (the writer the site's transport is given). A panel folder's transport has no site
-     * user of its own, and an agent that cannot be made ready right now narrows it to `www`: stricter, never looser —
-     * an ordinary file (one name) downloads either way.
+     * `www` and THIS site's own agent. A panel folder's transport has no site user of its own: `www` only — stricter,
+     * never looser; an ordinary file (one name) downloads either way.
+     *
+     * Only the agent's NAME is used (`$siteAgent`, deterministic per service), never the writer made ready (TASK-0041
+     * review round 1): readying may run `useradd` and a recursive `setfacl` as root, and a read must not write — a final
+     * archive downloaded after termination removed the agent would have made a login-capable user again. A name nobody
+     * holds matches no owner (`stat` prints a number), so a missing agent narrows the pattern to `www` by itself.
      */
     private function ownOwners(): string
     {
-        if ($this->siteWriter === null) {
-            return Q::arg($this->siteUser);
-        }
-        try {
-            $agent = ($this->siteWriter)();
-        } catch (ProviderException) {
-            return Q::arg($this->siteUser);
-        }
-
-        return $agent === '' || $agent === $this->siteUser ? Q::arg($this->siteUser) : Q::arg($this->siteUser).'|'.Q::arg($agent);
+        return $this->siteAgent === '' || $this->siteAgent === $this->siteUser ? Q::arg($this->siteUser) : Q::arg($this->siteUser).'|'.Q::arg($this->siteAgent);
     }
 
     /** @return int the size of the copy */

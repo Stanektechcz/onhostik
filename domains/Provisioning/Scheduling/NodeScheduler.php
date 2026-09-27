@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Provisioning\Scheduling;
 
+use Closure;
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\Models\Node;
+use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
+use Onhost\Domain\Provisioning\Workflows\WebMigrationWorkflow;
 use Onhost\Domain\Services\IncludedServices;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
@@ -60,7 +63,12 @@ final class NodeScheduler
      * Counted like the command counts: the platform's own services on the panel that are not terminated (sites the
      * platform did not create are never read). A flag that cannot be read counts as open (AaPanelTenancyGate::isClosed
      * null): refused rather than guessed. Without an organization (a read-only "could anything host this?" or a caller
-     * that names none) nothing is judged here — ScheduleNodeStep's place() always names it.
+     * that names none) nothing is judged here — ScheduleNodeStep's place() and WebMigrationWorkflow's target step name it.
+     *
+     * A site being moved there counts too (TASK-0041 review round 1): a move chooses its node first and switches the
+     * service over only after the copy, so an evacuation of a shared node sent every organization's site to the same empty
+     * open node, each one seeing it empty. The move's target step records its node under the placement lock
+     * (underPlacementLock), and a move that is not over is its organization's on that node from then on.
      *
      * @param  array<string,mixed>  $constraints  as for pick(): `organization`, `except_service`
      */
@@ -71,12 +79,37 @@ final class NodeScheduler
         if ($organization === '' || $instance === null || $instance->provider !== 'aapanel' || AaPanelTenancyGate::isClosed($instance) === true) {
             return null;
         }
+        $except = (string) ($constraints['except_service'] ?? '');
         $neighbour = Service::query()->where('provider_instance_id', $instance->id)->where('state', '!=', ServiceStateMachine::TERMINATED)
             ->where('organization_id', '!=', $organization)
-            ->when(! empty($constraints['except_service']), fn ($q) => $q->whereKeyNot((string) $constraints['except_service']))
+            ->when($except !== '', fn ($q) => $q->whereKeyNot($except))
             ->exists();
+        $arriving = ! $neighbour && Operation::query()->where('kind', WebMigrationWorkflow::kind())->whereIn('state', [Operation::PENDING, Operation::RUNNING, Operation::WAITING])
+            ->where('organization_id', '!=', $organization)
+            ->when($except !== '', fn ($q) => $q->where('service_id', '!=', $except))
+            ->get(['id', 'context'])
+            ->contains(fn (Operation $move) => (string) data_get($move->context, 'target_instance_id', '') === $instance->id);
 
-        return $neighbour ? "{$node->name} serves another customer and {$instance->key} is not closed as shared (onhost:aapanel:tenancy --apply --instance={$instance->key})" : null;
+        return $neighbour || $arriving ? "{$node->name} ".($neighbour ? 'serves' : 'is receiving a site of')." another customer and {$instance->key} is not closed as shared (onhost:aapanel:tenancy --apply --instance={$instance->key})" : null;
+    }
+
+    /**
+     * One placement decision at a time: the node rows are locked for the length of `$decide`, so a second placement or move
+     * waits and then counts what the first one recorded (H04 for capacity; TASK-0041 for an open aaPanel node's tenancy).
+     * PostgreSQL serializes on the row locks; SQLite has a single writer anyway.
+     *
+     * @template T
+     *
+     * @param  Closure(): T  $decide
+     * @return T
+     */
+    public function underPlacementLock(Closure $decide): mixed
+    {
+        return DB::transaction(function () use ($decide) {
+            Node::query()->where('state', 'active')->orderBy('id')->lockForUpdate()->get(['id']);
+
+            return $decide();
+        }, 3);
     }
 
     /** Whether a node serves a role: its `role`, or one of the extra roles in `tags.roles` / `tags.ispconfig_roles` (a panel host running web and mail). */
@@ -221,8 +254,8 @@ final class NodeScheduler
 
     /**
      * Pick a node and put the service on it as one step. Two workers placing at the same moment would otherwise both read
-     * the same free space: the node rows are locked for the length of the decision, so the second placement waits and then
-     * counts the first one (H04). PostgreSQL serializes on the row locks; SQLite has a single writer anyway.
+     * the same free space: the decision runs under the placement lock, so the second placement waits and then counts the
+     * first one (H04).
      *
      * @param  array<string,mixed>  $constraints  as for pick()
      * @return array{node:Node, instance:ProviderInstance, score:float, candidates:list<array{node:string,score:float}>}
@@ -232,13 +265,12 @@ final class NodeScheduler
         // whose service it is decides whether an open aaPanel node may take it (sharedNodeRefusal); the service itself is not a neighbour
         $constraints += ['organization' => (string) $service->organization_id, 'except_service' => $service->id];
 
-        return DB::transaction(function () use ($service, $constraints) {
-            Node::query()->where('state', 'active')->orderBy('id')->lockForUpdate()->get(['id']);
+        return $this->underPlacementLock(function () use ($service, $constraints) {
             $pick = $this->pick($constraints);
             $service->forceFill(['node_id' => $pick['node']->id, 'provider_instance_id' => $pick['instance']->id, 'region_code' => $pick['node']->region_code])->save();
 
             return $pick;
-        }, 3);
+        });
     }
 
     /**
