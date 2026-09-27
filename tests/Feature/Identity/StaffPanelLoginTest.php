@@ -6,17 +6,22 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Testing\TestResponse;
+use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
 use Onhost\Domain\Identity\Authorization\TokenScopes;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Notifications\Models\MailOutbox;
 use Onhost\Domain\Notifications\Models\Notification;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Organizations\Models\OrganizationMembership;
+use Onhost\Domain\Services\Commands\PanelLoginCommand;
+use Onhost\Domain\Services\Commands\PanelLoginCommandHandler;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Support\Models\Ticket;
 use Onhost\Domain\Support\TicketService;
 use Onhost\Domain\Support\TicketStateMachine;
 use Onhost\Platform\Commands\CommandContext;
+use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Outbox\OutboxPublisher;
 use Tests\TestCase;
 
@@ -161,3 +166,56 @@ it('needs only the step-up when the customer consented on the ticket, and never 
     $token = $staff->createToken('spl', TokenScopes::ALL);
     $this->withToken($token->plainTextToken)->postJson("/v1/staff/services/{$service->id}/panel-login", $body)->assertForbidden();
 });
+
+// ── TASK-0039 review round 1 ──
+/** A member of staff who is ALSO an admin of the customer's organization (the IF-8 population: an operator's own company, a test tenant). */
+function splStaffMember(User $staff, Organization $organization): User
+{
+    PolicyBinding::query()->create(['principal_type' => 'user', 'principal_id' => $staff->id, 'role_key' => 'org_admin', 'scope_type' => 'organization', 'scope_id' => $organization->id, 'organization_id' => $organization->id]);
+    OrganizationMembership::query()->create(['organization_id' => $organization->id, 'user_id' => $staff->id, 'state' => 'active', 'role_key' => 'org_admin', 'joined_at' => now()]);
+
+    return $staff;
+}
+
+it('never takes a ticket a member of staff opened as a customer, nor a consent a member of staff gave (program D7, review round 1)', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $service = featureWebService($org, 'ispconfig');
+    $insider = splStaffMember($this->steppedUpStaff('shared_hosting_admin'), $org);
+    $reason = 'Zákazník hlásí chybu 500 po aktualizaci, kontrola logů v panelu.';
+
+    // opened in the portal, as a customer, by a current member — who is staff: it would satisfy itself, for them and for a colleague
+    $own = splTicket($org, $insider, $service);
+    splLogin($this->actingAs($insider, 'sanctum'), $service, ['ticket_id' => $own->id, 'reason' => $reason])->assertStatus(422)->assertJsonPath('error', 'support_ticket_required');
+    $colleague = $this->steppedUpStaff('shared_hosting_admin');
+    splLogin($this->actingAs($colleague, 'sanctum'), $service, ['ticket_id' => $own->id, 'reason' => $reason])->assertStatus(422)->assertJsonPath('error', 'support_ticket_required');
+
+    // the customer's own ticket with a "consent" the insider wrote as a member: no consent, the second person is still asked
+    $ticket = splTicket($org, $owner, $service, ['consent' => $insider]);
+    splLogin($this, $service, ['ticket_id' => $ticket->id, 'reason' => $reason])->assertForbidden()->assertJsonPath('error', 'approval_required');
+    Http::assertNotSent(fn (Request $request) => str_contains($request->url(), 'client_login_get'));
+});
+
+it('asks for the second person again when the consent is gone by the time the link is made (review round 1)', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $service = featureWebService($org, 'ispconfig');
+    $ticket = splTicket($org, $owner, $service, ['consent' => $owner]);
+    $staff = $this->steppedUpStaff('shared_hosting_admin');
+    $command = new PanelLoginCommand($org->id, 'spl-race', ['service_id' => $service->id, 'ticket_id' => $ticket->id, 'reason' => 'Zákazník hlásí chybu 500 po aktualizaci, kontrola logů v panelu.']);
+    expect($command->requiresApproval())->toBeFalse(); // the bus decided: consent, no second person
+
+    // … and the customer withdraws it before the handler runs: the handler does not trust the bus's earlier answer
+    $ticket->forceFill(['meta' => array_diff_key((array) $ticket->meta, ['support_access' => 1])])->save();
+    expect(fn () => app(PanelLoginCommandHandler::class)->handle($command, $this->staffContextFor($staff, $org, 'totp')))
+        ->toThrow(fn (DomainError $e) => expect($e->error)->toBe('approval_required'));
+    Http::assertNotSent(fn (Request $request) => str_contains($request->url(), 'client_login_get'));
+
+    // the mirror: a second person approved, then the customer consented — the sign-on goes on as consented, the approval unspent
+    $plain = splTicket($org, $owner, $service);
+    $body = ['ticket_id' => $plain->id, 'reason' => 'Zákazník hlásí chybu 500 po aktualizaci, kontrola logů v panelu.'];
+    $approval = (string) splLogin($this->actingAs($staff, 'sanctum'), $service, $body)->assertForbidden()->assertJsonPath('error', 'approval_required')->json('approval_id');
+    $approved = secondPersonApproves($approval);
+    $plain->forceFill(['meta' => (array) $plain->meta + ['support_access' => ['level' => 'console', 'granted_by' => $owner->id, 'granted_at' => now()->toIso8601String(), 'until' => now()->addDay()->toIso8601String()]]])->save();
+    splLogin($this, $service, $body + ['approval_ids' => [$approved]])->assertOk()->assertJsonPath('data.consented', true);
+    expect(DB::table('approvals')->where('id', $approved)->value('consumed_at'))->toBeNull();
+});
+// ── end TASK-0039 review round 1 ──

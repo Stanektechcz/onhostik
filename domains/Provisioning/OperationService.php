@@ -6,6 +6,7 @@ namespace Onhost\Domain\Provisioning;
 
 use Illuminate\Contracts\Bus\Dispatcher as BusDispatcher;
 use Illuminate\Support\Facades\DB;
+use Onhost\Domain\Identity\Authorization\StaffActor;
 use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\Provisioning\Jobs\RunOperation;
 use Onhost\Domain\Provisioning\Models\Operation;
@@ -39,6 +40,12 @@ final class OperationService
         if ($existing !== null) {
             return $existing;
         }
+        // ── TASK-0039 review round 1 (permission program §3 "staffMode persisted", IF-8) ──
+        // the run acts later, from the queue, and the runner rebuilds its actor from the operation: `desired.staff_mode` is how a run
+        // started in staff mode stays one (the hold a suspension carries is decided when the run settles it). Written here, from the
+        // starting context alone — a parameter of that name, which the bag of a feature action does not filter, is dropped
+        $desired = array_diff_key($desired, ['staff_mode' => true]) + (StaffActor::acts($actor) ? ['staff_mode' => true] : []);
+        // ── end TASK-0039 ──
         $instance = app($workflow);
         $steps = $instance->steps(new Operation(['desired' => $desired, 'context' => [], 'service_id' => $serviceId]));
         $operation = Operation::query()->create([

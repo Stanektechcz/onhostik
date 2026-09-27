@@ -39,6 +39,12 @@ final class PanelLoginCommandHandler implements CommandHandler
         }
         [$staff, $service, $ticket, $reason] = self::assertEligible($command, $context, $this->authorizer); // again: the ticket may have closed meanwhile
         $consented = PanelLoginCommand::consented($ticket, $service);
+        // the bus decided "no second person" from the consent as it stood a moment ago (PanelLoginCommand::requiresApproval); a
+        // consent withdrawn since then is no consent — without it, only a second person (or the sole approver's time lock) the bus
+        // consumed for THIS run lets the link be made (TASK-0039 review round 1: the stale-state window between the two checks)
+        if (! $consented && $context->verifiedApprovalIds === []) {
+            throw new DomainError('approval_required', 'Zákazník souhlas s přístupem na tiketu mezitím odvolal: přihlášení teď potřebuje schválení druhou osobou. Zopakujte ho.', 403, ['requirement' => 'approval']);
+        }
 
         [$tools, $ref] = $this->features->toolsFor($service);
         $url = $tools->panelLoginUrl($ref);

@@ -48,7 +48,17 @@ final class StaffActor
         }
         $user = User::query()->find($context->actorId);
 
-        return $user !== null && $user->is_staff && $user->isActive();
+        return $user !== null && self::account($user) && $user->isActive();
+    }
+
+    /**
+     * Whether the account is a staff account at all, whatever mode it acts in. Not a permission: the one use is refusing what a
+     * member of staff did as a customer where only a customer's act counts — a ticket that lets staff into a panel, a consent on it
+     * (program D7, TASK-0039 review round 1: a member of staff who is also a member of the organization satisfied their own ticket).
+     */
+    public static function account(?User $user): bool
+    {
+        return $user !== null && (bool) $user->is_staff;
     }
 
     /** The staff person behind a context that acts as staff, or null. */

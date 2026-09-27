@@ -8,6 +8,7 @@ use Illuminate\Support\Carbon;
 use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Authorization\PermissionCatalog;
 use Onhost\Domain\Identity\Authorization\RiskAwareCommand;
+use Onhost\Domain\Identity\Authorization\StaffActor;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Services\Models\Service;
@@ -104,6 +105,11 @@ final class PanelLoginCommand extends OrganizationCommand implements RiskAwareCo
         if ($first === null || $first->author_type !== 'customer' || (string) $first->author_id !== (string) $ticket->user_id) {
             return null;
         }
+        // a member of staff who is also a member of the organization opens it "as a customer" in the portal all the same: it would
+        // satisfy itself, for them or for a colleague (program D7; TASK-0039 review round 1). Only a customer's own ticket counts
+        if (StaffActor::account(User::query()->find((string) $ticket->user_id))) {
+            return null;
+        }
 
         return self::currentMember((string) $ticket->user_id, (string) $service->organization_id) ? $ticket : null;
     }
@@ -127,7 +133,8 @@ final class PanelLoginCommand extends OrganizationCommand implements RiskAwareCo
             return false;
         }
         $granter = User::query()->find($grant['granted_by']);
-        if ($granter === null || ! self::currentMember($granter->id, (string) $service->organization_id)) {
+        // …and never a member of staff: a consent staff gave waives the second person staff would otherwise need (review round 1)
+        if ($granter === null || StaffActor::account($granter) || ! self::currentMember($granter->id, (string) $service->organization_id)) {
             return false;
         }
         $held = app(Authorizer::class)->customerPermissionsAt($granter, CommandScope::resource($service->id, $service->organization_id, $service->project_id));

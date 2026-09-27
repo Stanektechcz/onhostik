@@ -159,7 +159,9 @@ final class OperationRunner
     private function context(Operation $operation): StepContext
     {
         $service = $operation->service_id ? Service::query()->find($operation->service_id) : null;
-        $actor = new CommandContext($operation->actor_type, $operation->actor_id, $operation->organization_id, correlationId: $operation->correlation_id);
+        // TASK-0039 review round 1 (program §3 "staffMode persisted"): a run started in staff mode acts in it — OperationService::start
+        // writes the flag from the starting context only, and StaffActor still asks whether the person is staff and active today
+        $actor = new CommandContext($operation->actor_type, $operation->actor_id, $operation->organization_id, correlationId: $operation->correlation_id, staffMode: data_get($operation->desired, 'staff_mode') === true);
 
         return new StepContext($operation, $service, $this->providers, $this->container, $actor);
     }
