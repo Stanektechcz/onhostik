@@ -273,7 +273,6 @@ it('reads is_staff only where the allow-list says: every other decision asks Sta
         'app/Console/Commands/Doctor.php' => 1,                      // counts staff accounts
         'app/Console/Commands/ForensicLookback.php' => 2,            // describes the old shortcut it looks for (text)
         'app/Console/Commands/Forensics/MembershipHistory.php' => 1, // read-only look-back
-        'app/Console/Commands/StaffCreate.php' => 1,                 // creates a staff account (CLI)
         'app/Console/Commands/StaffTotp.php' => 1,                   // CLI for staff MFA
         'app/Http/Controllers/Api/V1/AuthController.php' => 5,       // staff MFA at sign-in, the surface a person lands on, registration creates a non-staff user
         'app/Http/Controllers/Api/V1/CheckoutController.php' => 1,   // a guest checkout creates a non-staff user
@@ -288,6 +287,7 @@ it('reads is_staff only where the allow-list says: every other decision asks Sta
         'domains/Identity/Authorization/Models/Role.php' => 1,       // the roles table's own column
         'domains/Identity/Authorization/StaffActor.php' => 1,        // the one decision
         'domains/Identity/Commands/ApprovalDecisionCommandHandler.php' => 1, // only staff decide approvals
+        'domains/Identity/Commands/StaffAccountCommandHandler.php' => 1, // creates a staff account (the CLI through the bus since TASK-0037)
         'domains/Identity/Models/User.php' => 1,                     // the column's cast
         'domains/Identity/StepUp/StepUpService.php' => 1,            // staff step up with a second factor
         'domains/Incidents/OnCallRota.php' => 3,                     // only staff go on call
