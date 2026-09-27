@@ -113,6 +113,7 @@ it('lists, toggles, runs and deletes schedules and manages databases, collaborat
             str_ends_with($path, '/users') && $m === 'POST' => Http::response(['object' => 'server_subuser', 'attributes' => ['uuid' => 'su-2', 'email' => $request['email'], 'permissions' => $request['permissions']]]),
             str_ends_with($path, '/users/su-1') && $m === 'DELETE' => Http::response('', 204),
             str_ends_with($path, '/api/application/users/9') && $m === 'GET' => Http::response(['object' => 'user', 'attributes' => ['id' => 9, 'external_id' => $owner, 'username' => 'liga_ab12cd', 'root_admin' => false]]),
+            str_ends_with($path, '/api/application/servers/77') && $m === 'GET' => Http::response(['object' => 'server', 'attributes' => ['id' => 77, 'identifier' => 'e4c1abcd', 'user' => 9, 'node' => 2]]), // the owner is the panel's answer (TASK-0033)
             str_ends_with($path, '/network/allocations') && $m === 'GET' => Http::response(['object' => 'list', 'data' => [['object' => 'allocation', 'attributes' => ['id' => 11, 'ip' => '89.187.160.10', 'ip_alias' => null, 'port' => 25566, 'notes' => null, 'is_default' => true]]]]),
             str_ends_with($path, '/network/allocations') && $m === 'POST' => Http::response(['object' => 'allocation', 'attributes' => ['id' => 12, 'ip' => '89.187.160.10', 'ip_alias' => null, 'port' => 25567, 'notes' => null, 'is_default' => false]]),
             str_ends_with($path, '/network/allocations/12/primary') => Http::response(['object' => 'allocation', 'attributes' => ['id' => 12, 'is_default' => true]]),
@@ -185,6 +186,7 @@ it('browses, reads and writes files, and handles the customer panel account with
                 return Http::response(['object' => 'user', 'attributes' => $users[(int) $mm[1]]]);
             })(),
             str_ends_with($path, '/api/application/servers/78') => Http::response(['object' => 'server', 'attributes' => ['id' => 78, 'identifier' => 'adm1n000', 'user' => 1, 'node' => 2]]),
+            str_ends_with($path, '/api/application/servers/77') && $m === 'GET' => Http::response(['object' => 'server', 'attributes' => ['id' => 77, 'identifier' => 'e4c1abcd', 'user' => 9, 'node' => 2]]), // the owner is the panel's answer (TASK-0033)
             str_ends_with($path, '/api/client/account') => Http::response(['object' => 'user', 'attributes' => ['id' => 1, 'admin' => true]]),
             default => null,
         };

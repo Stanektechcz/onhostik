@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
@@ -12,12 +13,15 @@ use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Provisioning\Workflow\StepContext;
 use Onhost\Domain\Provisioning\Workflow\StepResult;
 use Onhost\Domain\Provisioning\Workflows\ProvisionGameServerWorkflow;
+use Onhost\Domain\Provisioning\Workflows\ServiceActionWorkflow;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Platform\Commands\CommandContext;
+use Onhost\Platform\Errors\ProviderErrorCode;
 use Onhost\Platform\Errors\ProviderException;
 use Onhost\Providers\Contracts\GameToolsProvider;
 use Onhost\Providers\Contracts\ResourceSpec;
+use Onhost\Providers\Pterodactyl\PanelIdentity;
 use Onhost\Providers\Pterodactyl\PterodactylGameProvider;
 
 /*
@@ -37,7 +41,7 @@ beforeEach(fn () => Http::preventStrayRequests());
  * The lab panel with a users table that answers like Pterodactyl 1.11 on MySQL: `filter[email]` is a LIKE match and
  * `users/external/{id}` compares under a case- and trailing-space-insensitive collation.
  *
- * @param  array{users: array<int, array<string, mixed>>, calls: list<string>, created: list<array<string, mixed>>, patched: list<int>, subusers: array<string, array<string, mixed>>}  $state
+ * @param  array{users: array<int, array<string, mixed>>, live: array<int, int>, fail: array<string, int>, calls: list<string>, created: list<array<string, mixed>>, patched: list<int>, subusers: array<string, array<string, mixed>>}  $state
  */
 function gpiPanel(array &$state): void
 {
@@ -55,6 +59,7 @@ function gpiPanel(array &$state): void
         $loose = fn (?string $value) => mb_strtolower(rtrim((string) $value));
 
         return match (true) {
+            isset($state['fail'][$m.' '.$path]) => Http::response(['errors' => [['code' => 'HttpException', 'status' => (string) $state['fail'][$m.' '.$path], 'detail' => 'An unexpected error was encountered while processing this request.']]], $state['fail'][$m.' '.$path]),
             $path === '/api/application/users' && $m === 'GET' => Http::response(['object' => 'list', 'data' => array_values(array_map(fn ($a) => ['object' => 'user', 'attributes' => $a], array_filter($state['users'], fn ($a) => str_contains(mb_strtolower((string) $a['email']), mb_strtolower((string) data_get($query, 'filter.email', '')))))), 'meta' => ['pagination' => ['total_pages' => 1]]]),
             preg_match('~^/api/application/users/external/(.+)$~', $path, $x) === 1 && $m === 'GET' => (function () use (&$state, $x, $user, $notFound, $loose) {
                 foreach ($state['users'] as $a) {
@@ -78,7 +83,10 @@ function gpiPanel(array &$state): void
 
                 return $user($state['users'][(int) $x[1]]);
             })(),
-            $path === '/api/application/servers/77' && $m === 'GET' => Http::response(['object' => 'server', 'attributes' => ['id' => 77, 'external_id' => 'feature-test', 'identifier' => 'e4c1abcd', 'uuid' => 'e4c1abcd-uuid', 'user' => 9, 'node' => 2]]),
+            // the panel's own answer to "who owns server N" (`live`: server id => panel user id), whatever the binding recorded
+            preg_match('~^/api/application/servers/(\d+)$~', $path, $x) === 1 && $m === 'GET' => isset($state['live'][(int) $x[1]])
+                ? Http::response(['object' => 'server', 'attributes' => ['id' => (int) $x[1], 'external_id' => 'feature-test', 'identifier' => 'e4c1abcd', 'uuid' => 'e4c1abcd-uuid', 'user' => $state['live'][(int) $x[1]], 'node' => 2]])
+                : $notFound,
             str_starts_with($path, '/api/application/servers/external/') => (function () use (&$state, $path, $notFound, $loose) {
                 foreach ($state['servers'] ?? [] as $a) {
                     if ($loose($a['external_id']) === $loose(rawurldecode(substr($path, strlen('/api/application/servers/external/'))))) {
@@ -110,6 +118,7 @@ function gpiState(?string $externalId, bool $rootAdmin = false): array
 {
     return [
         'users' => [9 => ['id' => 9, 'external_id' => $externalId, 'email' => 'hrac@obet.cz', 'username' => 'obet_ab12cd', 'first_name' => 'Obet', 'last_name' => 'Customer', 'language' => 'en', 'root_admin' => $rootAdmin]],
+        'live' => [77 => 9], 'fail' => [],
         'calls' => [], 'created' => [], 'patched' => [], 'subusers' => ['su-1' => ['uuid' => 'su-1', 'email' => 'kamos@obet.cz', 'permissions' => ['control.console'], 'created_at' => null]],
     ];
 }
@@ -256,6 +265,7 @@ it('lists legacy mismatches for triage with a read-only dry run and changes noth
     $foreign->primaryBinding()->forceFill(['meta' => ['identifier' => 'f00dbabe', 'user_id' => 12]])->save();
     $state = gpiState($org->id);
     $state['users'][12] = ['id' => 12, 'external_id' => $stranger->id, 'email' => 'cizi@obet.cz', 'username' => 'cizi', 'root_admin' => false];
+    $state['live'][78] = 12;
     gpiPanel($state);
 
     expect(Artisan::call('onhost:game:panel-identity', ['--dry-run' => true]))->toBe(0);
@@ -263,4 +273,105 @@ it('lists legacy mismatches for triage with a read-only dry run and changes noth
     expect($out)->toContain($foreign->id)->toContain('foreign')->toContain($own->id)->toContain('owned')->toContain('neodpovídá: 1') // one mismatch
         ->and(gpiWrites($state['calls']))->toBe([]);
     expect(Artisan::call('onhost:game:panel-identity', ['--apply' => true]))->toBe(1); // no automatic re-homing exists
+});
+
+/** A past service action of the service that the operations table still remembers (the dry run's look-back column). */
+function gpiPastAction(Service $service, string $action, string $state = Operation::SUCCEEDED): void
+{
+    Operation::query()->create(['service_id' => $service->id, 'organization_id' => $service->organization_id, 'provider_instance_id' => $service->provider_instance_id, 'kind' => ServiceActionWorkflow::kind(), 'workflow' => ServiceActionWorkflow::class, 'state' => $state, 'step' => 1, 'steps_total' => 1, 'actor_type' => 'user', 'idempotency_key' => 'gpi-past:'.$service->id.':'.$action.':'.Str::random(6), 'correlation_id' => 'c', 'desired' => ['action' => $action, 'service_id' => $service->id], 'context' => [], 'queue' => 'q', 'queued_at' => now()->subMonth(), 'next_run_at' => now()->subMonth(), 'retry_until' => now()->subMonth()]);
+}
+
+it('judges the owner the panel names today, not the one the binding recorded: a collaborator is never added to a server that now sits under a stranger', function () {
+    // review round 1 (security): the owner came from the cached binding meta, so a server moved on the panel to another
+    // account kept being treated as the organization's — a new collaborator became a grant on a stranger's server
+    [, $org] = $this->customerWithOrganization();
+    [, $stranger] = $this->customerWithOrganization();
+    $service = featureGameService($org); // the binding recorded panel user 9 (the organization's)
+    $state = gpiState($org->id);
+    $state['users'][12] = ['id' => 12, 'external_id' => $stranger->id, 'email' => 'cizi@obet.cz', 'username' => 'cizi', 'root_admin' => false];
+    $state['live'][77] = 12; // … but the panel says server 77 belongs to user 12 now
+    gpiPanel($state);
+    $adapter = gpiAdapter();
+    $ref = $service->primaryBinding()->ref();
+
+    expect(fn () => $adapter->createSubuser($ref, 'kamos@liga.cz', GameToolsProvider::SUBUSER_PRESETS['files']))->toThrow(ProviderException::class, 'support has to review');
+    expect(fn () => $adapter->setPanelPassword($ref, 'Nove-Heslo-1234567'))->toThrow(ProviderException::class, 'support has to review');
+    expect(fn () => $adapter->panelAccount($ref))->toThrow(ProviderException::class, 'support has to review');
+    expect(gpiWrites($state['calls']))->toBe([])->and($state['calls'])->toContain('GET /api/application/servers/77');
+    expect($adapter->panelIdentity($ref, $org->id))->verdict->toBe(PanelIdentity::MOVED)->userId->toBe('12')->recordedUserId->toBe('9');
+});
+
+it('refuses while the platform\'s record of the owner disagrees with the panel, even when the panel\'s owner is the organization\'s, until an operator reconciles both', function () {
+    // a server re-homed on the panel by hand: the binding (and game_servers) still name the old user, and a same-panel
+    // migration reads them — acting now would leave that disagreement silent (review round 1, security)
+    [, $org] = $this->customerWithOrganization();
+    [, $stranger] = $this->customerWithOrganization();
+    $service = featureGameService($org);
+    $state = gpiState($stranger->id); // user 9, recorded in the binding, is the stranger's
+    $state['users'][20] = ['id' => 20, 'external_id' => $org->id, 'email' => 'org@game-users.onhost.invalid', 'username' => 'liga', 'first_name' => 'Liga', 'last_name' => 'Customer', 'language' => 'en', 'root_admin' => false];
+    $state['live'][77] = 20; // the operator moved server 77 to the organization's own user 20 on the panel
+    gpiPanel($state);
+    $adapter = gpiAdapter();
+    $ref = $service->primaryBinding()->ref();
+
+    expect(fn () => $adapter->setPanelPassword($ref, 'Nove-Heslo-1234567'))->toThrow(ProviderException::class, 'than the platform recorded');
+    expect($state['patched'])->toBe([]);
+
+    // once the binding records the panel's owner, the move takes effect: the organization's own user 20 is managed
+    $binding = $service->primaryBinding();
+    $binding->forceFill(['meta' => array_merge((array) $binding->meta, ['user_id' => 20])])->save();
+    expect($adapter->setPanelPassword($binding->fresh()->ref(), 'Nove-Heslo-1234567')->data['changed'])->toBeTrue()->and($state['patched'])->toBe([20]);
+});
+
+it('propagates a panel 5xx during the external-id lookup instead of creating a duplicate user', function () {
+    [, $org] = $this->customerWithOrganization();
+    featureGameService($org);
+    $state = gpiState($org->id);
+    $state['fail']['GET /api/application/users/external/'.$org->id] = 500;
+    gpiPanel($state);
+
+    $thrown = null;
+    try {
+        gpiAdapter()->ensureUser('hrac@liga.cz', 'Liga', $org->id);
+    } catch (ProviderException $e) {
+        $thrown = $e;
+    }
+    // a panel error during the lookup never reads as "no user yet": the saga retries the step instead of making a second user
+    expect($thrown)->not->toBeNull()->and($thrown->errorCode)->not->toBe(ProviderErrorCode::NOT_FOUND)->and($thrown->isRetryable())->toBeTrue();
+    expect($state['created'])->toBe([])->and(gpiWrites($state['calls']))->toBe([]);
+});
+
+it('keeps listing every server when one panel user is gone and another server cannot be read, and shows past credential actions', function () {
+    [, $org] = $this->customerWithOrganization();
+    [, $gone] = $this->customerWithOrganization();
+    [, $broken] = $this->customerWithOrganization();
+    [, $victimised] = $this->customerWithOrganization();
+    [, $stranger] = $this->customerWithOrganization();
+    $own = featureGameService($org);
+    $missing = featureGameService($gone, [], 79, 'aaaa0079');
+    $missing->primaryBinding()->forceFill(['meta' => ['identifier' => 'aaaa0079', 'user_id' => 13]])->save();
+    $unreadable = featureGameService($broken, [], 80, 'aaaa0080');
+    $unreadable->primaryBinding()->forceFill(['meta' => ['identifier' => 'aaaa0080', 'user_id' => 14]])->save();
+    $foreign = featureGameService($victimised, [], 81, 'aaaa0081');
+    $foreign->primaryBinding()->forceFill(['meta' => ['identifier' => 'aaaa0081', 'user_id' => 12]])->save();
+    $state = gpiState($org->id);
+    $state['users'][12] = ['id' => 12, 'external_id' => $stranger->id, 'email' => 'cizi@obet.cz', 'username' => 'cizi', 'root_admin' => false];
+    $state['live'] += [79 => 13, 80 => 14, 81 => 12]; // user 13 was deleted on the panel
+    $state['fail']['GET /api/application/users/14'] = 500;
+    gpiPanel($state);
+    gpiPastAction($foreign, 'panel.password');
+    gpiPastAction($foreign, 'subuser.create');
+    gpiPastAction($foreign, 'subuser.create');
+    gpiPastAction($foreign, 'panel.password', Operation::FAILED); // a refused reset changed nothing
+
+    expect(Artisan::call('onhost:game:panel-identity', ['--dry-run' => true]))->toBe(0);
+    $rows = collect(explode("\n", Artisan::output()));
+    $row = fn (Service $s) => (string) $rows->first(fn ($l) => str_contains($l, $s->id));
+
+    expect($row($own))->toContain('owned')
+        ->and($row($missing))->toContain('missing')
+        ->and($row($unreadable))->toContain('unreadable')
+        ->and($row($foreign))->toContain('foreign')->toContain('panel.password 1')->toContain('subuser.create 2');
+    expect($rows->implode("\n"))->toContain('neodpovídá: 3')->toContain('heslo');
+    expect(gpiWrites($state['calls']))->toBe([]);
 });

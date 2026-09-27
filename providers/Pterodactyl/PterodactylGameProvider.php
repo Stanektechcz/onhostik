@@ -188,17 +188,7 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider, 
      */
     public function panelIdentity(ResourceRef $server, string $organizationId): PanelIdentity
     {
-        $userId = $this->serverUserId($server);
-        try {
-            $attributes = (array) ($this->request('GET', "/api/application/users/{$userId}", 'app', 'users.get')['attributes'] ?? []);
-        } catch (ProviderException $e) {
-            if ($e->errorCode === ProviderErrorCode::NOT_FOUND) {
-                return PanelIdentity::judge(null, $organizationId, $userId);
-            }
-            throw $e;
-        }
-
-        return PanelIdentity::judge($attributes, $organizationId, $userId);
+        return $this->ownerIdentity($server, $organizationId)[0];
     }
 
     /**
@@ -212,13 +202,42 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider, 
      */
     private function ownPanelUser(ResourceRef $server): array
     {
-        $userId = $this->serverUserId($server);
-        $attributes = (array) ($this->request('GET', "/api/application/users/{$userId}", 'app', 'users.get')['attributes'] ?? []);
         // a ref without a service, or a service that is gone, has no organization: then the account is nobody's (fail closed)
         $organizationId = $server->serviceId === null ? null : Service::query()->whereKey($server->serviceId)->value('organization_id');
-        $this->assertOwnUser(PanelIdentity::judge($attributes, is_string($organizationId) ? $organizationId : '', $userId));
+        [$identity, $attributes] = $this->ownerIdentity($server, is_string($organizationId) ? $organizationId : '');
+        $this->assertOwnUser($identity);
 
-        return array_merge($attributes, ['id' => $userId]); // the user that was proven is the one acted on
+        return array_merge($attributes, ['id' => $identity->userId]); // the user that was proven is the one acted on
+    }
+
+    /**
+     * Whose account the server sits under TODAY, judged against the organization (review round 1 of TASK-0033). The owner
+     * is the panel's live `servers/{id}.user`, never the binding's cached `meta.user_id` alone: a server moved on the panel
+     * to another account would otherwise still pass as the organization's (a new collaborator = a grant on a stranger's
+     * server), and a re-home done by hand would never be seen. When the two disagree the verdict is MOVED — refused, and
+     * listed by the dry run — until an operator makes the platform's record (binding meta, `game_servers.ptero_user_id`,
+     * which a same-panel migration still reads) name the panel's owner again.
+     *
+     * @return array{0: PanelIdentity, 1: array<string, mixed>} the verdict and the live owner's panel attributes
+     */
+    private function ownerIdentity(ResourceRef $server, string $organizationId): array
+    {
+        $userId = (string) ($this->request('GET', "/api/application/servers/{$server->remoteId}", 'app', 'servers.get')['attributes']['user'] ?? '');
+        if ($userId === '' || $userId === '0') {
+            throw new ProviderException('pterodactyl', ProviderErrorCode::PROVIDER_BUG, 'The panel names no owner for the game server');
+        }
+        try {
+            $attributes = (array) ($this->request('GET', "/api/application/users/{$userId}", 'app', 'users.get')['attributes'] ?? []);
+            $identity = PanelIdentity::judge($attributes, $organizationId, $userId);
+        } catch (ProviderException $e) {
+            if ($e->errorCode !== ProviderErrorCode::NOT_FOUND) {
+                throw $e;
+            }
+            [$attributes, $identity] = [[], PanelIdentity::judge(null, $organizationId, $userId)];
+        }
+        $recorded = (string) ($server->meta['user_id'] ?? ''); // an older binding without it has nothing to disagree with
+
+        return [$recorded !== '' && $recorded !== $userId ? $identity->movedFrom($recorded) : $identity, $attributes];
     }
 
     /** @throws ProviderException VALIDATION with no vendor detail and no foreign id in the message (customers see it) */
@@ -227,9 +246,11 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider, 
         if ($identity->owned()) {
             return;
         }
-        throw new ProviderException('pterodactyl', ProviderErrorCode::VALIDATION, $identity->verdict === PanelIdentity::ADMINISTRATOR
-            ? 'The server belongs to a panel administrator; its password is not managed here'
-            : 'The game panel account does not belong to this organization; support has to review it before it can be managed here');
+        throw new ProviderException('pterodactyl', ProviderErrorCode::VALIDATION, match ($identity->verdict) {
+            PanelIdentity::ADMINISTRATOR => 'The server belongs to a panel administrator; its password is not managed here',
+            PanelIdentity::MOVED => 'The game panel names another owner of this server than the platform recorded; support has to review it before it can be managed here',
+            default => 'The game panel account does not belong to this organization; support has to review it before it can be managed here',
+        });
     }
 
     /** @return array<string, mixed>|null */
@@ -246,20 +267,6 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider, 
         $attributes = $found['attributes'] ?? null;
 
         return is_array($attributes) ? $attributes : null;
-    }
-
-    /** The panel user the server was created under: the binding knows it, an older binding asks the panel. */
-    private function serverUserId(ResourceRef $server): string
-    {
-        $userId = (string) ($server->meta['user_id'] ?? '');
-        if ($userId === '') {
-            $userId = (string) ($this->request('GET', "/api/application/servers/{$server->remoteId}", 'app', 'servers.get')['attributes']['user'] ?? '');
-        }
-        if ($userId === '' || $userId === '0') {
-            throw new ProviderException('pterodactyl', ProviderErrorCode::PROVIDER_BUG, 'The panel names no owner for the game server');
-        }
-
-        return $userId;
     }
 
     /**

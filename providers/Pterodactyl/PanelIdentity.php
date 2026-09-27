@@ -29,11 +29,25 @@ final class PanelIdentity
     /** The panel does not know the user. */
     public const MISSING = 'missing';
 
+    /**
+     * The panel names another owner of the server than the platform recorded (moved by hand on the panel, or changed
+     * there): never managed until an operator makes both agree (review round 1 of TASK-0033).
+     */
+    public const MOVED = 'moved';
+
     public function __construct(
         public readonly string $verdict,
         public readonly string $userId,
         public readonly ?string $externalId,
+        /** the owner the platform's binding recorded, set only when it differs from the panel's ($userId) */
+        public readonly ?string $recordedUserId = null,
     ) {}
+
+    /** The live owner's identity when the platform recorded another owner: refused whatever the live user is. */
+    public function movedFrom(string $recordedUserId): self
+    {
+        return new self(self::MOVED, $this->userId, $this->externalId, $recordedUserId);
+    }
 
     /** @param array<string, mixed>|null $attributes the panel's user attributes, null when the panel has no such user */
     public static function judge(?array $attributes, string $organizationId, string $userId = ''): self
