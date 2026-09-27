@@ -11,6 +11,7 @@ use Onhost\Platform\Eloquent\Model;
  * A customer owner who lost access, recovered in the open (permission program D21, TASK-0042).
  *
  * @property string $organization_id
+ * @property ?string $group_id the id of the row in the organization support named; the rows of one recovery share it (review round 1)
  * @property string $owner_user_id
  * @property string $mode
  * @property ?string $new_owner_user_id

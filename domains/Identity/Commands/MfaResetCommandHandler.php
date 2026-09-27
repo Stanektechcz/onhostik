@@ -8,6 +8,7 @@ use Onhost\Domain\Identity\Models\TrustedDevice;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Identity\Models\WebAuthnCredential;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\Command;
 use Onhost\Platform\Commands\CommandContext;
@@ -20,6 +21,11 @@ use Onhost\Platform\Outbox\OutboxPublisher;
  * Resets a person's second factor (TASK-0042, permission program D21): the authenticator, its recovery codes, security keys and
  * the devices trusted to skip it — they sign in with the password and enrol again. The person is told at once (`security.mfa`,
  * a mandatory mail). The owner of a customer organization is not reset here: OwnerRecoveries does it after its notice period.
+ *
+ * Review round 1 (TASK-0042): D21's route one role below the owner. A reset of an org_admin or of a staff account was one
+ * iam_admin's word, and the organization never heard of it. It now takes a second person (MfaResetCommand::asksSecondPerson)
+ * and every organization the person is a member of is told (`organization.member.mfa_reset`: its owner and admins in person) —
+ * except those an owner recovery already told for a week.
  */
 final class MfaResetCommandHandler implements CommandHandler
 {
@@ -44,13 +50,23 @@ final class MfaResetCommandHandler implements CommandHandler
         return ['reset' => true, 'user_id' => $user->id];
     }
 
-    /** The reset itself — also what a completed owner recovery of mode `mfa_reset` runs. */
-    public function reset(User $user, CommandContext $context, string $reason): void
+    /**
+     * The reset itself — also what a completed owner recovery of mode `mfa_reset` runs.
+     *
+     * @param  list<string>  $told  organizations that heard of it already (the owner recovery's own rows)
+     */
+    public function reset(User $user, CommandContext $context, string $reason, array $told = []): void
     {
         $user->forceFill(['totp_secret' => null, 'totp_confirmed_at' => null, 'recovery_codes' => null])->save();
         WebAuthnCredential::query()->where('user_id', $user->id)->delete();
         TrustedDevice::query()->where('user_id', $user->id)->delete();
         $this->audit->record($context, 'identity.mfa.reset', 'succeeded', ['user_id' => $user->id, 'reason' => mb_substr($reason, 0, 250)], 'user', $user->id);
         $this->outbox->publish(GenericEvent::of('security.mfa', 'user', $user->id, ['email' => $user->email, 'change' => 'reset_by_support']));
+        $organizations = OrganizationMembership::query()->where('user_id', $user->id)->current()->whereNotIn('organization_id', $told)->pluck('organization_id');
+        foreach ($organizations as $organizationId) {
+            $this->outbox->publish(GenericEvent::of('organization.member.mfa_reset', 'organization', (string) $organizationId, [
+                'user_id' => $user->id, 'email' => mb_strtolower((string) $user->email), 'name' => $user->name, 'via' => $told === [] ? 'support' : 'owner_recovery',
+            ], (string) $organizationId));
+        }
     }
 }

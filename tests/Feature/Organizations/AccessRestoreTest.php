@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Carbon\CarbonInterface;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -16,13 +17,16 @@ use Onhost\Domain\Organizations\AccessExpiry;
 use Onhost\Domain\Organizations\AccessSnapshots;
 use Onhost\Domain\Organizations\Commands\OrganizationCommand;
 use Onhost\Domain\Organizations\Commands\OwnershipCommand;
+use Onhost\Domain\Organizations\GrantCascade;
 use Onhost\Domain\Organizations\Models\AccessSnapshot;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Organizations\Models\OwnerRecovery;
+use Onhost\Domain\Organizations\Models\OwnershipTransfer;
 use Onhost\Domain\Organizations\Models\Project;
 use Onhost\Domain\Organizations\Models\ProjectMembership;
 use Onhost\Domain\Organizations\OrganizationService;
+use Onhost\Domain\Organizations\OwnerRecoveries;
 use Onhost\Domain\Services\Commands\ServiceAccessCommand;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceAccessGrant;
@@ -373,4 +377,171 @@ it('refuses iam.mfa.reset on a customer owner — the owner recovery is the only
 
     $reset($member)->assertOk()->assertJsonPath('reset', true);
     expect($member->fresh()->hasTotp())->toBeFalse();
+});
+
+// ── review round 1 (TASK-0042): the reach of a recovery, the second person for an admin's reset, parties and races ─────────
+
+/** A request to a staff route other than opening a recovery, with a fresh step-up. */
+function arxStaffPost(User $staff, string $path, array $body = [])
+{
+    app(StepUpService::class)->grant($staff, 'totp', null, '127.0.0.1');
+
+    return test()->flushHeaders()->actingAs($staff, 'sanctum')->withHeader('Idempotency-Key', (string) Str::ulid())->postJson($path, $body);
+}
+
+it('reaches every organization an MFA reset of an owner reaches: all are told, all are held, any of their admins cancels', function () {
+    [$owner, $small] = $this->customerWithOrganization();
+    $large = app(OrganizationService::class)->create($owner, ['name' => 'Velká a.s.', 'type' => 'company', 'country' => 'CZ', 'currency' => 'CZK'], CommandContext::system('arx fixture'));
+    $largeAdmin = arxMember($large, 'org_admin');
+    $largeDeveloper = arxMember($large, 'developer');
+    [$neighbour, $managed] = $this->customerWithOrganization();
+    app(OrganizationService::class)->attachMember($managed, $owner, 'org_admin', CommandContext::system('arx fixture'), true); // the owner also manages somebody else's members
+    $managedViewer = arxMember($managed, 'viewer');
+    $owner->forceFill(['totp_secret' => 'JBSWY3DPEHPK3PXP', 'totp_confirmed_at' => now()])->save();
+    $iam = $this->steppedUpStaff('iam_admin');
+
+    arxOpenRecovery($iam, $small, ['mode' => 'mfa_reset', 'reason' => 'Vlastník ztratil telefon, ověřeno dokladem', 'ticket_ref' => 'T-4801']);
+
+    // the reset would let a caller into all three: everybody in all three hears it
+    expect(arxMails('owner-recovery-opened'))->toContain(mb_strtolower($largeAdmin->email), mb_strtolower($largeDeveloper->email), mb_strtolower($neighbour->email), mb_strtolower($managedViewer->email));
+    // …nothing leaves any of them meanwhile
+    arxRefuses(fn () => app(CommandBus::class)->dispatch(new ApiTokenCommand($large->id, 'arx-token-'.Str::ulid(), ['op' => 'create', 'name' => 'ci', 'scopes' => ['services:read']]), arxContext($largeAdmin, $large)), 'owner_recovery_hold');
+    arxRefuses(fn () => app(CommandBus::class)->dispatch(new DataRequestCommand($managed->id, 'arx-export-'.Str::ulid(), ['op' => 'request', 'kind' => 'export']), arxContext($neighbour, $managed)), 'owner_recovery_hold');
+
+    // …and an admin of the large organization stops the whole recovery
+    app(StepUpService::class)->grant($largeAdmin, 'totp', null, '127.0.0.1');
+    $this->flushHeaders()->actingAs($largeAdmin, 'sanctum')->withHeader('Idempotency-Key', (string) Str::ulid())->postJson("/v1/organizations/{$large->id}/owner-recovery/cancel")
+        ->assertOk()->assertJsonPath('recovery.state', 'cancelled');
+    expect(OwnerRecovery::query()->where('state', OwnerRecovery::PENDING)->count())->toBe(0);
+    $this->travel(8)->days();
+    arxStaffPost($iam, "/v1/staff/customers/{$small->id}/owner-recovery/complete")->assertStatus(409)->assertJsonPath('error', 'owner_recovery_not_pending');
+    expect($owner->fresh()->hasTotp())->toBeTrue();
+});
+
+it('completes an MFA recovery only while it still reaches every organization the owner could let a caller into', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    arxMember($org, 'org_admin');
+    $owner->forceFill(['totp_secret' => 'JBSWY3DPEHPK3PXP', 'totp_confirmed_at' => now()])->save();
+    $iam = $this->steppedUpStaff('iam_admin');
+    arxOpenRecovery($iam, $org, ['mode' => 'mfa_reset', 'reason' => 'Vlastník ztratil telefon, ověřeno dokladem', 'ticket_ref' => 'T-4802']);
+
+    // during the week the owner founds another company: its members were never told
+    app(OrganizationService::class)->create($owner, ['name' => 'Nová s.r.o.', 'type' => 'company', 'country' => 'CZ', 'currency' => 'CZK'], CommandContext::system('arx fixture'));
+    $this->travel(7)->days();
+    $this->travel(2)->minutes();
+    arxStaffPost($iam, "/v1/staff/customers/{$org->id}/owner-recovery/complete")->assertStatus(409)->assertJsonPath('error', 'owner_recovery_stale');
+    expect($owner->fresh()->hasTotp())->toBeTrue();
+});
+
+it('asks a second person before resetting the MFA of a staff account or an organization admin, and tells their organizations', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $admin = arxMember($org, 'org_admin');
+    $developer = arxMember($org, 'developer');
+    $colleague = User::factory()->staff()->create();
+    foreach ([$admin, $developer, $colleague] as $person) {
+        $person->forceFill(['totp_secret' => 'JBSWY3DPEHPK3PXP', 'totp_confirmed_at' => now()])->save();
+    }
+    $iam = $this->steppedUpStaff('iam_admin');
+    $reset = fn (User $who, array $extra = []) => arxStaffPost($iam, "/v1/staff/users/{$who->id}/mfa-reset", ['reason' => 'Ztracený telefon, ověřeno'] + $extra);
+
+    foreach ([$colleague, $admin] as $person) {
+        $approval = (string) $reset($person)->assertForbidden()->assertJsonPath('error', 'approval_required')->json('approval_id');
+        expect($person->fresh()->hasTotp())->toBeTrue();
+        secondPersonApproves($approval);
+        $reset($person, ['approval_ids' => [$approval]])->assertOk()->assertJsonPath('reset', true);
+        expect($person->fresh()->hasTotp())->toBeFalse();
+    }
+    // a member who manages nobody needs no second person, but the organization is told either way
+    $reset($developer)->assertOk();
+    app(OutboxPublisher::class)->relayPending();
+    expect(arxMails('member-mfa-reset'))->toContain(mb_strtolower($owner->email))
+        ->and(OutboxMessage::query()->where('name', 'organization.member.mfa_reset')->where('organization_id', $org->id)->count())->toBe(2);
+});
+
+it('keeps a member of staff who is a party of the organization out of its owner recovery', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    arxMember($org, 'viewer');
+    $iam = $this->steppedUpStaff('iam_admin');
+    app(OrganizationService::class)->attachMember($org, $iam, 'developer', CommandContext::system('arx fixture'), true); // the support agent is also a customer member
+
+    // naming themselves the heir, or recovering an organization they belong to: refused (after the second person, in the handler)
+    foreach ([['mode' => 'transfer', 'new_owner_user_id' => $iam->id], ['mode' => 'mfa_reset']] as $mode) {
+        $body = $mode + ['reason' => 'Vlastník je nedostupný, ověřeno dokladem', 'ticket_ref' => 'T-4803'];
+        $approval = (string) arxRecovery($iam, $org, $body)->assertForbidden()->assertJsonPath('error', 'approval_required')->json('approval_id');
+        secondPersonApproves($approval);
+        app(StepUpService::class)->grant($iam, 'totp', null, '127.0.0.1');
+        arxRecovery($iam, $org, $body, $approval)->assertForbidden()->assertJsonPath('error', 'owner_recovery_party');
+    }
+    expect(OwnerRecovery::query()->where('organization_id', $org->id)->exists())->toBeFalse();
+
+    // a colleague opens it; the member of staff who belongs to the organization does not complete it
+    $colleague = $this->steppedUpStaff('iam_admin');
+    arxOpenRecovery($colleague, $org, ['mode' => 'mfa_reset', 'reason' => 'Vlastník ztratil telefon, ověřeno dokladem', 'ticket_ref' => 'T-4804']);
+    $this->travel(7)->days();
+    $this->travel(2)->minutes();
+    arxStaffPost($iam, "/v1/staff/customers/{$org->id}/owner-recovery/complete")->assertForbidden()->assertJsonPath('error', 'owner_recovery_party');
+    arxStaffPost($colleague, "/v1/staff/customers/{$org->id}/owner-recovery/complete")->assertOk()->assertJsonPath('recovery.state', 'completed');
+});
+
+it('keeps one owner recovery and one ownership offer per organization even when two requests race', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $heir = arxMember($org, 'org_admin');
+    $iam = $this->steppedUpStaff('iam_admin');
+    $staff = new CommandContext('user', $iam->id, null, null, '127.0.0.1', 'pest', 'arx-race');
+    // the other request's row lands between this one's look and its insert
+    OwnerRecovery::creating(function (OwnerRecovery $recovery) use ($owner): void {
+        if (DB::table('owner_recoveries')->where('organization_id', $recovery->organization_id)->doesntExist()) {
+            DB::table('owner_recoveries')->insert(['id' => 'orc_'.strtolower((string) Str::ulid()), 'organization_id' => $recovery->organization_id, 'owner_user_id' => $owner->id,
+                'mode' => 'mfa_reset', 'state' => 'pending', 'reason' => 'the other request', 'ticket_ref' => 'T-0', 'not_before' => now()->addDays(7), 'created_at' => now(), 'updated_at' => now()]);
+        }
+    });
+    arxRefuses(fn () => app(OwnerRecoveries::class)->open($org, 'mfa_reset', null, 'Vlastník ztratil telefon, ověřeno', 'T-4805', $staff), 'owner_recovery_pending');
+
+    OwnershipTransfer::creating(function (OwnershipTransfer $transfer) use ($owner, $heir): void {
+        if (DB::table('ownership_transfers')->where('organization_id', $transfer->organization_id)->doesntExist()) {
+            DB::table('ownership_transfers')->insert(['id' => 'otr_'.strtolower((string) Str::ulid()), 'organization_id' => $transfer->organization_id, 'from_user_id' => $owner->id, 'to_user_id' => $heir->id,
+                'state' => 'pending', 'expires_at' => now()->addDays(7), 'created_at' => now(), 'updated_at' => now()]);
+        }
+    });
+    arxRefuses(fn () => app(CommandBus::class)->dispatch(new OwnershipCommand($org->id, 'arx-own-'.Str::ulid(), ['op' => 'offer', 'user_id' => $heir->id]), arxContext($owner, $org)), 'ownership_offer_pending');
+
+    // the database keeps it even for a writer that never asked: a second pending row is refused
+    [, $other] = $this->customerWithOrganization();
+    $row = fn () => DB::table('owner_recoveries')->insert(['id' => 'orc_'.strtolower((string) Str::ulid()), 'organization_id' => $other->id, 'owner_user_id' => $owner->id,
+        'mode' => 'mfa_reset', 'state' => 'pending', 'reason' => 'x', 'ticket_ref' => 'T-0', 'not_before' => now()->addDays(7), 'created_at' => now(), 'updated_at' => now()]);
+    $row();
+    expect($row)->toThrow(UniqueConstraintViolationException::class);
+});
+
+it('restores a snapshot once even when two restores of it race', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $member = arxMember($org, 'developer');
+    arxOp($owner, $org, ['op' => 'remove_member', 'user_id' => $member->id]);
+    $snapshot = arxSnapshot($org, $member, 'member_removed');
+    $first = AccessSnapshot::query()->findOrFail($snapshot->id);
+    $second = AccessSnapshot::query()->findOrFail($snapshot->id); // loaded by the other request before the first one committed
+
+    app(AccessSnapshots::class)->restore($org, $first, arxContext($owner, $org));
+    arxRefuses(fn () => app(AccessSnapshots::class)->restore($org, $second, arxContext($owner, $org)), 'snapshot_restored');
+    expect(OutboxMessage::query()->where('name', 'organization.access.restored')->where('organization_id', $org->id)->count())->toBe(1)
+        ->and(AuditEvent::query()->where('action', 'organization.access.restore')->where('organization_id', $org->id)->count())->toBe(1);
+});
+
+it('records a lost grantor\'s grant once however many audit rows came in between', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    [$admin] = arxAdminWithGrants($org, $owner);
+    arxOp($owner, $org, ['op' => 'remove_member', 'user_id' => $admin->id]);
+    expect(AuditEvent::query()->where('organization_id', $org->id)->where('action', 'organization.grant.cascade.flag')->count())->toBe(3);
+
+    // a busy organization: 600 other flags since, then the outbox delivers the loss again
+    $later = now()->addMinute();
+    foreach (array_chunk(range(1, 600), 200) as $chunk) {
+        DB::table('audit_events')->insert(array_map(fn (int $i) => ['id' => 'aud_'.strtolower((string) Str::ulid()), 'actor_type' => 'system', 'organization_id' => $org->id, 'action' => 'organization.grant.cascade.flag',
+            'result' => 'recorded', 'detail' => json_encode(['ref' => "other-{$i}", 'grantor_id' => 'usr_somebody_else']), 'prev_hash' => str_repeat('0', 64), 'hash' => hash('sha256', Str::random(40)), 'created_at' => $later], $chunk));
+    }
+    $this->travel(2)->minutes();
+    $stats = app(GrantCascade::class)->onGrantorLoss($org, $admin->id, 'member_removed', CommandContext::system('arx replay'));
+
+    expect($stats['flagged'])->toBe(0)
+        ->and(AuditEvent::query()->where('organization_id', $org->id)->where('action', 'organization.grant.cascade.flag')->where('detail->grantor_id', $admin->id)->count())->toBe(3);
 });

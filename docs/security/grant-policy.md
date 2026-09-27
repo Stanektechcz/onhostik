@@ -53,7 +53,11 @@ theirs there, their project roles and their active shares. Kept 90 days (`onhost
   `{restored: true, snapshot_id, before_restore, role}`. Refusals: `not_found` (another organization's snapshot), `snapshot_expired`
   (410), `snapshot_restored` (409, once only), `snapshot_lapsed` (409, the access ended on its own date since),
   `owner_role_locked` (the owner binding is never restored), `self_membership_locked`, `member_above_own`, `role_above_own`,
-  `invalid_role` (a legacy project role outside the allow-list), `owner_recovery_hold`.
+  `invalid_role` (a legacy project role outside the allow-list), `owner_recovery_hold`, `share_above_own`.
+- A restore also takes away what the person holds now and the snapshot does not (a snapshot is a state). The restorer must cover
+  each of those like a removal or a revoke of it (I3): every project role and project/resource binding at its own scope
+  (`member_above_own`) and every active share that would be revoked (`share_above_own`). Two restores of one snapshot that race
+  are decided by a conditional claim of `restored_at` inside the transaction: the second answers `snapshot_restored` (review round 1).
 - Exact means exact: `AccessSnapshots::capture()` before the removal equals it after the restore (`AccessRestoreTest`). What the
   restore replaces is snapshotted first (`before_restore`). **Not** restored: SSH keys and panel sub-users the listeners took off
   the panels, Discord links and hooks that were switched off — the person adds them again.
@@ -62,7 +66,8 @@ theirs there, their project roles and their active shares. Kept 90 days (`onhost
 
 - `POST /v1/organizations/{organization}/ownership-transfer` `{"user_id"}` — the owner offers (`organization.close`, HIGH). 201
   `{transfer: {id, state: pending, from_user_id, to_user_id, expires_at, …}}`. Refusals: `owner_transfer_only`, `owner_transfer_self`
-  (422), `not_found` (not a current member), `owner_recovery_hold`. A new offer replaces the pending one.
+  (422), `not_found` (not a current member), `owner_recovery_hold`, `ownership_offer_pending` (409, another offer landed a moment
+  ago). A new offer replaces the pending one; the database keeps one pending offer per organization (partial unique index).
 - `POST …/ownership-transfer/accept` — the heir, in person, with a fresh step-up (`organization.read`, declared HIGH). The owner
   binding moves; the previous owner becomes `org_admin`; both are snapshotted. `ownership_offer_invalid` (409) when there is no
   pending offer, it lapsed (7 days, `onhost.grants.ownership_offer_days`) or the organization has another owner by now.
@@ -76,8 +81,16 @@ theirs there, their project roles and their active shares. Kept 90 days (`onhost
 - `POST /v1/staff/customers/{organization}/owner-recovery` `{mode: mfa_reset|transfer, new_owner_user_id?, reason (≥10), ticket_ref}`
   — `iam.mfa.reset`, **CRITICAL**: the first request answers 403 `approval_required` with `approval_id`; a second person approves;
   the repeat with `approval_ids` opens it (201). The sole approver with `ONHOST_FOUR_EYES=false` waits the time lock instead.
-- It runs only after `onhost.grants.owner_recovery_days` (`ONHOST_OWNER_RECOVERY_DAYS`, never below 7): every current member and
-  the owner get the mandatory mail `owner-recovery-opened` and an in-app notice at once.
+- **Reach (review round 1).** An MFA reset is the person's, not one organization's: a recovery of mode `mfa_reset` reaches every
+  organization the owner owns or manages the members of (a role carrying `organization.members.manage`). It is one row in each
+  (`owner_recoveries.group_id` = the id of the named organization's row) — each organization is told, each is held, and a cancel
+  in any of them cancels them all. `complete` answers `owner_recovery_stale` (409) when the person owns or manages an organization
+  since that was never told (cancel it and open a new one). Mode `transfer` reaches the named organization only.
+- A member of staff who is a party of an organization the recovery reaches — its member, the owner, the heir — neither opens nor
+  completes it (`owner_recovery_party`, 403; checked after the second person, in the handler). One pending recovery per organization
+  is kept by the database (`owner_recovery_pending`, 409, also for a request that raced another).
+- It runs only after `onhost.grants.owner_recovery_days` (`ONHOST_OWNER_RECOVERY_DAYS`, never below 7): every current member of
+  every organization it reaches and the owner get the mandatory mail `owner-recovery-opened` and an in-app notice at once.
 - While it waits the organization is on hold (`owner_recovery_hold`, 409): no API token, no data export (`kind` export/switching),
   no ownership offer or acceptance, no access restore.
 - `POST /v1/organizations/{organization}/owner-recovery/cancel` — any member manager (org_admin, the owner), HIGH.
@@ -86,14 +99,18 @@ theirs there, their project roles and their active shares. Kept 90 days (`onhost
   `mfa_reset` clears the owner's authenticator, recovery codes, security keys and trusted devices (mail `security-mfa`);
   `transfer` hands the ownership to the named current member.
 - `POST /v1/staff/users/{user}/mfa-reset` `{reason}` — `iam.mfa.reset`, HIGH; **refused for a customer owner**
-  (`owner_recovery_required`, 409) — the recovery above is the only way.
+  (`owner_recovery_required`, 409) — the recovery above is the only way. **CRITICAL** (a second person; `approval_required`
+  first) for a staff account and for anybody who manages the members of a customer organization (review round 1). Every
+  organization the person is a current member of is told (`organization.member.mfa_reset`: its owner and member managers in
+  person, mandatory mail `member-mfa-reset`), except those a completed owner recovery told for a week already.
 
 ## 6. Configuration and migration
 
 `config/onhost.php` → `grants`: `cascade_enabled` (`ONHOST_GRANT_CASCADE_ENABLED`, false), `snapshot_retention_days` (90),
 `owner_recovery_days` (`ONHOST_OWNER_RECOVERY_DAYS`, 7, floor 7), `ownership_offer_days` (7). Migration
-`0001_01_01_000900_grants_follow_one_policy.php` adds `access_snapshots`, `ownership_transfers`, `owner_recoveries`; nothing
-existing is altered. Mail templates `ownership-offered`, `ownership-transferred` (mandatory), `owner-recovery-opened` (mandatory)
+`0001_01_01_000900_grants_follow_one_policy.php` adds `access_snapshots`, `ownership_transfers`, `owner_recoveries` (with the partial
+unique indexes `ownership_transfers_one_pending`, `owner_recoveries_one_pending`); nothing existing is altered. Mail templates
+`ownership-offered`, `ownership-transferred` (mandatory), `owner-recovery-opened` (mandatory), `member-mfa-reset` (mandatory)
 come with `NotificationTemplateSeeder` (run it on deploy as usual). Events: `docs/architecture/events-catalog.md` (TASK-0042 block).
 
 ## 7. What existing customers notice (release notes)
@@ -104,4 +121,7 @@ come with `NotificationTemplateSeeder` (run it on deploy as usual). Events: `doc
   longer than their own; the end is shortened automatically and shown.
 - Removing a member or changing their role can be undone for 90 days from the Team page.
 - An admin who could not grant the console cannot take it from somebody else by re-sharing or revoking.
-- A lost owner is recovered by support only with a week's notice to everybody in the organization, who can stop it.
+- A lost owner is recovered by support only with a week's notice to everybody in every organization the owner owns or manages,
+  any of whose admins can stop it.
+- Support resetting the second factor of an administrator or of a staff account takes a second person, and the organization's
+  owner and admins are told of any member's reset.

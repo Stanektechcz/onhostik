@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -15,7 +16,12 @@ use Illuminate\Support\Facades\Schema;
  *  · ownership_transfers — an offer of the organization's ownership that the heir accepts, declines or lets lapse; the owner may
  *    cancel it meanwhile (I4, audit TD-9: ownership moved without the heir's consent).
  *  · owner_recoveries — a customer owner who lost access, recovered by support only after a second person and a notice period
- *    every member can see and any org_admin can cancel (D21). The reason and the ticket are the evidence; never deleted.
+ *    every member can see and any org_admin can cancel (D21). The reason and the ticket are the evidence; never deleted. An MFA
+ *    reset reaches every organization the person owns or manages, so its recovery is one row in each of them, tied by group_id.
+ *
+ * One pending ownership offer and one pending owner recovery per organization, kept by the database (review round 1: two requests
+ * could both pass the look for a pending one and leave an orphan nobody could cancel). A partial unique index is plain SQL on
+ * both engines the platform runs (SQLite, PostgreSQL); the services turn the refusal into a 409.
  */
 return new class extends Migration
 {
@@ -48,11 +54,13 @@ return new class extends Migration
             $table->timestamps();
             $table->index(['organization_id', 'state']);
         });
+        DB::statement("CREATE UNIQUE INDEX ownership_transfers_one_pending ON ownership_transfers (organization_id) WHERE state = 'pending'");
 
         Schema::create('owner_recoveries', function (Blueprint $table): void {
             $table->string('id', 40)->primary();
             $table->string('organization_id', 40)->index();
-            $table->string('owner_user_id', 40);                // the owner at the time it was opened
+            $table->string('group_id', 40)->nullable()->index();  // the recovery opened on the organization support named; its rows in the other organizations point to it
+            $table->string('owner_user_id', 40);                // the person recovered: the owner of the named organization when it was opened
             $table->string('mode', 16);                         // mfa_reset | transfer
             $table->string('new_owner_user_id', 40)->nullable(); // mode transfer: the member who becomes the owner
             $table->string('state', 16)->default('pending');     // pending | cancelled | completed
@@ -68,6 +76,7 @@ return new class extends Migration
             $table->timestamps();
             $table->index(['organization_id', 'state']);
         });
+        DB::statement("CREATE UNIQUE INDEX owner_recoveries_one_pending ON owner_recoveries (organization_id) WHERE state = 'pending'");
     }
 
     public function down(): void

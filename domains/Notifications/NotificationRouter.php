@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Orders\CreditOrderPolicy;
 use Onhost\Domain\Orders\Models\Order;
+use Onhost\Domain\Organizations\GrantPolicy;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Services\Metering\WebDiskTotal;
@@ -250,6 +251,7 @@ final class NotificationRouter
             'organization.access.restored' => $this->customer($m, 'account', 'Přístup obnoven: '.(string) ($p['name'] ?? $p['email'] ?? ''), 'Přístup této osoby byl obnoven ze zálohy oprávnění do stavu před odebráním nebo změnou role. SSH klíče a účty spolupracovníka na panelech si osoba přidá znovu.', '/panel/tym'),
             'organization.grants.unbacked' => $this->customer($m, 'account', 'Přístupy od člena, který už je nemůže udělit', ((bool) ($p['revoked'] ?? false) ? 'Odebrali jsme ' : 'Evidujeme ').(int) ($p['count'] ?? 0).' přístupů, které udělil člen, jenž je už udělit nemůže (odešel nebo má nižší roli). '.((bool) ($p['revoked'] ?? false) ? 'Každý lze v Týmu obnovit ze zálohy oprávnění.' : 'Zatím zůstávají platné; zkontrolujte je v Týmu.'), '/panel/tym', 'warn'),
             'organization.owner_recovery.opened' => $this->ownerRecoveryOpened($m, $p, $org, $portal),
+            'organization.member.mfa_reset' => $this->memberMfaReset($m, $p, $org, $portal),
             'organization.owner_recovery.cancelled' => $this->both($m, 'security', 'Obnova vlastníka zrušena', ($org->name ?? '').' · '.(string) ($p['recovery_id'] ?? ''), 'Obnova přístupu vlastníka zrušena', 'Obnova přístupu vlastníka organizace byla zrušena; nic se nezměnilo.', '/sprava/zakaznici', '/panel/tym'),
             'organization.owner_recovery.completed' => $this->both($m, 'security', 'Obnova vlastníka dokončena', ($org->name ?? '').' · '.(string) ($p['mode'] ?? ''), 'Obnova přístupu vlastníka dokončena', (($p['mode'] ?? '') === 'transfer' ? 'Vlastnictví organizace přešlo na určeného člena.' : 'Dvoufázové ověření vlastníka bylo zrušeno; při příštím přihlášení si ho nastaví znovu.'), '/sprava/zakaznici', '/panel/tym', 'warn'),
             // ── end TASK-0042 ──
@@ -633,6 +635,9 @@ final class NotificationRouter
     {
         $this->internal($m, 'security', 'Obnova vlastníka zahájena: '.($org->name ?? ''), (string) ($p['mode'] ?? '').' · od '.substr((string) ($p['not_before'] ?? ''), 0, 10).' · '.(string) ($p['ticket_ref'] ?? ''), '/sprava/zakaznici', 'warn');
         $mode = ($p['mode'] ?? '') === 'transfer' ? 'převod vlastnictví na jiného člena organizace' : 'zrušení dvoufázového ověření vlastníka';
+        if (($p['subject'] ?? 'owner') === 'admin') { // review round 1: an organization the person manages, owned by somebody else, hears it too
+            $mode = 'zrušení dvoufázového ověření vašeho správce '.(string) (User::query()->find((string) ($p['owner_user_id'] ?? ''))->email ?? '').' (vlastníka jiné organizace)';
+        }
         $vars = ['organizace' => (string) ($org->name ?? ''), 'zpusob' => $mode, 'od' => substr((string) ($p['not_before'] ?? ''), 0, 10), 'url' => "{$portal}/panel/tym"];
         $people = User::query()->whereIn('id', OrganizationMembership::query()->where('organization_id', (string) $m->organization_id)->current()->select('user_id'))->get();
         $owner = User::query()->find((string) ($p['owner_user_id'] ?? ''));
@@ -642,6 +647,26 @@ final class NotificationRouter
         foreach ($people as $person) {
             $this->notifications->notify('customer', 'security.login', 'Probíhá obnova přístupu vlastníka', 'Podpora ONhost zahájila '.$mode.'. Provede se nejdříve '.$vars['od'].'; pokud o tom nevíte, zrušte ji v Týmu.', '/panel/tym', $m->organization_id, $person->id, $m->aggregate_type, $m->aggregate_id, $m->name, 'hot', $person->locale ?? 'cs');
             $this->notifications->queueMail('owner-recovery-opened', $person->email, $vars, $m->aggregate_type, $m->aggregate_id, $m->organization_id, $person->locale ?? 'cs', $person->id);
+        }
+    }
+
+    /**
+     * Review round 1 (TASK-0042): support reset the second factor of a member — the organization's owner and everybody who manages
+     * its members hear it in person (in-app, mail `member-mfa-reset`, mandatory): a reset asked for by a caller is how an
+     * administrator's account is taken over, and they are the ones who can remove the person or restore what was changed.
+     *
+     * @param  array<string,mixed>  $p
+     */
+    private function memberMfaReset(OutboxMessage $m, array $p, ?Organization $org, string $portal): void
+    {
+        $this->internal($m, 'security', 'Reset MFA člena: '.($org->name ?? ''), (string) ($p['email'] ?? '').' · '.(string) ($p['via'] ?? ''), '/sprava/zakaznici', 'warn');
+        $managers = OrganizationMembership::query()->where('organization_id', (string) $m->organization_id)->current()->get()
+            ->filter(fn (OrganizationMembership $membership) => in_array('organization.members.manage', GrantPolicy::permissionsOf((string) $membership->role_key) ?? [], true))->pluck('user_id')->all();
+        $people = User::query()->whereIn('id', array_values(array_diff(array_merge($managers, [(string) ($org->owner_user_id ?? '')]), [(string) ($p['user_id'] ?? '')])))->get();
+        $vars = ['organizace' => (string) ($org->name ?? ''), 'clen' => (string) ($p['name'] ?? $p['email'] ?? '').' <'.(string) ($p['email'] ?? '').'>', 'url' => "{$portal}/panel/tym"];
+        foreach ($people as $person) {
+            $this->notifications->notify('customer', 'security.login', 'Podpora zrušila dvoufázové ověření člena', $vars['clen'].' se při příštím přihlášení ověří jen heslem. Pokud o tom nevíte, odeberte mu přístup v Týmu.', '/panel/tym', $m->organization_id, $person->id, $m->aggregate_type, $m->aggregate_id, $m->name, 'hot', $person->locale ?? 'cs');
+            $this->notifications->queueMail('member-mfa-reset', $person->email, $vars, $m->aggregate_type, $m->aggregate_id, $m->organization_id, $person->locale ?? 'cs', $person->id);
         }
     }
 

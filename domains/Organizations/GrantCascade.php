@@ -117,10 +117,15 @@ final class GrantCascade
         }
     }
 
-    /** @param array{kind: string, ref: string} $dependent */
+    /**
+     * Asked of the database by the grant and the grantor themselves (review round 1): a scan of the latest 500 flags missed the
+     * earlier record in a busy organization and flagged the same grant again.
+     *
+     * @param  array{kind: string, ref: string}  $dependent
+     */
     private function alreadyFlagged(Organization $organization, array $dependent, string $grantorId): bool
     {
-        return AuditEvent::query()->where('organization_id', $organization->id)->where('action', 'organization.grant.cascade.flag')->latest('created_at')->limit(500)->get()
-            ->contains(fn (AuditEvent $e) => data_get($e->detail, 'ref') === $dependent['ref'] && data_get($e->detail, 'grantor_id') === $grantorId);
+        return AuditEvent::query()->where('organization_id', $organization->id)->where('action', 'organization.grant.cascade.flag')
+            ->where('detail->ref', $dependent['ref'])->where('detail->grantor_id', $grantorId)->exists();
     }
 }

@@ -720,6 +720,34 @@ function gmxMatrix(): array
                 gmxOrgOp($owner, $org, ['op' => 'change_role', 'user_id' => $member->id, 'role' => 'billing_admin']);
                 $snapshot = gmxSnapshotOf($org, $member, 'role_changed');
                 gmxRefuses(fn () => gmxOrgOp($admin, $org, ['op' => 'restore_access', 'snapshot_id' => $snapshot?->id]), 'member_above_own');
+
+                // review round 1 (TASK-0042): a restore also TAKES AWAY what the person holds now and the snapshot does not — a
+                // project role above the restorer and a share they could not give are I3 exactly like a removal or a revoke
+                [$owner2, $org2] = $t->customerWithOrganization();
+                $admin2 = gmxMember($org2, 'org_admin');
+                $member2 = gmxMember($org2, 'viewer');
+                gmxMember($org2, 'viewer');
+                gmxOrgOp($owner2, $org2, ['op' => 'remove_member', 'user_id' => $member2->id]);
+                $older = gmxSnapshotOf($org2, $member2, 'member_removed');
+                app(OrganizationService::class)->attachMember($org2, $member2, 'viewer', CommandContext::system('gmx back'), true);
+                $project = gmxProject($org2);
+                gmxOrgOp($owner2, $org2, ['op' => 'add_project_member', 'project_id' => $project->id, 'user_id' => $member2->id, 'role' => 'developer']);
+                gmxAugment('developer', 'billing.wallet.spend');
+                gmxRefuses(fn () => gmxOrgOp($admin2, $org2, ['op' => 'restore_access', 'snapshot_id' => $older?->id]), 'member_above_own');
+                expect(ProjectMembership::query()->where('project_id', $project->id)->where('user_id', $member2->id)->value('role_key'))->toBe('developer');
+
+                [$owner3, $org3] = $t->customerWithOrganization();
+                $admin3 = gmxMember($org3, 'org_admin');
+                $member3 = gmxMember($org3, 'viewer');
+                gmxMember($org3, 'viewer');
+                gmxOrgOp($owner3, $org3, ['op' => 'remove_member', 'user_id' => $member3->id]);
+                $earlier = gmxSnapshotOf($org3, $member3, 'member_removed');
+                app(OrganizationService::class)->attachMember($org3, $member3, 'viewer', CommandContext::system('gmx back'), true);
+                $service = gmxService($org3);
+                gmxShare($owner3, $org3, $service, ['op' => 'share', 'email' => $member3->email, 'capabilities' => ['console']]);
+                gmxWithhold('org_admin', 'service.console');
+                gmxRefuses(fn () => gmxOrgOp($admin3, $org3, ['op' => 'restore_access', 'snapshot_id' => $earlier?->id]), 'share_above_own');
+                expect(ServiceAccessGrant::query()->where('service_id', $service->id)->where('user_id', $member3->id)->value('state'))->toBe(ServiceAccessGrant::ACTIVE);
             },
             'I4' => function (TestCase $t): void {
                 [$owner, $org] = $t->customerWithOrganization();

@@ -410,6 +410,7 @@ final class GrantPolicy
         if ($current !== null) {
             $this->assertCovers($organization, $actor, $current->role_key);
         }
+        $this->assertCoversWhatRestoreTakes($organization, $actor, $target, $snapshot);
         if (is_string($role)) { // the membership row is a grant of its own (which organization a request speaks for), binding or not
             $this->assertGrantorHolds($organization, $context, $role, CommandScope::organization($organization->id));
         }
@@ -635,6 +636,38 @@ final class GrantPolicy
 
         return is_string($email) && OrganizationInvitation::query()->where('organization_id', $organization->id)->where('email', mb_strtolower($email))
             ->where('role_key', $roleKey)->where('invited_by', $senderId)->whereNotNull('accepted_at')->exists();
+    }
+
+    /**
+     * I3 for what a restore TAKES AWAY (review round 1, TASK-0042): AccessSnapshots::restore replaces the person's bindings and
+     * project roles and revokes every active share the snapshot does not hold. Asked only against the organization role, an
+     * admin without the console restored an older snapshot and stripped a colleague's console share — the bypass share_revoke × I3
+     * closed. So every binding and project role held now, at its own scope, and every share that would be revoked are covered
+     * by the restorer exactly as a removal or a revoke of them would be.
+     */
+    private function assertCoversWhatRestoreTakes(Organization $organization, User|ServiceAccount $actor, User $target, AccessSnapshot $snapshot): void
+    {
+        // the shares first: the `svc_*` binding of a share that goes is its shadow, and the share is what the restorer takes back
+        $kept = array_column((array) (((array) $snapshot->access)['shares'] ?? []), 'grant_id');
+        $revoked = ServiceAccessGrant::query()->where('organization_id', $organization->id)->where('user_id', $target->id)->where('state', ServiceAccessGrant::ACTIVE)->whereNotIn('id', $kept)->get();
+        foreach ($revoked as $grant) {
+            $service = Service::query()->find($grant->service_id);
+            if ($service !== null) {
+                $this->assertCoversShare($this->authorizer->customerPermissionsAt($actor, CommandScope::resource($service->id, $organization->id, $service->project_id)), $grant);
+            }
+        }
+        $bindings = PolicyBinding::query()->where('principal_type', 'user')->where('principal_id', $target->id)->where('organization_id', $organization->id)->whereIn('scope_type', ['project', 'resource'])->get();
+        foreach ($bindings as $binding) {
+            $scopeId = (string) $binding->getAttribute('scope_id');
+            $scope = $binding->getAttribute('scope_type') === 'project'
+                ? CommandScope::project($scopeId, $organization->id)
+                : CommandScope::resource($scopeId, $organization->id, Service::query()->whereKey($scopeId)->value('project_id'));
+            $this->assertCovers($organization, $actor, (string) $binding->getAttribute('role_key'), $scope);
+        }
+        $projects = ProjectMembership::query()->where('user_id', $target->id)->whereIn('project_id', Project::query()->where('organization_id', $organization->id)->select('id'))->get();
+        foreach ($projects as $membership) {
+            $this->assertCovers($organization, $actor, $membership->role_key, CommandScope::project($membership->project_id, $organization->id));
+        }
     }
 
     /** I3 for a share: whoever narrows or revokes it holds every permission it carries on the service. @param list<string> $held */

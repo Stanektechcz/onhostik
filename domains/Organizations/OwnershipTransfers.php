@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Organizations;
 
+use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OwnershipTransfer;
@@ -36,10 +38,16 @@ final class OwnershipTransfers
         foreach (OwnershipTransfer::query()->where('organization_id', $organization->id)->where('state', OwnershipTransfer::PENDING)->get() as $earlier) {
             $this->close($organization, $earlier, OwnershipTransfer::CANCELLED, $context, 'superseded');
         }
-        $transfer = OwnershipTransfer::query()->create([
-            'organization_id' => $organization->id, 'from_user_id' => (string) $organization->owner_user_id, 'to_user_id' => $heir->id,
-            'state' => OwnershipTransfer::PENDING, 'expires_at' => now()->addDays(max(1, (int) config('onhost.grants.ownership_offer_days', 7))),
-        ]);
+        try {
+            // one pending offer per organization, kept by the database (review round 1: two requests could both supersede the old
+            // offer and each leave a new one); in a savepoint so PostgreSQL's refusal does not abort the bus transaction (25P02)
+            $transfer = DB::transaction(fn () => OwnershipTransfer::query()->create([
+                'organization_id' => $organization->id, 'from_user_id' => (string) $organization->owner_user_id, 'to_user_id' => $heir->id,
+                'state' => OwnershipTransfer::PENDING, 'expires_at' => now()->addDays(max(1, (int) config('onhost.grants.ownership_offer_days', 7))),
+            ]));
+        } catch (UniqueConstraintViolationException) {
+            throw DomainError::conflict('ownership_offer_pending', 'An ownership offer was made in this organization a moment ago; cancel it first.');
+        }
         $this->audit->record($context->withScope($organization->id), 'organization.ownership.offer', 'succeeded', ['transfer_id' => $transfer->id, 'to' => $heir->id], 'organization', $organization->id);
         $this->outbox->publish(GenericEvent::of('organization.ownership.offered', 'organization', $organization->id, [
             'transfer_id' => $transfer->id, 'from_user_id' => $transfer->from_user_id, 'to_user_id' => $heir->id, 'email' => mb_strtolower((string) $heir->email), 'name' => $heir->name,

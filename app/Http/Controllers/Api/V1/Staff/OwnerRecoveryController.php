@@ -15,7 +15,8 @@ use Onhost\Platform\Errors\DomainError;
 /**
  * Support recovering a customer owner who lost access, and resetting anybody else's second factor (TASK-0042, permission program
  * D21). Everything is decided by the bus: `iam.mfa.reset` in staff mode, the owner recovery CRITICAL (a second person) with its
- * own notice period, the MFA reset HIGH and refused for a customer owner. The controller only validates and dispatches.
+ * own notice period, the MFA reset HIGH (CRITICAL for a staff account or an organization admin, review round 1) and refused for a customer owner.
+ * The controller only validates and dispatches.
  */
 final class OwnerRecoveryController extends ApiController
 {

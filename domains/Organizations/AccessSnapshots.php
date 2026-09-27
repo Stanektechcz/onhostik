@@ -102,6 +102,12 @@ final class AccessSnapshots
         $restorer = $context->actorType === 'system' ? null : ($context->onBehalfOfUserId ?? $context->actorId);
 
         return DB::transaction(function () use ($organization, $snapshot, $context, $user, $access, $membership, $policy, $restorer) {
+            // claimed first, conditionally (review round 1): two restores of one snapshot — two admins, two idempotency keys — both
+            // passed GrantPolicy's look at restored_at before either committed; the second one now finds it taken and changes nothing
+            $restoredAt = now();
+            if (AccessSnapshot::query()->whereKey($snapshot->id)->whereNull('restored_at')->update(['restored_at' => $restoredAt, 'restored_by' => $restorer]) !== 1) {
+                throw new DomainError('snapshot_restored', 'This snapshot has been restored already; a newer one was taken before that restore.', 409);
+            }
             $current = OrganizationMembership::query()->where('organization_id', $organization->id)->where('user_id', $user->id)->first();
             $previousRole = $current?->role_key;
             $before = $this->take($organization, $user->id, 'before_restore', $context);
@@ -153,7 +159,7 @@ final class AccessSnapshots
                     'accepted_at' => $grant->accepted_at ?? now(),
                     'expires_at' => $policy->grantEnd($context, CommandScope::resource($service->id, $organization->id, $service->project_id), GrantPolicy::capabilityPermissions(array_values((array) $share['capabilities'])), $end)])->save();
             }
-            $snapshot->forceFill(['restored_at' => now(), 'restored_by' => $restorer])->save();
+            $snapshot->forceFill(['restored_at' => $restoredAt, 'restored_by' => $restorer])->syncOriginal();
             app(Authorizer::class)->forget($user);
 
             $role = $membership['role'] ?? null;
