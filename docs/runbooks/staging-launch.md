@@ -69,7 +69,7 @@ re-renders the units without enabling or starting any).
 | O9 | Production signing key | the owner's SSH public key in `/var/lib/onhost-deploy/onhost.cz/allowed_signers`; until it exists every production deploy is refused |
 | O10 | GATED doctor rows (`APP_URL uses https`, `queue driver`, `secrets driver`, `CA bundle for outbound TLS`, `metering gap ratchet`, `platform backup disk off the server`) | all of them stop a deploy; a row moves to report-only only by a change of `deploy-gate.php`. In production every other FAIL row stops it too, unless the signed tag has an `Accept-Gate:` line for it |
 | O11 | Doctor rows expected non-OK on staging (`$STATE/expected-nonok`) | the list in the release record, each row with the reason it is non-OK on staging (S4b drafts it); a row not on it stops a staging release |
-| O12 | Units that must run after every release (`$STATE/expected-units`) | Path A: `onhost-queue@default.service`, `onhost-queue@mails.service` (only after question 13 b is done; before that: none). Path B: those two plus `onhost-scheduler.service`. The provider lanes never in phase 1 |
+| O12 | Units that must run after every release (`$STATE/expected-units`) | Path A: `onhost-queue@default.service`, `onhost-queue@mails.service` (only after question 13 b is done **and the first S7 has run** — S7, Path A; before that: none). Path B: those two plus `onhost-scheduler.service`. The provider lanes never in phase 1 |
 
 ### Owner questions (defaults taken meanwhile)
 
@@ -321,10 +321,16 @@ CACHE_PREFIX!=<production CACHE_PREFIX, question 14>
 DB_DATABASE!=<production DB_DATABASE, question 14>
 AWS_BUCKET!=<production AWS_BUCKET, question 14>
 MAIL_MAILER=log
-# or instead of the line above:  MAIL_MAILER=smtp  and  MAIL_HOST=<the sink host, O4>
+MAIL_HOST=
+MAIL_PASSWORD=
+# or instead of the three lines above:  MAIL_MAILER=smtp  and  MAIL_HOST=<the sink host, O4>
+PAYMENT_GATEWAY=comgate
 COMGATE_TEST=true
 COMGATE_RECURRING=false
 COMGATE_MERCHANT=<the Comgate test merchant id, O4>
+GOPAY_RECURRING=false
+STRIPE_RECURRING=false
+PEPPOL_SENDER_ID=
 WEDOS_TEST_MODE=true
 ONHOST_ACME_DIRECTORY~=acme-staging-v02
 ONHOST_BANK_FIO_TOKEN=
@@ -342,15 +348,40 @@ $EDITOR $STATE/expected-env                                     # fill the <…>
 $P $DG env-assert --file /etc/onhost/app.env --spec $STATE/expected-env; echo rc=$?   # before S4b: $P /root/deploy-gate.php env-assert …
 ```
 
-`rc=0` and every line `OK`, else STOP (`MISMATCH`/`UNFILLED` name the key, never its value). Why the less obvious lines:
-`COMGATE_RECURRING=false` — the kept database may hold stored card tokens, and recurring top-ups would charge them;
+`rc=0` and every line `OK`, else STOP (`MISMATCH`/`UNFILLED` name the key, never its value; a key defined twice with
+different values or a value with `${…}` is a `MISMATCH` whatever the line says — phpdotenv would load something the
+assertion never saw). Why the less obvious lines:
+`COMGATE_RECURRING=false` (and `GOPAY_`/`STRIPE_RECURRING=false`, which default to `true`; `PAYMENT_GATEWAY=comgate`
+keeps the only test merchant the one in use) — the kept database may hold stored card tokens, and recurring top-ups
+would charge them; `PEPPOL_SENDER_ID=` — no real e-invoice leaves; `MAIL_HOST=`/`MAIL_PASSWORD=` with the log mailer —
+no live SMTP login lies in the file for a later edit or a stale cache to use;
 `ONHOST_EGRESS_DENY_CIDRS=0.0.0.0/0,::/0` — every destination a *customer* names (webhooks, uptime checks, import URLs)
 goes through `EgressGuard`, and this makes none public (VERIFIED: `EgressGuard::inCidr` matches every address for
 `/0`): the kept database's unpublished outbox is relayed **inline by the first command any staff member runs**
 (`CommandBus` relays after every command, and `WebhookDispatcher` posts to each new delivery at once) — without this
 line S5 alone would send the backlog to real customer endpoints; the Discord/CDN/on-call keys empty — their
 scheduled jobs and bots would otherwise act with production's identities. A `!=` line may be deleted only when S0
-proved that the machine itself is staging's alone (record why).
+proved that the machine itself is staging's alone (record why). The `*_SECRET_REF` keys (`AI_ANTHROPIC_`, `AI_OPENAI_`,
+`ONHOST_ONCALL_`, `ONHOST_DISCORD_BOT_`, `GOPAY_`, `STRIPE_`, `PEPPOL_`, `OIDC_CLIENT_`) name secrets in the database,
+not values: they are contained by the revocation of question 13 b (Path A) or by nothing being stored (Path B), and
+the release record lists each with its state.
+
+**Path A — the old code, until S7.** `env-assert` checks the file; the old release serves with whatever it cached in
+`bootstrap/cache/config.php` (older installs ran `config:cache`) and may predate the egress deny list (`925f126`,
+2026-09-20). So on Path A nothing reaches the old code over the web, no unit starts and no command goes through the bus
+until S7 has deployed the target (review of the post-round-3 commits, HIGH):
+
+```bash
+cd $APP && $AS_WWW $P artisan down                 # payment call-backs included: 503 until after S7 (the deployer leaves
+                                                   # an operator's maintenance in place)
+$AS_WWW $P artisan config:clear && <reload command from S0>   # what artisan by hand (S4b's doctor) reads is app.env
+$AS_WWW $P artisan tinker --execute="echo json_encode(['mail' => config('mail.default'), 'smtp_host' => config('mail.mailers.smtp.host'), 'deny' => config('onhost.egress.deny_cidrs')]), PHP_EOL;" | tail -n 1
+[ -n "$AS_WWW" ] || own
+```
+
+Expect `"mail":"log"` (or `"smtp"` with the sink host) and `"deny":["0.0.0.0/0","::/0"]`. A different value: STOP —
+PHP loads something the assertion did not see; report it. `"deny":null`: the old code cannot honour the line — record
+it; the site stays down and S4b–S7 are the only next steps (nothing else may run on this code).
 
 ### S4 — Second install run (Path B only)
 
@@ -384,11 +415,11 @@ running beforehand, or when an `onhost-*` unit runs that is not listed — and f
 back):
 
 ```bash
-# Path A (after question 13 b): printf '%s\n' onhost-queue@default.service onhost-queue@mails.service > $STATE/expected-units
+# Path A: install -m 0600 /dev/null $STATE/expected-units    (EMPTY until S7 has run: the first release caches the
+#   target's config from the asserted app.env; the two lanes are written, enabled and started only after it — S7,
+#   Path A — never the scheduler)
 # Path B: written by install.sh — review it
 chmod 0600 $STATE/expected-units; cat $STATE/expected-units
-# Path A: only now the two lanes, never the scheduler
-systemctl enable --now onhost-queue@default.service onhost-queue@mails.service
 ```
 
 The doctor rows expected non-OK on staging (O11). The gate stops a staging release on **any** non-OK row that is neither
@@ -416,12 +447,15 @@ $AS_WWW $P artisan onhost:staff:create <owner-email> --name="<name>" --role=plat
 
 Each person signs in and enrols MFA themselves. **Never run `DevAccountSeeder` here.** A second approver only per O6.
 Verify: the S0 tinker query shows 0 development accounts (an existing staging that has them: disable them in the staff
-console and report — do not delete). On Path A this is the first command through the bus on the kept database: the
-S3 egress line must already be `OK`.
+console and report — do not delete). **Path A: not here — only after S7, in its Path A block** (the first command
+through the bus on the kept database relays the outbox backlog: it must run on the target, whose config S7 cached from
+the asserted `app.env` and whose effective egress line was printed, never on the old code).
 
 ### S7 — First gated deploy
 
-The units of O12 run (S4 / S4b), so the drain is exercised.
+Path B: the units of O12 run (S4), so the drain is exercised. Path A: the first run has none (the list is empty, the
+site is in the maintenance S3 set, which the deployer leaves in place); the Path A block after the checks starts the
+lanes and runs the same command a second time.
 
 ```bash
 REF=<STAGING_SHA> EXPECTED_SHA=<STAGING_SHA> DEPLOY_OPERATOR=<name> PHP_FPM_RELOAD='<reload command from S0>' \
@@ -442,6 +476,19 @@ Verify:
   ```
 - `$STATE/runs/<ts>-<sha12>/verdict.out` ends with `VERDICT pass`, lists no `HARD-FAIL`, `GATED-FAIL` or `ROW-FAIL`, and an
   `EXPECTED` line only for rows of the O11 list.
+- **Path A only, here** (the checks above belong to the first run; the ones below to the second):
+  ```bash
+  cd $APP && $AS_WWW $P artisan tinker --execute="echo json_encode(['cached' => app()->configurationIsCached(), 'mail' => config('mail.default'), 'smtp_host' => config('mail.mailers.smtp.host'), 'deny' => config('onhost.egress.deny_cidrs')]), PHP_EOL;" | tail -n 1
+  [ -n "$AS_WWW" ] || own
+  ```
+  `"cached":true`, `"mail":"log"` (or `"smtp"` with the sink host) and `"deny":["0.0.0.0/0","::/0"]`, else STOP — the
+  site stays down, nothing starts. Then, and only with question 13 b confirmed:
+  ```bash
+  $AS_WWW $P artisan up
+  printf '%s\n' onhost-queue@default.service onhost-queue@mails.service > $STATE/expected-units   # never the scheduler
+  systemctl enable --now onhost-queue@default.service onhost-queue@mails.service
+  ```
+  Then S5, then S7's command once more (the same SHA; rc 0 — this run drains the lanes) and the checks below on it.
 - Every unit of `$STATE/expected-units` is `active` and `enabled`; the scheduler (Path A) and every provider lane still
   print `masked`/`masked-runtime`.
 - **Six minutes or more later:** `$AS_WWW $P artisan onhost:doctor --json` — `automation|queue worker alive` OK (Path B;

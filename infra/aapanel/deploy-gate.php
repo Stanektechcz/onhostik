@@ -225,7 +225,8 @@ final class OnhostDeployGate
      * The environment file against a spec (staging-launch.md S3; the deployer runs it before every staging release). Spec
      * lines: `KEY=value` must equal · `KEY=` empty or absent · `KEY?` set · `KEY!=value` must differ · `KEY~=regex`
      * must match; `#` starts a comment line. A value in `<…>` is a placeholder nobody filled: refused. Values are read
-     * like phpdotenv (parseEnv) and never printed — the file holds secrets, and a mismatching secret must not show.
+     * like phpdotenv (parseEnv) and never printed — the file holds secrets, and a mismatching secret must not show. A key
+     * defined twice with different values, or a value holding `${`, is a MISMATCH whatever the rule says.
      */
     public static function envAssert(string $file, string $spec): int
     {
@@ -253,7 +254,17 @@ final class OnhostDeployGate
 
                 continue;
             }
-            $value = self::parseEnv($file, $key) ?? '';
+            // not parseEnv's fail-closed '': an empty value would pass `KEY=` and `KEY!=` while phpdotenv loads the last
+            // definition; and a `${VAR}` value resolves to something this never saw (review of the post-round-3 commits)
+            $values = array_values(array_unique(self::envValues($file, $key)));
+            $why = count($values) > 1 ? 'defined twice with different values' : (str_contains($values[0] ?? '', '${') ? 'interpolates ${…}, which is not asserted' : '');
+            if ($why !== '') {
+                fwrite(STDOUT, "MISMATCH {$key}: {$why}\n");
+                $failed = true;
+
+                continue;
+            }
+            $value = $values[0] ?? '';
             $ok = match ($op) {
                 '=' => $value === $want,
                 '!=' => $value !== $want,
@@ -358,13 +369,25 @@ final class OnhostDeployGate
      * first `#` — also right after `=` (`KEY=     # comment` is empty, the way `.env.example` writes an empty key;
      * VERIFIED against vlucas/phpdotenv 5 on 2026-09-27, before which this read the comment as the value). Two
      * definitions with different values are ambiguous and print nothing — the caller then treats the environment as
-     * production (fail closed).
+     * production (fail closed); envAssert reads envValues itself and refuses the ambiguity by name.
      */
     public static function parseEnv(string $file, string $key): ?string
     {
         if (! is_file($file) || ! is_readable($file)) {
             return null;
         }
+        $values = self::envValues($file, $key);
+
+        return count(array_unique($values)) === 1 ? $values[0] : '';
+    }
+
+    /**
+     * Every definition of $key in $file, in order, each read the way phpdotenv reads it (parseEnv).
+     *
+     * @return list<string>
+     */
+    private static function envValues(string $file, string $key): array
+    {
         $values = [];
         foreach (preg_split('/\R/', (string) file_get_contents($file)) ?: [] as $line) {
             if (preg_match('/^\s*(?:export\s+)?'.preg_quote($key, '/').'\s*=(.*)$/', $line, $m) !== 1) {
@@ -380,7 +403,7 @@ final class OnhostDeployGate
             $values[] = $value;
         }
 
-        return count(array_unique($values)) === 1 ? $values[0] : '';
+        return $values;
     }
 
     /** The set named by `onhost:platform:backup` ("Set platform-backups/<Ymd-His> on disk …"), only when written at or after $since. */

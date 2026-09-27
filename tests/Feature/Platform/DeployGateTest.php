@@ -246,6 +246,37 @@ it('asserts the staging environment against a spec without printing a value, and
     deployGateRemoveTree($dir);
 });
 
+// Review of the post-round-3 commits (security MEDIUM): parseEnv reads two different definitions as '' — right for the
+// APP_ENV caller (fail closed), but envAssert then passed `KEY=` and `KEY!=` while phpdotenv loads the last value; and a
+// `${VAR}` value resolves to something the assertion never saw. Both are refused now, and neither prints a value.
+it('refuses a key defined twice with different values and a value that interpolates, without printing either', function () {
+    $dir = deployGateTempDir();
+    $assert = function (string $env, string $spec) use ($dir): Process {
+        file_put_contents($dir.'/app.env', $env);
+        file_put_contents($dir.'/spec', $spec);
+
+        return deployGateCall(['env-assert', '--file', $dir.'/app.env', '--spec', $dir.'/spec']);
+    };
+
+    $twice = $assert("ONHOST_EGRESS_ALLOW_CIDRS=\nONHOST_EGRESS_ALLOW_CIDRS=0.0.0.0/0\nDB_DATABASE=onhost_staging\nDB_DATABASE=oNhOsT_pRoD\n", "ONHOST_EGRESS_ALLOW_CIDRS=\nDB_DATABASE!=onhost_production\n");
+    expect($twice->getExitCode())->toBe(13, $twice->getOutput())
+        ->and($twice->getOutput())->toContain('MISMATCH ONHOST_EGRESS_ALLOW_CIDRS: defined twice')->toContain('MISMATCH DB_DATABASE: defined twice')
+        ->and($twice->getOutput().$twice->getErrorOutput())->not->toContain('0.0.0.0/0')->not->toContain('oNhOsT_pRoD');
+
+    $same = $assert("APP_ENV=staging\nAPP_ENV=\"staging\"   # repeated, same value\n", "APP_ENV=staging\n");
+    expect($same->getExitCode())->toBe(0, $same->getOutput())->and($same->getOutput())->toContain('OK APP_ENV');
+
+    $interpolated = $assert("PROD_DB=oNhOsT_pRoD\nDB_DATABASE=\${PROD_DB}\nREDIS_PREFIX=\"onhost-\${APP_ENV}-\"\n", "DB_DATABASE!=onhost_production\nREDIS_PREFIX?\n");
+    expect($interpolated->getExitCode())->toBe(13, $interpolated->getOutput())
+        ->and($interpolated->getOutput())->toContain('MISMATCH DB_DATABASE: interpolates')->toContain('MISMATCH REDIS_PREFIX: interpolates')
+        ->and($interpolated->getOutput().$interpolated->getErrorOutput())->not->toContain('oNhOsT_pRoD');
+
+    // the APP_ENV reader keeps its fail-closed '' for an ambiguous key
+    file_put_contents($dir.'/.env', "APP_ENV=staging\nAPP_ENV=production\n");
+    expect(rtrim(deployGateCall(['parse-env', '--file', $dir.'/.env'])->getOutput(), "\n"))->toBe('');
+    deployGateRemoveTree($dir);
+});
+
 it('reads APP_ENV the way phpdotenv does and leaves anything ambiguous empty (the deployer then treats it as production)', function () {
     $dir = deployGateTempDir();
     $read = function (string $content) use ($dir): string {
