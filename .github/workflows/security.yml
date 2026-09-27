@@ -2,9 +2,10 @@ name: security
 
 # What the test workflow does not cover: secrets in the history, the JavaScript supply chain and a weekly
 # re-check of advisories published after a change was merged (go-live checklist §1).
+# `push` has no branch filter (audit C11 / TASK-0048): the `secrets` job must scan every branch push, not
+# only main/development or a pull request, so a secret pushed to a short-lived feature branch is still caught.
 on:
   push:
-    branches: [main, development]
   pull_request:
   schedule:
     - cron: '17 4 * * 1'

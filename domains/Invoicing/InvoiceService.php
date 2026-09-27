@@ -268,11 +268,16 @@ final class InvoiceService
         }, 3);
     }
 
-    /** Daily sweep: ISSUED past due => OVERDUE (dunning listens to the event). */
+    /**
+     * Daily sweep: ISSUED past due => OVERDUE (the customer is told). Past due means the due date PRINTED on the document —
+     * its accounting day — is over: the sweep runs at 01:15 UTC, and comparing instants marked every invoice that fell due
+     * between midnight in Prague and that hour (the renewals of 22:20, 23:20 and 00:20 UTC) overdue on its own due date, with
+     * the whole day still left to pay it (TASK-0047).
+     */
     public function overdueSweep(): int
     {
         $count = 0;
-        foreach (Invoice::query()->where('state', Invoice::ISSUED)->whereIn('type', ['invoice', 'proforma'])->where('due_at', '<', now())->get() as $invoice) {
+        foreach (Invoice::query()->where('state', Invoice::ISSUED)->whereIn('type', ['invoice', 'proforma'])->where('due_at', '<', AccountingClock::startOfToday())->get() as $invoice) {
             $invoice->forceFill(['state' => Invoice::OVERDUE])->save();
             $this->outbox->publish(GenericEvent::of('invoice.overdue', 'invoice', $invoice->id, ['number' => $invoice->number, 'due_at' => $invoice->due_at?->toISOString(), 'outstanding' => $invoice->outstanding()], $invoice->organization_id));
             $count++;
