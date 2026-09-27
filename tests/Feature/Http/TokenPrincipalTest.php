@@ -3,8 +3,10 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
 use Onhost\Domain\Identity\Authorization\TokenScopes;
 use Onhost\Domain\Identity\Models\PersonalAccessToken;
@@ -197,3 +199,70 @@ function tptTick(Operation $operation): Operation
     return $operation->fresh();
 }
 // ── end TASK-0039 review round 2 ──
+
+// ── TASK-0039 review round 3 ──
+/*
+ * P0-09 on the entry points OUTSIDE /v1. `auth:sanctum` accepts a bearer token as readily as the portal's session cookie, and the
+ * web routes that use it never asked the token anything: `GET /surfaces/onhost-panel.js?organization=B` served B's services to the
+ * token of A (and, without the parameter, the person's FIRST membership — B again), the console pre-flight said "valid" for B's
+ * console, the staff pages rendered for a staff token. These are the browser's own endpoints (a script tag, a page, a pre-flight
+ * of the portal) — nothing there is for API tokens, so they are the portal session's alone: `token.scope` refuses every token
+ * there, as it does on /v1 for a family it does not list.
+ */
+it('refuses a token the panel seam of another organization and of its own, and keeps it for the session (review round 3)', function () {
+    [$user, $a, $b, $plain] = tptTwoOrganizations('seam-dva@example.cz');
+    featureWebService($a, 'ispconfig');
+    $theirs = featureWebService($b, 'aapanel');
+
+    foreach (["/surfaces/onhost-panel.js?organization={$b->id}", '/surfaces/onhost-panel.js', "/surfaces/onhost-panel.js?organization={$a->id}"] as $url) {
+        $answer = $this->withToken($plain)->get($url);
+        expect($answer->status())->toBe(403)->and((string) $answer->getContent())->not->toContain($theirs->id)->not->toContain('window.ONHOST_PANEL');
+        app('auth')->forgetGuards();
+        $this->flushHeaders();
+    }
+
+    // the person in the portal: a member of both, B is theirs to see
+    expect($this->actingAs($user)->get("/surfaces/onhost-panel.js?organization={$b->id}")->assertOk()->getContent())->toContain($theirs->id);
+});
+
+it('refuses a token the console pre-flight, and keeps it for the session (review round 3)', function () {
+    [$user, , $b, $plain] = tptTwoOrganizations('konzole-dva@example.cz');
+    $theirs = featureWebService($b, 'aapanel');
+    $console = 'con_'.strtolower((string) Str::ulid());
+    Cache::put("onhost:console:{$console}", ['kind' => 'pve_vnc', 'upstream' => 'https://pve.lab/x', 'port' => 5900, 'vncticket' => 'PVEVNC:secret', 'service_id' => $theirs->id, 'organization_id' => $b->id], 120);
+
+    $this->withToken($plain)->getJson("/console/check/{$console}")->assertForbidden()->assertJsonMissingPath('data.valid');
+    app('auth')->forgetGuards();
+    $this->flushHeaders();
+
+    $this->actingAs($user)->getJson("/console/check/{$console}")->assertOk()->assertJsonPath('data.valid', true);
+});
+
+it('refuses a staff token the staff pages, and keeps them for the session (review round 3)', function () {
+    [, $customerOrg] = $this->customerWithOrganization(['email' => 'stranka@example.cz']);
+    $service = featureWebService($customerOrg, 'aapanel');
+    $staff = $this->staff('platform_owner');
+    $plain = $staff->createToken('tpt-staff-pages', TokenScopes::ALL)->plainTextToken;
+    $pages = ['/sprava/nastaveni/integrace', '/sprava/nastaveni/provoz', '/sprava/nastaveni/hromadne-akce', '/sprava/nastaveni/zivotni-cyklus',
+        '/sprava/nastaveni/schvalovani', '/sprava/nastaveni/tarify', "/sprava/konzole/{$service->id}"];
+
+    foreach ($pages as $page) {
+        expect($this->withToken($plain)->get($page)->status())->toBe(403, $page);
+        app('auth')->forgetGuards();
+        $this->flushHeaders();
+    }
+    $this->actingAs($staff)->get("/sprava/konzole/{$service->id}")->assertOk();
+    $this->actingAs($staff)->get('/sprava/nastaveni/integrace')->assertOk();
+});
+
+it('lets no web route authenticate with auth:sanctum without token.scope (review round 3)', function () {
+    $open = [];
+    foreach (app('router')->getRoutes() as $route) {
+        $middleware = $route->gatherMiddleware();
+        if (in_array('auth:sanctum', $middleware, true) && ! in_array('token.scope', $middleware, true)) {
+            $open[] = implode('|', $route->methods()).' '.$route->uri();
+        }
+    }
+    expect($open)->toBe([]);
+});
+// ── end TASK-0039 review round 3 ──

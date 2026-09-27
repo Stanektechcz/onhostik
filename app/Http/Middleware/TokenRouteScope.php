@@ -12,6 +12,7 @@ use Onhost\Domain\Provisioning\Workflows\ServiceActionWorkflow;
 use Onhost\Domain\Services\Commands\ServiceActionCommand;
 use Onhost\Platform\Errors\DomainError;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 
 /**
  * An API token reaches only what its scopes name — decided BEFORE the controller runs.
@@ -46,6 +47,13 @@ final class TokenRouteScope
         $token = TokenScopes::tokenOf($request->user());
         if ($token === null) {
             return $next($request); // the portal's own session
+        }
+        // TASK-0039 review round 3 (P0-09 outside /v1): `auth:sanctum` on a web route takes a bearer token as readily as the
+        // session cookie, and those routes asked the token nothing — `/surfaces/onhost-panel.js?organization=B` served B's services
+        // to the token of A, the console pre-flight and the staff pages answered it too. They are the browser's own endpoints (a
+        // script tag, a page, the portal's pre-flight): no family of them is for tokens, whatever the token's organization or scopes
+        if (! $request->is('v1', 'v1/*')) {
+            throw new AccessDeniedHttpException('API tokens are not accepted here; this is the signed-in portal\'s own endpoint.');
         }
         // TASK-0039 (permission program P0-09, IF-5): a token acts for its own organization, on every route — one that names
         // another (`X-Organization`, `?organization=`) is refused before any controller reads it; a token bound to none is refused
