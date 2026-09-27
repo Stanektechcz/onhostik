@@ -54,7 +54,7 @@ final class PartnerPayoutAnomalies extends Command
         }
         if ($found['unconfirmed'] !== []) {
             $this->line('');
-            $this->line('Listed for a look, NOT frozen — the partner\'s first bank transfer, nothing earlier to compare its IBAN with. It is not paid as it is: finance rejects it (the owner sets the account, the partner asks again), or holds it, confirms the account with the partner and releases it with a reason:');
+            $this->line('Listed for a look, NOT frozen — the partner\'s first bank transfer, nothing earlier to compare its IBAN with. It is not paid as it is: finance rejects it (the owner sets the account, the partner asks again), or holds it, confirms the account with the partner and releases it with a reason and confirms_account (a second person signs that release):');
             $this->table(['payout', 'number', 'state', 'amount', 'account'], array_map(fn (array $row) => [$row['payout_id'], $row['number'], $row['state'], $row['amount']->format(), $row['account'] ?? '—'], $found['unconfirmed']));
         }
         if ($found['released'] !== []) {

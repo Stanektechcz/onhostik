@@ -546,7 +546,7 @@ it('pays a bank transfer only to an account confirmed when it was asked for, and
     // finance held each, confirmed the account with the partner and released it with a reason: now it is paid …
     foreach ([$moved, $first] as $payout) {
         $partners->freezePayout($payout->fresh(), 'Kontrola účtu u partnera', $system);
-        $partners->unfreezePayout($payout->fresh(), 'Partner potvrdil účet telefonicky i písemně', $system);
+        $partners->unfreezePayout($payout->fresh(), 'Partner potvrdil účet telefonicky i písemně', $system, confirmsAccount: true); // TASK-0041: says so
         expect($partners->markPayoutPaid($payout->fresh(), 'BANK-'.$payout->number, $system)->state)->toBe('paid');
     }
 
@@ -558,6 +558,39 @@ it('pays a bank transfer only to an account confirmed when it was asked for, and
     expect($partners->autoPayouts())->toBe(['requested' => 1, 'skipped' => 1])
         ->and(PartnerPayout::query()->where('partner_id', $partner->id)->where('state', 'requested')->sole()->iban)->toBe(pstIban('A'))
         ->and(PartnerPayout::query()->where('partner_id', $partner2->id)->where('state', 'requested')->exists())->toBeFalse();
+});
+
+it('releases an IBAN hold only with a second person, and only a release that says it confirmed the account counts', function () {
+    // P0-16 red team (MEDIUM): one person holding partner.manage froze a payout to an IBAN nobody confirmed and unfroze it again —
+    // and any unfreeze, whatever it was about, counted as "finance confirmed the account": the payment then went to that IBAN.
+    [, $org] = $this->customerWithOrganization();
+    $partner = pstPartnerOf($org, 'monthly');
+    pstPaidBefore($partner, pstIban('A'));
+    $moved = pstPayoutRow($partner, 'PO-REL-1', 100000, pstIban('B'), 'approved');
+    pstEarn($partner, 100000, $moved->id);
+    $partners = app(PartnerService::class);
+    $system = CommandContext::system('test');
+    $anna = $this->steppedUpStaff('billing_finance_admin');
+    $petr = $this->steppedUpStaff('billing_finance_admin');
+    $this->actingAs($anna, 'sanctum');
+    $post = fn (string $step, array $body) => $this->postJson("/v1/staff/partners/payouts/{$moved->id}/{$step}", $body, ['Idempotency-Key' => uniqid('rel-', true)]);
+
+    // a hold let go is not a confirmation of the account
+    $post('freeze', ['reason' => 'Kontrola částky u partnera'])->assertOk()->assertJsonPath('frozen', true);
+    $post('unfreeze', ['reason' => 'Částka sedí, uvolňuji ke kontrole'])->assertOk()->assertJsonPath('frozen', false);
+    expect(fn () => $partners->markPayoutPaid($moved->fresh(), 'BANK-REL-0', $system))->toThrow(fn (DomainError $e) => expect($e->error)->toBe('payout_account_unconfirmed'));
+
+    // the release that confirms the account takes a second person; nobody confirms it alone, not even past the bus
+    $post('freeze', ['reason' => 'Kontrola účtu u partnera'])->assertOk();
+    $body = ['reason' => 'Partner potvrdil účet telefonicky i písemně', 'confirms_account' => true];
+    $asked = $post('unfreeze', $body)->assertForbidden()->assertJsonPath('error', 'approval_required');
+    expect($moved->fresh()->isFrozen())->toBeTrue();
+    expect(fn () => $partners->unfreezePayout($moved->fresh(), 'Potvrdila jsem si to sama', $this->contextFor($anna), confirmsAccount: true))
+        ->toThrow(fn (DomainError $e) => expect($e->error)->toBe('payout_release_second_person'));
+    secondPersonApproves((string) $asked->json('approval_id'), $petr);
+    $post('unfreeze', $body + ['approval_ids' => [$asked->json('approval_id')]])->assertOk()->assertJsonPath('frozen', false);
+
+    expect($partners->markPayoutPaid($moved->fresh(), 'BANK-REL-1', $system)->state)->toBe('paid');
 });
 
 it('refuses to pay a payout whose IBAN is not the account row it was asked for, released or not', function () {
@@ -574,7 +607,7 @@ it('refuses to pay a payout whose IBAN is not the account row it was asked for, 
 
     expect(fn () => $partners->markPayoutPaid($payout->fresh(), 'BANK-X', $system))->toThrow(DomainError::class, 'confirmed');
     $partners->freezePayout($payout->fresh(), 'Kontrola účtu u partnera', $system);
-    $partners->unfreezePayout($payout->fresh(), 'Partner potvrdil účet telefonicky i písemně', $system);
+    $partners->unfreezePayout($payout->fresh(), 'Partner potvrdil účet telefonicky i písemně', $system, confirmsAccount: true);
     expect(fn () => $partners->markPayoutPaid($payout->fresh(), 'BANK-Y', $system))->toThrow(DomainError::class, 'confirmed');
     expect($payout->fresh()->state)->toBe('approved')->and(LedgerTransaction::query()->where('kind', 'partner_payout')->count())->toBe(0);
 });

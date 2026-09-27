@@ -40,16 +40,27 @@ final class PartnerCommand extends GlobalCommand implements RiskAwareCommand
      */
     public function riskLevel(): string
     {
-        return $this->op() === 'payout.pay' ? PermissionCatalog::CRITICAL : PermissionCatalog::NORMAL;
+        return $this->movesMoney() ? PermissionCatalog::CRITICAL : PermissionCatalog::NORMAL;
     }
 
     public function requiresStepUp(): bool
     {
-        return $this->op() === 'payout.pay';
+        return $this->movesMoney();
     }
 
     public function requiresApproval(): bool
     {
-        return $this->op() === 'payout.pay';
+        return $this->movesMoney();
+    }
+
+    /**
+     * The payment, and the release of a hold that confirms where the money goes (TASK-0041, P0-16 red team; owning task
+     * TASK-0040): `payout.unfreeze` with `confirms_account` lets a payout go to an IBAN that was not the partner's confirmed
+     * account. One person holding `partner.manage` used to freeze and unfreeze it and so decide alone where the money went. It
+     * takes a second person now (the sole operator waits the time lock); a plain release confirms nothing and stays as it was.
+     */
+    private function movesMoney(): bool
+    {
+        return $this->op() === 'payout.pay' || ($this->op() === 'payout.unfreeze' && filter_var($this->get('confirms_account', false), FILTER_VALIDATE_BOOLEAN));
     }
 }

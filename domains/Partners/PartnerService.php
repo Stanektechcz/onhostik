@@ -282,9 +282,9 @@ final class PartnerService
         return $this->payouts->freezePayout($payout, $reason, $context);
     }
 
-    public function unfreezePayout(PartnerPayout $payout, string $reason, CommandContext $context): PartnerPayout
+    public function unfreezePayout(PartnerPayout $payout, string $reason, CommandContext $context, bool $confirmsAccount = false): PartnerPayout
     {
-        return $this->payouts->unfreezePayout($payout, $reason, $context);
+        return $this->payouts->unfreezePayout($payout, $reason, $context, $confirmsAccount);
     }
 
     public function payoutAccounts(): PayoutAccounts

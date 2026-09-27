@@ -110,7 +110,8 @@ final class PartnerController extends ApiController
 
     public function unfreezePayout(Request $request, string $payout): JsonResponse
     {
-        $data = $request->validate(['reason' => ['required', 'string', 'min:10', 'max:500']]);
+        // TASK-0041: `confirms_account` — finance confirmed the payout's account with the partner; that release takes a second person
+        $data = $request->validate(['reason' => ['required', 'string', 'min:10', 'max:500'], 'confirms_account' => ['sometimes', 'boolean']]);
 
         return $this->dispatch(new PartnerCommand($this->onceKey($request, "payout.unfreeze:{$payout}"), ['op' => 'payout.unfreeze', 'payout_id' => $payout] + $data), $this->api->context($request, null, $data['reason']));
     }

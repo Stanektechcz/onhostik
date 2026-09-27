@@ -38,7 +38,8 @@ final class PartnersCommandHandler implements CommandHandler
             'payout.pay' => PartnerPresenters::payout($this->partners->markPayoutPaid($this->payout($command), (string) $command->get('reference', ''), $context), true),
             // TASK-0040: a payout held for a look (onhost:partners:payout-anomalies --apply, or finance by hand) and released with a reason
             'payout.freeze' => PartnerPresenters::payout($this->partners->freezePayout($this->payout($command), $this->reason($command), $context), true),
-            'payout.unfreeze' => PartnerPresenters::payout($this->partners->unfreezePayout($this->payout($command), $this->reason($command), $context), true),
+            // TASK-0041: only a release that says it confirmed the account counts as that confirmation (CRITICAL, PartnerCommand)
+            'payout.unfreeze' => PartnerPresenters::payout($this->partners->unfreezePayout($this->payout($command), $this->reason($command), $context, filter_var($command->get('confirms_account', false), FILTER_VALIDATE_BOOLEAN)), true),
             'masking.notice' => ['noticed' => $this->partners->noticeMasking($this->partner($command), $context)], // program §10 O9
             'tiers.recompute' => ['recomputed' => $this->partners->recomputeAllTiers()],
             'model.decide' => PartnerService::presentRequest($this->partners->decideModelChange(PartnerChangeRequest::query()->find((string) $command->get('request_id')) ?? throw DomainError::notFound('partner_request'), (string) $command->get('decision'), $command->get('note') !== null ? (string) $command->get('note') : null, $context)), // §5m-1

@@ -252,16 +252,29 @@ final class PartnerPayouts
         return $payout->refresh();
     }
 
-    public function unfreezePayout(PartnerPayout $payout, string $reason, CommandContext $context): PartnerPayout
+    /**
+     * TASK-0041 (P0-16 red team, MEDIUM): a release confirms the payout's account only when it says so (`$confirmsAccount`) and
+     * a second person signed it — PartnerCommand makes that release CRITICAL, and here the bus must have consumed an approval
+     * (or the sole operator's time lock) for this very run. Any release used to count as "finance confirmed the account with
+     * the partner", so one person holding `partner.manage` froze a payout to an unconfirmed IBAN, unfroze it and had it paid
+     * there. The system (operator tooling, tests) is not a person and is not asked.
+     */
+    public function unfreezePayout(PartnerPayout $payout, string $reason, CommandContext $context, bool $confirmsAccount = false): PartnerPayout
     {
-        DB::transaction(function () use ($payout, $reason, $context): void {
+        if ($confirmsAccount && $context->actorType !== 'system' && $context->verifiedApprovalIds === []) {
+            throw new DomainError('payout_release_second_person', 'Releasing a payout as its account confirmed takes a second person.', 403, ['requirement' => 'approval']);
+        }
+        DB::transaction(function () use ($payout, $reason, $context, $confirmsAccount): void {
             $row = PartnerPayout::query()->whereKey($payout->id)->lockForUpdate()->firstOrFail();
             if (! $row->isFrozen()) {
                 throw new DomainError('payout_not_frozen', 'This payout is not frozen.', 409);
             }
             $organizationId = Partner::query()->find($row->partner_id)?->organization_id;
             $row->forceFill(['frozen_at' => null, 'frozen_by' => null, 'frozen_reason' => null])->save();
-            $this->audit->record($context->withScope($organizationId), 'partner.payout.unfreeze', 'succeeded', ['number' => $row->number, 'reason' => $reason], 'partner_payout', $row->id);
+            $this->audit->record($context->withScope($organizationId), 'partner.payout.unfreeze', 'succeeded', ['number' => $row->number, 'reason' => $reason, 'confirms_account' => $confirmsAccount], 'partner_payout', $row->id);
+            if ($confirmsAccount) { // what assertAccountConfirmed() reads: its own row, written only by a release that said so
+                $this->audit->record($context->withScope($organizationId), 'partner.payout.account_confirmed', 'succeeded', ['number' => $row->number, 'account' => PayoutAccounts::mask($row->iban), 'reason' => $reason], 'partner_payout', $row->id);
+            }
             $this->outbox->publish(GenericEvent::of('partner.payout.unfrozen', 'partner_payout', $row->id, ['number' => $row->number, 'reason' => mb_substr($reason, 0, 250)], $organizationId));
         });
 
@@ -275,8 +288,8 @@ final class PartnerPayouts
      * freezes nothing. So a bank transfer is paid only to an IBAN that was the partner's confirmed account when it was asked
      * for (PayoutAccounts::confirmedAt), and a payout that names its account row only to that row's IBAN. A leftover without
      * an account row passes only once finance released it with a recorded reason (`partner.payout.unfreeze`: hold it, confirm
-     * the account with the partner, release it); otherwise finance rejects it, the owner sets the account and the partner asks
-     * again. Paying a released one never makes its IBAN the account (grandfathering ends at the cut-over).
+     * the account with the partner, release it with `confirms_account` and a second person — TASK-0041); otherwise finance
+     * rejects it, the owner sets the account and the partner asks again. Paying a released one never makes its IBAN the account (grandfathering ends at the cut-over).
      */
     private function assertAccountConfirmed(PartnerPayout $payout): void
     {
@@ -296,10 +309,13 @@ final class PartnerPayouts
         }
     }
 
-    /** Finance released the payout from a hold with a recorded reason (the domain's own audit row, never a refused attempt). */
+    /**
+     * Finance released the payout from a hold as its account confirmed, with a second person (the domain's own audit row, never a
+     * refused attempt). TASK-0041: a plain release — a hold about something else let go — is no confirmation of the account.
+     */
     public static function released(string $payoutId): bool
     {
-        return DB::table('audit_events')->where('action', 'partner.payout.unfreeze')->where('result', 'succeeded')->where('resource_id', $payoutId)->exists();
+        return DB::table('audit_events')->where('action', 'partner.payout.account_confirmed')->where('result', 'succeeded')->where('resource_id', $payoutId)->exists();
     }
 
     private function assertNotFrozen(PartnerPayout $payout): void
