@@ -8,6 +8,8 @@
 # A wrapper around the repository's own scripts (infra/aapanel/install.sh and the gated deployer
 # /usr/local/sbin/onhost-deploy); it adds no deploy logic of its own. Run as root, one mode at a time:
 #
+#   bash onhost-staging.sh setup [SHA]     the whole first launch: check, contain+park the old staging, db, install,
+#                                          deployer (expected-env/expected-nonok written), start, first release
 #   bash onhost-staging.sh check           read-only: PHP 8.5, Node 24, extensions, services, what runs today
 #   bash onhost-staging.sh contain         stop the OLD staging (units, lanes, cron check) — nothing deleted
 #   bash onhost-staging.sh park            move the old tree, /etc/onhost and the state dir aside (undo printed)
@@ -193,7 +195,6 @@ install_app() {
   if [ ! -f /etc/onhost/app.env ]; then
     QUEUES='default mails' REF=$sha EXPECTED_SHA=$sha START_UNITS=0 bash /root/onhost-install.sh || true
     envfill
-    echo "  ➜ edit the hand-filled keys now if you need them, then run: $0 install $sha"; return 0
   fi
   QUEUES='default mails' REF=$sha EXPECTED_SHA=$sha START_UNITS=0 bash /root/onhost-install.sh
   for q in $LANES; do systemctl mask "onhost-queue@$q.service" >/dev/null 2>&1 || true; done
@@ -213,10 +214,100 @@ deployer() {
   chmod 0600 "$STATE/expected-units"; sed 's/^/  expected unit: /' "$STATE/expected-units"
   [ -f "$STATE/egress-blocked" ] || install -m 0600 /dev/null "$STATE/egress-blocked"
   [ -f "$STATE/path-b" ] || install -m 0600 /dev/null "$STATE/path-b"
-  [ -f "$STATE/expected-env" ] || echo "  ➜ create $STATE/expected-env (0600): the S3 block of docs/runbooks/staging-launch.md + the 3 keys of the release record, then:
-     $PHP $DG env-assert --file /etc/onhost/app.env --spec $STATE/expected-env"
-  [ -f "$STATE/expected-nonok" ] || echo "  ➜ create $STATE/expected-nonok (0600) with the rows the release record accepts; candidates:
-     (cd $APP && setpriv --reuid=www --regid=www --init-groups -- $PHP artisan onhost:doctor --json) > /root/doctor.json; $PHP $DG nonok --report /root/doctor.json --production 0"
+  [ -f "$STATE/expected-env" ] || write_expected_env
+  if "$PHP" "$DG" env-assert --file /etc/onhost/app.env --spec "$STATE/expected-env" >/dev/null; then ok "app.env matches expected-env"
+  else die "app.env does not match $STATE/expected-env — see: $PHP $DG env-assert --file /etc/onhost/app.env --spec $STATE/expected-env"; fi
+  if [ ! -f "$STATE/expected-nonok" ]; then
+    # staging phase 1 runs without panels, so some doctor rows are non-OK by design: the rows non-OK TODAY are accepted
+    # once (a snapshot); a row that turns non-OK later still stops a release (docs/runbooks/staging-launch.md O11)
+    art onhost:doctor --json > /root/doctor-s4b.json 2>/dev/null || true
+    (umask 077; "$PHP" "$DG" nonok --report /root/doctor-s4b.json --production 0 > "$STATE/expected-nonok")
+    ok "expected-nonok: $(wc -l < "$STATE/expected-nonok") rows accepted as non-OK on staging ($STATE/expected-nonok)"
+  fi
+}
+
+# The environment the deployer asserts on every release (staging-launch.md S3), with this script's values. Families
+# (PREFIX_*=) keep every live-credential key empty; every other key of app.env is pinned empty when it is empty now,
+# and named (any value) when it was set — by `env` or by hand (Comgate test merchant, Turnstile, company data).
+write_expected_env() {
+  (umask 077; cat > "$STATE/expected-env" <<'EOF'
+APP_ENV=staging
+APP_DEBUG=false
+APP_URL=https://staging.onhost.cz
+DB_CONNECTION=pgsql
+QUEUE_CONNECTION=redis
+CACHE_STORE=redis
+SESSION_DRIVER=redis
+ONHOST_SECRETS_DRIVER=db
+REDIS_PREFIX=onhost_staging_b_
+CACHE_PREFIX=onhost_staging_b
+DB_DATABASE!=onhost
+MAIL_MAILER=log
+MAIL_HOST=
+MAIL_PASSWORD=
+PAYMENT_GATEWAY=comgate
+COMGATE_TEST=true
+COMGATE_RECURRING=false
+GOPAY_RECURRING=false
+STRIPE_RECURRING=false
+PEPPOL_SENDER_ID=
+WEDOS_TEST_MODE=true
+ONHOST_ACME_DIRECTORY~=acme-staging-v02
+ONHOST_BANK_FIO_TOKEN=
+ONHOST_VIES_ENABLED~=^(false)?$
+ONHOST_FOUR_EYES=false
+ONHOST_PLATFORM_BACKUP_DISK=local
+ONHOST_EGRESS_DENY_CIDRS=0.0.0.0/0,::/0
+ONHOST_EGRESS_ALLOW_CIDRS=
+ONHOST_STAFF_REACH_ENFORCED=false
+ONHOST_TOKEN_ORGANIZATION_REQUIRED=false
+ONHOST_CONSOLE_RELAY_URL=
+ONHOST_CONSOLE_RELAY_KEY=
+ONHOST_NODE_BOOTSTRAP_SSH_KEY=
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=
+SENTRY_DSN=
+LOG_SLACK_WEBHOOK_URL=
+HTTP_PROXY=
+HTTPS_PROXY=
+ALL_PROXY=
+http_proxy=
+https_proxy=
+all_proxy=
+AI_ANTHROPIC_*=
+AI_OPENAI_*=
+GOPAY_*=
+STRIPE_*=
+PEPPOL_*=
+OIDC_CLIENT_*=
+DISCORD_BOT_*=
+ONHOST_DISCORD_*=
+ONHOST_ONCALL_*=
+CLOUDFLARE_*=
+OPENBAO_*=
+OTEL_EXPORTER_OTLP_*=
+SLACK_*=
+POSTMARK_*=
+RESEND_*=
+PROXMOX_*=
+PBS_*=
+ISPCONFIG_*=
+AAPANEL_*=
+PTERODACTYL_*=
+POWERDNS_*=
+RKE2_*=
+WEDOS_MAIN_*=
+SUBREG_*=
+EOF
+  )
+  local k v
+  "$PHP" "$DG" env-assert --file /etc/onhost/app.env --spec "$STATE/expected-env" 2>/dev/null \
+    | sed -n 's/^UNLISTED \([A-Za-z0-9_]*\):.*/\1/p' | sort -u | while read -r k; do
+      v=$("$PHP" "$DG" parse-env --file /etc/onhost/app.env --key "$k" 2>/dev/null || true)
+      if [ -z "$v" ]; then echo "$k="; else echo "$k"; fi
+    done >> "$STATE/expected-env"
+  echo '*UNLISTED=' >> "$STATE/expected-env"
+  ok "expected-env written ($STATE/expected-env)"
 }
 
 start() {
@@ -258,8 +349,20 @@ status() {
   curl -s -o /dev/null -w '  /up over loopback: %{http_code}\n' --resolve $SITE:443:127.0.0.1 https://$SITE/up || true
 }
 
+setup() { # the whole first launch in one go; stops at the first ✖
+  check
+  if [ -d "$APP" ] && [ -n "$(ls -A "$APP" 2>/dev/null)" ] && [ ! -f "$STATE/installed" ]; then contain; park; fi
+  [ -d "$APP" ] || install -d -o www -g www -m 0755 "$APP"
+  su - postgres -c "psql -tAc \"select 1 from pg_roles where rolname='$NEWROLE'\"" | grep -q 1 || db
+  [ -f "$STATE/installed" ] || install_app "${1:-}"
+  deployer "${1:-}"
+  start
+  deploy "$(cut -d' ' -f1 "$APP/VERSION")"
+}
+
 case "${1:-}" in
+  setup) setup "${2:-}";;
   check) check;; contain) contain;; park) park;; db) db;; install) install_app "${2:-}";; env) envfill;;
   deployer) deployer "${2:-}";; start) start;; deploy) deploy "${2:-}";; status) status;;
-  *) sed -n '2,25p' "$0"; exit 1;;
+  *) sed -n '2,27p' "$0"; exit 1;;
 esac
