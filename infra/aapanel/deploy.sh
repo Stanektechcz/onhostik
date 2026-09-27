@@ -715,6 +715,6 @@ else
 fi
 
 # ── 7 record ────────────────────────────────────────────────────────────────────────────────────────────────────────
-STAGE=done
+STAGE='done'   # quoted: ShellCheck SC1010 reads a bare `done` as the loop keyword
 (umask 077; printf '{"sha":"%s","ref":"%s","tag":"%s","at":"%s","operator":"%s"}\n' "$SHA" "$REF" "$TAG" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(oneline "$DEPLOY_OPERATOR")" > "$DEPLOY_STATE_DIR/last-good.json")
 say "Released $SHA. Run onhost:doctor again after 6 minutes or more for the liveness rows (scheduler, worker)."
