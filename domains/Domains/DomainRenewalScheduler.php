@@ -134,10 +134,13 @@ final class DomainRenewalScheduler
                 $job->forceFill(['state' => DomainRenewalJob::SCHEDULED, 'attempts' => $job->attempts + 1, 'last_error' => mb_substr($e->getMessage(), 0, 250)]);
                 $daysLeft = $domain->daysToExpiry() ?? 0;
                 $sinceExpiry = $domain->expires_at !== null && $domain->expires_at->isPast() ? (int) floor($domain->expires_at->diffInDays(now(), true)) : 0;
+                // "already expired" (the customer is told so) is the registry's expiry instant, not the calendar count: from
+                // midnight in Prague to the stored midnight UTC the printed day has begun, the domain has not expired (TASK-0047)
+                $expired = $domain->expires_at === null || ! $domain->expires_at->isFuture();
                 if ($daysLeft >= 1 || $sinceExpiry <= self::graceDays()) {
                     $job->forceFill(['scheduled_for' => now()->addDay()])->save(); // retry daily — up to the expiry and on through the protective period
                     $retried++;
-                    $this->outbox->publish(GenericEvent::of('domain.renewal_payment_failed', 'domain', $domain->id, ['fqdn' => $domain->fqdn_ascii, 'error' => $e->error, 'days_left' => $daysLeft, 'in_grace' => $daysLeft < 1, 'grace_days_left' => $daysLeft < 1 ? max(0, self::graceDays() - $sinceExpiry) : null, 'job_id' => $job->id], $domain->organization_id));
+                    $this->outbox->publish(GenericEvent::of('domain.renewal_payment_failed', 'domain', $domain->id, ['fqdn' => $domain->fqdn_ascii, 'error' => $e->error, 'days_left' => $daysLeft, 'in_grace' => $expired, 'grace_days_left' => $expired ? max(0, self::graceDays() - $sinceExpiry) : null, 'job_id' => $job->id], $domain->organization_id));
                 } else {
                     $job->forceFill(['state' => DomainRenewalJob::FAILED])->save();
                     $failed++;
