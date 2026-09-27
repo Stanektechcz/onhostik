@@ -6,6 +6,7 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\Commands\ProvisioningCommand;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
@@ -45,9 +46,12 @@ final class AaPanelTenancy extends Command
 
     protected $description = 'List (default) or close the aaPanel nodes several customers share to in-panel file writing and shell cron; --reopen reverts one node';
 
-    private const LOSES = 'Closing takes away on the node: the in-panel file manager (browse, read, edit, upload, archive, unpack), site import, PHP settings, one-click apps, new or changed shell cron commands and running a job on demand.';
+    private const LOSES = 'Closing takes away on the node: the in-panel file manager (browse, read, edit, upload, archive, unpack), site import, PHP settings, one-click apps, git deployments (deploy and rollback), staging copies (create, refresh, push), new or changed shell cron commands and running a job on demand.';
 
-    private const KEEPS = 'Stays: SFTP/FTP, backups, databases, jobs that already run (as the site\'s own user — list old root jobs with onhost:services:cron-confine), pausing and deleting jobs. Restores and migrations onto the node unpack as the site user (files the backup lacks are kept, not deleted).';
+    private const KEEPS = 'Stays: SFTP/FTP, backups, databases, jobs that already run (as the site\'s own user — list old root jobs with onhost:services:cron-confine), pausing and deleting jobs. Restores and migrations onto the node are uploaded and unpacked as the site\'s own shell user (files the backup lacks are kept, not deleted); the final archive on termination is the panel\'s own backup.';
+
+    /** Work accepted while the node was open reaches the adapter after --apply; the adapter refuses it then, but say so. */
+    private const QUEUED = 'Before --apply: let the web operations already queued for these nodes finish, or cancel them — after --apply the file API refuses them on the node (they fail with the reason, nothing is written).';
 
     /**
      * What closing does NOT do, said to the operator every time (TASK-0034 review round 1): these run code as the shared
@@ -118,6 +122,7 @@ final class AaPanelTenancy extends Command
         $this->line('');
         $this->line(self::LOSES);
         $this->line(self::KEEPS);
+        $this->line(self::QUEUED);
         $this->warn(self::STILL_OPEN);
         $this->info('Nothing was changed. After the customers were told, close these nodes with --apply; --reopen --instance=<key> reverts one.');
 
@@ -136,13 +141,18 @@ final class AaPanelTenancy extends Command
             }
             $organizations = $services->pluck('organization_id')->unique()->count();
             try {
-                $this->write($bus, $instance, 'close', [
+                $written = $this->write($bus, $instance, 'close', [
                     'closed' => true, 'closed_at' => now()->toIso8601String(), 'organizations' => $organizations, 'services' => $services->count(), 'by' => 'cli:aapanel:tenancy',
                     'forced' => (bool) $this->option('force'), // closed by name although the platform counted one organization
                 ]);
             } catch (DomainError $e) {
                 $failed++;
                 $this->error("{$instance->key}: not closed — {$e->getMessage()}");
+
+                continue;
+            }
+            if (! $written) {
+                $this->line("{$instance->key}: already closed (by another run meanwhile)");
 
                 continue;
             }
@@ -166,7 +176,11 @@ final class AaPanelTenancy extends Command
 
             return self::SUCCESS;
         }
-        $this->write($bus, $instance, 'reopen', ['closed' => false, 'reopened_at' => now()->toIso8601String(), 'by' => 'cli:aapanel:tenancy']);
+        if (! $this->write($bus, $instance, 'reopen', ['closed' => false, 'reopened_at' => now()->toIso8601String(), 'by' => 'cli:aapanel:tenancy'])) {
+            $this->line("{$instance->key}: not closed (reopened by another run meanwhile); nothing to reopen");
+
+            return self::SUCCESS;
+        }
         $this->info("{$instance->key}: reopened — the in-panel file manager and shell cron are available again on it");
 
         return self::SUCCESS;
@@ -176,14 +190,38 @@ final class AaPanelTenancy extends Command
      * Through the bus like any change of a provider instance (HIGH, audited), with every other option of the instance
      * kept as it is: `instance.upsert` replaces the options it is given.
      *
+     * The check that the node still needs it and the write happen under one row lock (TASK-0034 review round 2): two runs
+     * at once (cron and a terminal, two terminals) both saw the node open and both wrote — two audit rows, and the later
+     * one wrote back the options it had read, over whatever changed in between. Now the second waits, sees the first
+     * one's closure and writes nothing (false). A refusal of the bus is recorded by the bus and thrown after the lock.
+     *
      * @param  array<string, mixed>  $tenancy
      */
-    private function write(CommandBus $bus, ProviderInstance $instance, string $what, array $tenancy): void
+    private function write(CommandBus $bus, ProviderInstance $instance, string $what, array $tenancy): bool
     {
-        $fresh = ProviderInstance::query()->findOrFail($instance->id);
-        $options = array_merge((array) $fresh->options, [AaPanelTenancyGate::OPTION => $tenancy]);
-        $bus->dispatch(new ProvisioningCommand("aapanel-tenancy:{$fresh->key}:{$what}:".now()->format('U.u'), [
-            'op' => 'instance.upsert', 'key' => $fresh->key, 'provider' => $fresh->provider, 'base_url' => $fresh->base_url, 'options' => $options,
-        ]), CommandContext::system('cli:aapanel:tenancy'));
+        $refused = null;
+        $written = DB::transaction(function () use ($bus, $instance, $what, $tenancy, &$refused): bool {
+            $fresh = ProviderInstance::query()->whereKey($instance->id)->lockForUpdate()->firstOrFail();
+            if ((bool) data_get($fresh->options, AaPanelTenancyGate::OPTION.'.closed', false) === (bool) $tenancy['closed']) {
+                return false;
+            }
+            $options = array_merge((array) $fresh->options, [AaPanelTenancyGate::OPTION => $tenancy]);
+            try {
+                $bus->dispatch(new ProvisioningCommand("aapanel-tenancy:{$fresh->key}:{$what}:".now()->format('U.u'), [
+                    'op' => 'instance.upsert', 'key' => $fresh->key, 'provider' => $fresh->provider, 'base_url' => $fresh->base_url, 'options' => $options,
+                ]), CommandContext::system('cli:aapanel:tenancy'));
+            } catch (DomainError $e) {
+                $refused = $e; // thrown below: inside, it would roll back the bus's own record of the refusal
+
+                return false;
+            }
+
+            return true;
+        });
+        if ($refused !== null) {
+            throw $refused;
+        }
+
+        return $written;
     }
 }

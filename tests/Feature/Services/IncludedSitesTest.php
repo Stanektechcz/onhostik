@@ -71,7 +71,7 @@ function includedStagingSite(Service $production): Service
 it('ends the test copy of the site it promised to end when the web hosting is cancelled', function () {
     $blob = gzencode(str_repeat('site files', 50));
     includedSitesPanel($blob);
-    AaPanelWebProvider::$shellFactory = fn () => new ScriptedShell(['/^stat -c %s/' => [0, (string) strlen($blob)]]);
+    AaPanelWebProvider::$shellFactory = fn () => new ScriptedShell(['/exec 3</' => [0, 'SIZE '.strlen($blob)]]);
     [$user, $org] = $this->customerWithOrganization();
     $production = featureWebService($org, 'aapanel');
     $staging = includedStagingSite($production);
@@ -95,7 +95,7 @@ it('ends the test copy of the site it promised to end when the web hosting is ca
 it('does not keep serving from the test copy while the web hosting is suspended', function () {
     $blob = gzencode(str_repeat('site files', 50));
     includedSitesPanel($blob);
-    AaPanelWebProvider::$shellFactory = fn () => new ScriptedShell(['/^stat -c %s/' => [0, (string) strlen($blob)]]);
+    AaPanelWebProvider::$shellFactory = fn () => new ScriptedShell(['/exec 3</' => [0, 'SIZE '.strlen($blob)]]);
     [, $org] = $this->customerWithOrganization();
     $production = featureWebService($org, 'aapanel');
     $staging = includedStagingSite($production);
@@ -114,7 +114,7 @@ it('does not keep serving from the test copy while the web hosting is suspended'
 it('leaves a test copy the customer suspended themselves suspended when the service comes back', function () {
     $blob = gzencode(str_repeat('site files', 50));
     includedSitesPanel($blob);
-    AaPanelWebProvider::$shellFactory = fn () => new ScriptedShell(['/^stat -c %s/' => [0, (string) strlen($blob)]]);
+    AaPanelWebProvider::$shellFactory = fn () => new ScriptedShell(['/exec 3</' => [0, 'SIZE '.strlen($blob)]]);
     [, $org] = $this->customerWithOrganization();
     $production = featureWebService($org, 'aapanel');
     $staging = includedStagingSite($production);
@@ -130,7 +130,7 @@ it('leaves a test copy the customer suspended themselves suspended when the serv
 it('leaves a service of another customer alone, whatever it says about its parent', function () {
     $blob = gzencode(str_repeat('site files', 50));
     includedSitesPanel($blob);
-    AaPanelWebProvider::$shellFactory = fn () => new ScriptedShell(['/^stat -c %s/' => [0, (string) strlen($blob)]]);
+    AaPanelWebProvider::$shellFactory = fn () => new ScriptedShell(['/exec 3</' => [0, 'SIZE '.strlen($blob)]]);
     [$user, $org] = $this->customerWithOrganization();
     $production = featureWebService($org, 'aapanel');
     [, $other] = $this->customerWithOrganization();
@@ -149,7 +149,7 @@ it('leaves a service of another customer alone, whatever it says about its paren
 it('does not end a service somebody pays for separately', function () {
     $blob = gzencode(str_repeat('site files', 50));
     includedSitesPanel($blob);
-    AaPanelWebProvider::$shellFactory = fn () => new ScriptedShell(['/^stat -c %s/' => [0, (string) strlen($blob)]]);
+    AaPanelWebProvider::$shellFactory = fn () => new ScriptedShell(['/exec 3</' => [0, 'SIZE '.strlen($blob)]]);
     [$user, $org] = $this->customerWithOrganization();
     $production = featureWebService($org, 'aapanel');
     $paid = Service::query()->create([
@@ -181,7 +181,7 @@ it('does not end a service somebody pays for separately', function () {
 it('brings back the sites it carried when the customer undoes the cancellation', function () {
     $blob = gzencode(str_repeat('site files', 50));
     includedSitesPanel($blob);
-    AaPanelWebProvider::$shellFactory = fn () => new ScriptedShell(['/^stat -c %s/' => [0, (string) strlen($blob)]]);
+    AaPanelWebProvider::$shellFactory = fn () => new ScriptedShell(['/exec 3</' => [0, 'SIZE '.strlen($blob)]]);
     [$user, $org] = $this->customerWithOrganization();
     $production = featureWebService($org, 'aapanel');
     $staging = includedStagingSite($production);
@@ -205,7 +205,7 @@ it('brings back the sites it carried when the customer undoes the cancellation',
 it('leaves a site the customer had already cancelled on its own way out', function () {
     $blob = gzencode(str_repeat('site files', 50));
     includedSitesPanel($blob);
-    AaPanelWebProvider::$shellFactory = fn () => new ScriptedShell(['/^stat -c %s/' => [0, (string) strlen($blob)]]);
+    AaPanelWebProvider::$shellFactory = fn () => new ScriptedShell(['/exec 3</' => [0, 'SIZE '.strlen($blob)]]);
     [$user, $org] = $this->customerWithOrganization();
     $production = featureWebService($org, 'aapanel');
     $staging = includedStagingSite($production);

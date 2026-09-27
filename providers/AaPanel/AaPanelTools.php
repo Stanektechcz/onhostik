@@ -433,7 +433,7 @@ trait AaPanelTools
         if ($file === '') {
             throw new ProviderException('aapanel', ProviderErrorCode::PROVIDER_BUG, 'The panel did not produce a database dump');
         }
-        $this->transportAt($site, dirname($file))->download(basename($file), $localFile);
+        $this->panelFolderTransport($site, dirname($file))->download(basename($file), $localFile);
         try {
             $this->post('/database?action=DelBackup', ['id' => (int) $latest['id']], 'db.backup.delete', false);
         } catch (ProviderException) {
@@ -447,7 +447,7 @@ trait AaPanelTools
     {
         $db = $this->siteDatabase($site, $remoteId);
         $name = 'onhost-import-'.bin2hex(random_bytes(4)).(str_ends_with(strtolower($localFile), '.gz') ? '.sql.gz' : '.sql');
-        $transport = $this->transportAt($site, '/www/backup/database');
+        $transport = $this->panelFolderTransport($site, '/www/backup/database'); // the panel's folder, written as root on purpose: InputSql reads it
         $this->shell($site)->run('mkdir -p /www/backup/database', ['timeout' => 20]);
         $transport->upload($name, $localFile);
         try {
@@ -472,7 +472,7 @@ trait AaPanelTools
     public function downloadBackup(ResourceRef $site, string $backupRemoteId, string $localFile): void
     {
         $file = $this->backupFile($site, $backupRemoteId);
-        $this->transportAt($site, dirname($file))->download(basename($file), $localFile);
+        $this->panelFolderTransport($site, dirname($file))->download(basename($file), $localFile);
     }
 
     /** Restore a site archive over the site root (rsync when present), optionally a database dump made by the panel. */
@@ -489,7 +489,7 @@ trait AaPanelTools
         // a closed shared node: the root rsync into the live site would follow a link the tenant planted there after the
         // backup — the unpacked copy goes in as the site user instead (overlay: what the backup lacks stays; review round 1)
         $copy = AaPanelTenancyGate::closed($this->instance)
-            ? AaPanelSiteUnpack::copyAsSiteUser('"$src"', $root, 'www', true)
+            ? AaPanelSiteUnpack::copyAsSiteUser('"$src"', $root, $this->readyAgent($site), true)
             : '{ if command -v rsync >/dev/null; then rsync -a --delete --exclude ".user.ini" "$src/" '.Q::arg($root).'/; else cp -a "$src/." '.Q::arg($root).'/; fi; } && chown -R www:www '.Q::arg($root);
         // `src` is set in a group of its own: chained with `;` as before, a failed unpack left it empty and the copy ran
         // from "/" into the site (and aaPanel's backups are .tar.gz, which `unzip` never unpacked — TASK-0034 review)
@@ -718,10 +718,33 @@ trait AaPanelTools
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
+    /**
+     * A site's files. On a node the operator closed as shared the transport asks the gate at every call and writes into
+     * the site as the site's own shell user (TASK-0034); an unreadable row counts as closed there (null).
+     */
     private function transportAt(ResourceRef $site, string $root): FileTransport
     {
         return new AaPanelTransport(fn (string $path, array $params, string $action, bool $critical, array $files) => $this->post($path, $params, $action, $critical, $files), $this->shell($site), rtrim($root, '/'), 'www',
-            fn () => AaPanelTenancyGate::closed($this->instance)); // a closed shared node unpacks as the site user (TASK-0034)
+            fn (): ?bool => AaPanelTenancyGate::isClosed($this->instance), fn (): string => $this->readyAgent($site));
+    }
+
+    /** A folder of the panel's own (backups, database dumps): root-owned, no tenant can plant anything there. */
+    private function panelFolderTransport(ResourceRef $site, string $root): FileTransport
+    {
+        return new AaPanelTransport(fn (string $path, array $params, string $action, bool $critical, array $files) => $this->post($path, $params, $action, $critical, $files), $this->shell($site), rtrim($root, '/'), 'www');
+    }
+
+    /**
+     * The site's own shell user, made if it is not there yet (ensureAgent is idempotent and synchronous on aaPanel). What
+     * writes into a site on a closed shared node: `www` itself may not run a binary on a hardened node (TASK-0034 round 2).
+     */
+    private function readyAgent(ResourceRef $site): string
+    {
+        if (! $this->shellAvailable($site)) {
+            $this->ensureAgent($site);
+        }
+
+        return $this->agentUser($site);
     }
 
     /** Node-level transport (backup folders, vhost configs) — never handed to customers. */

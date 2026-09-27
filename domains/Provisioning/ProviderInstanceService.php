@@ -119,10 +119,16 @@ final class ProviderInstanceService
             $this->verifyRotation($existing, $credentials, $baseUrl, $context);
         }
 
-        $options = array_key_exists('options', $input) ? self::keepOperatorOptions((array) $input['options'], $existing) : ($existing?->options ?? []);
-        $optionsChanged = $existing === null ? [] : self::changedKeys((array) ($existing->options ?? []), $options);
-
-        return DB::transaction(function () use ($input, $key, $provider, $baseUrl, $existing, $credentials, $secretRef, $hostChanged, $context, $options, $optionsChanged) {
+        return DB::transaction(function () use ($input, $key, $provider, $baseUrl, $credentials, $secretRef, $hostChanged, $context) {
+            // the row as it is now, locked until this write commits: `options` is merged from it, not from the snapshot read
+            // above before the transaction — otherwise a staff edit racing `operator:aapanel:tenancy --apply` wrote back the
+            // options it had read and silently dropped the closure that committed in between (TASK-0034 review round 2)
+            $existing = ProviderInstance::query()->where('key', $key)->lockForUpdate()->first();
+            if ($existing !== null && $existing->provider !== $provider) {
+                throw new DomainError('instance_provider_immutable', 'The provider of an existing instance cannot change; create a new instance.', 409, ['field' => 'provider']);
+            }
+            $options = array_key_exists('options', $input) ? self::keepOperatorOptions((array) $input['options'], $existing) : ($existing?->options ?? []);
+            $optionsChanged = $existing === null ? [] : self::changedKeys((array) ($existing->options ?? []), $options);
             $ref = $secretRef ?? $existing?->secretRef();
             if ($credentials !== []) {
                 if ($ref === null || $ref->scheme !== 'db') {

@@ -28,7 +28,10 @@ final class AaPanelTenancyGate
     public const OPTION = 'tenancy';
 
     /** Customer-facing words; the panel's name is never in them. */
-    public const REASON = 'This server is shared with other customers, so files and scheduled shell commands can no longer be changed from the control panel. Upload files over SFTP/FTP; jobs that already run keep running.';
+    public const REASON = 'This server is shared with other customers, so files, git deployments, staging copies and scheduled shell commands can no longer be changed from the control panel. Upload files over SFTP/FTP; jobs that already run keep running.';
+
+    /** When the row cannot be read: nothing was done, and trying again later is right (review round 1). */
+    public const UNKNOWN = 'Whether this server is shared could not be checked just now; nothing was changed. Try again shortly.';
 
     /** A row that cannot be read counts as closed: the features stay off rather than trusting an old copy (below). */
     public static function closed(ProviderInstance $instance): bool
@@ -38,9 +41,24 @@ final class AaPanelTenancyGate
 
     public static function assertOpen(ProviderInstance $instance): void
     {
-        $closed = self::state($instance);
+        self::refuseUnlessOpen(self::state($instance));
+    }
+
+    /**
+     * The flag as it is now, or null when the row cannot be read — for AaPanelTransport, which asks it at every call of
+     * the root file API itself (review round 2): an operation queued before `--apply` reaches the transport without
+     * passing the feature check again.
+     */
+    public static function isClosed(ProviderInstance $instance): ?bool
+    {
+        return self::state($instance);
+    }
+
+    /** Throws unless `$closed` is false: VALIDATION with the customer's words when closed, TRANSIENT when unknown. */
+    public static function refuseUnlessOpen(?bool $closed): void
+    {
         if ($closed === null) {
-            throw new ProviderException('aapanel', ProviderErrorCode::TRANSIENT, 'Whether this server is shared could not be checked just now; nothing was changed. Try again shortly.');
+            throw new ProviderException('aapanel', ProviderErrorCode::TRANSIENT, self::UNKNOWN);
         }
         if ($closed) {
             throw new ProviderException('aapanel', ProviderErrorCode::VALIDATION, self::REASON);

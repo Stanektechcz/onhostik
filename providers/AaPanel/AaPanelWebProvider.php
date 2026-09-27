@@ -412,8 +412,10 @@ final class AaPanelWebProvider implements SelfProbing, WebHostingProvider, WebTo
         // a node several customers share, closed by the operator (TASK-0034, IF-7): no in-panel file manager there —
         // browsing and reading included, the panel reads as root and follows a planted link just as it writes through
         // one — no import (it unpacks as root into the site), no PHP settings (a root read and write of `.user.ini`, which
-        // a link can replace) and no one-click apps (the panel unpacks them as root into the site; review round 1).
-        // SFTP/FTP, backups and cron listings stay. The terminal and Node projects: owner decision, see TASK-0034.
+        // a link can replace) and no one-click apps (the panel unpacks them as root into the site; review round 1). No git
+        // deploy (the deploy key is written and chowned as root through the panel, old releases pruned as root) and no
+        // staging copy (root rsync into the site, the copy's upload as root) — review round 2. SFTP/FTP, backups and
+        // restores, and cron listings stay. The terminal and Node projects: owner decision, see TASK-0034.
         $shared = AaPanelTenancyGate::closed($this->instance);
 
         return [
@@ -423,7 +425,7 @@ final class AaPanelWebProvider implements SelfProbing, WebHostingProvider, WebTo
             'errpages' => false, 'directives' => true, 'protected' => true, 'db_users' => false, 'stats' => false, 'ssl_upload' => true, 'files' => ! $shared, 'apps' => ! $shared, 'db_admin' => (bool) $this->instance->option('phpmyadmin_url'),
             // tools (WebToolsProvider): the panel API plus the node shell — terminal/WP-CLI instead of SSH keys, restore, exports, security rules, HTTP/3, Node projects
             'terminal' => true, 'php_settings' => ! $shared, 'security' => true, 'rate_limit' => true, 'http3' => true, 'cron_edit' => true, 'cron_logs' => true, 'db_export' => true, 'db_access' => true,
-            'backup_download' => true, 'backup_delete' => true, 'backup_on_demand' => true, 'files_advanced' => ! $shared, 'quotas' => true, 'node_projects' => true, 'staging' => true, 'deploy' => true, 'wordpress' => true, 'hsts' => true, 'panel_login' => false, 'proxy' => true, 'default_docs' => true,
+            'backup_download' => true, 'backup_delete' => true, 'backup_on_demand' => true, 'files_advanced' => ! $shared, 'quotas' => true, 'node_projects' => true, 'staging' => ! $shared, 'deploy' => ! $shared, 'wordpress' => true, 'hsts' => true, 'panel_login' => false, 'proxy' => true, 'default_docs' => true,
         ];
     }
 
@@ -437,7 +439,8 @@ final class AaPanelWebProvider implements SelfProbing, WebHostingProvider, WebTo
 
         return [
             'backup_api' => $this->probe(fn () => $this->listBackups($site)),
-            'files_api' => $this->probe(fn () => $this->transport($site)->list('')),
+            // a closed shared node does not list a site through the root file API at all (TASK-0034): nothing to probe there
+            'files_api' => AaPanelTenancyGate::closed($this->instance) ? 'skipped: the file API is closed on this shared node' : $this->probe(fn () => $this->transport($site)->list('')),
         ];
     }
 

@@ -6,10 +6,14 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
+use Onhost\Domain\Provisioning\Models\ProviderBinding;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\ProviderInstanceService;
 use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Services\Models\Service;
+use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Services\Models\StagingLink;
+use Onhost\Domain\Services\Web\StagingService;
 use Onhost\Platform\Audit\AuditEvent;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\ProviderErrorCode;
@@ -42,6 +46,9 @@ function tenancyPanelFake(array &$calls, array $answers = []): void
         $url = $request->url();
         $path = (string) parse_url($url, PHP_URL_PATH).'?'.(string) parse_url($url, PHP_URL_QUERY);
         $body = $request->data();
+        if ($body === [] && preg_match_all('/name="([^"]+)"(?:; filename="[^"]*")?\r\n(?:[^\r\n]+\r\n)*\r\n(.*?)\r\n--/s', $request->body(), $parts, PREG_SET_ORDER)) {
+            $body = collect($parts)->mapWithKeys(fn ($p) => [$p[1] => $p[2]])->all(); // an upload is multipart
+        }
         $calls[] = [$path, $body];
         foreach ($answers as $needle => $answer) {
             if (str_contains($path, $needle)) {
@@ -63,6 +70,16 @@ function tenancySetClosed(bool $closed): void
 {
     $instance = ProviderInstance::query()->where('key', 'aapanel-managed01')->firstOrFail();
     $instance->forceFill(['options' => array_merge((array) $instance->options, ['tenancy' => ['closed' => $closed]])])->save();
+}
+
+/** One field of a recorded panel call; an upload is multipart, whose body is a list of parts. */
+function tenancyPart(array $body, string $name): mixed
+{
+    if (array_key_exists($name, $body)) {
+        return $body[$name];
+    }
+
+    return collect($body)->first(fn ($part) => is_array($part) && ($part['name'] ?? null) === $name)['contents'] ?? null;
 }
 
 /** @param list<array{0:string,1:mixed}> $calls */
@@ -155,7 +172,7 @@ it('stages the chunks of a download and the files of a restore where only root c
         'GetFileBody' => ['status' => true, 'data' => base64_encode('hello')],
         'data?action=getData&table=backup' => ['data' => [['id' => 77, 'addtime' => '2026-09-10 02:30:00', 'size' => 1234, 'filename' => '/www/backup/site/shop.cz_20260910.zip']]],
     ]);
-    $shell = new ScriptedShell(['/^stat -c/' => "5\n", '/unzip -Zs/' => "N 2 2\nT - 1\nT d 1\n"]);
+    $shell = new ScriptedShell(['/exec 3</' => "SIZE 5\n", '/unzip -Zs/' => "N 2 2\nT - 1\nT d 1\n"]);
     AaPanelWebProvider::$shellFactory = fn () => $shell;
     $adapter = aaToolsAdapter();
     $local = tempnam(sys_get_temp_dir(), 'tenancy');
@@ -362,7 +379,7 @@ it('unpacks as the site user on a closed shared node: root writes only into its 
 
     expect(tenancyCalled($calls, 'UnZip'))->toBeFalse(); // the panel's root unpack writes through links in the site
     $unpack = collect($shell->commands())->first(fn ($c) => str_contains($c, '-xzf'));
-    expect($unpack)->toContain('/www/.onhost-stage/unpack-')->toContain("| su -s /bin/bash 'www' -c")->toContain('--exclude=./.user.ini');
+    expect($unpack)->toContain('/www/.onhost-stage/unpack-')->toContain("| su -s /bin/bash 'ohenancyag' -c")->toContain('--exclude=./.user.ini');
     expect($shell->ran("rm -f '/www/.onhost-stage/stage-"))->toBeTrue();
 });
 
@@ -389,7 +406,7 @@ it('restores a backup as the site user on a closed shared node, and unpacks a ta
 
     $restore = collect($shell->commands())->first(fn ($c) => str_contains($c, '/www/.onhost-stage/restore-') && str_contains($c, '-xzf'));
     expect($restore)->not->toBeNull()->not->toContain('unzip -oq')->not->toContain('rsync')->not->toContain('chown -R')
-        ->toContain("| su -s /bin/bash 'www' -c");
+        ->toContain("| su -s /bin/bash 'ohenancyag' -c");
 });
 
 it('never copies anything into the site after an unpack that failed (a lone `src=` let the root rsync copy "/" there)', function () {
@@ -477,4 +494,213 @@ it('refuses an unknown instance key instead of doing nothing', function () {
     $this->artisan('operator:aapanel:tenancy --instance=does-not-exist')->expectsOutputToContain('does-not-exist')->assertExitCode(1);
     $this->artisan('operator:aapanel:tenancy --apply --instance=does-not-exist')->assertExitCode(1);
     $this->artisan('operator:aapanel:tenancy --reopen --instance=does-not-exist')->assertExitCode(1);
+});
+
+// ── review round 2 (TASK-0034): root reads by name, the transport's own gate, deploy/staging, write races ─────────
+
+dataset('files the tenant swapped for something else before root read it', [
+    'a link to a file outside the site (/root/.my.cnf, a neighbour\'s wp-config.php)' => ["S outside\n", ProviderErrorCode::VALIDATION],
+    'not a regular file' => ["S kind\n", ProviderErrorCode::VALIDATION],
+    'a second name of another file (hardlink)' => ["S links\n", ProviderErrorCode::VALIDATION],
+    'gone' => ["S missing\n", ProviderErrorCode::NOT_FOUND],
+]);
+
+it('reads a download from a copy of the one file it opened, and refuses a link out of the site before root reads it', function (string $report, ProviderErrorCode $code) {
+    $calls = [];
+    tenancyPanelFake($calls, ['GetFileBody' => ['status' => true, 'data' => base64_encode('secret')]]);
+    $shell = new ScriptedShell(['/exec 3</' => $report]);
+    AaPanelWebProvider::$shellFactory = fn () => $shell;
+    $local = tempnam(sys_get_temp_dir(), 'tenancy');
+
+    try {
+        expect(fn () => aaToolsAdapter()->transport(tenancySite())->download('onhost-final-abc123.tar.gz', $local))
+            ->toThrow(fn (ProviderException $e) => expect($e->errorCode)->toBe($code));
+        expect((string) file_get_contents($local))->toBe('');
+    } finally {
+        @unlink($local);
+    }
+    expect(tenancyCalled($calls, 'GetFileBody'))->toBeFalse()->and($shell->ran('base64 -w0'))->toBeFalse(); // nothing of it was read
+    expect($shell->ran("rm -f '/www/.onhost-stage/get-"))->toBeTrue();
+})->with('files the tenant swapped for something else before root read it');
+
+it('proves what it opened before a download: in the site, a regular file with one name, copied where no tenant can reach', function () {
+    $calls = [];
+    tenancyPanelFake($calls, ['GetFileBody' => ['status' => true, 'data' => base64_encode('hello')]]);
+    $shell = new ScriptedShell(['/exec 3</' => "SIZE 5\n"]);
+    AaPanelWebProvider::$shellFactory = fn () => $shell;
+    $local = tempnam(sys_get_temp_dir(), 'tenancy');
+
+    try {
+        aaToolsAdapter()->transport(tenancySite())->download('.onhost-sync.tar.gz', $local);
+        expect(file_get_contents($local))->toBe('hello');
+    } finally {
+        @unlink($local);
+    }
+    $copy = collect($shell->commands())->first(fn ($c) => str_contains($c, 'exec 3<'));
+    expect($copy)->toContain("realpath -e -- '/www/wwwroot/shop.cz'")->toContain('/proc/self/fd/3')->toContain('stat -L -c %h')->toContain('in www|oh*ag) ;;')
+        ->toContain('/www/.onhost-stage/get-')->not->toContain('tail -c');
+    $chunk = collect($shell->commands())->first(fn ($c) => str_contains($c, 'base64 -w0'));
+    expect($chunk)->toContain('/www/.onhost-stage/get-')->not->toContain('/www/wwwroot/shop.cz'); // the chunks come from the copy, never the name
+    expect($shell->ran("rm -f '/www/.onhost-stage/get-"))->toBeTrue();
+});
+
+it('refuses the root file API at the transport itself on a closed node, also for work queued before --apply', function () {
+    $calls = [];
+    tenancyPanelFake($calls);
+    $shell = new ScriptedShell;
+    AaPanelWebProvider::$shellFactory = fn () => $shell;
+    $transport = aaToolsAdapter()->transport(tenancySite()); // built while the node was open, like a queued operation
+    tenancySetClosed(true);
+
+    foreach ([
+        fn () => $transport->list(''),
+        fn () => $transport->read('wp-config.php'),
+        fn () => $transport->write('.onhost/deploy_key', 'key'),
+        fn () => $transport->mkdir('.onhost/releases'),
+        fn () => $transport->rename('a', 'b'),
+        fn () => $transport->copy('wp-content', 'backup'),
+        fn () => $transport->chmod('.onhost/deploy_key', 0600),
+        fn () => $transport->archive(['.'], 'onhost-final-abc123.tar.gz'),
+    ] as $closed) {
+        expect($closed)->toThrow(ProviderException::class, 'SFTP');
+    }
+    foreach (['GetDir', 'GetFileBody', 'SaveFileBody', 'CreateFile', 'CreateDir', 'MvFile', 'SetFileAccess', 'files?action=Zip'] as $action) {
+        expect(tenancyCalled($calls, $action))->toBeFalse("{$action} reached the panel");
+    }
+    expect($shell->ran('cp -a'))->toBeFalse();
+
+    Schema::rename('provider_instances', 'provider_instances_away');
+    try {
+        expect(fn () => $transport->write('index.php', 'x'))->toThrow(fn (ProviderException $e) => expect($e->errorCode)->toBe(ProviderErrorCode::TRANSIENT));
+    } finally {
+        Schema::rename('provider_instances_away', 'provider_instances');
+    }
+});
+
+it('uploads and deletes as the site\'s own shell user on a closed node: root writes only into its private folder', function () {
+    $calls = [];
+    tenancyPanelFake($calls);
+    $shell = new ScriptedShell;
+    AaPanelWebProvider::$shellFactory = fn () => $shell;
+    $transport = aaToolsAdapter()->transport(tenancySite());
+    tenancySetClosed(true);
+    $local = tempnam(sys_get_temp_dir(), 'tenancy');
+    file_put_contents($local, 'backup bytes');
+
+    try {
+        $transport->upload('onhost-restore-ab12cd.tar.gz', $local); // what a restore, an archive restore and a migration do
+    } finally {
+        @unlink($local);
+    }
+    $upload = collect($calls)->first(fn ($c) => str_contains($c[0], 'action=upload'));
+    expect(tenancyPart($upload[1], 'f_path'))->toBe('/www/.onhost-stage')->and(tenancyPart($upload[1], 'f_name'))->toStartWith('up-');
+    $move = collect($shell->commands())->first(fn ($c) => str_contains($c, 'cat >'));
+    expect($move)->toContain("su -s /bin/bash 'ohenancyag' -c")->toContain('/www/wwwroot/shop.cz/onhost-restore-ab12cd.tar.gz')->toContain('/www/.onhost-stage/up-');
+    expect($shell->ran("rm -f '/www/.onhost-stage/up-"))->toBeTrue();
+
+    $transport->delete('onhost-restore-ab12cd.tar.gz');
+    expect(tenancyCalled($calls, 'DeleteFile'))->toBeFalse();
+    expect(collect($shell->commands())->first(fn ($c) => str_contains($c, 'rm -f --')))->toContain("su -s /bin/bash 'ohenancyag' -c")->toContain('/www/wwwroot/shop.cz/onhost-restore-ab12cd.tar.gz');
+});
+
+it('keeps uploads through the panel on a node nobody closed', function () {
+    $calls = [];
+    tenancyPanelFake($calls);
+    AaPanelWebProvider::$shellFactory = fn () => new ScriptedShell;
+    $local = tempnam(sys_get_temp_dir(), 'tenancy');
+    file_put_contents($local, 'x');
+
+    try {
+        aaToolsAdapter()->transport(tenancySite())->upload('index.php', $local);
+    } finally {
+        @unlink($local);
+    }
+    expect(tenancyPart(collect($calls)->first(fn ($c) => str_contains($c[0], 'action=upload'))[1], 'f_path'))->toBe('/www/wwwroot/shop.cz');
+});
+
+it('closes git deploy and staging on a closed node: both write as root inside the site', function () {
+    $calls = [];
+    tenancyPanelFake($calls);
+    AaPanelWebProvider::$shellFactory = fn () => new ScriptedShell;
+    $adapter = aaToolsAdapter();
+    tenancySetClosed(true);
+
+    expect($adapter->siteFeatures())->toMatchArray(['deploy' => false, 'staging' => false, 'backups' => true, 'restore' => true]);
+    expect($adapter->probes(tenancySite())['files_api'])->toStartWith('skipped');
+    expect(tenancyCalled($calls, 'GetDir'))->toBeFalse();
+});
+
+it('hands a staging copy on the same node to the site user with chown -h from inside each folder, never through a planted link', function () {
+    Http::fake(fn () => Http::response(['status' => true, 'msg' => 'ok', 'data' => [], 'page' => '']));
+    $shell = new ScriptedShell(['/^id -u /' => "1042\n", '/^test -e /' => [1, '']]);
+    AaPanelWebProvider::$shellFactory = fn () => $shell;
+    [, $org] = $this->customerWithOrganization();
+    $production = featureWebService($org, 'aapanel');
+    $staging = $production->replicate();
+    $staging->forceFill(['hostname' => 'shop-staging.web.onhost.cz', 'name_prefix' => null, 'desired_spec' => array_merge((array) $production->desired_spec, ['domain' => 'shop-staging.web.onhost.cz', 'staging_of' => $production->id])])->save();
+    ProviderBinding::query()->create(['service_id' => $staging->id, 'provider_instance_id' => $production->provider_instance_id, 'remote_type' => 'site', 'remote_id' => '42', 'remote_node' => 'aapanel-managed01',
+        'meta' => ['name' => 'shop-staging.web.onhost.cz', 'path' => '/www/wwwroot/shop-staging.web.onhost.cz'], 'ownership' => ['managed_by' => 'onhost'], 'idempotency_key' => 'tenancy-staging:'.$staging->id, 'adapter_version' => '1.0.0']);
+    $link = StagingLink::query()->create(['service_id' => $production->id, 'staging_service_id' => $staging->id, 'organization_id' => $org->id, 'staging_domain' => 'shop-staging.web.onhost.cz', 'state' => 'ready', 'databases' => [], 'meta' => []]);
+
+    app(StagingService::class)->sync($production, $staging, $link, false, CommandContext::system('test'));
+
+    $sync = collect($shell->commands())->first(fn ($c) => str_contains($c, 'rsync -a --delete'));
+    // rsync copies production's links as links; a chown that dereferences them handed /etc/shadow to the site user
+    expect($sync)->toContain('-execdir chown -h ')->not->toContain('-exec chown ');
+});
+
+it('keeps a closure an operator committed while a staff edit was in flight (lost update)', function () {
+    aaToolsAdapter();
+    $instance = ProviderInstance::query()->where('key', 'aapanel-managed01')->firstOrFail();
+    $done = false;
+    // the staff edit reads the row, then `--apply` commits the closure before the edit writes (simulated at that read)
+    DB::listen(function ($query) use (&$done, $instance) {
+        if (! $done && str_starts_with($query->sql, 'select * from "provider_instances" where "key" = ?')) {
+            $done = true;
+            DB::table('provider_instances')->where('id', $instance->id)->update(['options' => json_encode(array_merge((array) $instance->options, ['tenancy' => ['closed' => true]]))]);
+        }
+    });
+
+    app(ProviderInstanceService::class)->upsert(['key' => $instance->key, 'provider' => 'aapanel', 'base_url' => $instance->base_url, 'options' => ['verify_tls' => false]], CommandContext::system('staff edit'));
+
+    expect($done)->toBeTrue();
+    expect($instance->fresh()->option('tenancy.closed'))->toBeTrue()->and($instance->fresh()->option('verify_tls'))->toBeFalse();
+});
+
+it('writes a closure once when two --apply runs overlap', function () {
+    Http::fake(fn () => Http::response(['status' => true, 'msg' => 'ok']));
+    [, $orgA] = $this->customerWithOrganization();
+    [, $orgB] = $this->customerWithOrganization(['email' => 'second@example.test']);
+    $first = featureWebService($orgA, 'aapanel');
+    tenancyNeighbour($first, $orgB->id, 'other.cz');
+    $instance = ProviderInstance::query()->where('key', 'aapanel-managed01')->firstOrFail();
+    $done = false;
+    // this run saw the node open; the other run closes it before this one writes
+    DB::listen(function ($query) use (&$done, $instance) {
+        if (! $done && str_starts_with($query->sql, 'select "options" from "provider_instances"')) {
+            $done = true;
+            DB::table('provider_instances')->where('id', $instance->id)->update(['options' => json_encode(array_merge((array) $instance->options, ['tenancy' => ['closed' => true, 'by' => 'the other run']]))]);
+        }
+    });
+    $writes = DB::table('audit_events')->where('action', 'provisioning.instance.upsert')->count();
+
+    $this->artisan('operator:aapanel:tenancy --apply')->expectsOutputToContain('already closed')->assertExitCode(0);
+
+    expect($done)->toBeTrue();
+    expect(DB::table('audit_events')->where('action', 'provisioning.instance.upsert')->count())->toBe($writes);
+    expect($instance->fresh()->option('tenancy.by'))->toBe('the other run');
+});
+
+it('closes nothing when the node has dropped to one organization between the dry run and --apply', function () {
+    Http::fake(fn () => Http::response(['status' => true, 'msg' => 'ok']));
+    [, $orgA] = $this->customerWithOrganization();
+    [, $orgB] = $this->customerWithOrganization(['email' => 'second@example.test']);
+    $first = featureWebService($orgA, 'aapanel');
+    $second = tenancyNeighbour($first, $orgB->id, 'other.cz');
+    $this->artisan('operator:aapanel:tenancy')->expectsOutputToContain('other.cz')->assertExitCode(0);
+
+    $second->forceFill(['state' => ServiceStateMachine::TERMINATED, 'terminated_at' => now()])->save();
+
+    $this->artisan('operator:aapanel:tenancy --apply')->expectsOutputToContain('Nothing to close')->assertExitCode(0);
+    expect(ProviderInstance::query()->where('key', 'aapanel-managed01')->first()->option('tenancy.closed'))->toBeNull();
 });

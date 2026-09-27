@@ -166,6 +166,9 @@ it('runs the toolkit on an aaPanel-backed site: terminal, PHP settings, monitori
         ->and($deployment->release)->not->toBeEmpty()->and($deployment->log)->toContain('composer install --no-dev');
     expect($runPath)->toContain('/.onhost/releases/'.$deployment->release); // the site now serves the release folder
     expect($shell->ran('git clone --quiet'))->toBeTrue()->and(collect($shell->calls)->first(fn ($c) => str_contains($c['command'], 'git clone'))['command'])->toContain('git@github.com:onhost/site.git')->toContain('deploy_key');
+    // old releases are pruned by the site's own user, who made them: as root, a `releases` link planted by the tenant led
+    // the `rm -rf` into a neighbour's site (TASK-0034 review round 2)
+    expect(collect($shell->calls)->first(fn ($c) => str_contains($c['command'], 'xargs -r rm -rf'))['options']['user'] ?? null)->toBe(Naming::prefix($service->id).'ag');
     expect(DeploySource::query()->findOrFail($sourceId)->last_deployment_id)->toBe($deployment->id);
     $listed = $this->getJson("{$base}/deploy")->assertOk()->json('data');
     expect($listed['deployments'][0]['state'])->toBe('succeeded')->and($listed['last_deployment']['id'])->toBe($deployment->id);

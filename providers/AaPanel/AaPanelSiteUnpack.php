@@ -17,6 +17,10 @@ use Onhost\Providers\Shell\Q;
  * disk there is theirs), and streamed from there into the site by a `tar` that runs as the site user: whatever link it
  * meets, it writes with the rights the tenant already has, never more.
  *
+ * "The site user" is the site's own shell user (`<prefix>ag`, AaPanelTools::ensureAgent: a member of `www` with ACLs on
+ * its site root), not `www` itself: the node's hardening stops `www` from running any binary (exit 126), so a `tar` as
+ * `www` would have failed every restore on a closed node (found in review round 2; round 1 used `www`).
+ *
  * On a node nobody closed this is not used: the panel's own unpack stays (a change of what existing customers get —
  * owner of restored files, a mirror restore that deletes what the backup does not hold — needs the per-node switch).
  */
@@ -41,5 +45,15 @@ final class AaPanelSiteUnpack
         $receive = 'mkdir -p -- '.Q::arg($to).' && tar -C '.Q::arg($to).' -xf - --no-same-owner --no-overwrite-dir';
 
         return '{ set -o pipefail; tar -C '.$from.' -cf - '.($skipUserIni ? '--exclude=./.user.ini ' : '').'. | su -s /bin/bash '.Q::arg($user).' -c '.Q::arg($receive).'; }';
+    }
+
+    /**
+     * Writes the root-owned file `$from` (shell word) to `$to` (absolute path in the site) as `$user`, the folder made
+     * first (review round 2: an upload on a closed node). Whatever link stands at `$to`, it is followed with the user's
+     * rights only.
+     */
+    public static function writeFileAsSiteUser(string $from, string $to, string $user): string
+    {
+        return '{ su -s /bin/bash '.Q::arg($user).' -c '.Q::arg('mkdir -p -- '.Q::arg(dirname($to)).' && cat > '.Q::arg($to)).' < '.$from.'; }';
     }
 }
