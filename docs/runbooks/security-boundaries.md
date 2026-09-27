@@ -567,8 +567,8 @@ used.
 * Every grant path compares the person acted for — `onBehalfOfUserId ?? actorId` — in `GrantPolicy` and in
   `ServiceAccessService::share` (TASK-0041); a service account by its own rights, an unknown actor type 403, and
   `granted_by` records that person.
-* Open: staff are not compared (P0-08); a staff account holding `organization.close` globally can run `transfer_ownership`
-  in any organization it enters (P0-16 red team, MEDIUM, no task yet).
+* Staff are compared in staff mode with staff keys (P0-08, §34); only the owner offers ownership (`owner_transfer_only`,
+  `53ea45c`), and since S1-02 the heir must accept (§36).
 
 Tests: `tests/Feature/Organizations/GrantPolicyTest.php`, `tests/Feature/Organizations/GrantBackingTest.php`,
 `tests/Feature/Security/WaveOneLeftoversTest.php`.
@@ -742,6 +742,47 @@ Tests: `tests/Feature/Identity/StaffModeTest.php`, `tests/Feature/Identity/Staff
   view (same organization only); runs queued before the release carry no `desired.token_id` and finish on the person's view;
   the HTTP replay store and the staff-create time lock of §28 and §29.
 
+## 36. Slice 1: every grant through GrantPolicy, every removal restorable, ownership only by consent
+
+Permission program S1-01/S1-02 (TASK-0042; integration notes `docs/security/grant-policy.md`).
+
+* **No grant path outside `GrantPolicy`.** Invitation, acceptance, role change, removal, project role, service share and
+  revoke, ownership, restore, API token and staff account are decided there against I1–I12; `GrantMatrixTest` holds a proof
+  or a stated reason for every entry point × invariant and a completeness test fails on a gap — a new entry point is a new row
+  there. Acceptance is `AcceptInvitationCommand` through the bus; the inviter is asked again at the click.
+* **A grant never outlives its grantor (I5):** the end is clamped, never refused; the stored row and the answer carry the
+  effective end. `policy_bindings.granted_by` is the grantor (for a membership that came by a link, the link's sender).
+* **Grantor loss (I6):** pending grants are cancelled; active ones are recorded (`organization.grant.cascade.flag`) and revoked
+  only with `ONHOST_GRANT_CASCADE_ENABLED=true`, each after its own snapshot. Never flip it without the dry run
+  (`operator:grants:cascade --dry-run`) and a notice.
+* **A removal or role change is restorable (I10):** snapshot first (`access_snapshots`, 90 days); a restore is HIGH, once,
+  and the restorer must cover the target's role, everything the restore takes away (`member_above_own`, `share_above_own`)
+  and the role the undone change was made with (`taken_by_role`, `snapshot_above_own`). Every loss a restore makes publishes
+  its own command's event with `via: access_restore`, so the panel listeners take keys and sub-users off. A restore never gives
+  back API tokens, SSH keys, sub-users, Discord links or hooks.
+* **A removal ends the person's API tokens of that organization for good** (`RevokeMemberSideDoors` →
+  `ApiAccessRevocation::revokeForOrganization`); a demotion ends the tokens whose scopes the new role cannot carry.
+* **Ownership moves only when the heir accepts in person with a step-up (I4).** `OrganizationService::transferOwnership()` is
+  the completion step, called only by an accepted offer or a completed owner recovery.
+* **A lost customer owner is recovered only by `OwnerRecoveryCommand`** (CRITICAL, at least seven days of notice to every
+  member of every organization it reaches, cancellable by any member manager, tokens/exports/ownership/restores held).
+  `iam.mfa.reset` of a customer owner outside it is 409 `owner_recovery_required`; of a staff account or a member manager it
+  is CRITICAL. A staff member who is a party of a reached organization neither opens nor completes it.
+
+Tests: `tests/Feature/Organizations/GrantMatrixTest.php`, `tests/Feature/Organizations/AccessRestoreTest.php`,
+`tests/Feature/Organizations/GrantPolicyTest.php`.
+
+## 37. What Slice 1 has not closed yet
+
+* **Recorded, not enforced until the operator's switch:** TD-6, the active grants of a removed or demoted grantor
+  (`ONHOST_GRANT_CASCADE_ENABLED`).
+* **No fix yet** (MEDIUM; the breach register's "Still open after Slice 1"): the approving second person of an owner recovery
+  is not checked for being a party (`ApprovalService::decide`); a transfer-mode recovery needs no acceptance by the heir; the
+  recovered account cancels without limit; a developer with console reach is MFA-reset by one iam_admin; an MFA reset leaves
+  sessions, tokens and step-up grants; a restore revives shares a later security revocation took; a restore brings back a member
+  who left on their own; the cascade backlog and chaining.
+* **Not built:** S1-03 (family × level matrix; `svc_manage` still runs code), S1-05 (automation grants), S1-06 (provenance,
+  revocation epoch), S1-08 (session kill). S1-07 runs again once they exist.
 ## What to look at on staging after deploying this
 
 * migration `000720` scrubs `domains.registry_status`; afterwards `select count(*) from domains where registry_status like '%authid%' and registry_status not like '%[redacted]%'` is 0;
@@ -769,3 +810,6 @@ Tests: `tests/Feature/Identity/StaffModeTest.php`, `tests/Feature/Identity/Staff
   `AuthorizationSeeder`), and the read-only lists of `docs/runbooks/go-live-checklist.md` §7 (`onhost:game:panel-identity`,
   `onhost:aapanel:tenancy`, `operator:integrations:orphan-links`, `onhost:projects:role-audit`,
   `onhost:iam:risk-floor-report`, `onhost:partners:payout-anomalies`) are read before anything is applied.
+* Slice 1 (§36–§37): migrations `000900` and `000910` add three tables and one nullable column, nothing existing changes;
+  `NotificationTemplateSeeder` brings the four new templates; `operator:grants:cascade --dry-run` is read before anybody
+  considers `ONHOST_GRANT_CASCADE_ENABLED` (`docs/runbooks/go-live-checklist.md` §8).

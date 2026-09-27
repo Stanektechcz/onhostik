@@ -10,7 +10,7 @@
 | `docs/adr/0006-sla-engine-and-incidents.md` | SLA engine and incidents |
 | `docs/adr/0007-owner-decisions-2026-09-25.md` | owner decisions of 2026-09-25: backups, price list, metering, four eyes, identity, provider-call audit, withdrawal, capacity, credit orders, postponed products, historical sites, vault card states |
 | `docs/adr/0008-audit-high-fixes-2026-09-25.md` | the three HIGH findings of the onboarding audit, fixed (TASK-0029 … TASK-0031): an exhaustive service-action permission map, an explicit API-token scope map with `services:console` and step-up for staff writes outside the bus, VIES-checked reverse charge and partner self-billing VAT (VIES default off; accountant sign-off is a go-live item) |
-| `docs/adr/0009-permission-program.md` | the permission and delegation program (`docs/security/permission-program-2026-09-27.md`): principles, the model, decisions D1–D21, the judge's 45 rulings, owner defaults O1–O12 decided by delegation, Phase 0 (TASK-0033 … TASK-0041, all on one chain; Phase 0 not signed off: two switch-gated holes and `GET /v1/me` open) |
+| `docs/adr/0009-permission-program.md` | the permission and delegation program (`docs/security/permission-program-2026-09-27.md`): principles, the model, decisions D1–D21, the judge's 45 rulings, owner defaults O1–O12 decided by delegation, Phase 0 (TASK-0033 … TASK-0041, all on one chain; Phase 0 not signed off: two switch-gated holes and `GET /v1/me` open); Slice 1 addendum (TASK-0042: S1-01/S1-02, not signed off) |
 | `.ai/decisions/AI-0001-orchestration-layer.md` | how the AI team coordinates (state split, worktrees, agents, gate) |
 
 Product and architecture decisions go to `docs/adr/` (next number 0010). Decisions about the AI development process go

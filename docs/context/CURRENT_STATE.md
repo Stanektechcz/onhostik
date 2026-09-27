@@ -3,8 +3,9 @@
 **Updated:** 2026-09-27
 **Branch:** `development` (at `3b2a9fb`: the stack TASK-0017 … TASK-0031 merged with PR #24 on 2026-09-26) + Phase 0 of
 the permission program as one chain for PR #25 (`feat/permission-p0`, remote at `45017b7`; wave 2 and TASK-0039 on top of it
-locally on `fix/TASK-0039-staff-act-as-staff-and-a-token-only-for`, not pushed, not merged); TASK-0032 (deploy gate) is
-PR #26
+locally on `fix/TASK-0039-staff-act-as-staff-and-a-token-only-for`, not pushed, not merged); Slice 1 of the program
+(TASK-0042, S1-01/S1-02) stacked on that chain on `feat/TASK-0042-grants-follow-one-policy-and-access-can`, local, not pushed;
+TASK-0032 (deploy gate) is PR #26
 
 ## Now
 
@@ -732,7 +733,8 @@ and `c4c43e2` has had no independent review — the open list is `docs/runbooks/
   the re-check fix of the staff routes (row 133).
 - **Still open:** IF-4 and staff `archive.restore` (until `ONHOST_STAFF_REACH_ENFORCED=true`), PA-04 for tokens with no
   organization (until `ONHOST_TOKEN_ORGANIZATION_REQUIRED=true`), `GET /v1/me` across organizations (MEDIUM, no fix yet); SS-7
-  and the LOW red-team items are in `.ai/PROJECT_STATE.md` → Known issues. P0-15 and Slices 1–5 have not started.
+  and the LOW red-team items are in `.ai/PROJECT_STATE.md` → Known issues. P0-15 has not started; Slice 1 is below, Slices 2–5
+  have not started.
 
 **Operator steps of Phase 0** (all read-only first; `docs/runbooks/go-live-checklist.md` §7): the forensic baseline before
 deploying, `onhost:iam:risk-floor-report`, `onhost:game:panel-identity --dry-run`, `onhost:aapanel:tenancy` (dry run, then
@@ -741,6 +743,32 @@ deploying, `onhost:iam:risk-floor-report`, `onhost:game:panel-identity --dry-run
 `ONHOST_FOUR_EYES_TIME_LOCK_HOURS` (24) for a solo owner, `operator:tokens:unbound --dry-run` → notice →
 `ONHOST_TOKEN_ORGANIZATION_REQUIRED=true`, and `operator:authz:staff-reach --days=7` daily until it stays empty (after P0-15)
 → `ONHOST_STAFF_REACH_ENFORCED=true`.
+
+### Slice 1 of the permission program (TASK-0042, stacked on the Phase-0 chain, not merged, not signed off)
+
+S1-01 and S1-02 (`docs/security/permission-program-2026-09-27.md` Slice-1 status block, ADR-0009 "Slice 1 outcome", audit rows
+134–136, integration notes `docs/security/grant-policy.md`) on `feat/TASK-0042-grants-follow-one-policy-and-access-can`, on top
+of the Phase-0 docs commit `173b40b`; local, not pushed. TASK-0043/TASK-0044 were never created, so S1-03 … S1-06 and
+S1-08 … S1-10 have no code.
+
+- **One policy for every grant** (S1-01): `GrantPolicy` decides invitation, acceptance, role change, removal, project role,
+  share, ownership, restore, API token and staff account against I1–I12 (`GrantMatrixTest`); a grant never outlives its grantor
+  (clamped, not refused); new refusals only for illegitimate grants.
+- **Access can be given back** (S1-02): a snapshot precedes every removal and role change, restorable for 90 days by somebody who
+  covers the target, what the restore takes away and the remover's role; acceptance runs through the bus; ownership moves only
+  when the heir accepts; a lost owner is recovered by a CRITICAL, seven-day, cancellable owner recovery that reaches every
+  organization the owner owns or manages, and `iam.mfa.reset` of a customer owner is refused outside it.
+- **Red-team fixes** (S1-07 on `903ad07`, fixed in `2856e3c`): a restore publishes what it takes (panel keys and sub-users
+  follow), a removal ends the person's API tokens of the organization for good, an owner's removal is final against the other
+  admins, a recovery transfer takes the previous owner out (audit row 135).
+- **Still open:** TD-6 only recorded until `ONHOST_GRANT_CASCADE_ENABLED=true`; seven MEDIUM findings of S1-07 and one of the
+  re-review (the approving second person of an owner recovery may be a party) in `docs/runbooks/breach-register.md` "Still open
+  after Slice 1"; the LOW ones in `.ai/PROJECT_STATE.md` → Known issues; S1-07 must run again once S1-05/S1-06 exist; `2856e3c`
+  has had no independent review. No portal UI for the new endpoints (S1-04).
+
+**Operator steps of Slice 1** (`docs/runbooks/go-live-checklist.md` §8): migrations `000900`/`000910` and the notification
+seeder with the deploy; `operator:grants:cascade --dry-run` → notice → the owner's decision on `ONHOST_GRANT_CASCADE_ENABLED`;
+`ONHOST_OWNER_RECOVERY_DAYS` (7, floor 7); staff use the owner recovery instead of an MFA reset for a customer owner.
 
 ## Verified baseline
 
@@ -760,6 +788,11 @@ The final Phase-0 chain (2026-09-27, `.\brain.ps1 gate -Task TASK-0039` on the c
 — Pint, Larastan 0 errors (`phpstan-baseline.neon` unchanged), Pest **1 825 / 1 825** (22 951 assertions), frontend build;
 63 migrations. PostgreSQL (`pest-postgres`) and E2E have not run on wave 2 or TASK-0039; the row locks of TASK-0040 and
 TASK-0041 and the shadow insert after the transaction are proven only there.
+Slice 1 (2026-09-27, `.\brain.ps1 gate -Task TASK-0042`): **PASS** after review round 1 (`903ad07`: Pint, Larastan 0 errors with
+`phpstan-baseline.neon` unchanged, Pest **1 930 / 1 930**, 23 430 assertions, frontend build) and again after the S1-07 fixes
+(on `2856e3c`, report `96d7930`; the local serial suite 1 935 / 1 935, 23 460 assertions); 65 migrations (`000900`, `000910`).
+`pest-postgres` (the partial unique indexes, the savepoints around the guarded inserts, the `detail->…` JSON lookups) and E2E
+have not run on it.
 
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16 — `pest-postgres` is the only
@@ -791,6 +824,11 @@ TASK-0041 and the shadow insert after the transaction are proven only there.
   on `ONHOST_STAFF_REACH_ENFORCED` and `ONHOST_TOKEN_ORGANIZATION_REQUIRED`; `GET /v1/me` hands a token its person's other
   organizations (no fix yet) (`docs/runbooks/breach-register.md`). The forensic baseline must run on production **before**
   the first Phase-0 deploy.
+- **Slice 1 of the permission program is not signed off:** the active grants of a removed or demoted grantor stay active
+  (only recorded) until `ONHOST_GRANT_CASCADE_ENABLED=true`, and the owner recovery and MFA reset have open MEDIUM holes (the
+  approving second person may be a party, a recovered account cancels without limit, a developer is MFA-reset by one person,
+  a reset leaves sessions and tokens) — `docs/runbooks/breach-register.md` "Still open after Slice 1". From the Slice-1 deploy
+  a removal revokes the person's API tokens of the organization, and a restore never brings them back.
 - Staff tools: `/v1/staff/services/{id}/actions` needs `staff.service.manage` and `…/reinstate` `billing.dunning.manage`
   (an auditor, IAM admin or sales account loses them); a solo owner acting in staff mode in their own organization waits the
   time lock.
@@ -818,5 +856,10 @@ TASK-0041 and the shadow insert after the transaction are proven only there.
 4. Phase 0 of the permission program, with the human's go-ahead: push the chain to PR #25 and merge it after a green CI
    including `pest-postgres` and E2E, and merge PR #26 (TASK-0032, deploy gate); then the operator's Phase-0 steps
    (`docs/runbooks/go-live-checklist.md` §7: the forensic baseline before the first Phase-0 deploy first, the two switches
-   last); then Slice 1 (access wizard, GrantPolicy invariants I1–I12). For the sign-off, alongside: a task for `GET /v1/me`
-   (failing-first test in `TokenPrincipalTest`) and a read-only review of `c4c43e2`.
+   last). For the sign-off, alongside: a task for `GET /v1/me` (failing-first test in `TokenPrincipalTest`) and a read-only
+   review of `c4c43e2`.
+5. Slice 1 (TASK-0042, S1-01/S1-02) is stacked on the Phase-0 chain: with the human's go-ahead it goes as its own pull request
+   after PR #25, then the operator steps of `docs/runbooks/go-live-checklist.md` §8. Next by the plan: Slice 2 (support,
+   consent, undo). Slice 1 is not signed off: S1-03 … S1-06 and S1-08 … S1-10 have no task yet (S2-05 depends on S1-06),
+   the Slice-1 MEDIUMs of the breach register need their own tasks, S1-07 runs again once S1-05/S1-06 exist, and `2856e3c`
+   needs a read-only review.

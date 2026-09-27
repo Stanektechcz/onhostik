@@ -3,7 +3,8 @@
 Phase 0 of the permission program closes nine holes that had been open since launch (program §1 and §9: TD-1, TD-2,
 TD-3, PA-01, G1, PA-02, PA-04, SS-1/SS-5 with EXPL-1..3, P1/P2). PA-04 and SS-1/SS-5 with EXPL-1..3 close with TASK-0039,
 rebased onto waves 1 and 2 in the final Phase-0 chain; what it ships only as a shadow release behind a switch, and one PA-04
-read the last red-team check found open, are listed under "Still open after Phase 0 wave 2" below.
+read the last red-team check found open, are listed under "Still open after Phase 0 wave 2" below; what Slice 1 (TASK-0042) left open, under "Still open
+after Slice 1".
 Closing a hole says nothing about the time **before** it was closed.
 This runbook answers two questions for each hole: did anybody use it, and what do we do if they did (program key
 P0-01 / IF-0, decision D16).
@@ -60,6 +61,37 @@ an entry. Switch each rule on as its line says (or land the fix), then strike th
   data. Fix: answer a token with its own organization only, proven by a failing-first test in `TokenPrincipalTest`. The
   `token_cross_org` source does not see it (reads are not audited).
 
+## Still open after Slice 1
+
+Slice 1 of the program (S1-01/S1-02, TASK-0042, stacked on the Phase-0 chain) closes TD-7 and TD-9 and adds the owner
+recovery (D21); its S1-07 red team (on `903ad07`) had four HIGH findings, fixed in `2856e3c`. What it leaves open is listed
+here. Most entries are holes in the new code paths, which reach production with the Slice-1 deploy; TD-6 is older. Slice 1 is
+not signed off while this list has an entry: fix each with a failing-first test (or turn the switch on), then strike the line.
+There is no look-back source for these yet; the audit rows named in each entry are where to look.
+
+* `TD-6` (I6, S1-02, TASK-0042; **written down, still allowed until the switch**): the active grants of a member who was
+  removed or demoted — memberships, project roles, shares they gave — stay active. Each is recorded
+  (`organization.grant.cascade.flag`, `organization.grants.unbacked`) and listed by `php artisan operator:grants:cascade --dry-run`;
+  they are revoked, each after an access snapshot, only once `ONHOST_GRANT_CASCADE_ENABLED=true`, and only on the next loss of a
+  grantor — the backlog before the switch is never re-examined, a cascade revocation chains through `removeMember`, and there is
+  no grouped undo.
+* `owner-recovery approver` (D21, R1-4, re-review of `df1f6d3`; MEDIUM, no fix): `OwnerRecoveries::assertNotParty` keeps a staff
+  party out of opening and completing a recovery, but `ApprovalService::decide` asks the second person only "not the requester"
+  and "holds `iam.mfa.reset`". The owner, the heir or a member of a reached organization who is also staff can approve it.
+  Audit: `organization.owner_recovery.open` and the approval's `decided_by`.
+* `owner-recovery transfer` (D21, S1-07; MEDIUM, no fix): a transfer-mode recovery makes the heir the owner with no acceptance and
+  no step-up of the heir (the I4 two-step does not apply), and the heir's role is checked only at open (a guest is excluded then,
+  not at completion).
+* `owner-recovery cancel` (D21, S1-07; MEDIUM, no fix): the person being recovered — in the hijack case the account in the
+  attacker's hands — and any org_admin of any reached organization can cancel the recovery without limit; support has no
+  override, so the takeover cannot be undone this way.
+* `iam.mfa.reset` (S1-02, S1-07; MEDIUM, no fix): `MfaResetCommand` asks a second person only for staff accounts and member
+  managers; a developer with console or destructive keys on every service is reset on one iam_admin's word. The reset removes
+  TOTP, security keys and trusted devices, but leaves live sessions, API tokens and step-up grants (S1-08).
+* `access restore` (I10, S1-07; MEDIUM, no fix): a restore turns shares back on from the snapshot even when one was revoked later
+  for a security reason (no revocation epoch, S1-06); a revived share keeps its original `granted_by` (an unbacked share is never
+  flagged), while restored bindings name the restorer instead of the original grantor. A member who left on their own is pulled
+  back for 90 days without their consent and without being told (the notice goes to the organization).
 ## What it does, and what it never does
 
 * **Read-only.** It runs SELECTs inside a database transaction that is always rolled back, and it first puts the
