@@ -14,6 +14,7 @@ use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Billing\Models\Withdrawal;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Identity\Authorization\Authorizer;
+use Onhost\Domain\Identity\Authorization\StaffActor;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Invoicing\Models\InvoiceLine;
@@ -475,7 +476,7 @@ final class ServiceReinstatement
         $same = is_array($previous) && ($previous['cancellation'] ?? null) === $cancellation;
         $tags['reinstatement'] = [
             'requested_at' => ($same ? ($previous['requested_at'] ?? null) : null) ?? now()->toIso8601String(),
-            'by' => ($same ? ($previous['by'] ?? null) : null) ?? $context->actorType.($context->actorId !== null ? ':'.$context->actorId : ''),
+            'by' => ($same ? ($previous['by'] ?? null) : null) ?? (StaffActor::acts($context) ? 'staff' : $context->actorType).($context->actorId !== null ? ':'.$context->actorId : ''),
             'cancellation' => $cancellation, 'quoted_total_minor' => $quote['total_due']->minor, 'currency' => $quote['total_due']->currency->value, 'key' => mb_substr($key, 0, 160),
         ];
         $service->forceFill(['tags' => $tags])->save();
@@ -508,14 +509,16 @@ final class ServiceReinstatement
         if ($type === 'system') {
             return true; // recorded by the platform acting on a payment (a paid invoice), not on somebody's authority
         }
-        $context = new CommandContext((string) $type, $id !== '' ? $id : null);
+        // a request staff recorded in staff mode is kept as `staff:<id>` (recordWish) and read back in staff mode (TASK-0039, IF-8)
+        $context = $type === 'staff' ? new CommandContext('user', $id !== '' ? $id : null, staffMode: true) : new CommandContext((string) $type, $id !== '' ? $id : null);
 
         return $this->actorMay($context, ReinstateServiceCommand::PERMISSION, $service->organization_id)
             && (self::actsForPlatform($context) || $this->credit->maySpend($service->organization_id, $context));
     }
 
     /**
-     * The actor holds the permission at the organization: staff always; a user by their bindings (a user's API token acts as
+     * The actor holds the permission at the organization: staff always — in staff mode only (TASK-0039, IF-8: a member of staff on
+     * the customer's route is asked like the customer); a user by their bindings (a user's API token acts as
      * that user — the token's scope is the bus's and the controller's check); an assistant or a service account never (reading
      * the credit, and asking to spend it, are the organization's people's own decision).
      */
@@ -529,7 +532,7 @@ final class ServiceReinstatement
             return false;
         }
 
-        return $user->isActive() && ((bool) $user->is_staff || $this->authorizer->can($user, $permission, CommandScope::organization($organizationId)));
+        return $user->isActive() && (StaffActor::acts($context) || $this->authorizer->can($user, $permission, CommandScope::organization($organizationId)));
     }
 
     /** Which cancellation this is: a restore, its one charge and a recorded request belong to exactly one. */
@@ -622,14 +625,14 @@ final class ServiceReinstatement
         return is_array($record) ? $record : [];
     }
 
-    /** Staff and the platform itself decide on their own authority; a customer, their API tokens and assistants do not. */
+    /**
+     * Staff and the platform itself decide on their own authority; a customer, their API tokens and assistants do not. Staff in
+     * staff mode only (TASK-0039, IF-8): a member of staff restoring a service of their own organization on the customer route
+     * skipped the credit gate every other member meets.
+     */
     private static function actsForPlatform(CommandContext $context): bool
     {
-        if ($context->actorType === 'system') {
-            return true;
-        }
-
-        return $context->actorType === 'user' && $context->actorId !== null && (bool) User::query()->whereKey($context->actorId)->value('is_staff');
+        return $context->actorType === 'system' || StaffActor::acts($context);
     }
 
     private static function label(Service $service): string

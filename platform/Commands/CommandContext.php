@@ -32,6 +32,10 @@ final class CommandContext
         // what the authorizer actually consumed for THIS command (approval ids, or 'waived:single-operator'); set by the bus only.
         // `approvalIds` above is what the caller offered — a handler that must prove its second person reads this one
         public readonly array $verifiedApprovalIds = [],
+        // TASK-0039 (permission program P0-08, IF-8, principle 2): the person acts as STAFF — set only for /v1/staff/* requests
+        // (ApiContext) by a member of staff. Everywhere else a member of staff is a customer of whatever organization they act
+        // in; StaffActor is the one reader. Default off: a context that does not say so is never staff
+        public readonly bool $staffMode = false,
     ) {}
 
     public static function system(?string $reason = null): self
@@ -60,7 +64,7 @@ final class CommandContext
         return new self(
             $this->actorType, $this->actorId, $organizationId ?? $this->organizationId, $projectId ?? $this->projectId,
             $this->ip, $this->userAgent, $this->sessionId, $this->reason, $this->ticketRef, $this->stepUpMethod,
-            $this->approvalIds, $this->correlationId, $this->requestId, $this->onBehalfOfUserId, $this->verifiedApprovalIds,
+            $this->approvalIds, $this->correlationId, $this->requestId, $this->onBehalfOfUserId, $this->verifiedApprovalIds, $this->staffMode,
         );
     }
 
@@ -70,7 +74,7 @@ final class CommandContext
         return new self(
             $this->actorType, $this->actorId, $this->organizationId, $this->projectId,
             $this->ip, $this->userAgent, $this->sessionId, $this->reason, $this->ticketRef, $this->stepUpMethod,
-            $this->approvalIds, $this->correlationId, $this->requestId, $this->onBehalfOfUserId, array_values($approvalIds),
+            $this->approvalIds, $this->correlationId, $this->requestId, $this->onBehalfOfUserId, array_values($approvalIds), $this->staffMode,
         );
     }
 
@@ -79,7 +83,7 @@ final class CommandContext
         return new self(
             $this->actorType, $this->actorId, $this->organizationId, $this->projectId,
             $this->ip, $this->userAgent, $this->sessionId, $reason ?? $this->reason, $ticketRef ?? $this->ticketRef, $this->stepUpMethod,
-            $this->approvalIds, $this->correlationId, $this->requestId, $this->onBehalfOfUserId, $this->verifiedApprovalIds,
+            $this->approvalIds, $this->correlationId, $this->requestId, $this->onBehalfOfUserId, $this->verifiedApprovalIds, $this->staffMode,
         );
     }
 
@@ -101,6 +105,7 @@ final class CommandContext
             'correlation_id' => $this->correlationId,
             'request_id' => $this->requestId,
             'on_behalf_of' => $this->onBehalfOfUserId,
+            'staff_mode' => $this->staffMode, // TASK-0039: in which mode the person acted
         ];
     }
 }

@@ -601,7 +601,7 @@ it('no longer raises a limit for free through a raw staff resize or a staff serv
     $parent = limitRaiseParent($org);
     $staff = limitRaiseStaff('platform_owner', false);
     app(StepUpService::class)->grant($staff, 'totp', 'test-session', '127.0.0.1');
-    $context = $this->contextFor($staff, $org, 'totp');
+    $context = $this->staffContextFor($staff, $org, 'totp'); // staff decide as staff (TASK-0039)
     $bus = app(CommandBus::class);
     $mailboxes = (int) $parent->entitlements['mailboxes'];
 
@@ -956,7 +956,7 @@ it('refuses a staff resize or a staff service that lifts a limit through a senti
     $parent = limitRaiseParent($org); // start: 5 mailboxes, ssh off, waf basic
     $staff = limitRaiseStaff('platform_owner', false);
     app(StepUpService::class)->grant($staff, 'totp', 'test-session', '127.0.0.1');
-    $context = $this->contextFor($staff, $org, 'totp');
+    $context = $this->staffContextFor($staff, $org, 'totp'); // staff decide as staff (TASK-0039)
     $bus = app(CommandBus::class);
     $resize = fn (array $params) => limitRaiseRefusal(fn () => $bus->dispatch(new ServiceActionCommand($org->id, 'lr-rs-'.Str::random(8), ['service_id' => $parent->id, 'action' => 'resize', 'params' => $params]), $context));
     $create = fn (array $config) => limitRaiseRefusal(fn () => $bus->dispatch(new ProvisioningCommand('lr-cr-'.Str::random(8), ['op' => 'service.create', 'organization_id' => $org->id, 'product_key' => 'web-hosting', 'plan_key' => 'start', 'config' => $config]), $context));
@@ -1097,7 +1097,7 @@ it('refuses a staff service without a plan, with a plan that has no current vers
     [, $org] = $this->customerWithOrganization();
     $staff = limitRaiseStaff('platform_owner', false);
     app(StepUpService::class)->grant($staff, 'totp', 'test-session', '127.0.0.1');
-    $context = $this->contextFor($staff, $org, 'totp');
+    $context = $this->staffContextFor($staff, $org, 'totp'); // staff decide as staff (TASK-0039)
     $web = ['organization_id' => $org->id, 'product_key' => 'web-hosting'];
 
     // the product sells plans: none named is no service, with or without options (the options were given for free before)
@@ -1138,7 +1138,7 @@ it('creates a staff service above its plan only with a second person\'s waiver b
     featureGameService($org); // the lab game panel, its node and placement
     $staff = limitRaiseStaff('platform_owner', false);
     app(StepUpService::class)->grant($staff, 'totp', 'test-session', '127.0.0.1');
-    $context = $this->contextFor($staff, $org, 'totp');
+    $context = $this->staffContextFor($staff, $org, 'totp'); // staff decide as staff (TASK-0039)
     $game = ['organization_id' => $org->id, 'product_key' => 'game', 'plan_key' => 'game-8', 'config' => ['egg' => 'minecraft-paper', 'label' => 'Turnaj', 'options' => ['ram_gb' => 16]]];
     $waived = $game + ['waive_limits' => true, 'note' => 'Turnajový server, tiket #901'];
     $services = fn () => Service::query()->where('organization_id', $org->id)->where('label', 'Turnaj')->count();

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Identity\Authorization;
 
 use Onhost\Domain\Identity\Authorization\Models\Approval;
+use Onhost\Domain\Identity\Models\PersonalAccessToken;
 use Onhost\Domain\Identity\Models\ServiceAccount;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Identity\StepUp\StepUpService;
@@ -61,8 +62,16 @@ final class IdentityCommandAuthorizer implements CommandAuthorizer
             return AuthorizationDecision::deny('AI actors may not execute high-risk commands autonomously', 'human');
         }
 
-        if (! $this->authorizer->can($principal, $permission, $command->scope())) {
+        $basis = $this->authorizer->basis($principal, $permission, $command->scope());
+        if ($basis === null) {
             return AuthorizationDecision::deny("Missing permission {$permission}");
+        }
+        // TASK-0039 (permission program P0-08, IF-4): a customer CRITICAL key floors at HIGH only for a CUSTOMER, who has no second
+        // person to ask (PermissionCatalog::floor). Reached through a staff role or a JIT elevation it is what the catalogue says:
+        // backup_dr_admin deleting any organization's backups, platform_owner filing another organization's erasure — CRITICAL, so
+        // a second person or the sole approver's time lock (the pinned open item of TASK-0037's RiskFloorTest)
+        if ($basis === Authorizer::BASIS_STAFF && ! isset(PermissionCatalog::loweredRisk()[$command->name()][$permission])) {
+            $risk = PermissionCatalog::risk($permission) === PermissionCatalog::CRITICAL ? PermissionCatalog::CRITICAL : $risk;
         }
 
         $needsStepUp = $risk === PermissionCatalog::HIGH || $risk === PermissionCatalog::CRITICAL;
@@ -137,11 +146,35 @@ final class IdentityCommandAuthorizer implements CommandAuthorizer
         if ($context->actorId === null) {
             return null;
         }
-
-        return match ($context->actorType) {
-            'user', 'ai' => User::query()->find($context->onBehalfOfUserId ?? $context->actorId) ?? ($context->actorType === 'ai' ? null : null),
+        $principal = match ($context->actorType) {
+            'user', 'ai' => User::query()->find($context->onBehalfOfUserId ?? $context->actorId),
             'service_account' => ServiceAccount::query()->find($context->actorId),
             default => null,
         };
+
+        return $principal === null ? null : self::asToken($principal, $context);
+    }
+
+    /**
+     * TASK-0039 (permission program P0-09, IF-5, D3): a command sent with an API token is decided on the token's view — its own
+     * organization's bindings, no global reach — the way the HTTP layer already decides it (Authorizer::visibleBindings). The
+     * principal is loaded fresh here, without the token Sanctum attached to the request's user, so the token is attached again
+     * from the session the context carries (`token:<id>`, ApiContext::sessionId). A token that is gone or revoked decides nothing.
+     */
+    private static function asToken(User|ServiceAccount $principal, CommandContext $context): User|ServiceAccount|null
+    {
+        $session = (string) $context->sessionId;
+        if (! str_starts_with($session, 'token:')) {
+            return $principal;
+        }
+        $id = substr($session, 6);
+        // a number or nothing: PostgreSQL refuses a word for the bigint key with a 500 (TASK-0029 — the same guard as the spec path)
+        $token = ctype_digit($id) ? PersonalAccessToken::query()->find($id) : null;
+        if (! $token instanceof PersonalAccessToken || $token->isRevoked() || ($token->expires_at !== null && $token->expires_at->isPast())
+            || (string) $token->tokenable_id !== (string) $principal->getAuthIdentifier()) {
+            return null;
+        }
+
+        return $principal->withAccessToken($token);
     }
 }

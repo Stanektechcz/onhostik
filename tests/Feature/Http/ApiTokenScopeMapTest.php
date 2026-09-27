@@ -436,12 +436,13 @@ it('lets a console token schedule a console command through spec apply, and refu
         ->and(Operation::query()->findOrFail($result['operations'][0]['operation_id'])->authorized_permission)->toBe('service.console');
 
     // fail closed: a `token:` session whose token no longer exists takes nothing, not even what managing takes — a deleted
-    // token's number, and a session id that is not a number at all (on PostgreSQL that one used to end in a 500)
+    // token's number, and a session id that is not a number at all (on PostgreSQL that one used to end in a 500). Since TASK-0039
+    // (P0-09) the bus itself decides a token session on the token's view and refuses a vanished token outright (`forbidden`)
     $backupOnly = ['schedules' => [['name' => 'zaloha', 'cron' => '0 4 * * *', 'actions' => [['action' => 'backup', 'payload' => '']]]]];
     foreach (['token:987654321', 'token:does-not-exist'] as $i => $session) {
         $gone = new CommandContext('user', $owner->id, $org->id, null, '127.0.0.1', 'pest', $session);
         $refused = app(ServiceSpecService::class)->apply($game->fresh(), $backupOnly, $gone, 'tok-spec-gone-'.$i);
-        expect($refused['skipped'])->toBe([['section' => 'schedules', 'reason' => 'token_scope:schedule.create']])
+        expect($refused['skipped'])->toBe([['section' => 'schedules', 'reason' => 'forbidden:schedule.create']])
             ->and($refused['operations'])->toBe([]);
     }
 });

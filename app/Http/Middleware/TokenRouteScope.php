@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Middleware;
 
+use App\Http\Support\ApiContext;
 use Closure;
 use Illuminate\Http\Request;
 use Onhost\Domain\Identity\Authorization\TokenScopes;
@@ -46,6 +47,11 @@ final class TokenRouteScope
         if ($token === null) {
             return $next($request); // the portal's own session
         }
+        // TASK-0039 (permission program P0-09, IF-5): a token acts for its own organization, on every route — one that names
+        // another (`X-Organization`, `?organization=`) is refused before any controller reads it; a token bound to none is refused
+        // once the operator switched `onhost.token_organization_required` on after the notice (operator:tokens:unbound)
+        $named = $request->headers->get('X-Organization') ?: $request->query('organization');
+        ApiContext::tokenOrganization($request, is_string($named) ? $named : null);
         $segments = array_values(array_filter(explode('/', trim($request->path(), '/')), fn (string $s) => $s !== ''));
         $family = ($segments[0] ?? '') === 'v1' ? ($segments[1] ?? '') : ($segments[0] ?? '');
         if ($family === 'me' && $request->isMethod('GET') && count($segments) <= 2) {

@@ -9,6 +9,8 @@ use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Provisioning\IntegrationHealthProbe;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
+use Onhost\Domain\Support\TicketService;
+use Onhost\Platform\Commands\CommandContext;
 
 /*
  * No secret in a log (Brain card H12). Every call to a panel is written to `provider_calls` and every change to the
@@ -56,7 +58,11 @@ it('keeps the ISPConfig session, the remote password and a customer\'s new passw
     $staff = $this->staff('shared_hosting_admin');
     $this->actingAs($staff, 'sanctum');
     app(StepUpService::class)->grant($staff, 'totp', null, '127.0.0.1'); // the single sign-on asks for a fresh step-up (TASK-0030 WP-B)
-    $sso = $this->getJson("/v1/staff/services/{$service->id}/panel-login");
+    // ticket-bound (TASK-0039, P0-14): the customer's open ticket about the service, a reason, and a second person
+    $ticket = app(TicketService::class)->create(['subject' => 'Web', 'body' => 'Nefunguje FTP.', 'service_id' => $service->id], new CommandContext('user', $owner->id, $org->id), $org, $owner);
+    $body = ['ticket_id' => $ticket->id, 'reason' => 'Kontrola FTP účtu podle tiketu zákazníka.'];
+    $approval = (string) $this->postJson("/v1/staff/services/{$service->id}/panel-login", $body)->assertForbidden()->json('approval_id');
+    $sso = $this->postJson("/v1/staff/services/{$service->id}/panel-login", $body + ['approval_ids' => [secondPersonApproves($approval)]]);
     expect($sso->status())->toBe(200, (string) $sso->getContent());
     Http::assertSent(fn (Request $r) => str_contains($r->url(), 'client_login_get')); // the call whose answer is the link really happened
     expect(DB::table('provider_calls')->where('action', 'client_login_get')->value('response'))->toContain('withheld');

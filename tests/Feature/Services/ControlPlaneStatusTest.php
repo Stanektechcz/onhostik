@@ -48,7 +48,7 @@ it('refuses a customer change on a panel under maintenance with the reason and t
 
     // the people doing the maintenance, and the platform's own runs, are not locked out by it
     $services = app(ServiceService::class);
-    $byStaff = $services->requestAction($service->fresh(), 'backup', $this->contextFor($this->staff(), $org), 'cp-staff');
+    $byStaff = $services->requestAction($service->fresh(), 'backup', $this->staffContextFor($this->staff(), $org), 'cp-staff');
     expect($byStaff)->toBeInstanceOf(Operation::class);
     Operation::query()->whereKey($byStaff->id)->update(['state' => Operation::SUCCEEDED, 'finished_at' => now()]);
     $bySystem = $services->requestAction($service->fresh(), 'backup', CommandContext::system('nightly backup')->withScope($org->id), 'cp-system');

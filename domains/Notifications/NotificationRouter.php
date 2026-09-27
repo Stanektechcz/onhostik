@@ -406,6 +406,10 @@ final class NotificationRouter
             'partner.payout.unfrozen' => $this->both($m, 'partner', 'Výplata provize uvolněna: '.$number, (string) ($p['reason'] ?? ''), 'Výplata '.$number.' je po kontrole uvolněna', 'Finance ji schválí a odešlou jako obvykle.', '/sprava/fakturace', '/partner#/vyplaty', 'info'),
             'partner.client_data.masked' => $this->customer($m, 'partner', 'Partnerský portál už neukazuje kontakty klientů', 'Kontaktní e-maily klientů a jejich upomínky v portálu nevidíte; provize, klienti a jejich služby zůstávají. Kontakty uvidíte znovu jen se souhlasem klienta.', '/partner', 'warn', $email, 'legal-notice', $this->partnerMaskingMail($portal, $locale)),
             // ── end TASK-0040 ──
+            // ── TASK-0039 (permission program P0-14, IF-16): a member of staff signed on to the customer's panel. The customer hears it
+            // at once — in the portal and the owner by mail, a security notice that cannot be switched off; staff see it on the security line ──
+            'service.staff_panel_login' => $this->staffPanelLogin($m, $p, $org, $email, $portal),
+            // ── end TASK-0039 ──
             default => null,
         };
     }
@@ -447,6 +451,27 @@ final class NotificationRouter
     }
 
     // ── end TASK-0040 ──
+
+    // ── TASK-0039 ──
+    /**
+     * Staff signed on to the customer's hosting panel (PanelLoginCommand): who, for which ticket, when. The customer text names the
+     * person and the ticket, not the staff's internal reason (it stays in the audit and on the staff line).
+     *
+     * @param  array<string,mixed>  $p
+     */
+    private function staffPanelLogin(OutboxMessage $m, array $p, ?Organization $org, ?string $email, string $portal): void
+    {
+        $service = (string) ($p['service'] ?? '');
+        $who = (string) ($p['staff_name'] ?? '') ?: 'Podpora ONhost';
+        $ticket = (string) ($p['ticket_number'] ?? '');
+        $at = substr(str_replace('T', ' ', (string) ($p['at'] ?? '')), 0, 16);
+        $ownerEmail = $org === null ? '' : (string) User::query()->whereKey($org->owner_user_id)->value('email'); // the owner hears it in person
+        $this->internal($m, 'security', 'Přihlášení do panelu zákazníka: '.$service, trim(($org->name ?? '').' · '.$who.' · tiket '.$ticket.' · '.(string) ($p['reason'] ?? '').(! empty($p['consented']) ? ' · se souhlasem zákazníka' : ' · schválila druhá osoba'), ' ·'), '/sprava', 'info');
+        $this->customer($m, 'security', 'Podpora ONhost se přihlásila do panelu služby '.$service, $who.' · k tiketu '.$ticket.' · '.$at.' UTC. Pokud o tom nevíte, odpovězte prosím v tiketu.', '/panel/tikety', 'warn',
+            $ownerEmail !== '' ? $ownerEmail : $email, 'staff-panel-login', ['sluzba' => $service, 'kdo' => $who, 'tiket' => $ticket, 'kdy' => $at, 'url' => "{$portal}/panel/tikety"]);
+    }
+    // ── end TASK-0039 ──
+
     // ── TASK-0031 ──
     /**
      * What a VIES verdict means for the customer (D31.8). An invalid number of another EU state is told to the billing contacts

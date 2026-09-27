@@ -162,6 +162,7 @@ final class ServiceActionCommand extends OrganizationCommand implements RiskAwar
         $permission = self::PERMISSIONS[$action] ?? throw new DomainError('service_action_unknown', "Unknown service action {$action}.", 422, ['action' => $action]);
 
         return match (true) {
+            self::skipsCustomerProtection($action, $params) => self::STAFF_DELETE, // TASK-0039 (IF-9): a forced purge or a skipped archive
             $action === 'schedule.create' && self::schedulesConsoleCommand($params) => 'service.console',
             $action === 'gbackup.lock' && ! self::keepsLocked($params) => self::PERMISSIONS['gbackup.delete'],
             default => $permission,
@@ -211,8 +212,48 @@ final class ServiceActionCommand extends OrganizationCommand implements RiskAwar
 
     public function riskLevel(): string
     {
+        if (self::skipsCustomerProtection((string) $this->get('action'), (array) $this->get('params', []))) {
+            return PermissionCatalog::CRITICAL; // TASK-0039 (IF-9): a second person, or the sole approver's time lock
+        }
+
         return in_array((string) $this->get('action'), self::HIGH_RISK, true) ? PermissionCatalog::HIGH : PermissionCatalog::NORMAL;
     }
+
+    // ── TASK-0039 (permission program P0-08/IF-9, audit SS-5/SE-3) ──
+    /** The staff permission that removes a service before its time or without its final archive (a staff role's, never a customer's). */
+    public const STAFF_DELETE = 'staff.service.delete';
+
+    /**
+     * A forced purge (inside the customer's restore window) or a skipped final archive (`archive_before_delete: false`) skips what
+     * protects the customer's data, so it is `staff.service.delete`, declared CRITICAL: a second person, or the sole approver's
+     * time lock (ServiceActionWorkflow::finalArchiveStep, ServiceService::requestAction). It was `service.delete`, HIGH: one
+     * operator alone removed a service and its data at once. Decided from what was asked, not from who asks: a customer who asks
+     * for the flags is refused them by the bus (they were silently dropped before, CustomerActionParams), a token too — the
+     * permission has no token scope (TokenScopes::for). Fail closed: anything but a definite yes to the archive asks for the staff permission.
+     *
+     * @param  array<string,mixed>  $params
+     */
+    public static function skipsCustomerProtection(string $action, array $params): bool
+    {
+        if (! in_array($action, ['purge', 'terminate'], true)) {
+            return false;
+        }
+
+        return ($action === 'purge' && self::forces($params)) || self::skipsArchive($params);
+    }
+
+    /** A forced purge, read exactly as ServiceService reads it (anything non-empty forces). @param array<string,mixed> $params */
+    public static function forces(array $params): bool
+    {
+        return ! empty($params['force']);
+    }
+
+    /** A request to skip the final archive: anything that is not a definite yes to it (the workflow skips on `false`). @param array<string,mixed> $params */
+    public static function skipsArchive(array $params): bool
+    {
+        return array_key_exists('archive_before_delete', $params) && filter_var($params['archive_before_delete'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) !== true;
+    }
+    // ── end TASK-0039 ──
 
     public function requiresStepUp(): bool
     {

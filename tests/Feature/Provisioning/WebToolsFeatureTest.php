@@ -14,6 +14,8 @@ use Onhost\Domain\Services\Models\DeploySource;
 use Onhost\Domain\Services\Models\UptimeIncident;
 use Onhost\Domain\Services\Models\UptimeMonitor as MonitorModel;
 use Onhost\Domain\Services\Web\UptimeMonitor;
+use Onhost\Domain\Support\TicketService;
+use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Outbox\OutboxMessage;
 use Onhost\Platform\Outbox\OutboxPublisher;
 use Onhost\Providers\AaPanel\AaPanelWebProvider;
@@ -186,5 +188,10 @@ it('runs the toolkit on an aaPanel-backed site: terminal, PHP settings, monitori
     $staff = $this->staff();
     $this->actingAs($staff, 'sanctum')->getJson("/v1/staff/services/{$service->id}/panel-login")->assertStatus(403)->assertJsonPath('error', 'step_up_required'); // a login into the customer's panel (TASK-0030 WP-B)
     app(StepUpService::class)->grant($staff, 'totp', null, '127.0.0.1');
-    $this->getJson("/v1/staff/services/{$service->id}/panel-login")->assertStatus(409)->assertJsonPath('error', 'panel_login_unavailable');
+    // ticket-bound (TASK-0039, P0-14): an open ticket the customer opened about the service, a reason and a second person — then
+    // the panel says it has no sign-on link
+    $ticket = app(TicketService::class)->create(['subject' => 'Web', 'body' => 'Nefunguje mi web.', 'service_id' => $service->id], new CommandContext('user', $user->id, $org->id), $org, $user);
+    $sso = ['ticket_id' => $ticket->id, 'reason' => 'Kontrola nastavení webu podle tiketu zákazníka.'];
+    $approval = (string) $this->postJson("/v1/staff/services/{$service->id}/panel-login", $sso)->assertForbidden()->assertJsonPath('error', 'approval_required')->json('approval_id');
+    $this->postJson("/v1/staff/services/{$service->id}/panel-login", $sso + ['approval_ids' => [secondPersonApproves($approval)]])->assertStatus(409)->assertJsonPath('error', 'panel_login_unavailable');
 });

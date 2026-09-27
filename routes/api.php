@@ -626,4 +626,13 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
         Route::put('content/changelog', [StaffContentController::class, 'upsertChangelog']);
         Route::put('content/stock', [StaffContentController::class, 'upsertStock']);
     });
+    // ── TASK-0039 (permission program P0-08 IF-8, P0-14 IF-16): staff act as staff on /v1/staff only — the customer routes treat a
+    // member of staff as the customer they act as there. The same controllers, in staff mode (ApiContext::staffMode): lifting
+    // ONhost's holds, staff parameters of an action, a restore on the customer's behalf; the panel sign-on as a bus command ──
+    Route::prefix('staff')->group(function (): void {
+        Route::post('services/{service}/actions', [ServiceController::class, 'action']);
+        Route::post('services/{service}/reinstate', [ServiceController::class, 'reinstate']);
+        Route::post('services/{service}/panel-login', [WebToolsController::class, 'panelLogin']);
+    });
+    // ── end TASK-0039 ──
 });

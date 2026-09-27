@@ -250,3 +250,9 @@ Producer additions (TASK-0040, permission program P0-13 / IF-14): the payout acc
 
 Payload unchanged, meaning sharpened: `partner.payout.requested` is published only for a payout whose amount equals the commissions it allocated, to the confirmed account; `partner.payout.paid` only for an `approved` payout paid by somebody other than who asked for or approved it (the payment is CRITICAL: a second person or the sole operator's time lock).
 <!-- TASK-0040 partner-payouts: end -->
+
+<!-- TASK-0039 staff-panel-login: begin -->
+| Event | Aggregate | Payload / meaning | Source |
+| --- | --- | --- | --- |
+| `service.staff_panel_login` | service | `service` (label), `ticket_number`, `ticket_id`, `staff_name`, `reason`, `consented` (bool), `at` — a member of staff signed on to the customer's hosting panel through `PanelLoginCommand` (permission program P0-14, IF-16): an open ticket a member opened in the portal about that service, a reason of ≥ 10 characters, the console of the service's family, and without the customer's consent on the ticket a second person or the sole approver's time lock. The one-time link itself is never in the payload. Customer in-app *Podpora ONhost se přihlásila do panelu služby …* (security, warn) + mandatory mail `staff-panel-login` to the owner; staff security line with the reason | PanelLoginCommandHandler |
+<!-- TASK-0039 staff-panel-login: end -->

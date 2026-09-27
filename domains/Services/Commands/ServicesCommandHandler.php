@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Services\Commands;
 
 use Onhost\Domain\Billing\ServiceReinstatement;
-use Onhost\Domain\Identity\Models\User;
+use Onhost\Domain\Identity\Authorization\StaffActor;
 use Onhost\Domain\Services\CustomerActionParams;
 use Onhost\Domain\Services\Limits\LimitRaisePolicy;
 use Onhost\Domain\Services\Models\Service;
@@ -47,7 +47,7 @@ final class ServicesCommandHandler implements CommandHandler
     {
         $action = (string) $command->get('action');
         $params = (array) $command->get('params', []);
-        if (! $this->isStaff($context)) { // a customer's request keeps only what a customer may choose (H21)
+        if (! StaffActor::acts($context)) { // a customer's request keeps only what a customer may choose (H21) — a member of staff on a customer route included (TASK-0039, IF-8)
             $params = CustomerActionParams::filter($action, $params);
         } elseif ($action === 'resize') { // staff repair or lower; more than the service holds is a raise, and a raise is an order (TASK-0022)
             LimitRaisePolicy::assertNoUnbilledRaise($service, (array) ($params['entitlements'] ?? []));
@@ -62,11 +62,5 @@ final class ServicesCommandHandler implements CommandHandler
 
         return ['operation_id' => $operation->id, 'state' => $operation->state, 'kind' => $operation->kind, 'service_state' => $service->fresh()->state]
             + ($endsAgain ? ['warning' => ['code' => self::ENDS_AGAIN, 'message' => self::ENDS_AGAIN_MESSAGE]] : []);
-    }
-
-    /** Staff work through the same command (a forced purge with a reason); everybody else is a customer, whatever they are: a person, a token, an assistant. */
-    private function isStaff(CommandContext $context): bool
-    {
-        return $context->actorType === 'user' && $context->actorId !== null && (bool) User::query()->whereKey($context->actorId)->value('is_staff');
     }
 }

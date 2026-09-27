@@ -126,6 +126,9 @@ final class NotificationTemplateSeeder extends Seeder
             // ── TASK-0031: a VAT number VIES did not confirm (the consequence sentence differs for a Czech organization) ──
             'vat-number-invalid' => ['vars' => ['dic', 'dopad', 'url'], 'cs' => ['subject' => 'DIČ {{dic}} se nepodařilo ověřit ve VIES', 'body' => "DIČ {{dic}}, které máte u nás ve fakturačních údajích, se nepodařilo ověřit v systému VIES Evropské komise.\n\n{{dopad}}\n\nZkontrolujte ho prosím ve fakturačních údajích: {{url}}".$sig['cs']], 'en' => ['subject' => 'VAT number {{dic}} could not be verified in VIES', 'body' => "The VAT number {{dic}} in your billing details could not be verified in the European Commission's VIES system.\n\n{{dopad}}\n\nPlease check it in your billing details: {{url}}".$sig['en']]],
             // ── end TASK-0031 ──
+            // ── TASK-0039: staff signed on to the customer's hosting panel (permission program P0-14) — a security notice, never switched off ──
+            'staff-panel-login' => ['mandatory' => true, 'vars' => ['sluzba', 'kdo', 'tiket', 'kdy', 'url'], 'cs' => ['subject' => 'Podpora ONhost se přihlásila do panelu služby {{sluzba}}', 'body' => "{{kdo}} z podpory ONhost se {{kdy}} UTC přihlásil(a) do administračního panelu služby {{sluzba}} kvůli vašemu tiketu {{tiket}}. Přihlášení je zaznamenané v auditu vaší organizace.\n\nPokud o tom nevíte nebo si to nepřejete, odpovězte prosím v tiketu: {{url}}".$sig['cs']], 'en' => ['subject' => 'ONhost support signed on to the panel of {{sluzba}}', 'body' => "{{kdo}} of ONhost support signed on to the control panel of {{sluzba}} at {{kdy}} UTC for your ticket {{tiket}}. The sign-on is recorded in your organization's audit log.\n\nIf you did not expect this or do not want it, please reply in the ticket: {{url}}".$sig['en']]],
+            // ── end TASK-0039 ──
         ];
     }
 }

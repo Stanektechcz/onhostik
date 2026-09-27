@@ -106,4 +106,15 @@ abstract class TestCase extends BaseTestCase
     {
         return new CommandContext('user', $user->id, $organization?->id, null, '127.0.0.1', 'pest', 'test-session', stepUpMethod: $stepUp);
     }
+
+    // ── TASK-0039 ──
+    /**
+     * A member of staff on a /v1/staff/* route (permission program P0-08, IF-8): staff mode. `contextFor()` of a member of staff is
+     * that person on a customer route — a customer of the organization, whatever `is_staff` says (StaffActor).
+     */
+    protected function staffContextFor(User $user, ?Organization $organization = null, ?string $stepUp = null): CommandContext
+    {
+        return new CommandContext('user', $user->id, $organization?->id, null, '127.0.0.1', 'pest', 'test-session', stepUpMethod: $stepUp, staffMode: true);
+    }
+    // ── end TASK-0039 ──
 }

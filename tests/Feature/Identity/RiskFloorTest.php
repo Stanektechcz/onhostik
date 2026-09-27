@@ -521,24 +521,28 @@ it('runs every critical operation of the sole approver through the time lock —
     expect($ranAtOnce)->toBe([])->and($critical)->toBeGreaterThan(0);
 });
 
-it('pins the open items P0-08/IF-9: staff global reach on a customer CRITICAL key and a forced purge still run at HIGH (security MEDIUM)', function () {
-    // PermissionCatalog::floor lowers a customer CRITICAL key to HIGH whoever holds it — also a member of staff whose reach is
-    // a GLOBAL binding (backup_dr_admin deleting any organization's backups, platform_owner filing another organization's
-    // erasure), and a forced purge is still `service.delete` HIGH. Telling the customer's reach from the staff's is the
-    // mode-aware Authorizer of P0-08; the forced purge becomes CRITICAL `staff.service.delete` in IF-9. When either lands this
-    // test fails on purpose: turn it into the proof that staff reach is CRITICAL and that the forced purge waits the time lock.
+it('makes staff reach on a customer CRITICAL key CRITICAL again, and a forced purge CRITICAL staff.service.delete behind the time lock (P0-08/IF-9, TASK-0039)', function () {
+    // The pinned open item of TASK-0037, turned into the proof by TASK-0039: PermissionCatalog::floor lowers a customer CRITICAL
+    // key to HIGH because a CUSTOMER has no second person to ask — a member keeps that floor. Reached through a staff role (a
+    // global binding: backup_dr_admin deleting any organization's backups, platform_owner filing another organization's
+    // erasure) the key is what the catalogue says, CRITICAL; and a forced purge is `staff.service.delete`, declared CRITICAL.
     config(['onhost.identity.four_eyes' => false]);
-    [, $org] = $this->customerWithOrganization();
+    [$owner, $org] = $this->customerWithOrganization();
     $solo = rftUser('platform_owner', 'rft-open-items@onhost.test');
     $backupAdmin = rftUser('backup_dr_admin', 'rft-backup-admin@onhost.test');
-    app(StepUpService::class)->grant($solo, 'totp', 'rft-session', '127.0.0.1');
-    app(StepUpService::class)->grant($backupAdmin, 'totp', 'rft-session', '127.0.0.1');
+    foreach ([$solo, $backupAdmin, $owner] as $person) {
+        app(StepUpService::class)->grant($person, 'totp', 'rft-session', '127.0.0.1');
+    }
     $deleteBackup = new ServiceActionCommand($org->id, 'rft-open-bdel', ['action' => 'backup.delete', 'params' => []]);
+    $forcedPurge = new ServiceActionCommand($org->id, 'rft-open-purge', ['action' => 'purge', 'params' => ['force' => true, 'reason' => 'podvodná objednávka']]);
 
     expect(PermissionCatalog::risk('backup.delete'))->toBe(PermissionCatalog::CRITICAL)->and(PermissionCatalog::floor('backup.delete'))->toBe(PermissionCatalog::HIGH)
-        ->and(PermissionCatalog::risk('service.delete'))->toBe(PermissionCatalog::HIGH);
-    expect(rftDecide($deleteBackup, rftContext($backupAdmin)))->toBe([true, null])
-        ->and(rftDecide($deleteBackup, rftContext($solo)))->toBe([true, null])
-        ->and(rftDecide(new DataRequestCommand($org->id, 'rft-open-erase', ['op' => 'request', 'kind' => 'deletion']), rftContext($solo)))->toBe([true, null])
-        ->and(rftDecide(new ServiceActionCommand($org->id, 'rft-open-purge', ['action' => 'purge', 'params' => ['force' => true, 'reason' => 'podvodná objednávka']]), rftContext($solo)))->toBe([true, null]);
+        ->and($forcedPurge->permission())->toBe('staff.service.delete')->and($forcedPurge->riskLevel())->toBe(PermissionCatalog::CRITICAL);
+    // the member: the customer floor, a step-up
+    expect(rftDecide($deleteBackup, rftContext($owner, $org->id)))->toBe([true, null]);
+    // staff reach: a second person for the backup admin (not the sole approver), the time lock for the sole approver
+    expect(rftDecide($deleteBackup, rftContext($backupAdmin)))->toBe([false, 'approval'])
+        ->and(rftDecide($deleteBackup, rftContext($solo)))->toBe([false, 'approval'])
+        ->and(rftDecide(new DataRequestCommand($org->id, 'rft-open-erase', ['op' => 'request', 'kind' => 'deletion']), rftContext($solo)))->toBe([false, 'approval'])
+        ->and(rftDecide($forcedPurge, rftContext($solo)))->toBe([false, 'approval']);
 });

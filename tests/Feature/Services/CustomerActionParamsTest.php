@@ -93,8 +93,10 @@ it('keeps only what a customer may choose: no free resize, no skipped archive, n
     paramsPost($this, "{$base}/restore", ['params' => ['backup_id' => paramsBackup($vps, 'running')->id]])->assertStatus(409)->assertJsonPath('error', 'backup_not_restorable');
     paramsPost($this, "/v1/services/{$foreign->id}/restore", ['params' => ['backup_id' => $own->id]])->assertForbidden(); // and somebody else's service is not mine to restore onto
 
-    // the archive before a cancellation is not the customer's to switch off
-    $terminate = paramsFinish(paramsPost($this, "{$base}/terminate", ['reason' => 'končíme', 'params' => ['archive_before_delete' => false, 'archive_skip_reason' => 'nechci zálohu', 'force' => true]])->assertStatus(202)->json('operation_id'));
+    // the archive before a cancellation is not the customer's to switch off: asking for it is refused before anything runs — the
+    // flag is `staff.service.delete`, CRITICAL (TASK-0039, IF-9; it used to be dropped silently) — and a word that is no flag is dropped
+    paramsPost($this, "{$base}/terminate", ['reason' => 'končíme', 'params' => ['archive_before_delete' => false, 'archive_skip_reason' => 'nechci zálohu', 'force' => true]])->assertForbidden();
+    $terminate = paramsFinish(paramsPost($this, "{$base}/terminate", ['reason' => 'končíme', 'params' => ['archive_skip_reason' => 'nechci zálohu', 'force' => true]])->assertStatus(202)->json('operation_id'));
     expect($terminate)->toMatchArray(['action' => 'terminate', 'reason' => 'končíme'])->not->toHaveKeys(['archive_before_delete', 'archive_skip_reason', 'force']);
 });
 
@@ -106,7 +108,9 @@ it('leaves staff their overrides, on the record', function () {
     app(StepUpService::class)->grant($staff, 'totp', null, '127.0.0.1');
     $this->actingAs($staff, 'sanctum');
 
-    $operationId = paramsPost($this, "/v1/staff/provisioning/services/{$vps->id}/purge", ['reason' => 'soudní příkaz k okamžitému odstranění'])->assertSuccessful()->json('operation_id');
+    // a forced purge is CRITICAL `staff.service.delete` (TASK-0039, IF-9): a second person first
+    $approval = paramsPost($this, "/v1/staff/provisioning/services/{$vps->id}/purge", ['reason' => 'soudní příkaz k okamžitému odstranění'])->assertForbidden()->json('approval_id');
+    $operationId = paramsPost($this, "/v1/staff/provisioning/services/{$vps->id}/purge", ['reason' => 'soudní příkaz k okamžitému odstranění', 'approval_ids' => [secondPersonApproves((string) $approval)]])->assertSuccessful()->json('operation_id');
     expect((array) Operation::query()->findOrFail($operationId)->desired)->toMatchArray(['action' => 'purge', 'force' => true]); // a forced purge inside the restore window stays a staff decision with a reason
 });
 
