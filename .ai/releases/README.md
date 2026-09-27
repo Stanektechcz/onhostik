@@ -16,11 +16,14 @@ explicit: `2426c17..<sha>`.
 ## Scope            commits → task files; commits without a task or review evidence are flagged
 ## Gates            `.\brain.ps1 gate` in a clean release worktree; CI runs for the SHA (tests, pest-postgres, e2e,
                     deploy-scripts) with run ids; Larastan, Pint, composer audit
-## Migrations       `git diff --stat <from>..<sha> -- database/migrations`; lock and rollback notes
-## Env and config   new keys (`.env.example` diff), switches that stay off (ADR-0007)
+## Migrations       `git diff --stat <from>..<sha> -- database/migrations`; the mechanical safety search (SKILL.md step 4);
+                    lock and rollback notes; a later SHA that carries a migration for staging-launch.md S8 d
+## Env and config   new keys (`.env.example` diff), switches that stay off (ADR-0007); staging vs production value per key
+                    (every difference marked *not rehearsed*); the automation switches of S0 and S7
 ## Deployer         sha256 of infra/aapanel/install.sh, deploy.sh, deploy-gate.php, install-deployer.sh at <sha>;
                     the SHA the deployer is installed from (install-deployer.sh)
-## Doctor           expected non-OK rows with reasons; GATED rows that need an Accept-Gate line (production)
+## Doctor           the staging expected-nonok list (O11) — every row with its reason, copied byte for byte to the
+                    host; production: the FAIL and GATED rows that need an Accept-Gate line
 ## Operations       exact human steps (docs/runbooks/deploy-aapanel.md, staging-launch.md), window estimate
                     (production nightly backup + verify durations from the automation ledger + build time)
 ## Rollback         last good release, backup set, limits (backward-compatible migrations, no down migrations)
@@ -44,9 +47,12 @@ explicit: `2426c17..<sha>`.
   ```text
   Release-Record: .ai/releases/<yyyy-mm-dd>-<sha7>.md
   Verdict: READY
-  Accept-Gate: <area|check> — <reason, 10+ characters>     (optional, one line per GATED doctor row accepted)
+  Accept-Gate: <area|check> — <reason, 10+ characters>     (optional, one line per doctor row accepted)
   ```
 
-  `Accept-Gate` accepts only the GATED rows listed in `docs/runbooks/release-and-rollback.md` (*The gate*); HARD rows
-  are never accepted, and outside production the lines are ignored (staging uses the SHA-bound `ALLOW_DOCTOR_FAIL`).
+  `Accept-Gate` accepts a GATED row or any other row that is `FAIL` in production (`docs/runbooks/release-and-rollback.md`,
+  *The gate* — since the pre-mortem of 2026-09-27 every FAIL row stops a production release); HARD rows are never
+  accepted, and outside production the lines are ignored (staging: the SHA-bound `ALLOW_DOCTOR_FAIL` for GATED rows,
+  the root-owned `expected-nonok` list for the others). Draft the lines from the production doctor with
+  `deploy-gate.php nonok --report <json> --production 1` before signing: a tag signed without them stops at the gate.
 * Staging deploys a SHA (`REF=<sha> EXPECTED_SHA=<sha>`); a tag is optional there and is not signature-checked.

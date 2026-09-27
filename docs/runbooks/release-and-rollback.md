@@ -26,7 +26,10 @@ release, and the backup it took was never verified (onboarding audit C12/C14).
 * Error-budget policy for `portal`/`payments` is not `freeze` (`GET /v1/staff/reports/slo`). A freeze blocks
   releases except fixes for the incident that caused it.
 * Migrations are additive (new tables/columns, no drops of data in the same release); destructive changes ship
-  one release after the code stopped using the column.
+  one release after the code stopped using the column. The release check proves it mechanically, not by reading
+  (`.claude/skills/ai-release-check/SKILL.md` step 4: a search of the range's migrations for drops, renames, `->change()`
+  and columns added `NOT NULL` without a default); a rollback over a migration is rehearsed on staging with a target that
+  really carries one (staging-launch.md S8 d).
 * No release between 02:00 and 03:00 (the nightly platform backup at 02:15 would fall into the window and be skipped).
 
 ## Deploy (what `onhost-deploy` does, in this order)
@@ -37,18 +40,26 @@ REF=<tag|sha> EXPECTED_SHA=<40-hex sha> DEPLOY_OPERATOR=<name> PHP_FPM_RELOAD='<
 
 | Stage | What happens | On failure |
 | --- | --- | --- |
-| preflight | lock (`flock`); `REF` and the full `EXPECTED_SHA` required, `BRANCH` refused; the deployer, `deploy-gate.php` and `source-sha` root-owned and writable by nobody else; APP_ENV and APP_URL read fail-closed from the root-owned `/etc/onhost/app.env` (`ENV_FILE`) — never from `$APP_DIR/.env`, which must be that very file (only `staging`, `local`, `testing` are not production); APP_URL host = `SITE`; `storage`, `bootstrap`, `bootstrap/cache` real directories (no symlinks); `.git` root-owned and not group/world-writable; `git fetch --tags`; REF resolved (production: an annotated tag whose `tag` header names it, whose last signature block is SSH with nothing but blank lines after it, and which `git verify-tag` accepts (the object id resolved once) against the root-owned `allowed_signers` — with `gpg.program`/`gpg.x509.program` set to `false` and an empty `GNUPGHOME`); the target must not carry a newer deployer than the installed one; tree clean (except the generated `contracts/openapi/onhost-v1.yaml` and `VERSION`); `SKIP_BACKUP`/`ALLOW_DOCTOR_FAIL` validated and bound to the target SHA; `/up` reachable over loopback (401/403 = the vhost's basic auth is not bypassed for loopback) | exit **2**, nothing changed |
+| preflight | lock (`flock`); `REF` and the full `EXPECTED_SHA` required, `BRANCH` refused; the deployer, `deploy-gate.php` and `source-sha` root-owned and writable by nobody else; APP_ENV and APP_URL read fail-closed from the root-owned `/etc/onhost/app.env` (`ENV_FILE`) — never from `$APP_DIR/.env`, which must be that very file (only `staging`, `local`, `testing` are not production); APP_URL host = `SITE`; `storage`, `bootstrap`, `bootstrap/cache` real directories (no symlinks); `.git` root-owned and not group/world-writable; `git fetch --tags`; REF resolved (production: an annotated tag whose `tag` header names it, whose last signature block is SSH with nothing but blank lines after it, and which `git verify-tag` accepts (the object id resolved once) against the root-owned `allowed_signers` — with `gpg.program`/`gpg.x509.program` set to `false` and an empty `GNUPGHOME`); the target must not carry a newer deployer than the installed one; tree clean (except the generated `contracts/openapi/onhost-v1.yaml` and `VERSION`); `SKIP_BACKUP`/`ALLOW_DOCTOR_FAIL` validated and bound to the target SHA; the root-owned `expected-units` exists and every unit it names is `enabled` and running (or was stopped by a previous failed run), and no other `onhost-queue@*`/`onhost-scheduler` unit runs; outside production also `expected-nonok` exists and `expected-env` holds (`deploy-gate.php env-assert` against `ENV_FILE`, values never printed); `/up` reachable over loopback (401/403 = the vhost's basic auth is not bypassed for loopback) | exit **2**, nothing changed |
 | drain | the active `onhost-queue@*` and `onhost-scheduler` units are stopped and waited for (`DRAIN_TIMEOUT`, default 300 s; a worker finishes its job first); the list is kept in `drained-units` | exit **3**, the units are started again |
 | down | `artisan down --retry=60 --with-secret` (output discarded — the bypass URL never reaches a terminal or log); compiled Blade views dropped. From preflight on, every artisan and composer call reads Laravel's framework caches (`APP_PACKAGES_CACHE`, `APP_SERVICES_CACHE`, `APP_CONFIG_CACHE`, `APP_ROUTES_CACHE`, `APP_EVENTS_CACHE`) from a root-only directory of the run, never from the www-owned `bootstrap/cache` | exit 3, units started |
 | backup | `onhost:platform:backup`, the `Set …` line of THIS run, `onhost:platform:backup:verify <set>` must print `OK <set>`; the whole output (with the sha256 prefixes) stays in `runs/<ts>/backup.out` | exit **3**, nothing switched, the site back up if this run took it down |
 | switch + build | `git checkout -f --detach <sha>` and a clean-tree check; bootstrap caches removed; `composer install --no-dev`; `migrate --force --isolated` with `lock_timeout=10s` (no retry); `AuthorizationSeeder`, `NotificationTemplateSeeder`; `config:cache`, `route:cache`, `event:cache` (into the run's root-only directory, then copied into `bootstrap/cache` for PHP-FPM); `onhost:openapi` (a failure is a WARN); `VERSION`; storage/bootstrap ownership repaired (`find -P … chown -h`, no symlink followed); `PHP_FPM_RELOAD` | exit **4** |
 | gate | storage and bootstrap/cache owned by the PHP-FPM user; `.env` still the root-owned file; `onhost:doctor --json` judged by `deploy-gate.php` (below); `GET /up` and `GET /v1/status` must answer 200 through the maintenance bypass | exit **5** |
-| live | the expected staging freeze re-asserted (`expect-freeze`), the drained units started and, after `UNIT_SETTLE` (5 s), every one of them `active` — else all of them are stopped again and the site stays in maintenance (exit **7**); `artisan up` — only when the deployer took the site down (a site an operator took down stays down); public `GET /up` must answer 200 | exit **6** after `up` |
-| record | `last-good.json` (sha, ref, tag, time, operator) and one line in `deploy.log` (from, to, stage, rc, backup set, drain seconds, window seconds, override) | — |
+| live | the expected staging freeze re-asserted (`expect-freeze`), the drained units that are still in `expected-units` started (one taken off the list stays stopped) and, after `UNIT_SETTLE` (5 s), **every unit of `expected-units`** `active` — else all of them are stopped again and the site stays in maintenance (exit **7**); `artisan up` — only when the deployer took the site down (a site an operator took down stays down); public `GET /up` must answer 200 | exit **6** after `up` |
+| record | `last-good.json` (sha, ref, tag, time, operator) and one line in `deploy.log` (from, to, stage, rc, backup set, drain seconds, window seconds, override, accepted rows, the first 12 of the sha256 of `expected-nonok`) | — |
 
 State lives in `/var/lib/onhost-deploy/<site>/` (root, 0700): `deploy.log`, `last-good.json`, `drained-units`,
-`down-by-deploy`, `expect-freeze`, `allowed_signers`, `gitconfig` and `runs/<ts>-<sha12>/` (`backup.out`,
-`report.json`, `verdict.out`, `tag.txt` — the signed message of the production tag, nothing after its signature).
+`down-by-deploy`, `expect-freeze`, `expected-units`, `expected-nonok` and `expected-env` (staging), `allowed_signers`,
+`gitconfig` and `runs/<ts>-<sha12>/` (`backup.out`, `report.json`, `verdict.out`, `env-assert.out`, `tag.txt` — the
+signed message of the production tag, nothing after its signature).
+
+The three lists (pre-mortem 2026-09-27, `docs/runbooks/staging-launch.md` O11/O12/S3) are root's decisions, not the
+target's: `expected-units` — the units that must run after every release (`install.sh` writes it on a first install
+from `QUEUES`; one unit per line, `#` comments, an empty file = none); `expected-nonok` — the doctor rows a staging runs
+non-OK on purpose, each with its reason in the release record; `expected-env` — `KEY=value`, `KEY=` (empty or
+absent), `KEY?` (set), `KEY!=value`, `KEY~=regex` lines the staging environment file must satisfy (a `<…>` placeholder
+is refused).
 
 ### The gate (`infra/aapanel/deploy-gate.php`)
 
@@ -66,8 +77,16 @@ row, counts as failed (outside production a blocking row is `WARN`, not `FAIL`: 
   `ALLOW_DOCTOR_FAIL="<first 12 characters of the target SHA>:<reason, 10+ characters>"`, validated in preflight,
   logged with operator, both SHAs and the accepted rows. In production the variable is refused; a GATED row passes only
   through a line `Accept-Gate: <area|check> — <reason>` in the signed message of the owner's tag (a tag with anything after its signature is refused in preflight).
-* Every other row is printed (`REPORT …`) and stored in `report.json`, never gating. The liveness rows (scheduler,
-  worker) cannot be judged while the units are stopped: run `onhost:doctor` again six minutes after the release.
+* **Every other row** (pre-mortem 2026-09-27 — before, they were printed and never gated, so a card gateway in test
+  mode or a log mailer went live unnoticed although `Doctor.php` promises that a FAIL fails a production deploy):
+  in **production** a `FAIL` row stops the release (`ROW-FAIL`, exit 5) unless the signed tag carries an `Accept-Gate:`
+  line for it; a `WARN` row is non-blocking by the doctor's own definition and is printed. **Outside production** any
+  non-OK row stops it unless `expected-nonok` names it (`EXPECTED …`); `ALLOW_DOCTOR_FAIL` does not open these rows. A
+  listed row that is OK again is printed as `CLEARED`. `deploy-gate.php nonok --report <doctor json> --production 0|1`
+  drafts the list (staging) or the Accept-Gate candidates (production).
+* **Drained rows** — `automation|scheduler running`, `automation|queue worker alive`, `mail|outbox is leaving` — cannot
+  be judged while the units are stopped: printed, never gating; the live stage requires every expected unit `active`,
+  and `onhost:doctor` six minutes after the release must show them OK (staging-launch.md S7/D).
 
 ### Exit codes
 

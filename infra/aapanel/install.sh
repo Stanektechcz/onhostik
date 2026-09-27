@@ -12,9 +12,12 @@
 #   INSTALL_REPAIR=1 bash onhost-install.sh      (an installed site only; no REF/EXPECTED_SHA)
 #
 # repairs storage/bootstrap ownership and re-renders the systemd units from the checked-out revision in the root-owned
-# .git. It never migrates or seeds, and it does NOT change whether a unit runs: the units are enabled, never started
-# or restarted — a contained staging whose units were stopped on purpose stays stopped (review round 3). START_UNITS=1
-# also starts them.
+# .git. It never migrates or seeds, and it does NOT change whether a unit runs or starts at boot: with START_UNITS=0
+# (the repair's default) units are rendered only — never enabled, started or restarted. Review round 3 stopped the
+# repair from starting units; the pre-mortem of 2026-09-27 found that `enable` alone put every provider lane of a
+# contained staging back into the boot sequence (the next reboot restarted the workers that talk to live panels).
+# START_UNITS=1 enables and starts them. A first install writes $DEPLOY_STATE_DIR/expected-units (the scheduler and
+# every lane of QUEUES) for the gated deployer; staging phase 1 installs with QUEUES='default mails'.
 set -euo pipefail
 
 SITE="${SITE:-staging.onhost.cz}"                     # the aaPanel site (staging.onhost.cz for testing, onhost.cz for production)
@@ -61,17 +64,29 @@ git_is_roots() { [ -d "$APP_DIR/.git" ] && [ ! -L "$APP_DIR/.git" ] && [ -z "$(f
 # The unit files come out of the root-owned .git at revision $1, never from the working tree: www can replace entries of
 # $APP_DIR, and a unit file it wrote (User=root, its own ExecStart) would run as root at the next start (review round 3).
 install_units() { # $1 = revision
-  local unit q now=()
-  [ "$START_UNITS" = 1 ] && now=(--now)
+  local unit q
   for unit in onhost-queue@.service onhost-scheduler.service; do
     g show "$1:infra/systemd/$unit" \
       | sed -e "s#/var/www/onhost#${APP_DIR}#g" -e "s#/usr/bin/php#${PHP}#g" -e "s#User=onhost#User=${RUN_USER}#" -e "s#Group=onhost#Group=${RUN_USER}#" -e "s#/etc/onhost/app.env#${ENV_DIR}/app.env#" \
       > "$SYSTEMD_DIR/$unit.new" && mv -f "$SYSTEMD_DIR/$unit.new" "$SYSTEMD_DIR/$unit" || die "cannot render $unit from $1"
   done
   systemctl daemon-reload
-  systemctl enable ${now[@]+"${now[@]}"} onhost-scheduler.service
-  for q in $QUEUES; do systemctl enable ${now[@]+"${now[@]}"} "onhost-queue@${q}.service"; done
-  [ "$START_UNITS" = 1 ] || echo "   units enabled, NOT started or restarted (START_UNITS=0): start them after the containment steps of docs/runbooks/staging-launch.md"
+  if [ "$START_UNITS" = 1 ]; then
+    systemctl enable --now onhost-scheduler.service
+    for q in $QUEUES; do systemctl enable --now "onhost-queue@${q}.service"; done
+  else
+    echo "   units rendered, NOT enabled or started (START_UNITS=0): enable the ones docs/runbooks/staging-launch.md O12 names, after its containment steps"
+  fi
+}
+# the units the gated deployer requires after every release (deploy.sh preflight); written once, never by the repair —
+# the operator's list (staging-launch.md O12) wins
+write_expected_units() {
+  local q
+  [ -f "$DEPLOY_STATE_DIR/expected-units" ] && return 0
+  (umask 077
+    { echo "# units that must run after every release (infra/aapanel/deploy.sh; docs/runbooks/staging-launch.md O12)"
+      echo onhost-scheduler.service
+      for q in $QUEUES; do echo "onhost-queue@${q}.service"; done; } > "$DEPLOY_STATE_DIR/expected-units")
 }
 
 say "Checking the host"
@@ -162,6 +177,7 @@ art db:seed --class=NotificationTemplateSeeder --force
 
 say "systemd: queue workers, scheduler"
 install_units "$EXPECTED_SHA"
+write_expected_units
 
 say "Caches"
 art config:cache

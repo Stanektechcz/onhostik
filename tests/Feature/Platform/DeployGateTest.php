@@ -59,16 +59,19 @@ function deployGateRemoveTree(string $dir): void
 }
 
 /**
- * A doctor report in which every HARD and GATED row is OK, plus one ordinary WARN row.
+ * A doctor report in which every HARD and GATED row is OK, plus one liveness row that is WARN (the units are drained
+ * while the gate runs). A `$status` entry for a name outside those lists adds that row (pre-mortem 2026-09-27: the
+ * rows outside the lists are judged too).
  *
- * @param  array<string, string>  $status  row name → status to change
+ * @param  array<string, string>  $status  row name → status to change or add
  * @return array<string, mixed>
  */
 function deployGateReport(array $status = [], string $environment = 'staging', array $drop = []): array
 {
     $names = json_decode(deployGateCall(['names'])->getOutput(), true);
+    $base = array_merge($names['hard'], $names['gated'], ['automation|scheduler running']);
     $rows = [];
-    foreach (array_merge($names['hard'], $names['gated'], ['automation|scheduler running']) as $name) {
+    foreach (array_merge($base, array_values(array_diff(array_keys($status), $base))) as $name) {
         if (in_array($name, $drop, true)) {
             continue;
         }
@@ -79,7 +82,7 @@ function deployGateReport(array $status = [], string $environment = 'staging', a
     return ['environment' => $environment, 'fail' => 0, 'warn' => 1, 'checks' => $rows];
 }
 
-/** @param array<string, string> $options */
+/** @param array<string, string> $options  `accept` = the signed tag message, `expected` = the staging expected-nonok list */
 function deployGateVerdict(array|string $report, array $options = []): Process
 {
     $dir = deployGateTempDir();
@@ -87,9 +90,10 @@ function deployGateVerdict(array|string $report, array $options = []): Process
     file_put_contents($file, is_string($report) ? $report : (string) json_encode($report));
     $args = ['verdict', '--report', $file];
     foreach (array_merge(['doctor-rc' => '0', 'env' => 'staging', 'production' => '0', 'sha' => str_repeat('ab', 20), 'override' => '', 'accept-file' => ''], $options) as $key => $value) {
-        if ($key === 'accept') {
-            file_put_contents($dir.'/tag.txt', $value);
-            array_push($args, '--accept-file', $dir.'/tag.txt');
+        if ($key === 'accept' || $key === 'expected') {
+            $path = $dir.'/'.($key === 'accept' ? 'tag.txt' : 'expected-nonok');
+            file_put_contents($path, $value);
+            array_push($args, $key === 'accept' ? '--accept-file' : '--expected-file', $path);
 
             continue;
         }
@@ -138,7 +142,7 @@ it('stops on a GATED row; outside production a SHA-bound override with a reason 
         ->and(deployGateVerdict(deployGateReport(drop: ['catalog|the metering gap ratchet is not growing']))->getExitCode())->toBe(10);
 });
 
-it('in production refuses the environment override and honours an Accept-Gate line of the signed tag for a GATED row only', function () {
+it('in production refuses the environment override and honours an Accept-Gate line of the signed tag for a GATED row', function () {
     $sha = str_repeat('ab', 20);
     $report = deployGateReport(['tls|CA bundle for outbound TLS' => 'FAIL'], 'production');
     $prod = ['env' => 'production', 'production' => '1'];
@@ -160,6 +164,88 @@ it('never reads an Accept-Gate line after a signature armor line: git leaves byt
     expect($p->getExitCode())->toBe(10, $p->getOutput())->and($p->getOutput())->not->toContain('ACCEPTED');
 });
 
+// Pre-mortem 2026-09-27 (false-green HIGH): the gate judged 11 rows by name and waved every other FAIL through — card
+// gateway live mode, transactional mailer, bank account, Sanctum domains — although Doctor.php promises that a FAIL
+// fails a production deploy. On staging the same rows are WARN by design, so a staging GO taught operators to ignore them.
+
+it('in production stops on any FAIL row outside the lists unless the signed tag accepts it; HARD never, WARN and the drained rows are reported', function () {
+    $prod = ['env' => 'production', 'production' => '1'];
+    $report = deployGateReport(['payments|card gateway live mode' => 'FAIL', 'mail|sender address set' => 'WARN', 'automation|queue worker alive' => 'FAIL'], 'production');
+
+    $blocked = deployGateVerdict($report, $prod);
+    expect($blocked->getExitCode())->toBe(12, $blocked->getOutput())
+        ->and($blocked->getOutput())->toContain('ROW-FAIL payments|card gateway live mode (FAIL)')
+        ->toContain('REPORT mail|sender address set (WARN)')
+        ->toContain('REPORT automation|queue worker alive (FAIL)')->not->toContain('ROW-FAIL automation|queue worker alive');
+
+    $accepted = deployGateVerdict($report, $prod + ['accept' => "v2026.09.28\n\nAccept-Gate: payments|card gateway live mode — the live merchant is switched on after the first paid test order\n"]);
+    expect($accepted->getExitCode())->toBe(0, $accepted->getOutput())
+        ->and($accepted->getOutput())->toContain('ACCEPTED payments|card gateway live mode (FAIL) by Accept-Gate in the signed tag');
+
+    // production accepts a row only in the owner's signed tag: a list on the host does not open it, nor does the override
+    expect(deployGateVerdict($report, $prod + ['expected' => "payments|card gateway live mode\n"])->getExitCode())->toBe(12)
+        ->and(deployGateVerdict(deployGateReport(['app|APP_KEY set' => 'FAIL'], 'production'), $prod + ['accept' => "Accept-Gate: app|APP_KEY set — never, whatever the reason says\n"])->getExitCode())->toBe(11);
+});
+
+it('outside production stops on any non-OK row that is not on the expected list, which no override opens', function () {
+    $sha = str_repeat('ab', 20);
+    $report = deployGateReport(['mail|transactional mailer' => 'WARN', 'identity|four eyes in effect' => 'WARN', 'automation|queue worker alive' => 'WARN']);
+
+    $none = deployGateVerdict($report); // no list at all: every such row stops the release
+    expect($none->getExitCode())->toBe(12, $none->getOutput())->and($none->getOutput())->toContain('ROW-FAIL mail|transactional mailer (WARN)');
+
+    $partial = deployGateVerdict($report, ['expected' => "# staging, O11: mail goes to the log\nmail|transactional mailer\n"]);
+    expect($partial->getExitCode())->toBe(12)
+        ->and($partial->getOutput())->toContain('EXPECTED mail|transactional mailer (WARN)')->toContain('ROW-FAIL identity|four eyes in effect (WARN)')
+        ->and(deployGateVerdict($report, ['expected' => "mail|transactional mailer\n", 'override' => substr($sha, 0, 12).':staging override rehearsal'])->getExitCode())->toBe(12);
+
+    $full = deployGateVerdict($report, ['expected' => "mail|transactional mailer\nidentity|four eyes in effect\npayments|bank statement import\n"]);
+    expect($full->getExitCode())->toBe(0, $full->getOutput())
+        ->and($full->getOutput())->toContain('CLEARED payments|bank statement import')->toContain('REPORT automation|queue worker alive (WARN)');
+});
+
+it('drafts the rows a release would need listed (staging) or accepted (production)', function () {
+    $dir = deployGateTempDir();
+    $staging = deployGateReport(['mail|transactional mailer' => 'WARN', 'automation|queue worker alive' => 'WARN', 'storage|queue driver' => 'WARN']);
+    $production = deployGateReport(['payments|card gateway live mode' => 'FAIL', 'mail|sender address set' => 'WARN', 'storage|queue driver' => 'WARN'], 'production');
+    file_put_contents($dir.'/s.json', (string) json_encode($staging));
+    file_put_contents($dir.'/p.json', (string) json_encode($production));
+
+    $s = deployGateCall(['nonok', '--report', $dir.'/s.json', '--production', '0']);
+    $p = deployGateCall(['nonok', '--report', $dir.'/p.json', '--production', '1']);
+
+    expect($s->getExitCode())->toBe(0)->and(trim($s->getOutput()))->toBe('mail|transactional mailer')
+        ->and($p->getExitCode())->toBe(0)->and(trim($p->getOutput()))->toBe("storage|queue driver\npayments|card gateway live mode")
+        ->and(deployGateCall(['nonok', '--report', $dir.'/missing.json'])->getExitCode())->toBe(2);
+    deployGateRemoveTree($dir);
+});
+
+// Pre-mortem 2026-09-27 (live-harm MEDIUM): S3 only printed values. The assertion reads app.env the way phpdotenv does
+// and never prints a value — the file holds secrets, and a mismatch of a secret key must not show it.
+it('asserts the staging environment against a spec without printing a value, and refuses an unfilled or unreadable spec', function () {
+    $dir = deployGateTempDir();
+    file_put_contents($dir.'/app.env', "APP_ENV=staging\nCOMGATE_TEST=true\nCOMGATE_RECURRING=true   # stored cards\nONHOST_BANK_FIO_TOKEN=\nPOWERDNS_HIDDEN01_URL=                     # the hidden primary\nREDIS_PREFIX=onhost-staging-\nCOMGATE_SECRET=sEcReT-live\nONHOST_ACME_DIRECTORY=https://acme-staging-v02.api.letsencrypt.org/directory\n");
+    $assert = function (string $spec) use ($dir): Process {
+        file_put_contents($dir.'/spec', $spec);
+
+        return deployGateCall(['env-assert', '--file', $dir.'/app.env', '--spec', $dir.'/spec']);
+    };
+
+    $ok = $assert("# staging\nAPP_ENV=staging\nCOMGATE_TEST=true\nONHOST_BANK_FIO_TOKEN=\nPOWERDNS_HIDDEN01_URL=\nREDIS_PREFIX?\nREDIS_PREFIX!=onhost-database-\nONHOST_ACME_DIRECTORY~=acme-staging\n");
+    expect($ok->getExitCode())->toBe(0, $ok->getOutput())->and($ok->getOutput())->toContain('OK REDIS_PREFIX')->toContain('OK POWERDNS_HIDDEN01_URL');
+
+    $bad = $assert("COMGATE_RECURRING=false\nCOMGATE_SECRET=\nCACHE_PREFIX?\n");
+    expect($bad->getExitCode())->toBe(13)
+        ->and($bad->getOutput())->toContain('MISMATCH COMGATE_RECURRING')->toContain('MISMATCH COMGATE_SECRET')->toContain('MISMATCH CACHE_PREFIX')
+        ->and($bad->getOutput().$bad->getErrorOutput())->not->toContain('sEcReT-live');
+
+    expect($assert("COMGATE_MERCHANT=<the Comgate test merchant id>\n")->getExitCode())->toBe(13)
+        ->and($assert("COMGATE_MERCHANT=<the Comgate test merchant id>\n")->getOutput())->toContain('UNFILLED COMGATE_MERCHANT')
+        ->and($assert("this is not a rule\n")->getExitCode())->toBe(2)
+        ->and(deployGateCall(['env-assert', '--file', $dir.'/missing.env', '--spec', $dir.'/spec'])->getExitCode())->toBe(2);
+    deployGateRemoveTree($dir);
+});
+
 it('reads APP_ENV the way phpdotenv does and leaves anything ambiguous empty (the deployer then treats it as production)', function () {
     $dir = deployGateTempDir();
     $read = function (string $content) use ($dir): string {
@@ -173,7 +259,11 @@ it('reads APP_ENV the way phpdotenv does and leaves anything ambiguous empty (th
         ->and($read("APP_ENV=staging # staging | production\n"))->toBe('staging')
         ->and($read("APP_DEBUG=false\n"))->toBe('')
         ->and($read("APP_ENV=staging\nAPP_ENV=production\n"))->toBe('')
-        ->and($read("export APP_ENV='local'\n"))->toBe('local');
+        ->and($read("export APP_ENV='local'\n"))->toBe('local')
+        // phpdotenv ends an unquoted value at the first `#`, also right after `=` (VERIFIED against vlucas/phpdotenv 5):
+        // `.env.example` writes `KEY=      # comment` for an empty key, which used to read as the comment itself
+        ->and($read("APP_ENV=staging#no space before the comment\n"))->toBe('staging')
+        ->and($read("APP_ENV=                     # staging | production\n"))->toBe('');
     expect(deployGateCall(['parse-env', '--file', $dir.'/missing'])->getExitCode())->toBe(2);
     deployGateRemoveTree($dir);
 });
@@ -223,14 +313,15 @@ it('prints a recovery command that works under the environment\'s REF rules', fu
 
 // ── (b) the names it gates on exist ────────────────────────────────────────────────────────────────────────────────
 
-it('gates only on doctor rows that exist: every HARD and GATED name appears in a real onhost:doctor --json run', function () {
+it('gates only on doctor rows that exist: every HARD, GATED and drained name appears in a real onhost:doctor --json run', function () {
     Http::preventStrayRequests();
     Artisan::call('onhost:doctor', ['--json' => true]);
     $report = json_decode(trim(Artisan::output()), true, 512, JSON_THROW_ON_ERROR);
     $present = array_map(fn (array $row) => $row['area'].'|'.$row['check'], $report['checks']);
     $names = json_decode(deployGateCall(['names'])->getOutput(), true);
 
-    expect(array_values(array_diff(array_merge($names['hard'], $names['gated']), $present)))->toBe([]);
+    expect($names['drained'] ?? null)->toBeArray()->not->toBeEmpty()
+        ->and(array_values(array_diff(array_merge($names['hard'], $names['gated'], $names['drained'] ?? []), $present)))->toBe([]);
 });
 
 // ── (c) the text deploy.sh parses ──────────────────────────────────────────────────────────────────────────────────
@@ -327,10 +418,17 @@ function deployGateSandbox(): array
  *
  * @param  array<string, string|false>  $env
  * @param  array<string, string>  $stub  knobs for the stubs (written to bin/stub.env; artisan runs under env -i)
+ * @param  string|false|null  $expectedUnits  the state dir's expected-units; null = the units STUB_UNITS says are running, false = no file
  * @return array{rc:int, out:string, log:string, stub:string, head:string}
  */
-function deployGateDeploy(array $box, array $env, array $stub = []): array
+function deployGateDeploy(array $box, array $env, array $stub = [], string|false|null $expectedUnits = null): array
 {
+    $unitsFile = $box['dir'].'/state/expected-units';
+    if ($expectedUnits === false) {
+        @unlink($unitsFile);
+    } else {
+        file_put_contents($unitsFile, $expectedUnits ?? implode("\n", preg_split('/\s+/', trim($stub['STUB_UNITS'] ?? ''), -1, PREG_SPLIT_NO_EMPTY))."\n");
+    }
     $base = "STUB_LOG='{$box['posix']}/stub.log'\nREAL_PHP='".deployGatePosix(PHP_BINARY)."'\n";
     foreach ($stub as $key => $value) {
         $base .= $key."='".str_replace("'", "'\\''", $value)."'\n";
@@ -689,16 +787,20 @@ it('repairs an installed site without starting its units, without following a li
         ->and($linked['stub'])->not->toContain('chown')->not->toContain('systemctl')
         ->and((string) file_get_contents($box['dir'].'/elsewhere/keep.txt'))->toBe('not the site');
 
-    // a contained staging (units stopped on purpose) stays stopped; a unit file www wrote into the tree is not used
+    // a contained staging (units stopped, disabled and masked on purpose) stays that way: the repair neither starts nor
+    // ENABLES a unit — pre-mortem 2026-09-27: `enable` put every provider lane back into the boot sequence, so the next
+    // reboot restarted the workers that talk to live panels. A unit file www wrote into the tree is not used.
     File::ensureDirectoryExists($app.'/infra/systemd');
     file_put_contents($app.'/infra/systemd/onhost-scheduler.service', "[Service]\nUser=root\nExecStart=/bin/sh -c 'planted by www'\n");
+    file_put_contents($box['dir'].'/state/expected-units', "onhost-queue@default.service\n");
     $repair = deployGateInstall($box, []);
     $unit = (string) @file_get_contents($box['dir'].'/systemd/onhost-scheduler.service');
     expect($repair['rc'])->toBe(0, $repair['out'])
-        ->and($repair['stub'])->toContain('systemctl enable onhost-scheduler.service')->toContain('systemctl enable onhost-queue@default.service')
-        ->not->toContain('--now')->not->toContain('systemctl start')->not->toContain('systemctl restart')
+        ->and($repair['stub'])->toContain('systemctl daemon-reload')
+        ->not->toContain('systemctl enable')->not->toContain('systemctl start')->not->toContain('systemctl restart')
         ->and($repair['stub'])->toContain('chown -h')
-        ->and($unit)->toContain('User='.$box['USER'])->toContain('schedule:work')->not->toContain('planted by www');
+        ->and($unit)->toContain('User='.$box['USER'])->toContain('schedule:work')->not->toContain('planted by www')
+        ->and((string) file_get_contents($box['dir'].'/state/expected-units'))->toBe("onhost-queue@default.service\n"); // the operator's list is kept
 
     $started = deployGateInstall($box, ['START_UNITS' => '1']);   // starting is an explicit choice
     expect($started['rc'])->toBe(0, $started['out'])->and($started['stub'])->toContain('systemctl enable --now onhost-scheduler.service');
@@ -719,6 +821,61 @@ it('does not call a release good when a drained unit does not come back: all of 
         ->and(trim((string) file_get_contents($box['dir'].'/state/drained-units')))->toBe("onhost-queue@default.service\nonhost-scheduler.service")
         ->and($r['out'])->toContain("REF={$box['SHA_A']} EXPECTED_SHA={$box['SHA_A']}")
         ->and($r['log'])->toContain('stage=live rc=7');
+});
+
+// Pre-mortem 2026-09-27 (false-green HIGH, live-harm HIGH/MEDIUM): the deployer restarted only what happened to run, so a
+// lane that was already dead or disabled stayed dead and the run still ended rc 0; a provider lane someone started on a
+// contained staging came back with every release; and the staging environment was only printed, never asserted.
+it('refuses before going down when an expected unit is not running or not enabled, a unit runs that is not expected, or a staging list does not hold', function () {
+    $box = $this->deployBox = deployGateSandbox();
+    $to = deployGateTo($box, $box['SHA_B']);
+    $state = $box['dir'].'/state';
+
+    $dead = deployGateDeploy($box, $to, ['STUB_UNITS' => 'onhost-scheduler.service'], "onhost-scheduler.service\nonhost-queue@default.service\n");
+    $disabled = deployGateDeploy($box, $to, ['STUB_UNITS' => 'onhost-queue@default.service', 'STUB_DISABLED' => 'onhost-queue@default.service']);
+    $stray = deployGateDeploy($box, $to, ['STUB_UNITS' => 'onhost-queue@default.service onhost-queue@provider-ispconfig.service'], "onhost-queue@default.service\n");
+
+    $env = (string) file_get_contents($state.'/expected-env');
+    file_put_contents($state.'/expected-env', $env."COMGATE_RECURRING=false\n");   // the site's app.env does not say so
+    $mismatch = deployGateDeploy($box, $to);
+    file_put_contents($state.'/expected-env', $env);
+
+    rename($state.'/expected-nonok', $state.'/expected-nonok.kept');
+    $noList = deployGateDeploy($box, $to);
+    rename($state.'/expected-nonok.kept', $state.'/expected-nonok');
+
+    $noUnitsFile = deployGateDeploy($box, $to, [], false);
+
+    foreach ([$dead, $disabled, $stray, $mismatch, $noList, $noUnitsFile] as $r) {
+        expect($r['rc'])->toBe(2, $r['out'])->and($r['stub'])->not->toContain('artisan down')->not->toContain('systemctl stop')->and($r['head'])->toBe($box['SHA_A']);
+    }
+    expect($dead['out'])->toContain('onhost-queue@default.service')->toContain('not running')
+        ->and($disabled['out'])->toContain("'disabled'")
+        ->and($stray['out'])->toContain('onhost-queue@provider-ispconfig.service')->toContain('not in')
+        ->and($mismatch['out'])->toContain('MISMATCH COMGATE_RECURRING')
+        ->and($noList['out'])->toContain('expected-nonok')
+        ->and($noUnitsFile['out'])->toContain('expected-units');
+
+    // an empty list is a decision (a contained staging runs no unit), not a missing one
+    $none = deployGateDeploy($box, $to, [], '');
+    expect($none['rc'])->toBe(0, $none['out'])->and($none['head'])->toBe($box['SHA_B']);
+});
+
+it('stops a staging release on a doctor row that is not on the expected list, and passes it once the list names it', function () {
+    $box = $this->deployBox = deployGateSandbox();
+    file_put_contents($box['dir'].'/bin/doctor.json', (string) json_encode(deployGateReport(['mail|transactional mailer' => 'WARN'])));
+    $to = deployGateTo($box, $box['SHA_B']);
+
+    $stopped = deployGateDeploy($box, $to);
+    expect($stopped['rc'])->toBe(5, $stopped['out'])->and($stopped['out'])->toContain('ROW-FAIL mail|transactional mailer (WARN)')
+        ->and($stopped['stub'])->not->toContain('artisan up')
+        ->and(is_file($box['dir'].'/app/storage/framework/down'))->toBeTrue();
+
+    file_put_contents($box['dir'].'/state/expected-nonok', "# O11: staging sends mail to the log\nmail|transactional mailer\n");
+    $passed = deployGateDeploy($box, $to);
+    expect($passed['rc'])->toBe(0, $passed['out'])->and($passed['out'])->toContain('EXPECTED mail|transactional mailer (WARN)')
+        ->and(is_file($box['dir'].'/app/storage/framework/down'))->toBeFalse()
+        ->and($passed['log'])->toMatch('/expected_nonok=[0-9a-f]{12} /');
 });
 
 it('keeps bash syntax valid and never ignores the doctor again', function () {

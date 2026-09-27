@@ -101,16 +101,20 @@ here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091
 . "$here/stub.env"
 printf 'systemctl %s\n' "$*" >> "$STUB_LOG"
-# unit state: stop → inactive, start → active (STUB_START_FAIL names units that fail to start), is-active reads it
+# unit state: the units in STUB_UNITS run until stopped; stop → inactive, start → active (STUB_START_FAIL names units
+# that fail to start); list-units and is-active read it; is-enabled says `enabled` except for the units in STUB_DISABLED
 mkdir -p "$here/units"
 last=""; for a in "$@"; do last="$a"; done
+state() { local s; s="$(cat "$here/units/$1" 2>/dev/null)"; if [ -z "$s" ]; then case " ${STUB_UNITS:-} " in *" $1 "*) s=active ;; esac; fi; printf '%s' "$s"; }
 case "${1:-}" in
-  list-units) for u in ${STUB_UNITS:-}; do echo "$u loaded active running stub"; done ;;
+  list-units)
+    for u in ${STUB_UNITS:-} $(ls "$here/units" 2>/dev/null); do [ "$(state "$u")" = active ] && echo "$u"; done | sort -u | while read -r u; do echo "$u loaded active running stub"; done ;;
   stop) for u in "$@"; do case "$u" in stop|--*) ;; *) echo inactive > "$here/units/$u" ;; esac; done ;;
   start)
     case " ${STUB_START_FAIL:-} " in *" $last "*) echo failed > "$here/units/$last"; exit 1 ;; esac
     echo active > "$here/units/$last" ;;
-  is-active) [ "$(cat "$here/units/$last" 2>/dev/null)" = active ] || exit 3 ;;
+  is-active) [ "$(state "$last")" = active ] || exit 3 ;;
+  is-enabled) case " ${STUB_DISABLED:-} " in *" $last "*) echo disabled; exit 1 ;; esac; echo enabled ;;
 esac
 exit 0
 EOF
@@ -143,5 +147,12 @@ chmod +x "$box/bin/"*
 # ── the deployer, installed from A the way the runbook does it ──────────────────────────────────────────────────────
 SHA="$sha_a" FIRST=1 APP_DIR="$app" ENV_FILE="$box/etc/app.env" DEPLOY_STATE_DIR="$box/state" DEPLOYER_BIN="$box/sbin/onhost-deploy" \
   DEPLOYER_LIB_DIR="$box/lib" DEPLOY_OWNER_UID="$(id -u)" bash "$REPO_ROOT/infra/aapanel/install-deployer.sh" >/dev/null
+
+# the deployer's lists (staging-launch.md O11/O12, S3): no unit is expected, no doctor row is expected to be non-OK
+# (the drained liveness rows are judged after the start), and the staging environment says staging
+(umask 077
+  printf '# units that must run after every release\n' > "$box/state/expected-units"
+  printf '# doctor rows expected non-OK on this staging (O11)\n' > "$box/state/expected-nonok"
+  printf 'APP_ENV=staging\nAPP_URL=https://staging.test\n' > "$box/state/expected-env")
 
 printf 'SHA_A=%s\nSHA_B=%s\nAPP=%s\nSEED=%s\nENV=%s\nUID=%s\nUSER=%s\n' "$sha_a" "$sha_b" "$app" "$seed" "$box/etc/app.env" "$(id -u)" "$(id -un)"

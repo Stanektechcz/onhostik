@@ -34,16 +34,22 @@ curl -fsSL "https://raw.githubusercontent.com/Stanektechcz/onhostik/$SHA/infra/a
 sha256sum /root/onhost-install.sh            # must equal the value in the release record (.ai/releases/)
 REF=$SHA EXPECTED_SHA=$SHA START_UNITS=0 bash /root/onhost-install.sh   # clones at $SHA, writes /etc/onhost/app.env, stops
 nano /etc/onhost/app.env                     # fill the values from § 4
-REF=$SHA EXPECTED_SHA=$SHA START_UNITS=0 bash /root/onhost-install.sh   # composer, key, migrations, seed, units (enabled, not started), caches
+REF=$SHA EXPECTED_SHA=$SHA START_UNITS=0 bash /root/onhost-install.sh   # composer, key, migrations, seed, units (rendered, not enabled), caches
 ```
+
+`START_UNITS=0` renders the systemd units without enabling or starting any (pre-mortem 2026-09-27: `enable` alone put
+every provider lane into the boot sequence). A first install writes `/var/lib/onhost-deploy/<site>/expected-units` —
+the scheduler and every lane of `QUEUES` — which the gated deployer holds every release to; staging phase 1 installs
+with `QUEUES='default mails'` (`docs/runbooks/staging-launch.md` S2). Enable and start the listed units yourself after
+the containment steps: `systemctl enable --now onhost-scheduler.service onhost-queue@default.service …`.
 
 (`SITE=onhost.cz …` for production; `APP_DIR`, `PHP`, `RUN_USER` are overridable the same way; `BRANCH` is refused.)
 `install.sh` refuses a site that is already installed — the `installed` marker in `/var/lib/onhost-deploy/<site>/`, or,
 for installs older than the marker, an `APP_KEY` in `app.env` — because its seed step must never run on a live database
 again. `INSTALL_REPAIR=1 bash onhost-install.sh` (installed sites only, no REF) repairs only storage/bootstrap ownership
-(refused when either directory is a symlink) and re-renders the systemd units from the root-owned `.git`; it enables
-the units but never starts or restarts them — a staging stopped for containment stays stopped — unless `START_UNITS=1`
-is given. The Composer installer is
+(refused when either directory is a symlink) and re-renders the systemd units from the root-owned `.git`; it never
+enables, starts or restarts a unit — a staging disabled and masked for containment stays that way — unless `START_UNITS=1`
+is given, and it never touches `expected-units`. The Composer installer is
 checked against `composer.github.io/installer.sig` (or install Composer yourself at `COMPOSER`). The doctor line at the
 end is informational; install.sh does not gate.
 

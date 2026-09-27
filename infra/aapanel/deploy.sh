@@ -13,6 +13,14 @@
 # itself for /up and /v1/status through the maintenance bypass. Before 2026-09-27 the doctor ran after the restarts
 # as `onhost:doctor || true` and could stop nothing (onboarding audit C12/C14).
 #
+# Three root-owned lists in the state dir (pre-mortem 2026-09-27, docs/runbooks/staging-launch.md O11/O12/S3):
+# expected-units — the units that must run after every release (every environment; install.sh writes it on a first
+# install): preflight refuses when one is not enabled or not running, or when an onhost unit runs that it does not
+# name, and the live stage fails with 7 when one does not come back. Outside production also expected-nonok — the
+# doctor rows staging runs non-OK on purpose; any other non-OK row stops the release — and expected-env, the spec
+# `deploy-gate.php env-assert` holds the environment file to (containment: test merchant, mail to the log, customer
+# destinations denied …). In production every FAIL row stops the release unless the signed tag accepts it.
+#
 # Exit codes: 0 released · 2 preflight refused (nothing changed) · 3 drain, backup or verify failed (nothing switched,
 # units started again, site up again when this run took it down) · 4 build failed after the switch · 5 gate failed ·
 # 6 the public /up check failed after `up` · 7 a drained unit did not come back after the start (they are all stopped
@@ -63,9 +71,14 @@ JAR=""
 APP_ENV_VALUE=""
 BOOT_CACHE=""
 BOOT_ENV=()
+EXPECTED_UNITS=""
+EXPECTED_NONOK_SUM=""
 DEPLOY_LOG="${DEPLOY_STATE_DIR}/deploy.log"
 MARKER="${DEPLOY_STATE_DIR}/down-by-deploy"
 DRAINED_FILE="${DEPLOY_STATE_DIR}/drained-units"
+EXPECTED_UNITS_FILE="${DEPLOY_STATE_DIR}/expected-units"
+EXPECTED_NONOK_FILE="${DEPLOY_STATE_DIR}/expected-nonok"
+EXPECTED_ENV_FILE="${DEPLOY_STATE_DIR}/expected-env"
 
 say() { printf '\n\033[1;32m▶ %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33mWARN %s\033[0m\n' "$*" >&2; }
@@ -108,14 +121,19 @@ oneline() { printf '%s' "$*" | tr '\n\r"' '   '; }
 log_line() {
   local rc=$1
   [ -d "$DEPLOY_STATE_DIR" ] || return 0
-  (umask 077; printf '%s site=%s operator=%s logname=%s from=%s to=%s ref=%s stage=%s rc=%s set=%s drain_s=%s window_s=%s skip_backup="%s" override="%s" accepted="%s" run=%s\n' \
+  (umask 077; printf '%s site=%s operator=%s logname=%s from=%s to=%s ref=%s stage=%s rc=%s set=%s drain_s=%s window_s=%s skip_backup="%s" override="%s" accepted="%s" expected_nonok=%s run=%s\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$SITE" "$(oneline "${DEPLOY_OPERATOR:-?}")" "$(logname 2>/dev/null || echo "${SUDO_USER:-?}")" \
     "${FROM:-?}" "${SHA:-?}" "$(oneline "${REF:-?}")" "$STAGE" "$rc" "${SET:--}" "${DRAIN_S:--}" "${WINDOW_S:--}" \
-    "$(oneline "$SKIP_REASON")" "$(oneline "$OVERRIDE_REASON")" "$(oneline "$ACCEPTED")" "${RUN_DIR:--}" >> "$DEPLOY_LOG") || true
+    "$(oneline "$SKIP_REASON")" "$(oneline "$OVERRIDE_REASON")" "$(oneline "$ACCEPTED")" "${EXPECTED_NONOK_SUM:--}" "${RUN_DIR:--}" >> "$DEPLOY_LOG") || true
 }
 
 # ── units ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 active_units() { systemctl list-units --plain --no-legend --state=active,activating,reloading 'onhost-queue@*' 'onhost-scheduler.service' | awk '{print $1}' | sort -u; }
+in_list() { # $1 = word, the rest = list
+  local w=$1 x; shift
+  for x in "$@"; do [ "$x" = "$w" ] && return 0; done
+  return 1
+}
 
 start_units() { # $@ = unit names
   local u
@@ -241,7 +259,7 @@ case "$self" in "$(realpath "$APP_DIR" 2>/dev/null || echo "$APP_DIR")"/*) die 2
 # the judge must be as trustworthy as the deployer: root's, and writable by nobody else
 root_only "$DEPLOY_LIB_DIR" "$DEPLOY_LIB_DIR/deploy-gate.php" "$DEPLOY_LIB_DIR/source-sha" "$(dirname "$self")" "$self" \
   || die 2 "the deployer files ($self, $DEPLOY_LIB_DIR and its deploy-gate.php, source-sha) must belong to uid $DEPLOY_OWNER_UID and be writable by nobody else: reinstall with install-deployer.sh"
-for tool in git curl flock find sort; do command -v "$tool" >/dev/null 2>&1 || die 2 "missing: $tool"; done
+for tool in git curl flock find sort sha256sum; do command -v "$tool" >/dev/null 2>&1 || die 2 "missing: $tool"; done
 [ -x "$PHP" ] || die 2 "PHP not found at $PHP"
 [ -d "$APP_DIR/.git" ] || die 2 "$APP_DIR is not a checkout"
 cd "$APP_DIR" || die 2 "cannot enter $APP_DIR"
@@ -300,6 +318,24 @@ if [ "$PROD" = 1 ]; then
   [ -n "${ALLOW_DOCTOR_FAIL:-}" ] && die 2 "ALLOW_DOCTOR_FAIL is refused in production: accept a GATED row with an 'Accept-Gate: <area|check> — <reason>' line in the signed tag"
 fi
 
+# the root-owned lists (header). Pre-mortem 2026-09-27: a staging GO used to rest on what the operator happened to read —
+# a contained staging's app.env was printed, never asserted, and every doctor row outside the gate's 11 passed
+root_only "$EXPECTED_UNITS_FILE" \
+  || die 2 "$EXPECTED_UNITS_FILE must exist (root's, writable by nobody else): the units that must run after a release, one per line — install.sh writes it, docs/runbooks/staging-launch.md O12 (an empty file = none)"
+EXPECTED_UNITS="$(sed -e 's/#.*//' "$EXPECTED_UNITS_FILE" | tr -s ' \t' '\n\n' | sed '/^$/d' | sort -u | tr '\n' ' ')"
+for u in $EXPECTED_UNITS; do
+  [[ "$u" =~ ^onhost-(scheduler|queue@[A-Za-z0-9_-]+)\.service$ ]] || die 2 "$EXPECTED_UNITS_FILE names '$u': only onhost-scheduler.service and onhost-queue@<lane>.service"
+done
+if [ "$PROD" = 0 ]; then
+  root_only "$EXPECTED_NONOK_FILE" \
+    || die 2 "$EXPECTED_NONOK_FILE must exist (root's, writable by nobody else): the doctor rows this staging runs non-OK on purpose — the release record's O11 list (staging-launch.md S4b)"
+  EXPECTED_NONOK_SUM="$(sha256sum "$EXPECTED_NONOK_FILE" | cut -c1-12)"
+  root_only "$EXPECTED_ENV_FILE" \
+    || die 2 "$EXPECTED_ENV_FILE must exist (root's, writable by nobody else): the staging environment spec of staging-launch.md S3"
+  gate env-assert --file "$ENV_FILE" --spec "$EXPECTED_ENV_FILE" > "$RUN_DIR/env-assert.out" 2>&1 \
+    || { grep -v '^OK ' "$RUN_DIR/env-assert.out" >&2; die 2 "$ENV_FILE does not hold what $EXPECTED_ENV_FILE expects (lines above; values are never printed)"; }
+fi
+
 if g merge-base --is-ancestor "$DEPLOYER_SHA" "$SHA" 2>/dev/null \
   && ! g diff --quiet "$DEPLOYER_SHA" "$SHA" -- infra/aapanel/deploy.sh infra/aapanel/deploy-gate.php; then
   die 2 "the target carries a newer deployer than the installed one ($DEPLOYER_SHA): first run
@@ -330,6 +366,22 @@ case "$probe" in
 esac
 [ -f "$APP_DIR/storage/framework/down" ] && WAS_DOWN=1
 PREV_DRAINED="$(cat "$DRAINED_FILE" 2>/dev/null || true)"
+
+# the units: exactly the expected ones run (or were stopped by a previous failed run of this deployer, which lists them
+# in drained-units), each enabled. A lane that is already dead or disabled would otherwise stay dead behind a release
+# that ends rc 0, and a provider lane someone started on a contained staging would be restarted by every release.
+running="$(active_units | tr '\n' ' ')" || die 2 "cannot list the onhost units (systemctl)"
+for u in $running; do
+  # shellcheck disable=SC2086 # unit names are plain words
+  in_list "$u" $EXPECTED_UNITS || die 2 "$u runs but is not in $EXPECTED_UNITS_FILE: stop it (containment), or add it to the list when it belongs to this site"
+done
+for u in $EXPECTED_UNITS; do
+  enabled="$(systemctl is-enabled "$u" 2>/dev/null || true)"
+  [ "$enabled" = enabled ] || die 2 "$u is expected to run but is '${enabled:-unknown}', not enabled (systemctl enable $u, or take it out of $EXPECTED_UNITS_FILE)"
+  # shellcheck disable=SC2086
+  in_list "$u" $running || in_list "$u" $PREV_DRAINED \
+    || die 2 "$u is expected to run but is not running: a release would leave it dead (systemctl start $u; journalctl -u $u), or take it out of $EXPECTED_UNITS_FILE"
+done
 RUN_START="$(utc_now)"
 say "Release $FROM → $SHA ($kind $REF, $( [ "$PROD" = 1 ] && echo production || echo "$APP_ENV_VALUE"), operator $DEPLOY_OPERATOR)"
 [ -n "$OVERRIDE_REASON" ] && warn "ALLOW_DOCTOR_FAIL accepted for GATED rows only: $OVERRIDE_REASON"
@@ -416,13 +468,16 @@ env_is_ours || die 5 "$APP_DIR/.env no longer is $ENV_FILE (repointed during the
 doctor_rc=0
 art onhost:doctor --json > "$RUN_DIR/report.json" 2> "$RUN_DIR/doctor.err" || doctor_rc=$?
 verdict_rc=0
+expected_arg=""
+[ "$PROD" = 0 ] && expected_arg="$EXPECTED_NONOK_FILE"
 gate verdict --report "$RUN_DIR/report.json" --doctor-rc "$doctor_rc" --env "$APP_ENV_VALUE" --production "$PROD" --sha "$SHA" \
-  --override "$OVERRIDE" --accept-file "$RUN_DIR/tag.txt" > "$RUN_DIR/verdict.out" || verdict_rc=$?
+  --override "$OVERRIDE" --accept-file "$RUN_DIR/tag.txt" --expected-file "$expected_arg" > "$RUN_DIR/verdict.out" || verdict_rc=$?
 cat "$RUN_DIR/verdict.out"
 ACCEPTED="$(grep '^ACCEPTED ' "$RUN_DIR/verdict.out" | sed 's/^ACCEPTED //' | tr '\n' ';' || true)"
 case "$verdict_rc" in
   0) ;;
   10) die 5 "a GATED doctor row is not OK (staging: ALLOW_DOCTOR_FAIL=\"${SHA:0:12}:<reason>\"; production: Accept-Gate in the signed tag)" ;;
+  12) die 5 "a doctor row outside the HARD and GATED lists is not OK (ROW-FAIL above; staging: only a row the release record's O11 list names may be, in $EXPECTED_NONOK_FILE; production: an Accept-Gate line in the signed tag)" ;;
   *) die 5 "a HARD doctor row is not OK, or the doctor report cannot be trusted (never overridable)" ;;
 esac
 JAR="$RUN_DIR/bypass.curlrc"
@@ -444,16 +499,24 @@ if [ -f "$DEPLOY_STATE_DIR/expect-freeze" ] && [ "$PROD" = 0 ]; then
 fi
 say "Start the drained units"
 to_start="$(cat "$DRAINED_FILE" 2>/dev/null || true)"
-# shellcheck disable=SC2086 # unit names are plain words
-start_units $to_start
-if [ -n "$to_start" ]; then
+start_now=""
+for u in $to_start; do # only what is expected now: a unit taken off the list since a failed run stays stopped (containment wins)
+  # shellcheck disable=SC2086 # unit names are plain words
+  if in_list "$u" $EXPECTED_UNITS; then start_now="$start_now $u"; else warn "$u was drained but is not in $EXPECTED_UNITS_FILE: left stopped"; fi
+done
+# shellcheck disable=SC2086
+start_units $start_now
+if [ -n "${EXPECTED_UNITS// /}" ]; then
   sleep "$UNIT_SETTLE"
+  # every EXPECTED unit, not only the drained ones (pre-mortem: a lane that was not running stayed dead behind rc 0)
   # shellcheck disable=SC2086
-  dead="$(units_not_active $to_start)"
+  dead="$(units_not_active $EXPECTED_UNITS)"
   if [ -n "$dead" ]; then # a worker that cannot run the new code is a failed release, not a warning: all of them stop again
     # shellcheck disable=SC2086
-    systemctl stop --no-block $to_start || true
-    die 7 "drained units did not come back:$dead (journalctl -u <unit>); every drained unit is stopped again, the site stays in maintenance"
+    printf '%s\n' $to_start $EXPECTED_UNITS | sed '/^$/d' | sort -u > "$DRAINED_FILE"
+    # shellcheck disable=SC2086
+    systemctl stop --no-block $EXPECTED_UNITS || true
+    die 7 "drained units did not come back:$dead (journalctl -u <unit>); every expected unit is stopped again, the site stays in maintenance"
   fi
 fi
 rm -f "$DRAINED_FILE"

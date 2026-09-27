@@ -97,6 +97,17 @@ echo "── install the deployer from A"
 SHA="$sha_a" FIRST=1 APP_DIR="$app" ENV_FILE="$box/etc/app.env" DEPLOY_STATE_DIR="$box/state" DEPLOYER_BIN="$box/sbin/onhost-deploy" DEPLOYER_LIB_DIR="$box/lib" \
   DEPLOY_OWNER_UID="$(id -u)" bash "$REPO_ROOT/infra/aapanel/install-deployer.sh"
 
+echo "── the deployer's lists: no unit (systemctl is stubbed), the environment spec, the doctor rows this site runs non-OK"
+# the expected-nonok list is drafted from A's own doctor the way staging-launch.md S4b does it; this run proves the release
+# mechanics, the refusal of a row outside the list is pinned in DeployGateTest
+(umask 077
+  printf '# e2e: no unit is managed here\n' > "$box/state/expected-units"
+  printf 'APP_ENV=staging\nAPP_DEBUG=false\nAPP_URL=https://staging.test\nMAIL_MAILER=log\nONHOST_SECRETS_DRIVER=db\n' > "$box/state/expected-env")
+(cd "$app" && "$PHP_BIN" artisan onhost:doctor --json > "$box/doctor-before.json") || true
+"$PHP_BIN" "$box/lib/deploy-gate.php" nonok --report "$box/doctor-before.json" --production 0 > "$box/expected-nonok.draft" || fail "cannot draft the expected-nonok list"
+(umask 077; cp "$box/expected-nonok.draft" "$box/state/expected-nonok")
+echo "   $(grep -c . "$box/state/expected-nonok" || true) row(s) expected non-OK"
+
 deploy() { # $1 = sha
   local allow=()
   [ "${E2E_ALLOW_DOCTOR_FAIL:-0}" = 1 ] && allow=(ALLOW_DOCTOR_FAIL="${1:0:12}:local e2e run without a CA bundle")
