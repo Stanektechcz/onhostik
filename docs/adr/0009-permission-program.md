@@ -1,11 +1,12 @@
 # ADR-0009 — The permission and delegation program: one enforcement point, a hard tenant boundary, honest recovery
 
-**Status:** accepted (2026-09-27). Phase 0 built in TASK-0033 … TASK-0041, **not signed off** (P0-08, P0-09 and P0-14 are
-built in TASK-0039 but not integrated). Slices 1–5 not started. · **Decided by:** the owner delegated the whole program to
-Claude ("celé to promysli"); the orchestrator wrote it with independent critics and a judge who ruled on 45 objections; the
-owner's twelve questions (§10) are decided by their stated defaults. · **Recorded by:** the docs commit on the Phase-0 chain
-(`fix/TASK-0041-wave-one-leftovers-of-the-permission-pro`) · **Built by:** TASK-0033, TASK-0034, TASK-0035, TASK-0036,
-TASK-0037, TASK-0038, TASK-0040, TASK-0041 (on this chain) and TASK-0039 (own branch)
+**Status:** accepted (2026-09-27). Phase 0 built in TASK-0033 … TASK-0041 and integrated in one chain (PR #25 + the local
+commits on top of `45017b7`), **not signed off** (see "Phase 0 outcome"). Slices 1–5 not started. · **Decided by:** the owner
+delegated the whole program to Claude ("celé to promysli"); the orchestrator wrote it with independent critics and a judge who
+ruled on 45 objections; the owner's twelve questions (§10) are decided by their stated defaults. · **Recorded by:** the docs
+commits on the Phase-0 chain (first on `fix/TASK-0041-wave-one-leftovers-of-the-permission-pro`, the outcome on
+`fix/TASK-0039-staff-act-as-staff-and-a-token-only-for` after `650f675`) · **Built by:** TASK-0033, TASK-0034, TASK-0035,
+TASK-0036, TASK-0037, TASK-0038, TASK-0040, TASK-0041, TASK-0039
 
 The program itself, with every exploit, fix, task and ruling: [`docs/security/permission-program-2026-09-27.md`](../security/permission-program-2026-09-27.md).
 This record keeps the decisions, not the evidence.
@@ -86,20 +87,20 @@ The decisions D1–D21 of the program (§4), as they stand after Phase 0:
 | # | Decision | State |
 | --- | --- | --- |
 | D1 | One `GrantPolicy` decides every grant, change and removal (I1–I12). | Skeleton + IF-1..IF-3 built (TASK-0036); every grant path compares the person acted for (TASK-0041 (f)). Full invariants: S1-01. |
-| D2 | Mode-aware Authorizer; staff roles lose customer-audience keys and gain `staff.*`; shadow log before enforcement. | Built in TASK-0039 (shadow switch `ONHOST_STAFF_REACH_ENFORCED`, default off), **not integrated**; P0-15 not started. |
-| D3 | Tokens, Discord links and hooks are narrowed views bound to one organization. | Discord/hooks re-check the current membership (TASK-0035); the token view is TASK-0039, **not integrated** (PA-04 open). |
+| D2 | Mode-aware Authorizer; staff roles lose customer-audience keys and gain `staff.*`; shadow log before enforcement. | Built (TASK-0039): `StaffActor` and staff mode on `/v1/staff/*` only, asking staff keys (P0-16 re-check `c4c43e2`); staff reach on customer keys is shadow-logged and still allowed until `ONHOST_STAFF_REACH_ENFORCED=true` (default off); P0-15 not started. |
+| D3 | Tokens, Discord links and hooks are narrowed views bound to one organization. | Discord/hooks re-check the current membership (TASK-0035); a token sees only its organization (TASK-0039). Open: tokens bound to no organization until `ONHOST_TOKEN_ORGANIZATION_REQUIRED=true`, and `GET /v1/me` lists the person's other organizations to a token (re-check MEDIUM). |
 | D4 | Customer granularity = closed family × level matrix + `svc_operate`; free custom roles deferred. | Slice 1 (S1-03), not started. |
 | D5 | One access wizard + `ShareAccessCommand` with a per-person access page. | Slice 1 (S1-04); the P0 UI hotfix (fail closed, role select, confirm) is done (TASK-0035). |
 | D6 | `RoleResolver` is the single mapper; transactional seeder; expand/contract catalogue changes. | Done (TASK-0037). |
-| D7 | Staff need an access basis (portal-authenticated ticket consent or incident basis). | Staff SSO part built in TASK-0039 (not integrated); the rest Slice 2 (S2-02). |
-| D8 | CRITICAL = second person; the waiver belongs to the sole approver only, whose own action waits a cancellable time lock. | Done (TASK-0037, 24 h). Open: a solo operator can create a second `platform_owner` and approve their own actions (red team). |
+| D7 | Staff need an access basis (portal-authenticated ticket consent or incident basis). | Staff SSO part built (TASK-0039, `PanelLoginCommand`: a ticket the customer opened, consent or a second person, customer notice); the rest Slice 2 (S2-02). |
+| D8 | CRITICAL = second person; the waiver belongs to the sole approver only, whose own action waits a cancellable time lock. | Done (TASK-0037, 24 h); a further approver made from the command line waits the time lock (`7789c94`). Open (re-check LOW): that lock skips roles that decide no approvals and a sole approver who is suspended. |
 | D9 | Recovery classes A–D, platform-held copies, `UndoEligibility`, revocation epoch, provenance ledger. | Slice 2 / S1-06, not started; `archive.restore` pre-copy fails closed (TASK-0035). |
 | D10 | `pre_*` retention stays at the promised 60 days (floor 30); prune fixed. | S2-06, not started. |
 | D11 | Multi-tenant aaPanel nodes closed via `operator:aapanel:tenancy --dry-run/--apply`; new shared sales elsewhere. | Tool built (TASK-0034); open nodes never become shared by placement or move (TASK-0041 (a)); `--apply` waits for the owner (O1). |
 | D12 | Pterodactyl identity by exact `external_id`, synthetic e-mails for new users, re-verify before credentials. | Done (TASK-0033); same-panel game moves need a proven owner (TASK-0041 (d)). |
 | D13 | Partners: masking now; reseller MVP in Slice 3; payout safety grandfathers IBANs already paid to. | Masking and payout safety done (TASK-0040), with a recorded cut-over for grandfathering; reseller MVP Slice 3. |
 | D14 | Tokens: `services:code` + automation grants for HIGH; CRITICAL never via token; default expiry. | S1-05, not started (HIGH via token stays refused, TASK-0030). |
-| D15 | Phase 0 in three serial lanes, then customer-visible slices; one small PR per task. | Phase 0 ran as two waves of parallel worktrees rebased into one chain (PR #25 + wave 2). |
+| D15 | Phase 0 in three serial lanes, then customer-visible slices; one small PR per task. | Phase 0 ran as two waves of parallel worktrees plus TASK-0039, rebased into one chain on PR #25 (`45017b7` → wave 2 → TASK-0039). |
 | D16 | A read-only forensic look-back and breach register precede the fixes going live; the owner decides on Art. 33. | Tool done (TASK-0038); the production baseline run is a go-live blocker. |
 | D17 | PR #24 lands first; new work branches afterwards. | Done: PR #24 merged 2026-09-26 (`3b2a9fb`). |
 | D18 | Staff ticket/backup/billing read keys before customer keys leave staff roles. | Done (TASK-0037). |
@@ -136,14 +137,26 @@ that changed the design:
 | TASK-0036 | P0-07, P0-10 / IF-1..IF-3, IF-12 | `GrantPolicy`: the owner cannot be demoted, strangers cannot be added, members are changed only by somebody covering them, project roles take a step-up and an allow-list; service-action keys scoped per org/service/action/actor with a request hash. |
 | TASK-0037 | P0-11, P0-12, P0-18 / IF-13, IF-10, IF-18 | `effectiveRisk`, empty `LOWERED_RISK`; waiver for the sole approver with a 24 h time lock; staff read keys; `RoleResolver` and a transactional seeder; `onhost:iam:risk-floor-report`. |
 | TASK-0038 | P0-01 / IF-0 | `onhost:forensics:lookback` (read-only) and `docs/runbooks/breach-register.md`. |
-| TASK-0039 | P0-08, P0-09, P0-14 / IF-4, IF-5, IF-8, IF-9, IF-16 | Built and SELF_VERIFIED on its own branch (`17a4780`); **not integrated** — its holes are pinned as open on this chain. |
+| TASK-0039 | P0-08, P0-09, P0-14 / IF-4, IF-5, IF-8, IF-9, IF-16 | Integrated last on the chain (the nine P0-16 pins retired in `daca3b5`). Staff act as staff only in staff mode on `/v1/staff/*`, with staff keys (`StaffActor`, `c4c43e2`); forced purge CRITICAL `staff.service.delete`; staff reach on customer keys shadow-logged (`authz.staff_reach`, switch `ONHOST_STAFF_REACH_ENFORCED`); a token sees only its organization (`token_organization_mismatch`; unbound tokens behind `ONHOST_TOKEN_ORGANIZATION_REQUIRED`); staff panel sign-on is `PanelLoginCommand`. |
 | TASK-0040 | P0-13 / IF-14 | Payouts row-locked, amount = allocated, IBAN only from a confirmed payout account (owner, step-up, 7-day cooling-off), CRITICAL payment by a third person; anomaly freeze by digest; masked partner view. |
 | TASK-0041 | follow-ups of P0-02/03/07/10 + the P0-16 record | Open aaPanel nodes never become shared by placement or move; legacy project roles listed; domain keys scoped + 409; same-panel game moves need OWNED; hardlink exception narrowed to the site's own agent; sharing compares the person acted for; the P0-16 holes pinned. |
 
-**P0-16 (red team on `c59e08a`):** CHANGES_REQUESTED in all four lenses (cross-tenant, staff, token and automation, money and
-undo). Every exploit that Phase 0 claims closed has a named test; the six HIGH findings all come from TASK-0039 missing and are
-pinned by `tests/Feature/Security/PhaseZeroOpenItemsTest.php`. **Phase 0 is signed off only when TASK-0039 is integrated, the
-pins are replaced by its proofs, and a new red-team round passes.**
+**P0-16, first round (red team on `c59e08a`):** CHANGES_REQUESTED in all four lenses (cross-tenant, staff, token and
+automation, money and undo). The six HIGH findings all came from TASK-0039 missing; they were pinned, and TASK-0039's
+integration turned every pin red and replaced it with a proof. The six MEDIUMs were fixed on the chain (`888a61e`, `53ea45c`,
+`7789c94`, `5ec856a`, and the credit gate by TASK-0039).
+
+**P0-16, re-check (on `02b5bc5`, lenses cross-tenant-and-token and staff-and-money):** CHANGES_REQUESTED in both. The HIGH —
+EXPL-1..3 and SS-1 had moved to `/v1/staff/services/{id}/actions` and `…/reinstate`, which asked the customer keys, so any staff
+account that was a member or share guest of a service lifted ONhost's holds there — and the MEDIUM that those routes would fill
+the shadow log were fixed in `c4c43e2` (failing-first 5/5; gate PASS, Pest 1 825/1 825). Open: `GET /v1/me` lists a token's
+person's other organizations with their full records (MEDIUM), and four LOW (program status header).
+
+**Phase 0 is not signed off.** Every HIGH finding has its fix in code, but (1) IF-4 staff reach (with staff `archive.restore`) and
+PA-04 for tokens bound to no organization are logged and still allowed until the operator turns on `ONHOST_STAFF_REACH_ENFORCED`
+and `ONHOST_TOKEN_ORGANIZATION_REQUIRED`; (2) the `GET /v1/me` MEDIUM has no fix; (3) `c4c43e2` has had no independent review of
+its own; (4) the forensic baseline and the owner's Art. 33 decision are open. Phase 0 is signed off when the breach register's
+open list is empty, `/v1/me` is fixed with a failing-first test, and a read-only review of the fixes passes.
 
 ## Owner questions: the defaults taken by delegation
 
@@ -179,8 +192,13 @@ default of §10 is the decision:
 - **Developers** write every new grant path through `GrantPolicy`, read roles only through `RoleResolver` (architecture
   allow-list), never lower a risk below the catalogue (`LOWERED_RISK` is empty and pinned), and keep staff endpoints on staff
   keys. A new permission needs its token decision (`TokenScopes`) and its risk.
-- **Integration:** TASK-0039 must be rebased under wave 2 (0039 → 0040 → 0041) by the integrator; its arrival turns the
-  eight pins of `PhaseZeroOpenItemsTest.php` red on purpose.
+- **Staff tools** reach staff powers only through `/v1/staff/*` with a staff key: `/v1/staff/services/{id}/actions` needs
+  `staff.service.manage` (auditor, IAM admin and sales lose it; support L2 and the service admins have it), `…/reinstate`
+  `billing.dunning.manage`. Keys with no staff counterpart (`service.console`, `backup.restore`, `backup.delete`,
+  `game.manage`, `compute.vm.delete`, `service.panel_account.manage`) stay customer keys in staff mode, reached through staff
+  reach or membership.
+- **API tokens** act for their own organization only; operators list unbound tokens (`operator:tokens:unbound --dry-run`),
+  tell the owners, then switch `ONHOST_TOKEN_ORGANIZATION_REQUIRED` on.
 
 ## Not decided here (open)
 
@@ -188,4 +206,6 @@ default of §10 is the decision:
 - Customer four-eyes (S4-03); until then a customer CRITICAL key floors at HIGH for members.
 - The red-team items that are neither fixed nor pinned (program status header; `.ai/PROJECT_STATE.md` → Known issues).
 - Whether any staff account is also a customer member in production, and whether `ONHOST_FOUR_EYES` is set there (program §9
-  unknowns); both decide how exploitable the P0-08 holes are today.
+  unknowns); both decide how exploitable the P0-08 holes were before the Phase-0 deploy (the look-back reads it).
+- When the operator turns on `ONHOST_STAFF_REACH_ENFORCED` (after P0-15) and `ONHOST_TOKEN_ORGANIZATION_REQUIRED` (after the
+  token notice); until then those two holes are only logged.

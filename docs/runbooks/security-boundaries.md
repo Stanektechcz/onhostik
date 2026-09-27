@@ -85,7 +85,7 @@ public — no loopback, private, link-local, CGNAT, multicast; local names such 
 granted (ownership moves by a transfer), nobody edits their own membership — neither the role nor the end of the
 access — and a role is granted only by somebody whose own role covers every permission in it. Since Phase 0 of the
 permission program every membership and project-membership change is decided by one class, `Organizations\GrantPolicy`
-(§27). Staff are not compared there yet (P0-08, TASK-0039 not integrated).
+(§27). A member of staff is compared there as the person they are in that organization; staff powers are §34.
 Tests: `tests/Feature/Organizations/AccessExpiryTest.php`, `tests/Feature/Organizations/GrantPolicyTest.php`.
 
 ## 5. Money
@@ -544,11 +544,11 @@ Tests: `tests/Feature/Services/ServiceActionPermissionMapTest.php`, `tests/Featu
 
 ---
 
-Sections 27–34 are Phase 0 of the permission program (`docs/security/permission-program-2026-09-27.md`, ADR-0009;
-TASK-0033 … TASK-0041). **Phase 0 is not signed off:** P0-08, P0-09 and P0-14 (staff reach on customer permissions, the
-token principal view, staff panel sign-on) are built in TASK-0039 but not integrated, so those holes are still open. They are
-listed, each with its pinning test, in `docs/runbooks/breach-register.md` → "Still open after Phase 0 wave 2". For the time
-before each fix, the same runbook and `onhost:forensics:lookback` (read-only) say whether a hole was used.
+Sections 27–35 are Phase 0 of the permission program (`docs/security/permission-program-2026-09-27.md`, ADR-0009;
+TASK-0033 … TASK-0041). **Phase 0 is not signed off:** what is still open — two holes logged but allowed until the operator
+turns a switch on, and one read with no fix yet — is §35 and `docs/runbooks/breach-register.md` → "Still open after Phase 0
+wave 2". For the time before each fix, the same runbook and `onhost:forensics:lookback` (read-only) say whether a hole was
+used.
 
 ## 27. A grant goes through GrantPolicy and never beyond the granter
 
@@ -585,14 +585,19 @@ Tests: `tests/Feature/Organizations/GrantPolicyTest.php`, `tests/Feature/Organiz
   or in `DomainService` (operations). A true retry still gets its first answer.
 * A fingerprint of parameters is keyed (HMAC with `app.key`), never a plain hash: parameters may carry passwords. After an
   `APP_KEY` rotation, a retry of an older request answers 409 instead of its operation.
-* Open (P0-16 red team, no task yet): the bus replay store is scoped per organization, not per person, for every other
-  header-keyed customer command (`hook.create`, `discord.link_code`, `service.spec`, `service.policy`, invitations, …), and
-  its stored results do not mask a Discord link code or a hook URL — a member who knows another member's key gets that
-  answer. The HTTP idempotency middleware keeps the raw response body for 24 h, before authorization, scoped `user:<id>`
-  (the plaintext of a new API token included), so another token of the same person gets it back.
+* Every other header-keyed bus command: the replay store is scoped per organization **and person** and keeps a keyed
+  request hash — the same key with another command is 409 `idempotency_key_reused`; hook URLs are masked (`ahk_…`) in stored
+  results (P0-16 red team, `888a61e`).
+* The HTTP idempotency middleware (`platform/Http/Middleware/IdempotencyKey.php`) never keeps an answer that hands out a
+  secret (a new API token, a hook URL, a generated password): the replay is 409 `already_done`. A route whose answer is a
+  one-time credential also opts out of the middleware and answers `no-store` (the staff panel sign-on, §34).
+* Open (LOW): the HTTP store is keyed `user:<id>` only, not by token or organization, so an answer the person got in the
+  portal can be replayed to their token when key and body match; a Discord link code stays readable in a stored bus result
+  (it is in clear in `discord_links.code` anyway).
 
 Tests: `tests/Feature/Organizations/GrantPolicyTest.php`, `tests/Feature/Domains/DomainKeyScopeTest.php`,
-`tests/Feature/Services/ArchiveRestoreKeyTest.php`, `tests/Feature/Security/WaveOneLeftoversTest.php`.
+`tests/Feature/Services/ArchiveRestoreKeyTest.php`, `tests/Feature/Security/WaveOneLeftoversTest.php`,
+`tests/Feature/Platform/ReplayStoreScopeTest.php`.
 
 ## 29. Risk only goes up; staff routes ask staff keys
 
@@ -608,13 +613,17 @@ Tests: `tests/Feature/Organizations/GrantPolicyTest.php`, `tests/Feature/Domains
   (an architecture allow-list); `AuthorizationSeeder` runs in one transaction and writes only the difference.
 * Before a release that raises risks: `php artisan onhost:iam:risk-floor-report [--days=30]` (read-only) lists tokens and
   service accounts that ran an operation now above them — tell their owners.
-* Open: a customer CRITICAL key reached through a staff global binding still runs HIGH and a forced purge is not
-  time-locked (P0-08/IF-9, pinned by RiskFloorTest); `support_manager` still holds `support.customer_impersonate` (SS-7).
-* Closed (TASK-0041, red team MEDIUM): `onhost:staff:create` makes the account through the bus (`identity.staff.create`); a
-  further holder of `iam.approval.decide` while somebody already decides approvals is a time-locked request from the command
-  line (the approvers are told, may cancel it, cannot approve it) and is made only by a repeat after the lock.
+* A customer CRITICAL key keeps its HIGH floor only for a member; reached through staff reach it is CRITICAL, and a forced
+  purge is `staff.service.delete` CRITICAL (TASK-0039, §34).
+* `onhost:staff:create` makes the account through the bus (`identity.staff.create`); a further holder of
+  `iam.approval.decide` while somebody already decides approvals is a time-locked request from the command line (the
+  approvers are told, may cancel it, cannot approve it) and is made only by a repeat after the lock (red team MEDIUM).
+* Open: `support_manager` still holds `support.customer_impersonate` (SS-7); the command-line time lock does not cover
+  roles that hold CRITICAL keys but decide no approvals (`cloud_vps_admin`, `backup_dr_admin`), nor a new approver made
+  while the sole approver is suspended (P0-16 re-check, LOW).
 
-Tests: `tests/Feature/Identity/RiskFloorTest.php`, `tests/Feature/Identity/FourEyesApprovalTest.php`.
+Tests: `tests/Feature/Identity/RiskFloorTest.php`, `tests/Feature/Identity/FourEyesApprovalTest.php`,
+`tests/Feature/Identity/StaffCreateDeciderTest.php`.
 
 ## 30. A Discord link or an action hook is one person's credential in one organization
 
@@ -626,7 +635,8 @@ Tests: `tests/Feature/Identity/RiskFloorTest.php`, `tests/Feature/Identity/FourE
 * What `/onhost` shows comes from `AssistantScope` with the current membership; `ask` needs `AssistantScope::mayChat`.
 * Leftovers from before the fix: `php artisan operator:integrations:orphan-links` (dry run) → review → `--apply`
   (optional `--organization=`).
-* Open: for a member of staff the demotion check is satisfied by the global staff binding until P0-08 (IF-4).
+* Open: for a member of staff the demotion check is satisfied by the global staff binding — written down as staff reach,
+  refused once `ONHOST_STAFF_REACH_ENFORCED=true` (IF-4, §34).
 
 Test: `tests/Feature/Integrations/OrphanAccessTest.php`.
 
@@ -679,14 +689,58 @@ Test: `tests/Feature/Game/GamePanelIdentityTest.php`.
 
 Test: `tests/Feature/Web/AaPanelTenancyTest.php`, `tests/Feature/Security/WaveOneLeftoversTest.php`.
 
-## 34. What Phase 0 has not closed yet
+## 34. Staff act as staff only on /v1/staff, with staff keys; a token acts for its own organization
 
-The holes of P0-08, P0-09 and P0-14 (TASK-0039, not integrated), each pinned as open by
-`tests/Feature/Security/PhaseZeroOpenItemsTest.php`: an API token acting for any organization of its person (PA-04); staff
-global roles reaching customer permissions in any organization they enter (IF-4); a member of staff acting as staff on the
-customer's own routes (EXPL-1/2/3, SS-1, SS-14); a forced purge and staff `backup.delete` without a second person (SE-3,
-SS-5); staff panel sign-on without a ticket, reason, family check, second person or customer notice (SS-4, PA-06). The
-exact list and what to do when TASK-0039 lands: `docs/runbooks/breach-register.md`.
+* **Never read `is_staff` to skip a customer protection.** Ask `StaffActor::acts($context)` (staff mode, a person acting for
+  themselves, an active staff account) and, for the power itself, `StaffActor::may($context, $key)` — the key held through a
+  staff role at platform level. The `is_staff` allow-list test in `StaffModeTest` only shrinks. On a customer route a member
+  of staff is the customer they act as there: no forced purge, no hold lifted, no maintenance pass, no credit-gate skip.
+* **Staff mode is set only by `/v1/staff/*`** (`ApiContext::context()` → `CommandContext::$staffMode`, never for a token).
+  A queued run is in staff mode only through `desired.staff_mode`, which only `OperationService::start` writes from the
+  starting context; a parameter never sets it.
+* **Staff mode asks staff keys** (`StaffModeCommand`, `StaffActor::permissionOf` — the bus and the run's
+  `authorized_permission` ask the same key): service actions `staff.service.manage`, a forced purge or a skipped final archive
+  `staff.service.delete` (CRITICAL, and never without the final archive), reinstatement `billing.dunning.manage`. The staff
+  routes find the service with `staff.customer.read`. A member of staff in staff mode in an organization of their own (a
+  share included, `Authorizer::belongsTo`) takes a second person or the time lock (P0-16 re-check, `c4c43e2`). Keys with no
+  staff counterpart (`service.console`, `backup.restore`, `backup.delete`, `game.manage`, `compute.vm.delete`,
+  `service.panel_account.manage`) stay customer keys in staff mode.
+* **Staff reach is its own basis.** A global binding or a JIT elevation on a customer-audience key is staff reach, not
+  membership: written once per person, key, organization and day to `security_events` kind `authz.staff_reach` (after the
+  caller's transaction, so a refusal does not erase it), CRITICAL where the catalogue says CRITICAL, and refused once
+  `ONHOST_STAFF_REACH_ENFORCED=true`. `php artisan operator:authz:staff-reach --days=7` (read-only) says when that is due.
+* **What staff did as a customer never counts on the staff side** (`StaffActor::account`): a ticket opened, or a consent
+  given, by a staff account does not satisfy the panel sign-on.
+* **Staff panel sign-on is `PanelLoginCommand`** (HIGH, step-up): an open ticket about that service opened by a current
+  member in the portal or API, a reason of at least 10 characters, `staff.console` of the service's family
+  (`StaffActor::CONSOLE_FAMILIES`), and without the customer's consent a second person (or the sole approver's time lock). The
+  customer is told at once (`service.staff_panel_login`). The link is parked and handed out once — never in a bus result, the
+  audit, the outbox or the HTTP replay store.
+* **A token is a view of one organization** (`ApiContext::tokenOrganization`, `Authorizer::visibleBindings`): only its own
+  organization's bindings, never a global binding or an elevation. Another organization by header or query is 403
+  `token_organization_mismatch` (`TokenRouteScope`, before any controller); no header means the token's organization. A run
+  started with a token is re-checked on the token before each privileged step (`desired.token_id`, written only by
+  `OperationService::start`) and stops once the token is revoked or expired. Web routes outside `/v1` take no token
+  (`token.scope` on every `auth:sanctum` web route, pinned by a route-table test). A token stored with no organization keeps
+  its person's organization bindings until `ONHOST_TOKEN_ORGANIZATION_REQUIRED=true` (then 403 `token_unbound`); list them
+  with `php artisan operator:tokens:unbound --dry-run`.
+
+Tests: `tests/Feature/Identity/StaffModeTest.php`, `tests/Feature/Identity/StaffModeRunTest.php`,
+`tests/Feature/Identity/StaffPanelLoginTest.php`, `tests/Feature/Http/TokenPrincipalTest.php`,
+`tests/Feature/Identity/RiskFloorTest.php`, `tests/Feature/Billing/PayAndRestoreTest.php`.
+
+## 35. What Phase 0 has not closed yet
+
+* **Logged, still allowed until the operator's switch** (the open list of `docs/runbooks/breach-register.md`, read by
+  `tests/Feature/Security/PhaseZeroOpenItemsTest.php`): staff reach on customer keys and staff `archive.restore` through a
+  global binding (IF-4, `ONHOST_STAFF_REACH_ENFORCED`); tokens stored with no organization (PA-04,
+  `ONHOST_TOKEN_ORGANIZATION_REQUIRED`).
+* **No fix yet** (P0-16 re-check, MEDIUM): `GET /v1/me` is open to tokens and returns every current membership of the token's
+  person with the full organization record (billing e-mail, company and VAT ids, address, settings, role), so a token bound
+  to organization A reads organization B's data.
+* LOW (P0-16 re-check): `ServiceArchiveService::assertMayRestore` asks the source `backup.read` on the person, not the token
+  view (same organization only); runs queued before the release carry no `desired.token_id` and finish on the person's view;
+  the HTTP replay store and the staff-create time lock of §28 and §29.
 
 ## What to look at on staging after deploying this
 
@@ -709,7 +763,7 @@ exact list and what to do when TASK-0039 lands: `docs/runbooks/breach-register.m
   `service.panel_account.manage`, an org_admin can no longer grant billing_admin (TASK-0021);
 * `php artisan onhost:audit:provider-calls` on a production copy (read-only, §19) before the first customer is told
   anything about the ISPConfig ownership hole.
-* Phase 0 of the permission program (§27–§34): **before** the first Phase-0 deploy, the forensic baseline
+* Phase 0 of the permission program (§27–§35): **before** the first Phase-0 deploy, the forensic baseline
   (`onhost:forensics:lookback` on production or a pre-deploy restore, `docs/runbooks/breach-register.md`); after it,
   `onhost:doctor` reports the roles equal to the catalogue (the staff read keys and `partner.portal.read` arrive with
   `AuthorizationSeeder`), and the read-only lists of `docs/runbooks/go-live-checklist.md` §7 (`onhost:game:panel-identity`,

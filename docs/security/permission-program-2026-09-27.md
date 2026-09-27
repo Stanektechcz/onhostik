@@ -1,54 +1,72 @@
 # ONhost Permission & Delegation Program
 
-> **Status — 2026-09-27 (recorded by the docs commit on the Phase-0 chain `fix/TASK-0041-wave-one-leftovers-of-the-permission-pro`
-> after `f4b824d`; decision record: [ADR-0009](../adr/0009-permission-program.md)).**
+> **Status — 2026-09-27, final Phase-0 chain (recorded by the docs commit on `fix/TASK-0039-staff-act-as-staff-and-a-token-only-for`
+> after `650f675`; decision record: [ADR-0009](../adr/0009-permission-program.md)).**
 >
-> * **Phase 0 was built in TASK-0033 … TASK-0041.** Wave 1 (TASK-0033 … TASK-0038) is integrated on `feat/permission-p0` at
->   `1fb641e` (PR #25, open). Wave 2 (TASK-0040, TASK-0041, with the P0-16 red team record) is stacked on it
->   (`1fb641e` → TASK-0040 → TASK-0041, gate PASS: Pest 1 788/1 788). **TASK-0039 (P0-08, P0-09, P0-14) is SELF_VERIFIED on
->   its own branch (`fix/TASK-0039-staff-act-as-staff-and-a-token-only-for` @ `17a4780`) and is NOT on this chain.**
-> * **Phase 0 is not signed off.** The P0-16 red team on the stacked chain (`c59e08a`) returned CHANGES_REQUESTED in all four
->   lenses. Its six HIGH findings share one root, TASK-0039 missing; each is pinned as open by
->   `tests/Feature/Security/PhaseZeroOpenItemsTest.php` (red on the TASK-0039 tip by design) and listed in
->   `docs/runbooks/breach-register.md` → "Still open after Phase 0 wave 2" (and in §9 below). P0-15 has not started (it waits
->   for P0-08's shadow log).
-> * **Slices 1–5 have not started.** Nothing of §6 below Phase 0 is built.
-> * This file is the repository copy of the program. It merges the owner's copy (`PROGRAM-opravneni-2026-09-27.md`) with the
->   orchestrator's working copy: the P0-08 acceptance carried from P0-12 and the paragraph "Open items carried from P0-12"
->   were only in the working copy (P0-16 red team, MEDIUM). From now on this file is the one to change, in a docs commit.
+> * **Phase 0 is built and integrated in one local chain; it is NOT signed off.** `development` is at `3b2a9fb` (PR #24).
+>   PR #25 (`feat/permission-p0`, remote at `45017b7` = wave 1 `1fb641e` + two follow-ups) is the Phase-0 pull request. On top
+>   of `45017b7`, not pushed: wave 2 (TASK-0040, TASK-0041 with the P0-16 record and the red-team fixes, tip `b77ab8a`), then
+>   TASK-0039 (P0-08, P0-09, P0-14; the pins retired in `daca3b5`, OpenAPI regenerated in `b083de5`, the P0-16 re-check fix
+>   `c4c43e2`, gate report `650f675`), then this docs commit. Gate `.\brain.ps1 gate -Task TASK-0039` **PASS** on exactly the
+>   content of `c4c43e2`: Pest 1 825/1 825 (22 951 assertions), Larastan 0 errors with `phpstan-baseline.neon` unchanged, Pint,
+>   frontend build. `pest-postgres` and E2E have not run on the chain (CI after the push).
+> * **Why it is not signed off.** Every HIGH finding of both red-team rounds has its fix in code — the six of the first round
+>   (`c59e08a`) in TASK-0039, the one of the re-check (below) in `c4c43e2` — but two of the original HIGH holes are still
+>   allowed until a switch is turned on (item 1). What stands in the way:
+>   1. Two of the original HIGH holes are shipped as a **shadow release**: logged, but still allowed until the operator turns
+>      the switch on — IF-4 staff reach on customer keys and `archive.restore` through a global binding
+>      (`ONHOST_STAFF_REACH_ENFORCED`), and PA-04 for tokens stored with no organization
+>      (`ONHOST_TOKEN_ORGANIZATION_REQUIRED`). They are the open list of `docs/runbooks/breach-register.md`, which says Phase 0
+>      is not signed off while that list has an entry.
+>   2. One MEDIUM of the re-check is neither fixed nor pinned: `GET /v1/me` (open to tokens) returns every current membership of
+>      the token's person with the full organization record (billing e-mail, company and VAT ids, address, settings, role), so a
+>      token bound to organization A reads organization B's data (a PA-04 path, P0-09; in the breach register).
+>   3. The fix `c4c43e2` has not had an independent read-only review of its own (its failing-first tests were 5/5 red, and the
+>      gate is green).
+>   4. The forensic baseline (P0-01) on production before the first Phase-0 deploy, and the owner's Art. 33 decision (O3).
+> * **Slices 1–5 and P0-15 have not started.**
+> * This file is the repository copy of the program and the one to change, in a docs commit. The owner's copy
+>   (`PROGRAM-opravneni-2026-09-27.md`, outside the repository) is older: its §9 still calls PA-04, EXPL-1..3, SS-4 and IF-4
+>   wholly open; §9 below and the breach register are current.
 >
-> | Key | Task | State on this chain |
+> | Key | Task | State on the final chain (closed = named test; open = why) |
 > | --- | --- | --- |
-> | P0-00 | parent git task | **Done.** PR #24 merged into `development` on 2026-09-26 (`3b2a9fb`). |
-> | P0-01 | TASK-0038 | **Tool done** (`onhost:forensics:lookback`, `docs/runbooks/breach-register.md`). The production baseline run (before the first Phase-0 deploy) and the owner's Art. 33 decision (O3) are open — go-live blocker. |
-> | P0-02 | TASK-0033, TASK-0041 (d) | **Done in code.** Triage of existing mismatches (`onhost:game:panel-identity --dry-run`) is an operator step. |
-> | P0-03 | TASK-0034, TASK-0041 (a), (e) | **Done in code**; archive preflight and proven downloads apply on every node. Closing shared nodes (`--apply`) waits for the owner's O1 notice and the terminal / Node.js / cron decision; until then PA-02 (open nodes) and PA-03 stay partly open. |
-> | P0-04 | TASK-0035 | **Done.** Leftover links: `operator:integrations:orphan-links` (dry run, then `--apply`). |
-> | P0-05 | TASK-0035 | **Done.** |
-> | P0-06 | TASK-0035 (+ red-team fix `d6c0958` for the projects page) | **Done.** |
-> | P0-07 | TASK-0036, TASK-0041 (b), (f) | **Done** (skeleton + IF-1..IF-3). Legacy project roles are listed by `onhost:projects:role-audit --dry-run`; I5–I7, I10, I12 are S1-01. |
-> | P0-08 | TASK-0039 | **OPEN on this chain** (built on its own branch, not integrated). |
-> | P0-09 | TASK-0039 | **OPEN on this chain** (built on its own branch, not integrated). |
-> | P0-10 | TASK-0036, TASK-0041 (c) | **Done for service actions and domain commands**; since the TASK-0041 follow-up every bus key is per organization + person with a request hash, and the HTTP replay store keeps no secret. |
-> | P0-11 | TASK-0037 | **Done.** |
-> | P0-12 | TASK-0037 | **Done**, except the two carried items (under P0-08) and SS-7 (`support.customer_impersonate` still held by `support_manager`). |
-> | P0-13 | TASK-0040 | **Done in code.** Operator steps: `onhost:partners:masking-notice`, `onhost:partners:payout-anomalies` (dry run, `--apply --digest=`). |
-> | P0-14 | TASK-0039 | **OPEN on this chain** (built on its own branch, not integrated). |
-> | P0-15 | — | **Not started** (after P0-08 and 7 days of an empty shadow log). |
-> | P0-16 | TASK-0041 (P0-16 record) | **Held:** CHANGES_REQUESTED; holes pinned and filed. Re-run after TASK-0039 is integrated. |
-> | P0-18 | TASK-0037 | **Done** (staff read keys; P0-15 may plan its shadow log against them). |
+> | P0-00 | parent git task | **Closed.** PR #24 merged into `development` on 2026-09-26 (`3b2a9fb`). |
+> | P0-01 | TASK-0038 | **Tool closed** (`ForensicLookbackTest`). **Open:** the production baseline run before the first Phase-0 deploy and the owner's Art. 33 decision (O3) — go-live blocker, operator. |
+> | P0-02 | TASK-0033, TASK-0041 (d) | **Closed in code** (`GamePanelIdentityTest`, `WaveOneLeftoversTest`). Triage of existing mismatches (`onhost:game:panel-identity --dry-run`) is an operator step. |
+> | P0-03 | TASK-0034, TASK-0041 (a), (e) | **Closed in code** (`AaPanelTenancyTest`, `WaveOneLeftoversTest`). **Open by design:** PA-02 on open nodes and PA-03 until `operator:aapanel:tenancy --apply`, which waits for the owner's O1 notice and the terminal / Node.js / cron decision. |
+> | P0-04 | TASK-0035 | **Closed** (`OrphanAccessTest`). Leftover links: `operator:integrations:orphan-links` (dry run, then `--apply`). |
+> | P0-05 | TASK-0035 | **Closed** for customers (`ArchiveRestoreScopeTest`). Staff through a global binding: see P0-08. |
+> | P0-06 | TASK-0035 (+ red-team fix `d6c0958`) | **Closed** (`TeamAccessUiTest`). |
+> | P0-07 | TASK-0036, TASK-0041 (b), (f) | **Closed** (`GrantPolicyTest`, `WaveOneLeftoversTest`); only the owner transfers ownership (`53ea45c`). Legacy project roles are listed by `onhost:projects:role-audit --dry-run`; I5–I7, I10, I12 are S1-01. |
+> | P0-08 | TASK-0039 | **IF-8 and IF-9 closed** (`StaffModeTest` incl. the three "P0-16 re-check" cases, `StaffModeRunTest`, `RiskFloorTest` "makes staff reach on a customer CRITICAL key CRITICAL again…", `PayAndRestoreTest` "…only for a staff billing key…"). **IF-4 open behind a switch:** staff reach on customer keys (and `archive.restore` through a global binding) is written to `authz.staff_reach` and still allowed until `ONHOST_STAFF_REACH_ENFORCED=true`, due after seven empty days of `operator:authz:staff-reach`. |
+> | P0-09 | TASK-0039 | **Closed for tokens bound to an organization** (`TokenPrincipalTest`: header, missing header, resource id, queued runs, staff token, web seams). **Open:** tokens stored with no organization until `ONHOST_TOKEN_ORGANIZATION_REQUIRED=true` (list: `operator:tokens:unbound --dry-run`); `GET /v1/me` hands a token its person's other organizations (MEDIUM, re-check, no fix yet). |
+> | P0-10 | TASK-0036, TASK-0041 (c), `888a61e` | **Closed** (`ReplayStoreScopeTest`, `DomainKeyScopeTest`, `GrantPolicyTest`): bus keys per organization + person with a keyed request hash; the HTTP replay store keeps no answer that hands out a secret. LOW left: the HTTP store is keyed `user:<id>` only (below). |
+> | P0-11 | TASK-0037 | **Closed** (`RiskFloorTest`). |
+> | P0-12 | TASK-0037, `7789c94` | **Closed** (`RiskFloorTest`, `FourEyesApprovalTest`, `StaffCreateDeciderTest`); the two items carried to P0-08 are closed by TASK-0039. **Open:** SS-7 (`support.customer_impersonate` still held by `support_manager`, MEDIUM). |
+> | P0-13 | TASK-0040, `5ec856a` | **Closed in code** (`PayoutSafetyTest`); releasing an IBAN hold as the account confirmed takes a second person. Operator steps: `onhost:partners:masking-notice`, `onhost:partners:payout-anomalies` (dry run, `--apply --digest=`). |
+> | P0-14 | TASK-0039 | **Closed** (`StaffPanelLoginTest`). |
+> | P0-15 | — | **Not started** (after seven days of an empty staff-reach shadow log; P0-08's switch then goes on). |
+> | P0-16 | TASK-0041 (first round), TASK-0039 (re-check) | **Two rounds, both CHANGES_REQUESTED.** First round on `c59e08a`: six HIGH, all TASK-0039 missing — closed. Re-check on `02b5bc5` (lenses cross-tenant-and-token, staff-and-money): 1 HIGH + 1 MEDIUM closed by `c4c43e2`; 1 MEDIUM and 4 LOW open (below). |
+> | P0-18 | TASK-0037 | **Closed** (`RiskFloorTest`). |
 >
-> Red-team MEDIUMs **resolved on this chain** by the TASK-0041 follow-up commits (recorded in TASK-0036, TASK-0037, TASK-0040):
-> only the owner transfers ownership (`owner_transfer_only`); the bus replay store is kept per organization + person with a
-> keyed request hash (same key, other body → 409), hook URLs masked (`ahk_…`); the HTTP replay store keeps no answer that
-> hands out a secret (replay → 409 `already_done`); a further approver from `onhost:staff:create` waits the time lock; the
-> release of an IBAN hold that confirms the account is CRITICAL and only such a release counts. **Pinned open** (P0-08,
-> TASK-0039): `is_staff` skipping the reinstatement credit gate (`credit.maySpend` in the breach register).
+> **Red-team findings closed on the chain.** First round, MEDIUM, by the wave-2 follow-ups: the replay stores keep no secret
+> and are per person (`888a61e`), only the owner transfers ownership (`53ea45c`), a further approver from `onhost:staff:create`
+> waits the time lock (`7789c94`), releasing an IBAN hold as confirmed takes a second person (`5ec856a`); the sixth,
+> `credit.maySpend` for any staff account, by TASK-0039. Re-check: staff mode on `/v1/staff/services/{id}/actions` and
+> `…/reinstate` asked the customer keys, so an auditor or IAM admin who owned an organization or held a `svc_manage` share lifted
+> ONhost's holds there (HIGH, EXPL-1..3 and SS-1 moved, not closed), and every legitimate staff use there would have filled the
+> shadow log (MEDIUM) — `c4c43e2`: staff mode asks `staff.service.manage` / `staff.service.delete` / `billing.dunning.manage`,
+> the staff routes resolve with `staff.customer.read`, and staff mode in an organization of one's own takes a second person.
 >
-> Red-team findings still neither fixed nor pinned on this chain (each needs its own task; listed in `.ai/PROJECT_STATE.md`
-> → Known issues): Discord link codes in stored results (LOW: the 15-minute code sits in clear in `discord_links.code` of the
-> same database anyway, unlike API and hook tokens, which are kept only hashed); SS-7 (MEDIUM); legacy payout
-> approval compares only `requested_by` (LOW); an `APP_KEY` rotation turns a legitimate retry into 409 (LOW).
+> **Red-team findings still open (listed in `.ai/PROJECT_STATE.md` → Known issues; each needs its own task):**
+> `GET /v1/me` cross-organization read (MEDIUM, above); SS-7 (MEDIUM); the HTTP replay store keyed `user:<id>` without the token
+> or organization, so a portal answer can be replayed to the same person's token when key and body match (LOW);
+> `assertMayRestore` asks the source `backup.read` on the person, not the token view (LOW, same organization);
+> operations queued before this release carry no `desired.token_id` and finish on the person's view (LOW, transition); the
+> command-line time lock for new staff skips roles that decide no approvals and a sole approver who is suspended (LOW);
+> Discord link codes in stored bus results (LOW: the 15-minute code sits in clear in `discord_links.code` anyway); legacy
+> payout approval compares only `requested_by` (LOW); an `APP_KEY` rotation turns a legitimate retry into 409 (LOW).
 
 ## 1. Shrnutí pro vlastníka (česky)
 
@@ -343,9 +361,9 @@ Legend: **size** S=days, M=~1 week, L=multi-week. **Impact** = effect on existin
 
 **Open exploits carried forward for the red-team reviews (P0-16, S1-07, S2-08, S4-05, S5-06) to explicitly re-test against `development`:** EXPL-1/2/3 (staff-as-member bypass), PA-01/PA-02 (Pterodactyl/aaPanel identity), the payout double-spend race, the cross-tenant idempotency-key collision, and the ticket-self-satisfies-consent path.
 
-**Open items carried from P0-12 (TASK-0037 review round 1; P0-16 must not treat them as closed):** (1) `PermissionCatalog::floor` lowers a customer CRITICAL key to HIGH whoever holds it — staff with global reach (`backup_dr_admin` on `backup.delete`, `platform_owner` filing another organization's erasure) act with no second person / no time lock; principle 6 is open for them until the mode-aware Authorizer (P0-08) tells membership reach from staff reach (note `WebToolsCommandHandler::assertMayThin` authorizes a nested `backup.delete` directly and opens no approval — it must open one before that key can answer CRITICAL). (2) P0-12's "solo approver's own force-purge is time-locked with cancel" is not met: a forced purge is still `service.delete` HIGH until IF-9. Both pinned by RiskFloorTest "pins the open items P0-08/IF-9"; the time-lock mechanism itself is proven for every op that ends up CRITICAL (RiskFloorTest sweep), so IF-9 inherits it.
+**Items carried from P0-12 (TASK-0037 review round 1) — closed by TASK-0039:** (1) `PermissionCatalog::floor` lowered a customer CRITICAL key to HIGH whoever held it, so staff with global reach (`backup_dr_admin` on `backup.delete`, `platform_owner` filing another organization's erasure) acted with no second person. Now a member keeps the HIGH floor and staff reach on such a key is CRITICAL (second person, or the sole approver's time lock); the nested `backup.delete` of `WebToolsCommandHandler::assertMayThin` refuses with `approval_required` instead of acting. (2) A forced purge is `staff.service.delete`, declared CRITICAL, behind the time lock. Proof: RiskFloorTest "makes staff reach on a customer CRITICAL key CRITICAL again, and a forced purge CRITICAL staff.service.delete behind the time lock" (the former pin).
 
-**Still open after Phase 0 wave 2 (P0-16 red team on the stacked chain c59e08a, TASK-0041; Phase 0 is NOT signed off):** the fix of all of these is TASK-0039, which waves 1 and 2 do not contain. Each is pinned by `tests/Feature/Security/PhaseZeroOpenItemsTest.php` (red on the TASK-0039 tip 17a4780 by design) and listed in `docs/runbooks/breach-register.md` "Still open after Phase 0 wave 2". Under **P0-09** (IF-5): **PA-04**, a token acts for any organization of its person by header, by a missing header (oldest membership) and by resource id, queued runs included, and a staff person's token carries the global reach. Under **P0-08** (IF-4, then **P0-15**): a global staff role with `staff.customer.read` enters any organization by `X-Organization` and its globally held customer keys apply (`support.ticket.read`, `backup.delete`, `backup.restore`) with no consent, ticket or shadow log; staff `archive.restore` through a global binding (`ServiceArchiveService::assertMayRestore`) over a live customer site. Under **P0-08** (IF-8): **EXPL-1/2/3**, **SS-1** (forced purge, every hold lifted with only a reason, maintenance pass, the reinstatement credit gate for any staff account) and **SS-14** (console pre-flight counts `is_staff`). Under **P0-08** (IF-9): **SE-3**, **SS-5** (forced purge / purge without archive still `service.delete` HIGH, no time lock) and staff `backup.delete` floored to HIGH (`backup_dr_admin`, one person) — RiskFloorTest "pins the open items P0-08/IF-9" becomes the CRITICAL proof when P0-08 lands. Under **P0-14** (IF-16): **SS-4/PA-06**, staff panel SSO asks only `staff.console` + step-up (support_l2/l3 hold it), no ticket, reason optional, no family check, second person or customer notice; `ticket_ref` is free request text — P0-14 must check that a real ticket about the service exists and was opened by the customer, never trust `ticket_ref` (TASK-0039's `PanelLoginCommand::ticketFor` does).
+**After Phase 0 (P0-16 red team: first round on the stacked chain `c59e08a`, TASK-0041; re-check on the final chain `02b5bc5`, fixed in `c4c43e2`; Phase 0 is NOT signed off).** The first round found the holes of P0-08, P0-09 and P0-14 open because TASK-0039 was on neither wave; they were pinned in `tests/Feature/Security/PhaseZeroOpenItemsTest.php`. With TASK-0039 rebased onto the chain all nine pins went red for the right reason and were replaced by its proofs (the file header maps each). **Closed:** **EXPL-1/2/3**, **SS-1** and **SS-14** (IF-8: a member of staff on a customer route is the customer; staff powers only in staff mode on `/v1/staff/*` and, since the re-check, only with a staff key — `staff.service.manage`, `staff.service.delete`, `billing.dunning.manage` — and with a second person in an organization of one's own; the console pre-flight asks the token's issuer or a member), the reinstatement credit gate (`StaffActor::may` with the staff billing key), **SE-3/SS-5** and staff `backup.delete` (IF-9: CRITICAL), **SS-4/PA-06** (IF-16: `PanelLoginCommand` with a real ticket opened by the customer, never `ticket_ref`), and **PA-04** for tokens bound to an organization (IF-5: header, missing header, resource id, queued runs, a staff person's token, the web seams). **Open, written down but still allowed until the operator's switch** (the breach register's open list): IF-4 — a global staff role's customer keys and staff `archive.restore` through a global binding are logged to `authz.staff_reach` until `ONHOST_STAFF_REACH_ENFORCED=true` (then P0-15); PA-04 for tokens stored with no organization until `ONHOST_TOKEN_ORGANIZATION_REQUIRED=true`. **Open, no fix yet (re-check):** `GET /v1/me` returns every current membership of a token's person with the full organization record (MEDIUM, P0-09); the HTTP replay store keyed `user:<id>` without the token or organization, `assertMayRestore` reading the source on the person instead of the token view, runs queued before the release without `desired.token_id`, and the command-line time lock for new staff skipping roles that decide no approvals (LOW each; `.ai/PROJECT_STATE.md` → Known issues).
 
 **Unknowns still requiring live/staging verification (never on production panels):** Pterodactyl `filter[email]` partial-match behaviour; aaPanel `UnZip`/file-API symlink-following and default file modes; ISPConfig `client_login_get` semantics and `mail_user` disable field names; Proxmox storage type mix (ZFS/LVM-thin/qcow2) for snapshot behaviour; whether `ONHOST_FOUR_EYES` is currently set in production; whether any staff account is currently also a customer-org member (decides how exploitable EXPL-1..3 are today).
 

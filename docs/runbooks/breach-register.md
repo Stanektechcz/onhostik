@@ -2,8 +2,8 @@
 
 Phase 0 of the permission program closes nine holes that had been open since launch (program §1 and §9: TD-1, TD-2,
 TD-3, PA-01, G1, PA-02, PA-04, SS-1/SS-5 with EXPL-1..3, P1/P2). PA-04 and SS-1/SS-5 with EXPL-1..3 close with TASK-0039,
-rebased onto waves 1 and 2 in the final Phase-0 chain; what it ships only as a shadow release behind a switch is listed under
-"Still open after Phase 0 wave 2" below.
+rebased onto waves 1 and 2 in the final Phase-0 chain; what it ships only as a shadow release behind a switch, and one PA-04
+read the last red-team check found open, are listed under "Still open after Phase 0 wave 2" below.
 Closing a hole says nothing about the time **before** it was closed.
 This runbook answers two questions for each hole: did anybody use it, and what do we do if they did (program key
 P0-01 / IF-0, decision D16).
@@ -34,9 +34,10 @@ keys (`staff.service.manage`, `staff.service.delete`, the staff billing key `bil
 the key of a staff role, and a member of staff acting in staff mode in an organization of their own takes a second person or
 the time lock (proofs: `StaffModeTest` "P0-16 re-check", `PayAndRestoreTest` "P0-16 re-check").
 
-What is left below is written down but still **allowed** until the operator switches the rule on. Until then the look-back for
-these is not a look-back: a clean report means only "not used yet", and a re-run after the Phase 0 deploy may grow. Phase 0 is
-not signed off while this list has an entry. Switch each rule on as its line says, then strike the line (the register test in
+The first three entries below are written down but still **allowed** until the operator switches the rule on. Until then the
+look-back for these is not a look-back: a clean report means only "not used yet", and a re-run after the Phase 0 deploy may
+grow. The last entry, found by the same re-check, has no switch and no fix yet. Phase 0 is not signed off while this list has
+an entry. Switch each rule on as its line says (or land the fix), then strike the line (the register test in
 `PhaseZeroOpenItemsTest.php` reads this list).
 
 * `IF-4` (P0-08, then P0-15, TASK-0039): a global staff role, or a JIT elevation, still reaches the customer keys it holds
@@ -51,6 +52,13 @@ not signed off while this list has an entry. Switch each rule on as its line say
   role's global reach. A token stored with **no** organization (`personal_access_tokens.organization_id` empty) still acts
   for every organization its person belongs to, until `ONHOST_TOKEN_ORGANIZATION_REQUIRED=true`: list them with
   `php artisan operator:tokens:unbound --dry-run`, tell the owners, then switch it on. Look-back source: `token_cross_org`.
+  Runs queued with a token before this release carry no `desired.token_id` and finish on the person's full view even after the
+  token is revoked; deploy when none is in flight, or let them finish first.
+* `GET /v1/me` (PA-04, P0-09; P0-16 re-check on the final chain, MEDIUM, **no switch, no fix yet**): the route is open to
+  tokens and returns every current membership of the token's person, each with the full organization record (billing e-mail,
+  company and VAT ids, address, settings, the person's role there). A token bound to organization A reads organization B's
+  data. Fix: answer a token with its own organization only, proven by a failing-first test in `TokenPrincipalTest`. The
+  `token_cross_org` source does not see it (reads are not audited).
 
 ## What it does, and what it never does
 
