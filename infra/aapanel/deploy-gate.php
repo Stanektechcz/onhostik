@@ -135,6 +135,11 @@ final class OnhostDeployGate
         $file = (string) ($opt['accept-file'] ?? '');
         if ($production && $file !== '' && is_file($file)) {
             foreach (preg_split('/\R/', (string) file_get_contents($file)) ?: [] as $line) {
+                // only the signed message counts: deploy.sh hands over the body before the signature, and a line after
+                // an armor line is never read — git leaves bytes after `-----END … SIGNATURE-----` unverified (round 3)
+                if (str_starts_with(trim($line), '-----BEGIN ')) {
+                    break;
+                }
                 if (preg_match('/^Accept-Gate:\s*(.+?)\s+(?:—|--)\s+(.+)$/u', trim($line), $m) !== 1) {
                     continue;
                 }

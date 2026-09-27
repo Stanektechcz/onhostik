@@ -8,7 +8,13 @@
 # (composer, key, migrations, seed, systemd units, caches). Every later release goes through the gated deployer
 # (install-deployer.sh → /usr/local/sbin/onhost-deploy). An installed site — marked `installed` in the state dir, or
 # a pre-marker install recognised by its APP_KEY — is refused: re-seeding a live database is not a repair.
-# INSTALL_REPAIR=1 only repairs storage/bootstrap ownership and the systemd units; it never migrates or seeds.
+#
+#   INSTALL_REPAIR=1 bash onhost-install.sh      (an installed site only; no REF/EXPECTED_SHA)
+#
+# repairs storage/bootstrap ownership and re-renders the systemd units from the checked-out revision in the root-owned
+# .git. It never migrates or seeds, and it does NOT change whether a unit runs: the units are enabled, never started
+# or restarted — a contained staging whose units were stopped on purpose stays stopped (review round 3). START_UNITS=1
+# also starts them.
 set -euo pipefail
 
 SITE="${SITE:-staging.onhost.cz}"                     # the aaPanel site (staging.onhost.cz for testing, onhost.cz for production)
@@ -19,59 +25,84 @@ COMPOSER="${COMPOSER:-/usr/local/bin/composer}"
 RUN_USER="${RUN_USER:-www}"                            # aaPanel's PHP-FPM user
 ENV_DIR="${ENV_DIR:-/etc/onhost}"
 DEPLOY_STATE_DIR="${DEPLOY_STATE_DIR:-/var/lib/onhost-deploy/${SITE}}"
-START_UNITS="${START_UNITS:-1}"                        # 0: enable the units without starting them (staging containment first)
+SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
+DEPLOY_OWNER_UID="${DEPLOY_OWNER_UID:-0}"              # who must own .git (root; tests run unprivileged)
 INSTALL_REPAIR="${INSTALL_REPAIR:-0}"
+START_UNITS="${START_UNITS:-}"                         # install: 1 unless 0 (containment first) · repair: 0 unless 1
 QUEUES="${QUEUES:-default mails provider-pterodactyl provider-aapanel provider-ispconfig provider-proxmox provider-powerdns provider-registrar provider-kubernetes}"
 SAFE_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 say() { printf '\n\033[1;32m▶ %s\033[0m\n' "$*"; }
 die() { printf '\033[1;31m✖ %s\033[0m\n' "$*" >&2; exit 2; }
+warn() { printf '\033[1;33mWARN %s\033[0m\n' "$*" >&2; }
 need() { command -v "$1" >/dev/null 2>&1 || die "missing: $1"; }
 g() { GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="${DEPLOY_STATE_DIR}/gitconfig" git -C "$APP_DIR" -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"; }
 art() { env -i PATH="$SAFE_PATH" HOME=/root "$PHP" "$APP_DIR/artisan" "$@"; }
 
-# storage and bootstrap/cache belong to the PHP-FPM user; the code tree and .git stay root's
-fix_owner() {
-  chown -R "$RUN_USER:$RUN_USER" "$APP_DIR/storage" "$APP_DIR/bootstrap/cache"
-  chmod -R u+rwX,g+rX,o-rwx "$APP_DIR/storage" "$APP_DIR/bootstrap/cache"
-  chown -R root:root "$APP_DIR/.git" && chmod -R go-w "$APP_DIR/.git" && chmod 700 "$APP_DIR/.git"
+# storage and bootstrap/cache belong to the PHP-FPM user; the code tree and .git stay root's. www can write $APP_DIR, so
+# either directory (or bootstrap itself) could be swapped for a symlink, and `chown -R`/`chmod -R` run as root follow one
+# given on the command line. Review round 3: fix_owner still ran those plain recursive commands, on the INSTALL_REPAIR
+# path too. The two functions below are the deployer's, character for character (DeployGateTest compares them).
+tree_is_real() { # the two directories are real directories where the checkout says they are
+  local d real_app
+  real_app="$(realpath "$APP_DIR")" || return 1
+  for d in storage bootstrap bootstrap/cache; do
+    [ ! -L "$APP_DIR/$d" ] && [ -d "$APP_DIR/$d" ] && [ "$(realpath "$APP_DIR/$d")" = "$real_app/$d" ] || return 1
+  done
 }
+repair_ownership() {
+  tree_is_real || { warn "storage, bootstrap or bootstrap/cache is a symlink or missing: ownership NOT repaired"; return 1; }
+  find -P "$APP_DIR/storage" "$APP_DIR/bootstrap/cache" -exec chown -h "$RUN_USER:$RUN_USER" {} + \
+    && find -P "$APP_DIR/storage" "$APP_DIR/bootstrap/cache" ! -type l -exec chmod u+rwX,g+rX,o-rwx {} +
+}
+fix_owner() { repair_ownership || die "ownership repair refused: storage, bootstrap and bootstrap/cache must be real directories of $APP_DIR"; }
+git_is_roots() { [ -d "$APP_DIR/.git" ] && [ ! -L "$APP_DIR/.git" ] && [ -z "$(find -P "$APP_DIR/.git" \( ! -uid "$DEPLOY_OWNER_UID" -o -perm /022 \) -print -quit)" ]; }
 
-install_units() {
+# The unit files come out of the root-owned .git at revision $1, never from the working tree: www can replace entries of
+# $APP_DIR, and a unit file it wrote (User=root, its own ExecStart) would run as root at the next start (review round 3).
+install_units() { # $1 = revision
   local unit q now=()
   [ "$START_UNITS" = 1 ] && now=(--now)
   for unit in onhost-queue@.service onhost-scheduler.service; do
-    sed -e "s#/var/www/onhost#${APP_DIR}#g" -e "s#/usr/bin/php#${PHP}#g" -e "s#User=onhost#User=${RUN_USER}#" -e "s#Group=onhost#Group=${RUN_USER}#" -e "s#/etc/onhost/app.env#${ENV_DIR}/app.env#" "$APP_DIR/infra/systemd/$unit" > "/etc/systemd/system/$unit"
+    g show "$1:infra/systemd/$unit" \
+      | sed -e "s#/var/www/onhost#${APP_DIR}#g" -e "s#/usr/bin/php#${PHP}#g" -e "s#User=onhost#User=${RUN_USER}#" -e "s#Group=onhost#Group=${RUN_USER}#" -e "s#/etc/onhost/app.env#${ENV_DIR}/app.env#" \
+      > "$SYSTEMD_DIR/$unit.new" && mv -f "$SYSTEMD_DIR/$unit.new" "$SYSTEMD_DIR/$unit" || die "cannot render $unit from $1"
   done
   systemctl daemon-reload
   systemctl enable ${now[@]+"${now[@]}"} onhost-scheduler.service
   for q in $QUEUES; do systemctl enable ${now[@]+"${now[@]}"} "onhost-queue@${q}.service"; done
-  [ "$START_UNITS" = 1 ] || echo "   units enabled, NOT started (START_UNITS=0): start them after the containment steps of docs/runbooks/staging-launch.md"
+  [ "$START_UNITS" = 1 ] || echo "   units enabled, NOT started or restarted (START_UNITS=0): start them after the containment steps of docs/runbooks/staging-launch.md"
 }
 
 say "Checking the host"
 need git; need curl
 [ -x "$PHP" ] || die "PHP not found at $PHP (aaPanel: App Store → PHP 8.3)"
 [ -n "${BRANCH:-}" ] && die "BRANCH is no longer accepted: pass REF=<sha|tag> and EXPECTED_SHA=<sha>"
-[[ "${EXPECTED_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || die "EXPECTED_SHA must be the full 40-character SHA to install"
-REF="${REF:-$EXPECTED_SHA}"
-[[ "$REF" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$ ]] && [[ "$REF" != *..* ]] || die "REF '$REF' is not a plain ref name"
-has_ext() { "$PHP" -r 'exit(extension_loaded($argv[1]) ? 0 : 1);' "$1"; }   # php -m output differs between builds; ask PHP itself
-has_ext pdo_pgsql || die "PHP 8.3 needs pdo_pgsql (aaPanel → PHP 8.3 → Install extensions); loaded PDO drivers: $("$PHP" -r 'echo implode(",", PDO::getAvailableDrivers());')"
-for ext in intl bcmath mbstring openssl redis fileinfo zip gd opcache; do has_ext "$ext" || echo "warning: PHP extension ${ext} missing — install it in aaPanel (PHP 8.3 → extensions)"; done
 (umask 077; mkdir -p "$DEPLOY_STATE_DIR") && chmod 700 "$DEPLOY_STATE_DIR"
 [ -f "$DEPLOY_STATE_DIR/gitconfig" ] || (umask 077; printf '[safe]\n\tdirectory = %s\n' "$APP_DIR" > "$DEPLOY_STATE_DIR/gitconfig")
 
 # An installed site is never installed again (the old script re-ran `db:seed` on a live database)
 if [ -f "$DEPLOY_STATE_DIR/installed" ] || { [ ! -f "$DEPLOY_STATE_DIR/installing" ] && grep -qE '^APP_KEY=base64:' "$ENV_DIR/app.env" 2>/dev/null; }; then
   if [ "$INSTALL_REPAIR" = 1 ]; then
-    say "Repair only: storage/bootstrap ownership and the systemd units (no migrations, no seed)"
+    START_UNITS="${START_UNITS:-0}"
+    say "Repair only: storage/bootstrap ownership and the systemd units (no migrations, no seed, START_UNITS=$START_UNITS)"
+    tree_is_real || die "storage, bootstrap and bootstrap/cache must be real directories of $APP_DIR (a symlink would let root re-own another tree): nothing repaired"
+    git_is_roots || die "$APP_DIR/.git must be a directory owned by uid $DEPLOY_OWNER_UID and writable by nobody else (staging-launch.md S1b); the units are rendered from it: nothing repaired"
     fix_owner
-    install_units
+    install_units HEAD
     exit 0
   fi
   die "$SITE is already installed (state marker or APP_KEY in $ENV_DIR/app.env): releases go through /usr/local/sbin/onhost-deploy; INSTALL_REPAIR=1 repairs ownership and units only"
 fi
+[ "$INSTALL_REPAIR" = 1 ] && die "INSTALL_REPAIR=1 repairs an installed site; $SITE is not installed"
+START_UNITS="${START_UNITS:-1}"
+
+[[ "${EXPECTED_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || die "EXPECTED_SHA must be the full 40-character SHA to install"
+REF="${REF:-$EXPECTED_SHA}"
+[[ "$REF" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$ ]] && [[ "$REF" != *..* ]] || die "REF '$REF' is not a plain ref name"
+has_ext() { "$PHP" -r 'exit(extension_loaded($argv[1]) ? 0 : 1);' "$1"; }   # php -m output differs between builds; ask PHP itself
+has_ext pdo_pgsql || die "PHP 8.3 needs pdo_pgsql (aaPanel → PHP 8.3 → Install extensions); loaded PDO drivers: $("$PHP" -r 'echo implode(",", PDO::getAvailableDrivers());')"
+for ext in intl bcmath mbstring openssl redis fileinfo zip gd opcache; do has_ext "$ext" || echo "warning: PHP extension ${ext} missing — install it in aaPanel (PHP 8.3 → extensions)"; done
 
 if [ ! -x "$COMPOSER" ]; then
   say "Installing Composer (installer checked against composer.github.io/installer.sig)"
@@ -87,8 +118,12 @@ fi
 say "Checkout in $APP_DIR ($REF = $EXPECTED_SHA)"
 if [ ! -d "$APP_DIR/.git" ]; then
   mkdir -p "$(dirname "$APP_DIR")"
+  [ -L "$APP_DIR/.git" ] && die "$APP_DIR/.git is a symlink"
   git clone -q --no-checkout "$REPO" "$APP_DIR"
+  chmod 700 "$APP_DIR/.git"
 fi
+# root's clone, never a .git someone else left (a re-run of an unfinished install): review it and hand it to root by hand
+git_is_roots || die "$APP_DIR/.git must be a directory owned by uid $DEPLOY_OWNER_UID and writable by nobody else (review its hooks and config, then staging-launch.md S1b)"
 g fetch -q --prune --tags origin
 sha="$(g rev-parse -q --verify "${REF}^{commit}" 2>/dev/null || g rev-parse -q --verify "refs/remotes/origin/${REF}^{commit}" 2>/dev/null || true)"
 [ "$sha" = "$EXPECTED_SHA" ] || die "REF '$REF' resolves to '${sha:-nothing}', not EXPECTED_SHA $EXPECTED_SHA"
@@ -126,14 +161,15 @@ art db:seed --force
 art db:seed --class=NotificationTemplateSeeder --force
 
 say "systemd: queue workers, scheduler"
-install_units
+install_units "$EXPECTED_SHA"
 
 say "Caches"
 art config:cache
 art route:cache
 art event:cache
 art onhost:openapi >/dev/null || echo "warning: onhost:openapi failed; the published contract may be stale"
-printf '%s %s\n' "$EXPECTED_SHA" "$REF" > "$APP_DIR/VERSION"
+# VERSION sits in a directory www owns: written in the root-only state dir and renamed over whatever name is there
+(umask 022; printf '%s %s\n' "$EXPECTED_SHA" "$REF" > "$DEPLOY_STATE_DIR/VERSION.new") && mv -fT "$DEPLOY_STATE_DIR/VERSION.new" "$APP_DIR/VERSION"
 
 say "nginx site snippet"
 echo "   → paste infra/aapanel/nginx-site.conf into aaPanel → Website → ${SITE} → Config (see the runbook); root = $APP_DIR/public"

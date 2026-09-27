@@ -7,7 +7,8 @@
 # The files come out of the root-owned .git with `git show`, never from the www-writable working tree. The deployer
 # is the judge of every later release, so it is held to the release rules itself:
 #   * production (APP_ENV in the root-owned $ENV_FILE, fail closed): TAG must be an annotated tag whose last signature
-#     is SSH, signed by a key in $DEPLOY_STATE_DIR/allowed_signers, naming itself, and pointing at $SHA;
+#     is SSH with nothing appended after it, signed by a key in $DEPLOY_STATE_DIR/allowed_signers, naming itself, and
+#     pointing at $SHA;
 #   * it only moves forward: a SHA that does not descend from the installed one is refused;
 #   * FIRST=1 is for a host without a deployer only — refused when one is installed (it would skip the rule above).
 #
@@ -36,21 +37,33 @@ app_env() {
     | sed -E -e "s/^\"([^\"]*)\".*$/\\1/" -e "s/^'([^']*)'.*$/\\1/" -e 's/[[:space:]]+#.*$//' -e 's/[[:space:]]+$//' \
     | sort -u | awk 'NR == 1 { v = $0 } END { if (NR == 1) print v }'
 }
-# the same checks as deploy.sh verify_signed_tag (kept in step with it; DeployGateTest covers both)
-verify_signed_tag() { # $1 = tag name, $2 = expected commit, $3 = allowed_signers
-  local ref="refs/tags/$1" obj name last gh rc=0
-  [ "$(g cat-file -t "$ref" 2>/dev/null)" = tag ] || { echo "tag $1 is lightweight or missing"; return 1; }
-  obj="$(g cat-file tag "$ref")"
+# An annotated tag object ($1, its object id — resolved ONCE by the caller, so the object verified is the object read)
+# whose `tag` header is $2, whose LAST signature block is SSH with nothing but blank lines after its END line, which
+# points at $3 and which a key in $4 signed. Git picks the verifier from the signature itself (a PGP or X.509 block
+# would go to root's GnuPG keyring, not allowed_signers): gpg.program/gpg.x509.program are `false`, GNUPGHOME is empty.
+# Git verifies only what precedes the last BEGIN line and OpenSSH drops everything from END on, so a line appended
+# after END — an `Accept-Gate:` added by someone who can push tags but lacks the owner's key — passed verify-tag
+# unsigned (VERIFIED with git 2.47 + OpenSSH, review round 3). Such a tag is refused, and only the signed message (the
+# body before the last BEGIN line) is written to $5 for the gate to read. Kept identical in install-deployer.sh
+# (DeployGateTest compares the two).
+verify_signed_tag() { # $1 = tag object id, $2 = tag name, $3 = expected commit, $4 = allowed_signers, $5 = message file
+  local oid=$1 obj name begin gh rc=0
+  [ "$(g cat-file -t "$oid" 2>/dev/null)" = tag ] || { echo "tag $2 is lightweight or missing: production needs an annotated, signed tag"; return 1; }
+  obj="$(g cat-file tag "$oid")"
   name="$(printf '%s\n' "$obj" | awk 'NF == 0 { exit } /^tag / { print substr($0, 5); exit }')"
-  [ "$name" = "$1" ] || { echo "the tag object under $ref calls itself '$name', not '$1'"; return 1; }
-  last="$(printf '%s\n' "$obj" | grep -E '^-----BEGIN [A-Z ]+-----$' | tail -n 1)"
-  [ "$last" = "-----BEGIN SSH SIGNATURE-----" ] || { echo "tag $1 is not SSH-signed (${last:-no signature})"; return 1; }
-  [ "$(g rev-parse "${ref}^{commit}")" = "$2" ] || { echo "tag $1 does not point at $2"; return 1; }
+  [ "$name" = "$2" ] || { echo "the tag object under refs/tags/$2 calls itself '$name', not '$2'"; return 1; }
+  begin="$(printf '%s\n' "$obj" | grep -nE '^-----BEGIN [A-Z ]+-----$' | tail -n 1)"
+  [ "${begin#*:}" = "-----BEGIN SSH SIGNATURE-----" ] || { echo "tag $2 is not SSH-signed (${begin:-no signature})"; return 1; }
+  begin="${begin%%:*}"
+  printf '%s\n' "$obj" | awk -v b="$begin" 'NR > b && ended && NF { bad = 1 } NR > b && $0 == "-----END SSH SIGNATURE-----" { ended = 1 } END { exit (ended && !bad) ? 0 : 1 }' \
+    || { echo "tag $2 carries unsigned content after its signature (nothing may follow -----END SSH SIGNATURE-----)"; return 1; }
+  [ "$(g rev-parse "${oid}^{commit}")" = "$3" ] || { echo "tag $2 does not point at $3"; return 1; }
   gh="$(mktemp -d)"
   GNUPGHOME="$gh" g -c gpg.format=ssh -c gpg.program=false -c gpg.x509.program=false -c gpg.ssh.program=ssh-keygen \
-    -c gpg.ssh.allowedSignersFile="$3" verify-tag "$ref" >/dev/null 2>&1 || rc=$?
+    -c gpg.ssh.allowedSignersFile="$4" verify-tag "$oid" >/dev/null 2>&1 || rc=$?
   rm -rf "$gh"
-  [ "$rc" = 0 ] || { echo "tag $1 is not signed by a key in $3"; return 1; }
+  [ "$rc" = 0 ] || { echo "tag $2 is not signed by a key in $4"; return 1; }
+  printf '%s\n' "$obj" | awk -v b="$begin" 'NR >= b { exit } body { print } NF == 0 { body = 1 }' > "${5:-/dev/null}"
 }
 root_only() { [ -z "$(find -P "$@" -maxdepth 0 \( ! -uid "$DEPLOY_OWNER_UID" -o -perm /022 \) -print -quit)" ]; }
 
@@ -77,7 +90,9 @@ case "$(app_env "$ENV_FILE")" in
     [ -n "$TAG" ] || die "production ($ENV_FILE): TAG=<the owner's signed release tag pointing at $SHA> is required"
     signers="$DEPLOY_STATE_DIR/allowed_signers"
     [ -f "$signers" ] && root_only "$signers" || die "no trusted $signers (root-owned, the owner's SSH public key)"
-    why="$(verify_signed_tag "$TAG" "$SHA" "$signers")" || die "$why"
+    [[ "$TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$ ]] && [[ "$TAG" != *..* ]] || die "TAG '$TAG' is not a plain tag name"
+    tag_oid="$(g rev-parse -q --verify "refs/tags/${TAG}")" || die "tag $TAG is missing (git fetch --tags origin first)"
+    why="$(verify_signed_tag "$tag_oid" "$TAG" "$SHA" "$signers")" || die "$why"
     ;;
 esac
 

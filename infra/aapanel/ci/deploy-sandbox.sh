@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Test fixture for tests/Feature/Platform/DeployGateTest.php (TASK-0032): builds a throw-away "host" in $1 — a bare
 # origin, a site checkout at commit A, commit B (adds a migration) with an annotated tag vtest, a lightweight tag
-# vlight, an SSH-signed tag vsigned (+ the same object as vrenamed, a PGP-block tag vpgp; the key's allowed_signers
+# vlight, SSH-signed tags vsigned and vaccept (an Accept-Gate line in its signed message) (+ vsigned's object as
+# vrenamed, a PGP-block tag vpgp; the key's allowed_signers
 # line in allowed_signers.src), the root-owned environment file etc/app.env that the site's .env is, stub binaries
 # (php, systemctl with unit state, curl, flock, chown, fpm-reload) and the deployer installed from A with the real
 # install-deployer.sh. Nothing outside $1 is touched. Prints KEY=VALUE lines for the test.
@@ -17,8 +18,9 @@ gitc() { git -c user.name=deploy-test -c user.email=deploy-test@example.invalid 
 # ── the repository: A = the deployer + a minimal site, B = A + one migration ─────────────────────────────────────────
 seed="$box/seed"
 gitc init -q "$seed"
-mkdir -p "$seed/infra/aapanel" "$seed/database/migrations" "$seed/contracts/openapi" "$seed/storage/framework" "$seed/bootstrap/cache"
+mkdir -p "$seed/infra/aapanel" "$seed/infra/systemd" "$seed/database/migrations" "$seed/contracts/openapi" "$seed/storage/framework" "$seed/bootstrap/cache"
 cp "$REPO_ROOT/infra/aapanel/deploy.sh" "$REPO_ROOT/infra/aapanel/deploy-gate.php" "$REPO_ROOT/infra/aapanel/install-deployer.sh" "$seed/infra/aapanel/"
+cp "$REPO_ROOT/infra/systemd/onhost-queue@.service" "$REPO_ROOT/infra/systemd/onhost-scheduler.service" "$seed/infra/systemd/"   # install.sh repair renders them
 printf '<?php // stub: the sandbox php answers artisan calls\n' > "$seed/artisan"
 printf 'openapi: 3.1.0\n' > "$seed/contracts/openapi/onhost-v1.yaml"
 printf '%s\n' '.env' '/VERSION' '/storage/' '/bootstrap/cache/' > "$seed/.gitignore"
@@ -35,6 +37,9 @@ gitc -C "$seed" tag vlight
 ssh-keygen -q -t ed25519 -N '' -C owner -f "$box/owner_key"
 printf 'owner namespaces="git" %s\n' "$(cut -d' ' -f1,2 "$box/owner_key.pub")" > "$box/allowed_signers.src"
 gitc -C "$seed" -c gpg.format=ssh -c user.signingkey="$box/owner_key" tag -s vsigned -m "Release-Record: .ai/releases/x.md" -m "Verdict: READY"
+# vaccept: the owner's signed tag whose signed message accepts one GATED row (the production Accept-Gate path)
+gitc -C "$seed" -c gpg.format=ssh -c user.signingkey="$box/owner_key" tag -s vaccept -m "Release-Record: .ai/releases/x.md" \
+  -m "Accept-Gate: storage|queue driver — accepted by the owner for the sandbox production test"
 gitc -C "$seed" update-ref refs/tags/vrenamed "$(git -C "$seed" rev-parse refs/tags/vsigned)"
 pgp="$(printf 'object %s\ntype commit\ntag vpgp\ntagger deploy-test <deploy-test@example.invalid> 1790000000 +0000\n\nrelease\n-----BEGIN PGP SIGNATURE-----\n\nZmFrZQ==\n-----END PGP SIGNATURE-----\n' "$sha_b" | git -C "$seed" mktag)"
 gitc -C "$seed" update-ref refs/tags/vpgp "$pgp"

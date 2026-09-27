@@ -150,6 +150,16 @@ it('in production refuses the environment override and honours an Accept-Gate li
         ->and(deployGateVerdict(deployGateReport(['tls|CA bundle for outbound TLS' => 'WARN']), ['accept' => "Accept-Gate: tls|CA bundle for outbound TLS — a tag line outside production\n"])->getExitCode())->toBe(10); // tag lines count only in production
 });
 
+it('never reads an Accept-Gate line after a signature armor line: git leaves bytes after the signature unverified', function () {
+    $report = deployGateReport(['tls|CA bundle for outbound TLS' => 'FAIL'], 'production');
+    $appended = "v2026.09.27\n\nRelease-Record: .ai/releases/x.md\n-----BEGIN SSH SIGNATURE-----\nU1NIU0lH\n-----END SSH SIGNATURE-----\n"
+        ."Accept-Gate: tls|CA bundle for outbound TLS — appended after the signature by someone without the key\n";
+
+    $p = deployGateVerdict($report, ['env' => 'production', 'production' => '1', 'accept' => $appended]);
+
+    expect($p->getExitCode())->toBe(10, $p->getOutput())->and($p->getOutput())->not->toContain('ACCEPTED');
+});
+
 it('reads APP_ENV the way phpdotenv does and leaves anything ambiguous empty (the deployer then treats it as production)', function () {
     $dir = deployGateTempDir();
     $read = function (string $content) use ($dir): string {
@@ -375,6 +385,10 @@ it('releases in order: drain, down, backup and verify, switch, migrate, gate, st
     file_put_contents($box['dir'].'/app/bootstrap/cache/config.php', "<?php // written by www\n");
     File::ensureDirectoryExists($box['dir'].'/app/storage/framework/views');
     file_put_contents($box['dir'].'/app/storage/framework/views/planted.php', "<?php // written by www\n");
+    // …and VERSION (gitignored, in a directory www owns) planted as a second name of a file root must not write: a hard
+    // link here (every OS), a symlink on Linux — root used to write through it with `>` (review round 3)
+    file_put_contents($box['dir'].'/victim.txt', "not the release\n");
+    PHP_OS_FAMILY === 'Windows' ? link($box['dir'].'/victim.txt', $box['dir'].'/app/VERSION') : symlink($box['dir'].'/victim.txt', $box['dir'].'/app/VERSION');
 
     $r = deployGateDeploy($box, deployGateTo($box, $box['SHA_B']), ['STUB_UNITS' => 'onhost-queue@default.service onhost-scheduler.service']);
     $s = $r['stub'];
@@ -398,6 +412,8 @@ it('releases in order: drain, down, backup and verify, switch, migrate, gate, st
         ->and(deployGateAt($s, 'systemctl start onhost-scheduler.service'))->toBeLessThan(deployGateAt($s, 'artisan up'))
         ->and($s)->not->toContain('queue:restart')
         ->and(trim((string) file_get_contents($box['dir'].'/app/VERSION')))->toBe($box['SHA_B'].' '.$box['SHA_B'])
+        ->and(is_link($box['dir'].'/app/VERSION'))->toBeFalse()
+        ->and((string) file_get_contents($box['dir'].'/victim.txt'))->toBe("not the release\n")
         ->and(json_decode((string) file_get_contents($box['dir'].'/state/last-good.json'), true)['sha'])->toBe($box['SHA_B'])
         ->and(is_file($box['dir'].'/app/storage/framework/down'))->toBeFalse()
         ->and($r['log'])->toContain('operator=test-operator')->toContain('rc=0')->toContain('set=platform-backups/');
@@ -605,6 +621,89 @@ it('refuses before going down when the site .env is not the root-owned file, a c
     }
 });
 
+it('in production reads Accept-Gate only from the signed message: a line appended after the signature refuses the tag', function () {
+    $box = $this->deployBox = deployGateSandbox();
+    file_put_contents($box['dir'].'/etc/app.env', "APP_ENV=production\nAPP_URL=https://staging.test\n");
+    copy($box['dir'].'/allowed_signers.src', $box['dir'].'/state/allowed_signers');
+    file_put_contents($box['dir'].'/bin/doctor.json', (string) json_encode(deployGateReport(['storage|queue driver' => 'WARN'], 'production')));
+    $b = $box['SHA_B'];
+
+    // someone who can push tags but lacks the owner's key re-files the owner's signed vsigned with one line after END
+    $origin = $box['dir'].'/origin.git';
+    $raw = (new Process(['git', '-C', $origin, 'cat-file', 'tag', 'refs/tags/vsigned']))->mustRun()->getOutput();
+    $forged = new Process(['git', '-C', $origin, 'hash-object', '-t', 'tag', '-w', '--stdin']);
+    $forged->setInput($raw."Accept-Gate: storage|queue driver — appended after the signature by someone without the key\n");
+    $forged->mustRun();
+    (new Process(['git', '-C', $origin, 'update-ref', 'refs/tags/vsigned', trim($forged->getOutput())]))->mustRun();
+
+    $appended = deployGateDeploy($box, ['REF' => 'vsigned', 'EXPECTED_SHA' => $b]);
+    expect($appended['rc'])->toBe(2, $appended['out'])->and($appended['out'])->toContain('unsigned content after its signature')
+        ->and($appended['stub'])->not->toContain('artisan down')->and($appended['head'])->toBe($box['SHA_A']);
+    $installer = deployGateInstallDeployer($box, ['SHA' => $b, 'TAG' => 'vsigned']);   // the judge's installer holds the same line
+    expect($installer->getExitCode())->toBe(2, $installer->getErrorOutput())->and($installer->getErrorOutput())->toContain('unsigned content after its signature');
+
+    // the owner's own Accept-Gate line inside the signed message still accepts the GATED row, and is logged
+    $accepted = deployGateDeploy($box, ['REF' => 'vaccept', 'EXPECTED_SHA' => $b]);
+    expect($accepted['rc'])->toBe(0, $accepted['out'])->and($accepted['head'])->toBe($b)
+        ->and($accepted['log'])->toContain('accepted="storage|queue driver (WARN) by Accept-Gate in the signed tag;"');
+});
+
+/** Runs infra/aapanel/install.sh (or ONHOST_INSTALL_SCRIPT) against the sandbox, stubs first on PATH. */
+function deployGateInstall(array $box, array $env): array
+{
+    @unlink($box['dir'].'/stub.log');
+    File::ensureDirectoryExists($box['dir'].'/systemd');
+    $script = getenv('ONHOST_INSTALL_SCRIPT') ?: base_path('infra/aapanel/install.sh');
+    $process = new Process([(string) deployGateBash(), '-c', 'PATH="$STUB_BIN:$PATH" exec bash "$INSTALLER"'], null, array_merge([
+        'STUB_BIN' => $box['posix'].'/bin', 'INSTALLER' => deployGatePosix((string) $script),
+        'SITE' => 'staging.test', 'APP_DIR' => $box['APP'], 'PHP' => $box['posix'].'/bin/php', 'ENV_DIR' => $box['posix'].'/etc',
+        'RUN_USER' => $box['USER'], 'DEPLOY_STATE_DIR' => $box['posix'].'/state', 'SYSTEMD_DIR' => $box['posix'].'/systemd',
+        'DEPLOY_OWNER_UID' => $box['UID'], 'QUEUES' => 'default mails',
+        'INSTALL_REPAIR' => '1', 'START_UNITS' => false, 'REF' => false, 'EXPECTED_SHA' => false, 'BRANCH' => false,
+    ], $env));
+    $process->setTimeout(60);
+    $process->run();
+
+    return ['rc' => (int) $process->getExitCode(), 'out' => $process->getOutput().$process->getErrorOutput(), 'stub' => (string) @file_get_contents($box['dir'].'/stub.log')];
+}
+
+it('repairs an installed site without starting its units, without following a linked cache directory, and renders units from .git', function () {
+    $box = $this->deployBox = deployGateSandbox();
+    $app = $box['dir'].'/app';
+
+    $notInstalled = deployGateInstall($box, []);
+    expect($notInstalled['rc'])->toBe(2, $notInstalled['out'])->and($notInstalled['out'])->toContain('not installed');
+    touch($box['dir'].'/state/installed');
+
+    // www swaps bootstrap/cache for a link to another tree: the repair must not re-own or re-mode it
+    File::ensureDirectoryExists($box['dir'].'/elsewhere');
+    file_put_contents($box['dir'].'/elsewhere/keep.txt', 'not the site');
+    File::deleteDirectory($app.'/bootstrap/cache');
+    PHP_OS_FAMILY === 'Windows'
+        ? (new Process(['cmd', '/c', 'mklink', '/J', str_replace('/', '\\', $app.'/bootstrap/cache'), str_replace('/', '\\', $box['dir'].'/elsewhere')]))->mustRun()
+        : symlink($box['dir'].'/elsewhere', $app.'/bootstrap/cache');
+    $linked = deployGateInstall($box, []);
+    PHP_OS_FAMILY === 'Windows' ? rmdir($app.'/bootstrap/cache') : unlink($app.'/bootstrap/cache');
+    File::ensureDirectoryExists($app.'/bootstrap/cache');
+    expect($linked['rc'])->toBe(2, $linked['out'])->and($linked['out'])->toContain('real directories')
+        ->and($linked['stub'])->not->toContain('chown')->not->toContain('systemctl')
+        ->and((string) file_get_contents($box['dir'].'/elsewhere/keep.txt'))->toBe('not the site');
+
+    // a contained staging (units stopped on purpose) stays stopped; a unit file www wrote into the tree is not used
+    File::ensureDirectoryExists($app.'/infra/systemd');
+    file_put_contents($app.'/infra/systemd/onhost-scheduler.service', "[Service]\nUser=root\nExecStart=/bin/sh -c 'planted by www'\n");
+    $repair = deployGateInstall($box, []);
+    $unit = (string) @file_get_contents($box['dir'].'/systemd/onhost-scheduler.service');
+    expect($repair['rc'])->toBe(0, $repair['out'])
+        ->and($repair['stub'])->toContain('systemctl enable onhost-scheduler.service')->toContain('systemctl enable onhost-queue@default.service')
+        ->not->toContain('--now')->not->toContain('systemctl start')->not->toContain('systemctl restart')
+        ->and($repair['stub'])->toContain('chown -h')
+        ->and($unit)->toContain('User='.$box['USER'])->toContain('schedule:work')->not->toContain('planted by www');
+
+    $started = deployGateInstall($box, ['START_UNITS' => '1']);   // starting is an explicit choice
+    expect($started['rc'])->toBe(0, $started['out'])->and($started['stub'])->toContain('systemctl enable --now onhost-scheduler.service');
+});
+
 it('does not call a release good when a drained unit does not come back: all of them stop again and the site stays down', function () {
     $box = $this->deployBox = deployGateSandbox();
     file_put_contents($box['dir'].'/state/last-good.json', (string) json_encode(['sha' => $box['SHA_A'], 'ref' => $box['SHA_A'], 'tag' => '', 'at' => 'x', 'operator' => 'op']));
@@ -635,4 +734,23 @@ it('keeps bash syntax valid and never ignores the doctor again', function () {
     $code = implode("\n", array_filter(explode("\n", (string) file_get_contents(base_path('infra/aapanel/deploy.sh'))), fn (string $line) => ! str_starts_with(ltrim($line), '#')));
     expect($code)->not->toMatch('/onhost:doctor[^\n]*\|\|\s*true/')->toContain('gate verdict')
         ->and((string) file_get_contents(base_path('infra/aapanel/install.sh')))->not->toContain('--global');
+});
+
+/** The source of shell function $name in infra/aapanel/$file (from `name() {` to the first `}` at column 0). */
+function deployGateShellFunction(string $file, string $name): string
+{
+    $source = (string) file_get_contents(base_path('infra/aapanel/'.$file));
+
+    return preg_match('/^'.preg_quote($name, '/').'\(\) \{.*?^\}$/ms', $source, $m) === 1 ? $m[0] : '';
+}
+
+it('keeps the security-critical shell functions identical where two scripts need them, and never writes VERSION through a name', function () {
+    foreach (['tree_is_real', 'repair_ownership'] as $name) { // the deployer and install.sh repair the same tree the same way
+        expect(deployGateShellFunction('deploy.sh', $name))->not->toBe('')->toBe(deployGateShellFunction('install.sh', $name));
+    }
+    expect(deployGateShellFunction('deploy.sh', 'verify_signed_tag'))->not->toBe('')->toBe(deployGateShellFunction('install-deployer.sh', 'verify_signed_tag'));
+    foreach (['deploy.sh', 'install.sh'] as $script) {
+        $source = (string) file_get_contents(base_path('infra/aapanel/'.$script));
+        expect($source)->not->toMatch('#>\s*"\$APP_DIR/VERSION"#')->not->toMatch('#chown -R[^\n]*(storage|bootstrap)#')->not->toMatch('#chmod -R[^\n]*(storage|bootstrap)#');
+    }
 });

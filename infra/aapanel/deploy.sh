@@ -43,6 +43,7 @@ SWITCHED=0
 PROD=1
 SHA=""
 TAG=""
+TAG_OID=""
 FROM=""
 SET=""
 OVERRIDE=""
@@ -156,23 +157,33 @@ root_only() {
   [ -z "$(find -P "$@" -maxdepth 0 \( ! -uid "$DEPLOY_OWNER_UID" -o -perm /022 \) -print -quit)" ]   # a symlink (0777) fails too
 }
 
-# An annotated tag whose LAST signature block is SSH, whose `tag` header names it and which a key in $3 signed. Git picks
-# the verifier from the signature itself (a PGP or X.509 block would go to root's GnuPG keyring, not allowed_signers):
-# gpg.program/gpg.x509.program are `false` and GNUPGHOME is empty, and the armor is checked before verify-tag runs.
-verify_signed_tag() { # $1 = tag name, $2 = expected commit, $3 = allowed_signers; prints why on failure
-  local ref="refs/tags/$1" obj name last gh rc=0
-  [ "$(g cat-file -t "$ref" 2>/dev/null)" = tag ] || { echo "tag $1 is lightweight or missing: production needs an annotated, signed tag"; return 1; }
-  obj="$(g cat-file tag "$ref")"
+# An annotated tag object ($1, its object id — resolved ONCE by the caller, so the object verified is the object read)
+# whose `tag` header is $2, whose LAST signature block is SSH with nothing but blank lines after its END line, which
+# points at $3 and which a key in $4 signed. Git picks the verifier from the signature itself (a PGP or X.509 block
+# would go to root's GnuPG keyring, not allowed_signers): gpg.program/gpg.x509.program are `false`, GNUPGHOME is empty.
+# Git verifies only what precedes the last BEGIN line and OpenSSH drops everything from END on, so a line appended
+# after END — an `Accept-Gate:` added by someone who can push tags but lacks the owner's key — passed verify-tag
+# unsigned (VERIFIED with git 2.47 + OpenSSH, review round 3). Such a tag is refused, and only the signed message (the
+# body before the last BEGIN line) is written to $5 for the gate to read. Kept identical in install-deployer.sh
+# (DeployGateTest compares the two).
+verify_signed_tag() { # $1 = tag object id, $2 = tag name, $3 = expected commit, $4 = allowed_signers, $5 = message file
+  local oid=$1 obj name begin gh rc=0
+  [ "$(g cat-file -t "$oid" 2>/dev/null)" = tag ] || { echo "tag $2 is lightweight or missing: production needs an annotated, signed tag"; return 1; }
+  obj="$(g cat-file tag "$oid")"
   name="$(printf '%s\n' "$obj" | awk 'NF == 0 { exit } /^tag / { print substr($0, 5); exit }')"
-  [ "$name" = "$1" ] || { echo "the tag object under $ref calls itself '$name', not '$1'"; return 1; }
-  last="$(printf '%s\n' "$obj" | grep -E '^-----BEGIN [A-Z ]+-----$' | tail -n 1)"
-  [ "$last" = "-----BEGIN SSH SIGNATURE-----" ] || { echo "tag $1 is not SSH-signed (${last:-no signature})"; return 1; }
-  [ "$(g rev-parse "${ref}^{commit}")" = "$2" ] || { echo "tag $1 does not point at $2"; return 1; }
+  [ "$name" = "$2" ] || { echo "the tag object under refs/tags/$2 calls itself '$name', not '$2'"; return 1; }
+  begin="$(printf '%s\n' "$obj" | grep -nE '^-----BEGIN [A-Z ]+-----$' | tail -n 1)"
+  [ "${begin#*:}" = "-----BEGIN SSH SIGNATURE-----" ] || { echo "tag $2 is not SSH-signed (${begin:-no signature})"; return 1; }
+  begin="${begin%%:*}"
+  printf '%s\n' "$obj" | awk -v b="$begin" 'NR > b && ended && NF { bad = 1 } NR > b && $0 == "-----END SSH SIGNATURE-----" { ended = 1 } END { exit (ended && !bad) ? 0 : 1 }' \
+    || { echo "tag $2 carries unsigned content after its signature (nothing may follow -----END SSH SIGNATURE-----)"; return 1; }
+  [ "$(g rev-parse "${oid}^{commit}")" = "$3" ] || { echo "tag $2 does not point at $3"; return 1; }
   gh="$(mktemp -d)"
   GNUPGHOME="$gh" g -c gpg.format=ssh -c gpg.program=false -c gpg.x509.program=false -c gpg.ssh.program=ssh-keygen \
-    -c gpg.ssh.allowedSignersFile="$3" verify-tag "$ref" >/dev/null 2>&1 || rc=$?
+    -c gpg.ssh.allowedSignersFile="$4" verify-tag "$oid" >/dev/null 2>&1 || rc=$?
   rm -rf "$gh"
-  [ "$rc" = 0 ] || { echo "tag $1 is not signed by a key in $3"; return 1; }
+  [ "$rc" = 0 ] || { echo "tag $2 is not signed by a key in $4"; return 1; }
+  printf '%s\n' "$obj" | awk -v b="$begin" 'NR >= b { exit } body { print } NF == 0 { body = 1 }' > "${5:-/dev/null}"
 }
 
 # ── HTTP: https://$SITE on this host (--resolve), optionally with the maintenance bypass header ─────────────────────
@@ -266,8 +277,8 @@ say "Fetch and resolve $REF"
 g fetch -q --prune --prune-tags --force --tags origin || die 2 "git fetch failed"
 if [[ "$REF" =~ ^[0-9a-f]{7,40}$ ]] && SHA="$(g rev-parse -q --verify "${REF}^{commit}" 2>/dev/null)"; then
   kind=sha
-elif g rev-parse -q --verify "refs/tags/${REF}" >/dev/null; then
-  kind=tag; TAG="$REF"; SHA="$(g rev-parse "refs/tags/${REF}^{commit}")"
+elif TAG_OID="$(g rev-parse -q --verify "refs/tags/${REF}")"; then
+  kind=tag; TAG="$REF"; SHA="$(g rev-parse "${TAG_OID}^{commit}")"
 elif [ "$PROD" = 0 ] && g rev-parse -q --verify "refs/remotes/origin/${REF}" >/dev/null; then
   kind=branch; SHA="$(g rev-parse "refs/remotes/origin/${REF}^{commit}")"
 else
@@ -280,12 +291,12 @@ boot_cache_init "$RUN_DIR/bootstrap-cache"   # from here every artisan/composer 
 
 if [ "$PROD" = 1 ]; then
   [ "$kind" = tag ] || die 2 "production deploys only a signed, annotated tag (REF=v…)"
-  [ "$(g cat-file -t "refs/tags/${REF}")" = tag ] || die 2 "tag $REF is lightweight: production needs an annotated, signed tag"
+  [ "$(g cat-file -t "$TAG_OID")" = tag ] || die 2 "tag $REF is lightweight: production needs an annotated, signed tag"
   signers="$DEPLOY_STATE_DIR/allowed_signers"
   [ -f "$signers" ] && root_only "$signers" \
     || die 2 "no trusted $signers (root-owned, the owner's SSH public key): production deploys are refused until it exists"
-  why="$(verify_signed_tag "$REF" "$SHA" "$signers")" || die 2 "$why"
-  g cat-file tag "refs/tags/${REF}" > "$RUN_DIR/tag.txt"
+  # tag.txt = the signed message only: the gate reads Accept-Gate lines from nothing the signature does not cover
+  why="$(verify_signed_tag "$TAG_OID" "$REF" "$SHA" "$signers" "$RUN_DIR/tag.txt")" || die 2 "$why"
   [ -n "${ALLOW_DOCTOR_FAIL:-}" ] && die 2 "ALLOW_DOCTOR_FAIL is refused in production: accept a GATED row with an 'Accept-Gate: <area|check> — <reason>' line in the signed tag"
 fi
 
@@ -389,7 +400,10 @@ art db:seed --class=NotificationTemplateSeeder --force || die 4 "NotificationTem
 say "Caches and contract"
 art config:cache && art route:cache && art event:cache || die 4 "caching failed"
 art onhost:openapi > "$RUN_DIR/openapi.out" 2>&1 || warn "onhost:openapi failed ($RUN_DIR/openapi.out); the published contract may be stale"
-(umask 022; printf '%s %s\n' "$SHA" "$REF" > "$APP_DIR/VERSION") || die 4 "cannot write VERSION"
+# VERSION sits in a directory www owns: written in the root-only run directory and renamed into place (mv -T renames
+# over a planted link or hard link instead of writing through it; `>` would have truncated whatever it names — review
+# round 3). Across file systems GNU mv removes the destination first and creates it exclusively.
+(umask 022; printf '%s %s\n' "$SHA" "$REF" > "$RUN_DIR/VERSION") && mv -fT "$RUN_DIR/VERSION" "$APP_DIR/VERSION" || die 4 "cannot write VERSION"
 publish_boot_cache || die 4 "cannot publish the framework caches into bootstrap/cache"
 repair_ownership || die 4 "ownership repair failed"
 if [ -n "$PHP_FPM_RELOAD" ]; then sh -c "$PHP_FPM_RELOAD" || warn "PHP-FPM reload failed: opcache may serve the old code"; else warn "PHP_FPM_RELOAD is not set: opcache may serve the old code"; fi
