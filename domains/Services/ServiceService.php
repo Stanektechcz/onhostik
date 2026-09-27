@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Services;
 
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -575,7 +576,14 @@ final class ServiceService
         if ($transient !== null) {
             $this->transition($service, $transient, $context, (string) ($params['reason'] ?? $action));
         }
-        $operation = $this->operations->start(self::actionWorkflowFor($action), $idempotencyKey, array_merge($params, ['action' => $action, 'service_id' => $service->id], $requestHash === null ? [] : ['request_hash' => $requestHash]), $context, $service->id, $service->organization_id, null, $service->provider_instance_id, authorizedPermission: $authorizedPermission, authorizedScope: $authorizedScope);
+        try {
+            $operation = $this->operations->start(self::actionWorkflowFor($action), $idempotencyKey, array_merge($params, ['action' => $action, 'service_id' => $service->id], $requestHash === null ? [] : ['request_hash' => $requestHash]), $context, $service->id, $service->organization_id, null, $service->provider_instance_id, authorizedPermission: $authorizedPermission, authorizedScope: $authorizedScope);
+        } catch (UniqueConstraintViolationException) {
+            // TASK-0036 review round 1: two copies of one request passed the look-up above at the same moment. The unique key of
+            // `operations` lets exactly one of them in; the other is told so (409) instead of a 500. The surrounding bus
+            // transaction is rolled back with this answer, so nothing of the losing copy stays.
+            throw new DomainError('operation_in_progress', 'The same request is already being started on this service; wait for it and look at its operation.', 409, ['idempotency' => 'in_flight']);
+        }
         $this->audit->record($context->withScope($service->organization_id), "service.action.{$action}", 'succeeded', ['params' => self::auditParams($params), 'operation_id' => $operation->id], 'service', $service->id, stepUp: $context->stepUpMethod, approvalIds: $context->approvalIds);
 
         return $operation;
@@ -604,7 +612,9 @@ final class ServiceService
             $scoped = 'h:'.hash('sha256', $key).'@'.$namespace;
         }
 
-        return [$scoped, hash('sha256', $action.'|'.(string) json_encode(self::canonicalParams($params)))];
+        // keyed (review round 1): the parameters carry passwords (mailbox, FTP, database, shell). OperationSecrets forgets the values
+        // once the run ends, but a plain digest of them would stay in `desired` as an offline check for a guessed password.
+        return [$scoped, hash_hmac('sha256', $action.'|'.(string) json_encode(self::canonicalParams($params)), (string) config('app.key'))];
     }
 
     /** Parameters with their keys in a fixed order, so the same request hashes the same however its JSON was ordered. @param array<mixed> $params @return array<mixed> */

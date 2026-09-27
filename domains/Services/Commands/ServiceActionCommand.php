@@ -118,6 +118,20 @@ final class ServiceActionCommand extends OrganizationCommand implements RiskAwar
     }
 
     /**
+     * The key the BUS keeps its answer under: the caller's key plus a keyed fingerprint of what was asked (TASK-0036 review
+     * round 1, IF-12). The bus answers a known key before the handler runs, so the same key with another body was answered
+     * with the first run whenever the HTTP layer had kept nothing (the process died after the commit, a 5xx) — and
+     * ServiceService's own 409 for a changed request never got the chance. Now another body passes the bus, and the
+     * operation (looked up by the caller's key alone, `$this->idempotencyKey`) refuses it. Keyed with app.key: the params
+     * carry passwords, and this key is stored in clear for a day. The same request still hashes the same, so a true retry
+     * is replayed by the bus exactly as before.
+     */
+    public function idempotencyKey(): string
+    {
+        return $this->idempotencyKey.'#'.substr(hash_hmac('sha256', (string) json_encode($this->payload), (string) config('app.key')), 0, 16);
+    }
+
+    /**
      * One map for the bus and for the operation row: a long run asks for the same permission again before each privileged
      * step (H315). An action nobody mapped is refused (the same answer as ServiceService::requestAction), whoever asks.
      *

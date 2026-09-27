@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
@@ -15,6 +16,7 @@ use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Organizations\Models\ProjectMembership;
 use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Domain\Provisioning\Models\Operation;
+use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\ServiceService;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
@@ -214,4 +216,118 @@ it('keeps one organization\'s idempotency key from answering for another, and re
     $colleague = grantPolicyMember($orgA, 'developer');
     Operation::query()->update(['state' => Operation::SUCCEEDED, 'finished_at' => now()]);
     expect($services->requestAction($siteA, 'https.force', $this->contextFor($colleague, $orgA), 'svc-key-9', ['enabled' => true])->id)->not->toBe($first->id);
+});
+
+// ── Review round 1: the bus's own replay, the fingerprint, the race, and the member cases nobody tried ──────────────────────
+
+it('answers a service action key at the API only for the member, the service and the request that sent it', function () {
+    Http::fake(fn () => Http::response(['status' => true, 'msg' => 'ok']));
+    [$alice, $org] = $this->customerWithOrganization();
+    $bob = grantPolicyMember($org, 'developer');
+    $siteX = featureWebService($org, 'aapanel');
+    $siteY = featureWebService($org, 'ispconfig');
+    $send = function (User $who, Service $site, array $params) {
+        $response = $this->actingAs($who, 'sanctum')->withHeader('Idempotency-Key', 'deploy-7')->postJson("/v1/services/{$site->id}/actions", ['action' => 'https.force', 'params' => $params]);
+        $this->flushHeaders();
+
+        return $response;
+    };
+    $finish = fn () => Operation::query()->update(['state' => Operation::SUCCEEDED, 'finished_at' => now()]);
+
+    $send($alice, $siteX, ['enabled' => true])->assertStatus(202);
+    // the bus kept its answer under (`service.<action>:<header>`, organization): another member's header for ANOTHER service of
+    // the same organization was answered with the first member's operation — nothing ran on Y, and X's run was handed out
+    $send($bob, $siteY, ['enabled' => true])->assertStatus(202);
+    expect(Operation::query()->where('service_id', $siteY->id)->count())->toBe(1);
+    // …and for the same service: a colleague's request is theirs, not a replay of Alice's (a third member — Bob's own HTTP replay
+    // refuses his header on another path, which is the HTTP layer's per-person rule and not what is tested here)
+    $finish();
+    $carol = grantPolicyMember($org, 'developer');
+    $send($carol, $siteX, ['enabled' => true])->assertStatus(202);
+    expect(Operation::query()->where('service_id', $siteX->id)->count())->toBe(2);
+
+    // the same person, the same key, another body: refused — also when the HTTP layer kept no answer (the process died after
+    // the commit, or the answer was a 5xx), where only the bus and the operation can tell the retry from a new request
+    $finish();
+    $send($alice, $siteX, ['enabled' => false])->assertStatus(409)->assertJsonPath('error', 'idempotency_key_reused');
+    DB::table('idempotency_keys')->where('key', 'like', 'http:%')->delete();
+    $send($alice, $siteX, ['enabled' => false])->assertStatus(409)->assertJsonPath('error', 'idempotency_key_reused');
+    // what stays: the true retry is answered by the operation it started, nothing runs twice (again with no HTTP answer kept:
+    // the HTTP layer bound the key to the refused body above, its own rule)
+    DB::table('idempotency_keys')->where('key', 'like', 'http:%')->delete();
+    $send($alice, $siteX, ['enabled' => true])->assertStatus(202);
+    expect(Operation::query()->where('service_id', $siteX->id)->count())->toBe(2);
+});
+
+it('keeps no fingerprint of an action\'s parameters that could be checked without the application key', function () {
+    [$alice, $org] = $this->customerWithOrganization();
+    $site = featureWebService($org, 'aapanel');
+    $params = ['enabled' => true];
+    $operation = app(ServiceService::class)->requestAction($site, 'https.force', $this->contextFor($alice, $org), 'fp-1', $params);
+
+    // parameters carry passwords (mailbox.update, ftp/db/shell passwords): a plain digest outlives OperationSecrets' scrub and
+    // lets anybody who reads `desired` (the staff console, a backup) try a dictionary against it offline
+    $stored = (string) data_get($operation->desired, 'request_hash');
+    expect($stored)->not->toBe('')
+        ->and($stored)->not->toBe(hash('sha256', 'https.force|'.json_encode($params)));
+});
+
+it('lets one request win when two carry the same key at the same moment, and answers the other with 409', function () {
+    [$alice, $org] = $this->customerWithOrganization();
+    $site = featureWebService($org, 'aapanel');
+    $twin = false;
+    // the other request inserts its operation between this one's look-up and its insert
+    Operation::creating(function (Operation $operation) use (&$twin) {
+        if ($twin) {
+            return;
+        }
+        $twin = true;
+        DB::table('operations')->insert(array_merge($operation->getAttributes(), ['id' => 'op_twin_'.Str::lower(Str::random(10))]));
+    });
+
+    expect(fn () => app(ServiceService::class)->requestAction($site, 'https.force', $this->contextFor($alice, $org), 'race-1', ['enabled' => true]))
+        ->toThrow(fn (DomainError $e) => expect($e->status)->toBe(409)->and($e->error)->toBe('operation_in_progress'));
+    expect(Operation::query()->where('service_id', $site->id)->count())->toBe(1);
+});
+
+it('invites a removed member again, takes a lapsed member off without renewing their role, and refuses dead links and gone people', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    grantPolicyStepUp($owner);
+    $as = fn () => $this->flushHeaders()->actingAs($owner, 'sanctum')->withHeader('Idempotency-Key', (string) Str::ulid());
+
+    // (a) only a CURRENT membership blocks an invitation: somebody who was removed can be invited again
+    $former = grantPolicyMember($org, 'developer');
+    $as()->deleteJson("/v1/organizations/{$org->id}/members/{$former->id}")->assertOk();
+    $as()->postJson("/v1/organizations/{$org->id}/invitations", ['email' => $former->email, 'role' => 'viewer'])->assertCreated();
+
+    // (b) a membership that has ended but was not swept yet: removable; a role change does not renew it (a new invitation does)
+    $lapsed = grantPolicyMember($org, 'developer');
+    OrganizationMembership::query()->where('organization_id', $org->id)->where('user_id', $lapsed->id)->update(['expires_at' => now()->subDay()]);
+    $as()->patchJson("/v1/organizations/{$org->id}/members/{$lapsed->id}", ['role' => 'viewer'])->assertNotFound();
+    expect(grantPolicyRole($org, $lapsed))->toBe('developer');
+    $as()->postJson("/v1/organizations/{$org->id}/invitations", ['email' => $lapsed->email, 'role' => 'viewer'])->assertCreated();
+    $as()->deleteJson("/v1/organizations/{$org->id}/members/{$lapsed->id}")->assertOk();
+    expect(grantPolicyRole($org, $lapsed))->toBeNull();
+
+    // (c) a link that expired, or was used already, joins nobody
+    $late = User::factory()->create();
+    $expired = grantPolicyInvitation($org, $late->email, 'viewer');
+    OrganizationInvitation::query()->where('token_hash', hash('sha256', $expired))->update(['expires_at' => now()->subMinute()]);
+    $this->flushHeaders()->actingAs($late, 'sanctum')->postJson('/v1/organizations/invitations/accept', ['token' => $expired])->assertStatus(410)->assertJsonPath('error', 'invitation_invalid');
+    $used = grantPolicyInvitation($org, $late->email, 'viewer');
+    $this->actingAs($late, 'sanctum')->postJson('/v1/organizations/invitations/accept', ['token' => $used])->assertOk();
+    $this->actingAs($late, 'sanctum')->postJson('/v1/organizations/invitations/accept', ['token' => $used])->assertStatus(410);
+    expect(grantPolicyRole($org, $late))->toBe('viewer');
+
+    // (d) a person whose account was deleted (soft or for good) is nobody's to change: 404, nothing written
+    $gone = grantPolicyMember($org, 'developer');
+    $gone->delete();
+    $as()->patchJson("/v1/organizations/{$org->id}/members/{$gone->id}", ['role' => 'viewer'])->assertNotFound();
+    expect(grantPolicyRole($org, $gone))->toBe('developer');
+    $erased = grantPolicyMember($org, 'viewer');
+    $erasedId = $erased->id;
+    $erased->forceDelete();
+    $as()->patchJson("/v1/organizations/{$org->id}/members/{$erasedId}", ['role' => 'developer'])->assertNotFound();
+    $as()->deleteJson("/v1/organizations/{$org->id}/members/{$erasedId}")->assertNotFound();
+    expect(OrganizationMembership::query()->where('organization_id', $org->id)->where('user_id', $erasedId)->value('role_key'))->toBe('viewer');
 });

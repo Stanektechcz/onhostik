@@ -38,6 +38,7 @@ use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\Services\ServiceSpecService;
 use Onhost\Domain\Services\ServiceSummary;
 use Onhost\Domain\Services\SshKeyLedger;
+use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Files\FileStore;
@@ -122,8 +123,24 @@ final class ServiceController extends ApiController
             app(DestructivePreview::class)->assertFresh($model, $action, $params, (string) $data['confirm']);
         }
         $organization = Organization::query()->find($model->organization_id);
+        $context = $this->api->context($request, $organization, $data['reason'] ?? null);
 
-        return $this->dispatch(new ServiceActionCommand($model->organization_id, $this->idempotencyKey($request, "service.{$action}"), ['service_id' => $model->id, 'project_id' => $model->project_id, 'action' => $action, 'params' => $params]), $this->api->context($request, $organization, $data['reason'] ?? null), 202);
+        return $this->dispatch(new ServiceActionCommand($model->organization_id, $this->idempotencyKey($request, self::actionKeyPrefix($model, $action, $context)), ['service_id' => $model->id, 'project_id' => $model->project_id, 'action' => $action, 'params' => $params]), $context, 202);
+    }
+
+    /**
+     * TASK-0036 review round 1 (IF-12, audit SE-5/G12): the bus keeps its answers per organization, and the key used to be
+     * `service.<action>:<header>` — nothing about the service or the person. Another member sending the same header for
+     * another service of the organization got the first member's operation back from the bus before anything ran: nothing
+     * happened on their service, and a run of a service they may not even see (another project) was handed to them. The
+     * HTTP layer's replay is per person and never saw it. The key now names the service and the actor (the person a staff
+     * member acts for first, as the operation's own namespace does); ServiceActionCommand adds the request's fingerprint.
+     */
+    private static function actionKeyPrefix(Service $service, string $action, CommandContext $context): string
+    {
+        $actor = substr(hash('sha256', $context->actorType.':'.($context->onBehalfOfUserId ?? $context->actorId ?? '')), 0, 16);
+
+        return "service.{$action}:{$service->id}:{$actor}";
     }
 
     /**
