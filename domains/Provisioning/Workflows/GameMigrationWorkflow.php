@@ -35,6 +35,7 @@ use Onhost\Providers\Contracts\InfrastructureProvider;
 use Onhost\Providers\Contracts\PowerCapable;
 use Onhost\Providers\Contracts\ProviderAdapter;
 use Onhost\Providers\Contracts\ResourceRef;
+use Onhost\Providers\Contracts\ServerOwnership;
 use Throwable;
 
 /**
@@ -178,6 +179,15 @@ final class GameMigrationWorkflow implements Workflow
                     return StepResult::fail("The game panel of node {$target->name} is not active", false);
                 }
                 $cross = $targetInstance->id !== $service->provider_instance_id;
+                // the same panel builds the new server under the owner the platform RECORDED (below). When the panel names another
+                // owner today, that record is stale and the copy of the customer's server would go to whichever account it names:
+                // refused until an operator makes both agree (red-team round of the Phase-0 chain; TASK-0033 `moved`)
+                if (! $cross) {
+                    $panel = $context->adapter($service->provider_instance_id);
+                    if ($panel instanceof ServerOwnership && $panel->ownerVerdict($source->ref(), (string) $service->organization_id) === ServerOwnership::MOVED) {
+                        return StepResult::fail('The game panel names another owner of this server than the platform recorded; support has to review it before it can be moved', false);
+                    }
+                }
                 $game = GameServer::query()->where('service_id', $service->id)->first();
                 $user = (int) (($source->meta['user_id'] ?? 0) ?: ($game?->ptero_user_id ?? 0));
                 $template = null;

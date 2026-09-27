@@ -88,7 +88,7 @@ function gameMigrationPanel(array &$state, bool $failUpload = false): void
         $state['calls'][] = [$m, $path, $request->data()];
         $list = fn (array $items, string $object) => Http::response(['object' => 'list', 'data' => array_map(fn ($a) => ['object' => $object, 'attributes' => $a], $items), 'meta' => ['pagination' => ['total_pages' => 1]]]);
         $server = fn (int $id, int $node, string $identifier, string $uuid, int $allocation, ?string $status) => Http::response(['object' => 'server', 'attributes' => [
-            'id' => $id, 'external_id' => $id === 77 ? 'order-item-1' : 'gmig', 'uuid' => $uuid, 'identifier' => $identifier, 'name' => 'mc-liga', 'suspended' => false, 'status' => $status, 'user' => 9, 'node' => $node, 'allocation' => $allocation, 'nest' => 1, 'egg' => 3,
+            'id' => $id, 'external_id' => $id === 77 ? 'order-item-1' : 'gmig', 'uuid' => $uuid, 'identifier' => $identifier, 'name' => 'mc-liga', 'suspended' => false, 'status' => $status, 'user' => $state['live_owner'] ?? 9, 'node' => $node, 'allocation' => $allocation, 'nest' => 1, 'egg' => 3,
             'limits' => ['memory' => 8192, 'swap' => 0, 'disk' => 61440, 'io' => 500, 'cpu' => 300], 'feature_limits' => ['databases' => 2, 'allocations' => 2, 'backups' => 5],
             'container' => ['startup_command' => 'java -jar {{SERVER_JARFILE}}', 'image' => 'ghcr.io/pterodactyl/yolks:java_21', 'installed' => $status === null ? 1 : 0, 'environment' => ['SERVER_JARFILE' => 'server.jar', 'MOTD' => 'Vitejte', 'P_SERVER_UUID' => $uuid]],
         ]]);
@@ -176,6 +176,28 @@ it('moves a game server to another node of its panel: stop, backup, rebuild, tra
     // the console lists the migration among the game operations
     $queue = collect($this->getJson('/v1/staff/game')->assertOk()->json('data.queue'));
     expect($queue->where('kind', 'game.migrate')->count())->toBe(0)->and($this->getJson('/v1/staff/game')->json('data.recent'))->toBe(1); // finished: no longer queued, counted as recent
+});
+
+// Red-team round of the Phase-0 chain (TASK-0033 review round 1 note): a same-panel move builds the new server under the owner the
+// platform RECORDED (binding meta.user_id / game_servers.ptero_user_id). When the panel names another owner today (verdict
+// `moved`), that record is stale — the copy of the customer's server would go to whichever account the record names.
+it('refuses to move a server within its panel while the panel names another owner than the platform recorded', function () {
+    [$user, $org] = $this->customerWithOrganization();
+    $service = featureGameService($org);
+    $instance = ProviderInstance::query()->where('key', 'pterodactyl-games01')->firstOrFail();
+    Node::query()->create(['provider_instance_id' => $instance->id, 'name' => 'games02', 'region_code' => 'cz1', 'role' => 'game', 'state' => 'active', 'capacity' => ['cpu_cores' => 32, 'ram_mb' => 131072, 'disk_gb' => 2000], 'usage' => [], 'remote_id' => '3']);
+    $state = ['calls' => [], 'power' => [], 'files' => [], 'deleted' => [], 'live_owner' => 12]; // moved on the panel to account 12; the platform recorded 9
+    gameMigrationPanel($state);
+    $sourceBinding = $service->primaryBinding();
+
+    $this->actingAs($this->steppedUpStaff('infrastructure_admin'), 'sanctum');
+    $started = $this->withHeader('Idempotency-Key', 'gmig-moved')->postJson("/v1/staff/services/{$service->id}/migrate", ['target_node_id' => 'games02', 'reason' => 'údržba uzlu games01'])->assertStatus(202)->json();
+    $this->flushHeaders();
+    $operation = driveOperation(Operation::query()->findOrFail($started['id']));
+
+    expect($operation->state)->toBe(Operation::FAILED)->and($operation->error['message'])->toContain('another owner')
+        ->and($state)->not->toHaveKey('created')->and($state['power'])->toBe([])->and($state['deleted'])->toBe([])
+        ->and($sourceBinding->fresh()->remote_id)->toBe('77')->and($service->fresh()->node_id)->not->toBeNull();
 });
 
 it('undoes a migration that fails before the switch: the half-built target is deleted, the source starts again, nothing points elsewhere', function () {

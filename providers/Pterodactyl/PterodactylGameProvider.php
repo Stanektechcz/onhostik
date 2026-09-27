@@ -25,6 +25,7 @@ use Onhost\Providers\Contracts\ProviderResult;
 use Onhost\Providers\Contracts\ResourceRef;
 use Onhost\Providers\Contracts\ResourceSpec;
 use Onhost\Providers\Contracts\SelfProbing;
+use Onhost\Providers\Contracts\ServerOwnership;
 use Onhost\Providers\Contracts\TlsOptions;
 use Onhost\Providers\Contracts\Usage;
 
@@ -35,7 +36,7 @@ use Onhost\Providers\Contracts\Usage;
  * `{object, attributes}`; errors in `errors[]`. Creation is two-phase: 201 then
  * `container.installed = 1` (blueprint §14, docs-provider-apis §4).
  */
-final class PterodactylGameProvider implements GameProvider, GameToolsProvider, SelfProbing
+final class PterodactylGameProvider implements GameProvider, GameToolsProvider, SelfProbing, ServerOwnership
 {
     /** The reserved domain of the synthetic e-mails of new panel users (TASK-0033, owner default O2): it reaches nobody. */
     public const SYNTHETIC_EMAIL_DOMAIN = 'game-users.onhost.invalid';
@@ -189,6 +190,12 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider, 
     public function panelIdentity(ResourceRef $server, string $organizationId): PanelIdentity
     {
         return $this->ownerIdentity($server, $organizationId)[0];
+    }
+
+    /** ServerOwnership: the verdict alone, for a domain that must not act on a server the panel names another owner of (a migration). */
+    public function ownerVerdict(ResourceRef $server, string $organizationId): string
+    {
+        return $this->panelIdentity($server, $organizationId)->verdict;
     }
 
     /**

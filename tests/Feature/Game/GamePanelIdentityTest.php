@@ -21,6 +21,7 @@ use Onhost\Platform\Errors\ProviderErrorCode;
 use Onhost\Platform\Errors\ProviderException;
 use Onhost\Providers\Contracts\GameToolsProvider;
 use Onhost\Providers\Contracts\ResourceSpec;
+use Onhost\Providers\Contracts\ServerOwnership;
 use Onhost\Providers\Pterodactyl\PanelIdentity;
 use Onhost\Providers\Pterodactyl\PterodactylGameProvider;
 
@@ -299,6 +300,8 @@ it('judges the owner the panel names today, not the one the binding recorded: a 
     expect(fn () => $adapter->panelAccount($ref))->toThrow(ProviderException::class, 'support has to review');
     expect(gpiWrites($state['calls']))->toBe([])->and($state['calls'])->toContain('GET /api/application/servers/77');
     expect($adapter->panelIdentity($ref, $org->id))->verdict->toBe(PanelIdentity::MOVED)->userId->toBe('12')->recordedUserId->toBe('9');
+    // the contract a domain asks through (a same-panel migration refuses on it — red-team round of the Phase-0 chain)
+    expect($adapter)->toBeInstanceOf(ServerOwnership::class)->and($adapter->ownerVerdict($ref, $org->id))->toBe(ServerOwnership::MOVED);
 });
 
 it('refuses while the platform\'s record of the owner disagrees with the panel, even when the panel\'s owner is the organization\'s, until an operator reconciles both', function () {
