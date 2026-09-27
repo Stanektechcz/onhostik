@@ -38,6 +38,9 @@ TASK-0039 proof in its place, and strike the line here.
   reason, and pass a panel under maintenance. The reinstatement credit gate lets any staff account through
   (`ServiceReinstatement::actorMay`). Look-back source: `staff_own_org`.
 * `SS-14` (IF-8, P0-08, TASK-0039): the console pre-flight counts `is_staff` as membership, so any member of staff passes it.
+* `credit.maySpend` (IF-8, P0-08, TASK-0039): `ServiceReinstatement::actsForPlatform` answers `is_staff`, so a restore asked
+  for or recorded by any staff account is charged to the customer's credit without `CreditOrderPolicy::maySpend` being asked
+  (P0-16 red team MEDIUM, pinned by TASK-0041). TASK-0039 counts only staff acting as staff (`StaffActor::acts`).
 * `SS-5` and `SE-3` (IF-9, P0-08, TASK-0039): a forced purge, or one that skips the final archive, is still `service.delete`
   HIGH. One person can do it, with no time lock. Pinned by RiskFloorTest "pins the open items P0-08/IF-9". Look-back source:
   `staff_own_org` (`purge_without_archive`).

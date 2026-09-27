@@ -29,7 +29,7 @@
 > | P0-07 | TASK-0036, TASK-0041 (b), (f) | **Done** (skeleton + IF-1..IF-3). Legacy project roles are listed by `onhost:projects:role-audit --dry-run`; I5–I7, I10, I12 are S1-01. |
 > | P0-08 | TASK-0039 | **OPEN on this chain** (built on its own branch, not integrated). |
 > | P0-09 | TASK-0039 | **OPEN on this chain** (built on its own branch, not integrated). |
-> | P0-10 | TASK-0036, TASK-0041 (c) | **Done for service actions and domain commands.** G12 stays open for the other header-keyed organization commands and for the HTTP replay store (red team). |
+> | P0-10 | TASK-0036, TASK-0041 (c) | **Done for service actions and domain commands**; since the TASK-0041 follow-up every bus key is per organization + person with a request hash, and the HTTP replay store keeps no secret. |
 > | P0-11 | TASK-0037 | **Done.** |
 > | P0-12 | TASK-0037 | **Done**, except the two carried items (under P0-08) and SS-7 (`support.customer_impersonate` still held by `support_manager`). |
 > | P0-13 | TASK-0040 | **Done in code.** Operator steps: `onhost:partners:masking-notice`, `onhost:partners:payout-anomalies` (dry run, `--apply --digest=`). |
@@ -38,14 +38,17 @@
 > | P0-16 | TASK-0041 (P0-16 record) | **Held:** CHANGES_REQUESTED; holes pinned and filed. Re-run after TASK-0039 is integrated. |
 > | P0-18 | TASK-0037 | **Done** (staff read keys; P0-15 may plan its shadow log against them). |
 >
-> Red-team findings that are neither fixed nor pinned on this chain (each needs its own task; listed in `.ai/PROJECT_STATE.md`
-> → Known issues): staff `transfer_ownership` through the global `organization.close` (MEDIUM); the bus replay store keyed per
-> organization only, with Discord link codes and hook URLs unmasked in stored results (MEDIUM); the HTTP idempotency middleware
-> keeping raw response bodies, the new token's plaintext included, for 24 h before authorization (MEDIUM, pre-existing, not in
-> §9 before); a solo operator making a second `platform_owner` with `onhost:staff:create` to skip the time lock (MEDIUM);
-> SS-7 (MEDIUM); a leftover payout with an unconfirmed IBAN released and approved by one finance person (MEDIUM); legacy
-> payout approval compares only `requested_by` (LOW); organization/partner/service-access commands keyed without the actor
-> (LOW, G12); an `APP_KEY` rotation turns a legitimate retry into 409 (LOW).
+> Red-team MEDIUMs **resolved on this chain** by the TASK-0041 follow-up commits (recorded in TASK-0036, TASK-0037, TASK-0040):
+> only the owner transfers ownership (`owner_transfer_only`); the bus replay store is kept per organization + person with a
+> keyed request hash (same key, other body → 409), hook URLs masked (`ahk_…`); the HTTP replay store keeps no answer that
+> hands out a secret (replay → 409 `already_done`); a further approver from `onhost:staff:create` waits the time lock; the
+> release of an IBAN hold that confirms the account is CRITICAL and only such a release counts. **Pinned open** (P0-08,
+> TASK-0039): `is_staff` skipping the reinstatement credit gate (`credit.maySpend` in the breach register).
+>
+> Red-team findings still neither fixed nor pinned on this chain (each needs its own task; listed in `.ai/PROJECT_STATE.md`
+> → Known issues): Discord link codes in stored results (LOW: the 15-minute code sits in clear in `discord_links.code` of the
+> same database anyway, unlike API and hook tokens, which are kept only hashed); SS-7 (MEDIUM); legacy payout
+> approval compares only `requested_by` (LOW); an `APP_KEY` rotation turns a legitimate retry into 409 (LOW).
 
 ## 1. Shrnutí pro vlastníka (česky)
 

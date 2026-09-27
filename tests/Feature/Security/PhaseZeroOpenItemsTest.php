@@ -64,6 +64,7 @@ function pzoOpenItems(): array
         'EXPL-3' => ['P0-08', 'IF-8'],          // past a panel under maintenance
         'SS-1' => ['P0-08', 'IF-8'],            // `is_staff` bypasses customer protections inside a membership
         'SS-14' => ['P0-08', 'IF-8'],           // `is_staff` counted as membership on the console pre-flight
+        'credit.maySpend' => ['P0-08', 'IF-8'], // `is_staff` skips the credit gate of a reinstatement (red team MEDIUM, TASK-0041)
         'SS-5' => ['P0-08', 'IF-9'],            // force-purge not CRITICAL
         'SE-3' => ['P0-08', 'IF-9'],            // purge without archive not CRITICAL
         'backup.delete' => ['P0-08', 'IF-9'],   // staff delete any organization's backups at HIGH, one person
@@ -219,6 +220,18 @@ it('pins the IF-8 credit gate open until P0-08/TASK-0039: any staff account, of 
 
     $may = fn (string $permission) => (fn () => $this->actorMay($context, $permission, $org->id))->call(app(ServiceReinstatement::class));
     expect($may(ReinstateServiceCommand::PERMISSION))->toBeTrue()->and($may('billing.wallet.read'))->toBeTrue();
+});
+
+it('pins the IF-8 credit spend open until P0-08/TASK-0039: any staff account restores on the credit as the platform, the credit gate never asked', function () {
+    // P0-16 red team (MEDIUM): ServiceReinstatement::actsForPlatform answers `is_staff`, so `requesterMaySpend()` (:514), the charge
+    // (:190) and the restore window (:293) skip `CreditOrderPolicy::maySpend` for every staff account on every route — not only
+    // for staff acting as staff. TASK-0039 proof: actsForPlatform is `system || StaffActor::acts($context)` (staff mode only).
+    [, $org] = $this->customerWithOrganization();
+    $content = $this->staff('marketing_content');
+    $context = pzoCustomerRoute($content, $org);
+
+    $platform = (fn () => self::actsForPlatform($context))->call(app(ServiceReinstatement::class));
+    expect($platform)->toBeTrue();
 });
 
 it('pins SS-14 (IF-8) open until P0-08/TASK-0039: the console pre-flight lets any member of staff through', function () {
