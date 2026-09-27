@@ -851,3 +851,61 @@ it('restores a backup whose links stay in the site once its site folder is moved
     'with the site folder' => ["N 4 4\nT d 1\nT - 1\nT l 2\nF 3\nL shop.cz/current\treleases/1\nL shop.cz/public/storage\t/www/wwwroot/shop.cz/storage/app/public\n"],
     'without it' => ["N 3 3\nT d 1\nT l 2\nF 0\nL current\treleases/1\nL public/storage\t/www/wwwroot/shop.cz/storage/app/public\n"],
 ]);
+
+// ── review round 4 (TASK-0034): a name with a `.` or empty part hides a link from the judge ────────────────────────
+
+dataset('names with a "." or empty part that hide a link from the judge', [
+    // `q/./y` lands as `q/y`: judged under its written name, `x` never hopped through it and was taken for a name inside
+    'q/./y -> .. and x -> q/y/../other.cz' => ["N 3 3\nT d 1\nT l 2\nL q/./y\t..\nL x\tq/y/../other.cz\n"],
+    'q//y -> .. and x -> q/y/../other.cz' => ["N 3 3\nT d 1\nT l 2\nL q//y\t..\nL x\tq/y/../other.cz\n"],
+    'a trailing /. on the name of a link' => ["N 3 3\nT d 1\nT l 2\nL q/y/.\t..\nL x\tq/y/../other.cz\n"],
+    'more than one leading ./' => ["N 2 2\nT l 2\nL ././y\t..\nL x\ty/../other.cz\n"],
+    'the node found such a name (an entry beneath a link named p/./x)' => ["N 3 3\nT d 1\nT - 1\nT l 1\nL p/./x\t.\nD p/./x\n"],
+]);
+
+it('refuses an archive whose entry names carry a "." or empty part, on the node and again in PHP', function (string $report) {
+    $calls = [];
+    tenancyPanelFake($calls);
+    AaPanelWebProvider::$shellFactory = fn () => tenancyTarShell($report);
+    $adapter = aaToolsAdapter();
+
+    expect(fn () => $adapter->transport(tenancySite())->extract('site.tar.gz', '.'))->toThrow(ProviderException::class, 'The archive was not unpacked');
+    expect(tenancyCalled($calls, 'UnZip'))->toBeFalse();
+})->with('names with a "." or empty part that hide a link from the judge');
+
+it('refuses a backup whose link named .//<site> would let the whole archive move in, its top-level links never judged', function () {
+    $calls = [];
+    tenancyPanelFake($calls, tenancyBackupList('/www/backup/site/shop.cz_20260910.tar.gz'));
+    // the shell sees `shop.cz` as a link and moves the whole archive in; PHP read the key `/shop.cz` and judged only `shop.cz/…`
+    $shell = tenancyTarShell("N 4 4\nT d 1\nT - 1\nT l 2\nF 2\nL .//shop.cz\t.\nL up\t../other.cz\n");
+    AaPanelWebProvider::$shellFactory = fn () => $shell;
+    $adapter = aaToolsAdapter();
+    tenancySetClosed(true);
+
+    expect(fn () => $adapter->restoreFromArchive(tenancySite(), '77'))->toThrow(ProviderException::class, 'The archive was not unpacked');
+    expect(collect($shell->commands())->first(fn ($c) => tenancyUserScript($c) !== null))->toBeNull();
+});
+
+it('asks the node to report every entry name with a "." or empty part, for tar and zip alike', function (string $archive) {
+    $calls = [];
+    tenancyPanelFake($calls);
+    $shell = tenancyTarShell("N 2 2\nT - 1\nT d 1\n");
+    AaPanelWebProvider::$shellFactory = fn () => $shell;
+    $adapter = aaToolsAdapter();
+
+    $adapter->transport(tenancySite())->extract($archive, '.');
+
+    $listing = collect($shell->commands())->first(fn ($c) => str_contains($c, '-tzvf') || str_contains($c, 'unzip -Zs'));
+    expect($listing)->toContain('print "D " $0');
+})->with(['site.tar.gz', 'site.zip']);
+
+it('still accepts the names a site archive really carries: ./, ./name, folder/ and dot files', function () {
+    $calls = [];
+    tenancyPanelFake($calls);
+    AaPanelWebProvider::$shellFactory = fn () => tenancyTarShell("N 6 6\nT d 3\nT - 1\nT l 2\nL ./current\treleases/2\nL ./public/.well-known\t../.well-known\n");
+    $adapter = aaToolsAdapter();
+
+    $adapter->transport(tenancySite())->extract('site.tar.gz', '.');
+
+    expect(tenancyCalled($calls, 'UnZip'))->toBeTrue();
+});

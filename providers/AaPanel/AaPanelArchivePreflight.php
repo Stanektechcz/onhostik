@@ -25,7 +25,8 @@ use Onhost\Providers\Shell\Q;
  * `public/storage` points at its own absolute path, a release switch at `releases/<n>`) and is kept: refusing every
  * link would have refused the restore of such a site, which is legitimate behaviour of existing customers. A link is
  * judged together with the other links of its archive, where it will land (linkStaysInside(), landing(); review round
- * 3): `y -> .` beside `x -> y/../other.cz` is the neighbour, not a name inside the site.
+ * 3): `y -> .` beside `x -> y/../other.cz` is the neighbour, not a name inside the site. That only holds when every name
+ * is read as it lands, so a name with a `.` or empty part (`q/./y` lands as `q/y`) is refused outright (review round 4).
  *
  * An archive that lies in the site is copied out and judged as the copy (stage(), review round 1): the tenant can no
  * longer swap it or point it at a neighbour's file between the check and the unpack.
@@ -135,6 +136,7 @@ final class AaPanelArchivePreflight
                 $tag === 'N ' => $counted = self::counts($rest),
                 $tag === 'T ' => $types[] = $rest,
                 $tag === 'B ' => self::refuse('an entry leaves the folder it is unpacked into', $rest),
+                $tag === 'D ' => self::refuse('an entry name has an empty or "." part (it lands under another name than the one judged)', $rest),
                 $tag === 'U ' => self::refuse('an entry lies beneath a link of the same archive', $rest),
                 $tag === 'X ' => self::refuse('a link could not be read', $rest),
                 $tag === 'L ' => $links[] = $rest,
@@ -185,6 +187,26 @@ final class AaPanelArchivePreflight
         }
 
         return $map;
+    }
+
+    /**
+     * A link's name as it will land: one leading `./` and one trailing `/` taken off, nothing else. A name with a `.` or
+     * empty part left (`q/./y`, `q//y`, `.//shop.cz`, `././y`) is refused, as the node refuses it for every entry (`D`,
+     * commonChecks()): the kernel lands `q/./y` as `q/y`, so a name kept as written was never met while another link was
+     * resolved through it, and `.//shop.cz` was not the folder the unpack tests for (TASK-0034 review round 4). A link
+     * named for the unpack folder itself (`.`, `./`) is refused too.
+     */
+    private static function clean(string $name): string
+    {
+        $clean = str_starts_with($name, './') ? substr($name, 2) : $name;
+        $clean = str_ends_with($clean, '/') ? substr($clean, 0, -1) : $clean;
+        foreach (explode('/', $clean) as $part) {
+            if ($part === '' || $part === '.') {
+                self::refuse('an entry name has an empty or "." part (it lands under another name than the one judged)', $name);
+            }
+        }
+
+        return $clean;
     }
 
     /**
@@ -239,11 +261,11 @@ final class AaPanelArchivePreflight
             .'if ! tar --force-local --numeric-owner -tzvf "$A" > "$V" 2>/dev/null || ! tar --force-local -tzf "$A" > "$N" 2>/dev/null; then echo ERR; exit 0; fi; '
             .'echo "N $(wc -l < "$N") $(wc -l < "$V")"; '
             .self::commonChecks()
-            .($folder !== null ? 'awk -v f='.Q::arg($folder).' \'{ n=$0; sub(/^(\.\/)+/, "", n); if (index(n, f "/")==1) c++ } END { print "F " c+0 }\' "$N"; ' : '')
+            .($folder !== null ? 'awk -v f='.Q::arg($folder).' \'{ n=$0; sub(/^\.\//, "", n); if (index(n, f "/")==1) c++ } END { print "F " c+0 }\' "$N"; ' : '')
             // every link: its name from the plain listing, its target from the verbose line after " <name> -> "
             .'awk \'NR==FNR { v[FNR]=$0; next } substr(v[FNR],1,1)=="l" { s=" " $0 " -> "; i=index(v[FNR], s); if (i==0) print "X " $0; else print "L " $0 "\t" substr(v[FNR], i+length(s)) }\' "$V" "$N" | head -n '.(self::MAX_LINKS + 1).'; '
             // the first entry that lies beneath a link of the same archive (unpacked, it would be written through the link)
-            .'awk \'NR==FNR { if (substr($0,1,1)=="l") ln[FNR]=1; next } { n=$0; sub(/^(\.\/)+/, "", n); sub(/\/+$/, "", n); name[FNR]=n; if (FNR in ln) link[n]=1 } END { for (i in name) for (x in link) if (name[i] != x && index(name[i], x "/")==1) { print "U " name[i]; exit } }\' "$V" "$N"';
+            .'awk \'NR==FNR { if (substr($0,1,1)=="l") ln[FNR]=1; next } { n=$0; sub(/^\.\//, "", n); sub(/\/$/, "", n); name[FNR]=n; if (FNR in ln) link[n]=1 } END { for (i in name) for (x in link) if (name[i] != x && index(name[i], x "/")==1) { print "U " name[i]; exit } }\' "$V" "$N"';
     }
 
     /** zipinfo's short lines are the entries whose second field is the zip version ("3.0"); header and totals are not. */
@@ -258,11 +280,19 @@ final class AaPanelArchivePreflight
             .self::commonChecks();
     }
 
-    /** The count of every entry type, and the first names that are absolute or climb out with `..` (either slash). */
+    /**
+     * The count of every entry type, the first names that are absolute or climb out with `..` (either slash), and the
+     * first names with a `.` or empty part once one leading `./` and one trailing `/` are off (`D`; the unpack folder
+     * itself, `./` or `.`, is the one exception): such a name lands under another name than the one every other check
+     * reads (`q/./y` is `q/y`), so neither the link resolution nor the beneath-a-link check would meet it (review round 4).
+     * Written for mawk as well (no anchor inside a group).
+     */
     private static function commonChecks(): string
     {
         return 'awk \'{ c[substr($0,1,1)]++ } END { for (t in c) print "T " t " " c[t] }\' "$V"; '
-            .'grep -E \'^[/\\\\]|(^|[/\\\\])\.\.([/\\\\]|$)\' "$N" | head -n 5 | sed \'s/^/B /\'; ';
+            .'grep -E \'^[/\\\\]|(^|[/\\\\])\.\.([/\\\\]|$)\' "$N" | head -n 5 | sed \'s/^/B /\'; '
+            .'awk \'{ n=$0; sub(/^\.\//, "", n); if (n == "" || n == ".") next; sub(/\/$/, "", n); '
+            .'if (n == "" || n == "." || n ~ /^\.?\// || n ~ /\/\.?\// || n ~ /\/\.?$/) print "D " $0 }\' "$N" | head -n 5; ';
     }
 
     /** @return array{0:string,1:string} */
@@ -281,13 +311,6 @@ final class AaPanelArchivePreflight
         }
 
         return true;
-    }
-
-    private static function clean(string $name): string
-    {
-        $name = preg_replace('~^(\./)+~', '', str_replace('\\', '/', $name)) ?? $name;
-
-        return rtrim($name, '/');
     }
 
     /**
