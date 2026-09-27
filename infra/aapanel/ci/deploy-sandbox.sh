@@ -108,7 +108,8 @@ last=""; for a in "$@"; do last="$a"; done
 state() { local s; s="$(cat "$here/units/$1" 2>/dev/null)"; if [ -z "$s" ]; then case " ${STUB_UNITS:-} " in *" $1 "*) s=active ;; esac; fi; printf '%s' "$s"; }
 case "${1:-}" in
   list-units)
-    for u in ${STUB_UNITS:-} $(ls "$here/units" 2>/dev/null); do [ "$(state "$u")" = active ] && echo "$u"; done | sort -u | while read -r u; do echo "$u loaded active running stub"; done ;;
+    { for u in ${STUB_UNITS:-}; do echo "$u"; done; for f in "$here"/units/*; do [ -e "$f" ] && basename "$f"; done; } | sort -u \
+      | while read -r u; do [ "$(state "$u")" = active ] && echo "$u loaded active running stub"; done; true ;;
   stop) for u in "$@"; do case "$u" in stop|--*) ;; *) echo inactive > "$here/units/$u" ;; esac; done ;;
   start)
     case " ${STUB_START_FAIL:-} " in *" $last "*) echo failed > "$here/units/$last"; exit 1 ;; esac
