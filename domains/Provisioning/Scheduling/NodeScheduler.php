@@ -12,6 +12,7 @@ use Onhost\Domain\Services\IncludedServices;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Platform\Errors\DomainError;
+use Onhost\Providers\AaPanel\AaPanelTenancyGate;
 
 /**
  * Blueprint §5.3: hard constraints first (region, role, state, provider
@@ -45,6 +46,37 @@ final class NodeScheduler
         $instance = $node->providerInstance;
 
         return $instance instanceof ProviderInstance ? $instance : null;
+    }
+
+    /**
+     * Why an aaPanel node may not take a service of `$constraints['organization']`, or null (TASK-0041, permission program
+     * IF-7 / D11 / P0-03 follow-up). aaPanel's file API and scheduler run as root and every site runs as the same `www`, so
+     * a node that serves two organizations is closed to in-panel file writing and shell cron by the operator
+     * (`onhost:aapanel:tenancy --apply`, the instance option `tenancy.closed`). A node the dry run did not list — one
+     * organization on it — stays open, and placement then made it shared without anybody deciding: the next order of
+     * another customer landed beside the first with the root tools still on. Now a node that is not closed takes only the
+     * organization(s) already on it, or anybody while it is empty; to share it, the operator closes it first.
+     *
+     * Counted like the command counts: the platform's own services on the panel that are not terminated (sites the
+     * platform did not create are never read). A flag that cannot be read counts as open (AaPanelTenancyGate::isClosed
+     * null): refused rather than guessed. Without an organization (a read-only "could anything host this?" or a caller
+     * that names none) nothing is judged here — ScheduleNodeStep's place() always names it.
+     *
+     * @param  array<string,mixed>  $constraints  as for pick(): `organization`, `except_service`
+     */
+    public static function sharedNodeRefusal(Node $node, array $constraints): ?string
+    {
+        $organization = (string) ($constraints['organization'] ?? '');
+        $instance = self::instanceOf($node);
+        if ($organization === '' || $instance === null || $instance->provider !== 'aapanel' || AaPanelTenancyGate::isClosed($instance) === true) {
+            return null;
+        }
+        $neighbour = Service::query()->where('provider_instance_id', $instance->id)->where('state', '!=', ServiceStateMachine::TERMINATED)
+            ->where('organization_id', '!=', $organization)
+            ->when(! empty($constraints['except_service']), fn ($q) => $q->whereKeyNot((string) $constraints['except_service']))
+            ->exists();
+
+        return $neighbour ? "{$node->name} serves another customer and {$instance->key} is not closed as shared (onhost:aapanel:tenancy --apply --instance={$instance->key})" : null;
     }
 
     /** Whether a node serves a role: its `role`, or one of the extra roles in `tags.roles` / `tags.ispconfig_roles` (a panel host running web and mail). */
@@ -91,7 +123,15 @@ final class NodeScheduler
 
         $candidates = [];
         $blocked = [];
+        $shared = false;
         foreach ($nodes as $node) {
+            $refusal = self::sharedNodeRefusal($node, $constraints);
+            if ($refusal !== null) {
+                $blocked[] = $refusal;
+                $shared = true;
+
+                continue;
+            }
             // `usage` is the last measurement. What was placed since — paid and waiting to be built, or built after the sample — is
             // held on top of it, otherwise every order between two samples is promised the same free space (H04). Each dimension
             // is judged by its own basis (CapacityBasis, decision 19): disk may be judged by what was sold on the node.
@@ -135,7 +175,7 @@ final class NodeScheduler
             $candidates[] = ['node' => $node, 'score' => round($score, 4)];
         }
         if ($candidates === []) {
-            throw new DomainError('capacity_unavailable', 'All matching nodes are at their N+1 sellable limit: '.implode('; ', $blocked).'.', 503, ['role' => $constraints['role'], 'blocked' => $blocked]);
+            throw new DomainError('capacity_unavailable', ($shared ? 'No matching node can take it: ' : 'All matching nodes are at their N+1 sellable limit: ').implode('; ', $blocked).'.', 503, ['role' => $constraints['role'], 'blocked' => $blocked]);
         }
         usort($candidates, fn ($a, $b) => $b['score'] <=> $a['score'] ?: strcmp($a['node']->name, $b['node']->name));
         $best = $candidates[0];
@@ -189,6 +229,9 @@ final class NodeScheduler
      */
     public function place(Service $service, array $constraints): array
     {
+        // whose service it is decides whether an open aaPanel node may take it (sharedNodeRefusal); the service itself is not a neighbour
+        $constraints += ['organization' => (string) $service->organization_id, 'except_service' => $service->id];
+
         return DB::transaction(function () use ($service, $constraints) {
             Node::query()->where('state', 'active')->orderBy('id')->lockForUpdate()->get(['id']);
             $pick = $this->pick($constraints);

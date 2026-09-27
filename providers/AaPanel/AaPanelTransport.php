@@ -199,11 +199,35 @@ final class AaPanelTransport implements FileTransport
         }
     }
 
+    /**
+     * The owners whose hardlinked file a download may return, as a `case` pattern (TASK-0041, permission program IF-7 /
+     * P0-03 follow-up). It was `www|oh*ag` — and `oh*ag` is every site's agent user on the node, not this one's. The agents
+     * are members of `www` with ACLs on their sites, so a neighbour's agent-owned file is one this site's PHP (`www`) can
+     * give a second name inside its own root; root then copied the neighbour's bytes out as this site's download. Now only
+     * `www` and THIS site's own agent (the writer the site's transport is given). A panel folder's transport has no site
+     * user of its own, and an agent that cannot be made ready right now narrows it to `www`: stricter, never looser —
+     * an ordinary file (one name) downloads either way.
+     */
+    private function ownOwners(): string
+    {
+        if ($this->siteWriter === null) {
+            return Q::arg($this->siteUser);
+        }
+        try {
+            $agent = ($this->siteWriter)();
+        } catch (ProviderException) {
+            return Q::arg($this->siteUser);
+        }
+
+        return $agent === '' || $agent === $this->siteUser ? Q::arg($this->siteUser) : Q::arg($this->siteUser).'|'.Q::arg($agent);
+    }
+
     /** @return int the size of the copy */
     private function copyForDownload(string $absolute, string $copy): int
     {
         // a panel folder's transport (root '') reads node files the platform itself names: no site boundary to hold
         $bound = $this->root === '' ? '/' : $this->root;
+        $owners = $this->ownOwners();
         $run = $this->shell->run(AaPanelShell::stageDir().' || exit 1; '
             .'S='.Q::arg($absolute).'; C='.Q::arg($copy).'; '
             .'RR=$(realpath -e -- '.Q::arg($bound).' 2>/dev/null); [ -n "$RR" ] || { echo "S root"; exit 0; }; '
@@ -211,8 +235,9 @@ final class AaPanelTransport implements FileTransport
             .'if [ "$RR" != / ]; then case "$(readlink "/proc/self/fd/3")" in "$RR"/*) ;; *) echo "S outside"; exit 0;; esac; fi; '
             .'[ -f "/proc/self/fd/3" ] || { echo "S kind"; exit 0; }; '
             // a second name of a file the site's users could not read themselves (root's, another service user's); a file
-            // of the sites' own users (`www`, a site's shell user) with two names is the tenant's own and still comes back
-            .'[ "$(stat -L -c %h "/proc/self/fd/3")" = 1 ] || case "$(stat -L -c %U "/proc/self/fd/3")" in www|oh*ag) ;; *) echo "S links"; exit 0;; esac; '
+            // of this site's own users (`www`, THIS site's shell user — ownOwners()) with two names is the tenant's own and
+            // still comes back
+            .'[ "$(stat -L -c %h "/proc/self/fd/3")" = 1 ] || case "$(stat -L -c %U "/proc/self/fd/3")" in '.$owners.') ;; *) echo "S links"; exit 0;; esac; '
             .'head -c '.(self::DOWNLOAD_MAX + 1).' <&3 > "$C" || { echo ERR; exit 0; }; exec 3<&-; '
             .'echo "SIZE $(stat -c %s "$C")"', ['timeout' => 900]);
         if ($run->timedOut || ! $run->ok()) {

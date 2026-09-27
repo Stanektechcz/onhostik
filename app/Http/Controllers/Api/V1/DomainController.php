@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Presenters\Presenters;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Domains\Commands\DomainCommand;
 use Onhost\Domain\Domains\Models\Domain;
 use Onhost\Domain\Domains\Models\RegistrarContact;
@@ -103,7 +104,7 @@ final class DomainController extends ApiController
         $organization = $this->api->organization($request);
         $data = $request->validate(['fqdn' => ['required', 'string', 'max:253'], 'auth_info' => ['required', 'string', 'max:64'], 'registrant_contact_id' => ['nullable', 'string'], 'registrant' => ['nullable', 'array'], 'nameservers' => ['nullable', 'array'], 'period' => ['nullable', 'integer', 'min:1', 'max:10'], 'consent' => ['required', 'array'], 'consent.person' => ['required', 'string', 'max:190']]);
 
-        return $this->dispatch(new DomainCommand($organization->id, $this->idempotencyKey($request, 'domain.transfer_in'), ['op' => 'transfer_in'] + $data), $this->api->context($request, $organization), 202);
+        return $this->send($request, $organization, 'transfer_in', null, $data, 202);
     }
 
     public function contacts(Request $request): JsonResponse
@@ -119,14 +120,53 @@ final class DomainController extends ApiController
         $organization = $this->api->organization($request);
         $data = $request->validate(['name' => ['required', 'string', 'max:190'], 'organization_name' => ['nullable', 'string', 'max:190'], 'email' => ['required', 'email'], 'phone' => ['nullable', 'string', 'max:40'], 'street' => ['required', 'string', 'max:190'], 'city' => ['required', 'string', 'max:120'], 'postal_code' => ['required', 'string', 'max:20'], 'country' => ['required', 'string', 'size:2'], 'ico' => ['nullable', 'string', 'max:20'], 'dic' => ['nullable', 'string', 'max:20'], 'privacy' => ['nullable', 'in:hidden,public'], 'kind' => ['nullable', 'in:registrant,admin,tech']]);
 
-        return $this->dispatch(new DomainCommand($organization->id, $this->idempotencyKey($request, 'domain.contact'), ['op' => 'contact', 'contact' => $data]), $this->api->context($request, $organization), 201);
+        return $this->send($request, $organization, 'contact', null, ['contact' => $data], 201);
     }
 
     private function command(Request $request, Domain $model, string $op, array $payload, int $status = 200): JsonResponse
     {
-        $organization = Organization::query()->find($model->organization_id);
+        $organization = Organization::query()->find($model->organization_id) ?? throw DomainError::notFound('organization');
 
-        return $this->dispatch(new DomainCommand($model->organization_id, $this->idempotencyKey($request, "domain.{$op}"), ['op' => $op, 'fqdn' => $model->fqdn_ascii] + $payload), $this->api->context($request, $organization), $status);
+        return $this->send($request, $organization, $op, $model, ['fqdn' => $model->fqdn_ascii] + $payload, $status);
+    }
+
+    /**
+     * One door for every domain write (TASK-0041, permission program IF-12 / P0-10 follow-up, audit SE-5 / G12). The bus keeps
+     * its answers per organization, and the key used to be `domain.<op>:<header>` — nothing about the domain or the person.
+     * Another member sending the same header (a shared script, a copied request) for another domain of the organization got
+     * the first member's answer back from the bus before anything ran: nothing happened on their domain, and they were told
+     * it had. The HTTP layer's replay is per person and never saw it. The key now names the target and the actor (the person
+     * a staff member acts for first, as OperationKey does), and DomainCommand adds the request's fingerprint to the bus key.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function send(Request $request, Organization $organization, string $op, ?Domain $target, array $payload, int $status): JsonResponse
+    {
+        $context = $this->api->context($request, $organization);
+        $actor = substr(hash('sha256', $context->actorType.':'.($context->onBehalfOfUserId ?? $context->actorId ?? '')), 0, 16);
+        $command = new DomainCommand($organization->id, $this->idempotencyKey($request, "domain.{$op}:".($target === null ? 'org' : $target->id).":{$actor}"), ['op' => $op] + $payload);
+        $this->assertKeyUnused($command, $organization);
+
+        return $this->dispatch($command, $context, $status);
+    }
+
+    /**
+     * The same key with another request is refused (409), as for service actions: the bus keeps `<key>#<fingerprint>`, so a
+     * changed body no longer gets the first run's answer — but for the instant ops (auto-renew, transfer lock, auth-info,
+     * DS, contact) there is no operation whose own 409 would stop it, and it would simply run as a new request under a key
+     * the caller already spent. Only answers still kept by the bus count (24 h, IdempotencyStore). A true retry (same
+     * fingerprint) passes and is replayed by the bus.
+     */
+    private function assertKeyUnused(DomainCommand $command, Organization $organization): void
+    {
+        $prefix = $command->idempotencyKey.'#';
+        $used = DB::table('idempotency_keys')->where('scope', $organization->id)->whereRaw('substr("key", 1, ?) = ?', [mb_strlen($prefix), $prefix])
+            ->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))->pluck('key');
+        if ($used->contains(fn ($key) => (string) $key !== $command->idempotencyKey())) {
+            throw DomainError::conflict('idempotency_key_reused', 'This idempotency key was already used for another domain request.', [
+                'hint' => 'Use a new key for a different request.',
+            ]);
+        }
     }
 
     private function resolve(Request $request, string $idOrName): Domain

@@ -542,7 +542,7 @@ it('proves what it opened before a download: in the site, a regular file with on
         @unlink($local);
     }
     $copy = collect($shell->commands())->first(fn ($c) => str_contains($c, 'exec 3<'));
-    expect($copy)->toContain("realpath -e -- '/www/wwwroot/shop.cz'")->toContain('/proc/self/fd/3')->toContain('stat -L -c %h')->toContain('in www|oh*ag) ;;')
+    expect($copy)->toContain("realpath -e -- '/www/wwwroot/shop.cz'")->toContain('/proc/self/fd/3')->toContain('stat -L -c %h')->toContain("in 'www'|'".Naming::prefix('srv_tenancy')."ag') ;;")->not->toContain('oh*ag') // this site's own agent only (TASK-0041)
         ->toContain('/www/.onhost-stage/get-')->not->toContain('tail -c');
     $chunk = collect($shell->commands())->first(fn ($c) => str_contains($c, 'base64 -w0'));
     expect($chunk)->toContain('/www/.onhost-stage/get-')->not->toContain('/www/wwwroot/shop.cz'); // the chunks come from the copy, never the name
