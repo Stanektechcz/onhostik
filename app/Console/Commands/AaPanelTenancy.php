@@ -37,6 +37,7 @@ final class AaPanelTenancy extends Command
         {--apply : close the listed shared nodes (after the dry run was reviewed and the customers were told)}
         {--reopen : reopen one closed node (needs --instance)}
         {--instance= : only this aaPanel instance key}
+        {--force : with --apply and --instance, close that node although the platform sees one organization on it (historical sites share it)}
         {--dry-run : list only (the default)}';
 
     /** The name the permission program uses for it (P0-03). */
@@ -44,9 +45,17 @@ final class AaPanelTenancy extends Command
 
     protected $description = 'List (default) or close the aaPanel nodes several customers share to in-panel file writing and shell cron; --reopen reverts one node';
 
-    private const LOSES = 'Closing takes away on the node: the in-panel file manager (browse, read, edit, upload, archive, unpack), site import, new or changed shell cron commands and running a job on demand.';
+    private const LOSES = 'Closing takes away on the node: the in-panel file manager (browse, read, edit, upload, archive, unpack), site import, PHP settings, one-click apps, new or changed shell cron commands and running a job on demand.';
 
-    private const KEEPS = 'Stays: SFTP/FTP, backups and restores, databases, jobs that already run (as the site\'s own user — list old root jobs with onhost:services:cron-confine), pausing and deleting jobs.';
+    private const KEEPS = 'Stays: SFTP/FTP, backups, databases, jobs that already run (as the site\'s own user — list old root jobs with onhost:services:cron-confine), pausing and deleting jobs. Restores and migrations onto the node unpack as the site user (files the backup lacks are kept, not deleted).';
+
+    /**
+     * What closing does NOT do, said to the operator every time (TASK-0034 review round 1): these run code as the shared
+     * `www` user, which on the command line is not held by open_basedir and can read and write every site on the node.
+     * Whether they close too is an owner decision that must be taken before the first --apply; the notice to customers
+     * must not call the node isolated while they are open.
+     */
+    private const STILL_OPEN = 'NOT closed by this (owner decision before --apply): the terminal, Node.js projects and existing cron jobs run as the shared www user and can still read and write the other sites on the node. Do not tell customers the node is isolated.';
 
     public function handle(CommandBus $bus): int
     {
@@ -66,9 +75,17 @@ final class AaPanelTenancy extends Command
         if ((bool) $this->option('reopen')) {
             return $this->reopen($bus, $only, $instances->first());
         }
+        // one platform organization beside historical sites the platform did not create is shared too, but the platform
+        // cannot count those sites (it never reads them): the operator who knows closes that node by name (review round 1)
+        $force = (bool) $this->option('force');
+        if ($force && (! (bool) $this->option('apply') || $only === '')) {
+            $this->error('--force closes one named node: use it with --apply --instance=<key>, never in bulk.');
+
+            return self::FAILURE;
+        }
 
         $shared = $instances->map(fn (ProviderInstance $i) => ['instance' => $i, 'services' => $this->services($i)])
-            ->filter(fn (array $row) => $row['services']->pluck('organization_id')->unique()->count() > 1)->values();
+            ->filter(fn (array $row) => $force || $row['services']->pluck('organization_id')->unique()->count() > 1)->values();
         if ($shared->isEmpty()) {
             $this->info('No aaPanel node serves more than one organization'.($only !== '' ? " ({$only})" : '').'. Nothing to close.');
 
@@ -101,6 +118,7 @@ final class AaPanelTenancy extends Command
         $this->line('');
         $this->line(self::LOSES);
         $this->line(self::KEEPS);
+        $this->warn(self::STILL_OPEN);
         $this->info('Nothing was changed. After the customers were told, close these nodes with --apply; --reopen --instance=<key> reverts one.');
 
         return self::SUCCESS;
@@ -120,6 +138,7 @@ final class AaPanelTenancy extends Command
             try {
                 $this->write($bus, $instance, 'close', [
                     'closed' => true, 'closed_at' => now()->toIso8601String(), 'organizations' => $organizations, 'services' => $services->count(), 'by' => 'cli:aapanel:tenancy',
+                    'forced' => (bool) $this->option('force'), // closed by name although the platform counted one organization
                 ]);
             } catch (DomainError $e) {
                 $failed++;
@@ -130,6 +149,7 @@ final class AaPanelTenancy extends Command
             $this->info("{$instance->key}: closed ({$organizations} organizations, {$services->count()} services)");
         }
         $this->line(self::LOSES);
+        $this->warn(self::STILL_OPEN);
 
         return $failed === 0 ? self::SUCCESS : self::FAILURE;
     }

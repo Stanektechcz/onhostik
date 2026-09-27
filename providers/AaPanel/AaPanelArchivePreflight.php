@@ -25,9 +25,12 @@ use Onhost\Providers\Shell\Q;
  * `public/storage` points at its own absolute path, a release switch at `releases/<n>`) and is kept: refusing every
  * link would have refused the restore of such a site, which is legitimate behaviour of existing customers.
  *
- * What this does NOT cover: a symlink already standing in the site on disk that an unpack writes through. That race
- * is not engineered around (program D11); on a node several customers share, the in-panel file manager is closed
- * instead (`operator:aapanel:tenancy`).
+ * An archive that lies in the site is copied out and judged as the copy (stage(), review round 1): the tenant can no
+ * longer swap it or point it at a neighbour's file between the check and the unpack.
+ *
+ * What this does NOT cover: a symlink already standing in the site on disk that the panel's root unpack writes
+ * through. That race is not engineered around on an open node (program D11); on a node several customers share and
+ * the operator closed (`operator:aapanel:tenancy`), unpacks go in as the site user instead (AaPanelSiteUnpack).
  */
 final class AaPanelArchivePreflight
 {
@@ -36,6 +39,16 @@ final class AaPanelArchivePreflight
 
     /** Entry types a site archive may carry: regular file, directory, symlink (the last one judged by its target). */
     private const ALLOWED_TYPES = ['-', 'd', 'l'];
+
+    /** What the copy step (stage()) reports, in the customer's words; nothing of the file itself is echoed. */
+    private const STAGE_REFUSALS = [
+        'root' => 'the site folder was not found on the server',
+        'target' => 'the folder it would be unpacked into leads out of the site',
+        'missing' => 'it could not be opened',
+        'outside' => 'it does not lie inside the site (a link to somewhere else)',
+        'kind' => 'it is not an ordinary file',
+        'links' => 'it is a second name of another file (hardlink)',
+    ];
 
     public function __construct(private readonly NodeShell $shell) {}
 
@@ -47,8 +60,52 @@ final class AaPanelArchivePreflight
      */
     public function assertSafe(string $archive, string $extractRoot, string $relativeBound, string $siteRoot): void
     {
-        $zip = ! self::isTar($archive);
-        $run = $this->shell->run($zip ? self::zipScript($archive) : self::tarScript($archive), ['timeout' => 600]);
+        $this->judge(! self::isTar($archive), 'A='.Q::arg($archive).'; ', $extractRoot, $relativeBound, $siteRoot);
+    }
+
+    /**
+     * An archive that lies in the site is still the tenant's while it is checked: the site's own PHP (`www`) can swap it
+     * for another file between the listing and the unpack, or leave a link there to a file only root can read — a
+     * neighbour's backup, which root would then list and unpack into the tenant's site (TASK-0034 review round 1).
+     *
+     * So in one root step the file is opened ONCE and everything is judged on what was opened, not on the name: the path
+     * the kernel reports for the open file must lie in the site (a link anywhere on the way out is caught, so is a
+     * folder link), it must be a regular file with a single name (no hardlink to a file the tenant cannot read), and
+     * exactly those bytes are copied into STAGE_DIR, which no tenant can enter. The copy is listed and judged, and only
+     * the copy is ever unpacked. The folder it is unpacked into is resolved as well: a link out of the site there would
+     * steer the root unpack past every entry check (that last look is still a race on disk; D11 closes shared nodes).
+     *
+     * @return string the copy (absolute, on the node) — the caller unpacks it and removes it
+     */
+    public function stage(string $archive, string $siteRoot, string $extractRoot): string
+    {
+        $tar = self::isTar($archive);
+        $copy = AaPanelShell::STAGE_DIR.'/stage-'.bin2hex(random_bytes(6)).($tar ? '.tar.gz' : '.zip');
+        $stage = AaPanelShell::stageDir().' || exit 1; '
+            .'S='.Q::arg($archive).'; A='.Q::arg($copy).'; '
+            .'RR=$(realpath -e -- '.Q::arg($siteRoot).' 2>/dev/null); if [ -z "$RR" ] || [ "$RR" = / ]; then echo "S root"; exit 0; fi; '
+            .'TR=$(realpath -m -- '.Q::arg($extractRoot).' 2>/dev/null); case "$TR" in "$RR"|"$RR"/*) ;; *) echo "S target"; exit 0;; esac; '
+            // /proc/self in each child is the same open file: fd 3 is inherited, so this holds in a subshell too
+            .'{ exec 3< "$S"; } 2>/dev/null || { echo "S missing"; exit 0; }; '
+            .'case "$(readlink "/proc/self/fd/3")" in "$RR"/*) ;; *) echo "S outside"; exit 0;; esac; '
+            .'[ -f "/proc/self/fd/3" ] || { echo "S kind"; exit 0; }; '
+            .'[ "$(stat -L -c %h "/proc/self/fd/3")" = 1 ] || { echo "S links"; exit 0; }; '
+            .'cat <&3 > "$A" || { echo ERR; exit 0; }; exec 3<&-; ';
+        try {
+            $this->judge(! $tar, $stage, $extractRoot, $siteRoot, $siteRoot);
+        } catch (\Throwable $e) {
+            $this->shell->run('rm -f '.Q::arg($copy), ['timeout' => 30]);
+
+            throw $e;
+        }
+
+        return $copy;
+    }
+
+    /** @param string $prelude shell words that leave the archive to list in `$A` (a copy made there, or a root-owned file) */
+    private function judge(bool $zip, string $prelude, string $extractRoot, string $relativeBound, string $siteRoot): void
+    {
+        $run = $this->shell->run($zip ? self::zipScript($prelude) : self::tarScript($prelude), ['timeout' => 900]);
         if ($run->timedOut) {
             throw new ProviderException('aapanel', ProviderErrorCode::TRANSIENT, 'The archive could not be checked in time; it was not unpacked.');
         }
@@ -66,6 +123,7 @@ final class AaPanelArchivePreflight
             $rest = substr($line, 2);
             match (true) {
                 $line === 'ERR' => self::refuse('the node could not read it'),
+                $tag === 'S ' => self::refuse(self::STAGE_REFUSALS[trim($rest)] ?? 'it could not be copied out of the site'),
                 $tag === 'N ' => $counted = self::counts($rest),
                 $tag === 'T ' => $types[] = $rest,
                 $tag === 'B ' => self::refuse('an entry leaves the folder it is unpacked into', $rest),
@@ -111,13 +169,13 @@ final class AaPanelArchivePreflight
      * where a link points, the plain one for its name (GNU tar escapes both the same way). Nothing of the archive is
      * written anywhere but PRIVATE_DIR, and both listings are removed whatever happens.
      */
-    private static function tarScript(string $archive): string
+    private static function tarScript(string $prelude): string
     {
         [$v, $n] = self::scratch();
 
         return AaPanelShell::privateDir().' || exit 1; '
-            .'V='.Q::arg($v).'; N='.Q::arg($n).'; trap \'rm -f "$V" "$N"\' EXIT; '
-            .'if ! tar --force-local --numeric-owner -tzvf '.Q::arg($archive).' > "$V" 2>/dev/null || ! tar --force-local -tzf '.Q::arg($archive).' > "$N" 2>/dev/null; then echo ERR; exit 0; fi; '
+            .'V='.Q::arg($v).'; N='.Q::arg($n).'; trap \'rm -f "$V" "$N"\' EXIT; '.$prelude
+            .'if ! tar --force-local --numeric-owner -tzvf "$A" > "$V" 2>/dev/null || ! tar --force-local -tzf "$A" > "$N" 2>/dev/null; then echo ERR; exit 0; fi; '
             .'echo "N $(wc -l < "$N") $(wc -l < "$V")"; '
             .self::commonChecks()
             // every link: its name from the plain listing, its target from the verbose line after " <name> -> "
@@ -127,13 +185,13 @@ final class AaPanelArchivePreflight
     }
 
     /** zipinfo's short lines are the entries whose second field is the zip version ("3.0"); header and totals are not. */
-    private static function zipScript(string $archive): string
+    private static function zipScript(string $prelude): string
     {
         [$v, $n] = self::scratch();
 
         return AaPanelShell::privateDir().' || exit 1; '
-            .'V='.Q::arg($v).'; N='.Q::arg($n).'; trap \'rm -f "$V" "$N"\' EXIT; '
-            .'if ! unzip -Zs '.Q::arg($archive).' 2>/dev/null | awk \'$2 ~ /^[0-9]+\.[0-9]+$/\' > "$V" || ! unzip -Z1 '.Q::arg($archive).' > "$N" 2>/dev/null; then echo ERR; exit 0; fi; '
+            .'V='.Q::arg($v).'; N='.Q::arg($n).'; trap \'rm -f "$V" "$N"\' EXIT; '.$prelude
+            .'if ! unzip -Zs "$A" 2>/dev/null | awk \'$2 ~ /^[0-9]+\.[0-9]+$/\' > "$V" || ! unzip -Z1 "$A" > "$N" 2>/dev/null; then echo ERR; exit 0; fi; '
             .'echo "N $(wc -l < "$N") $(wc -l < "$V")"; '
             .self::commonChecks();
     }

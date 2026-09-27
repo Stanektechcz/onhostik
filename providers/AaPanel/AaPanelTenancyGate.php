@@ -30,21 +30,36 @@ final class AaPanelTenancyGate
     /** Customer-facing words; the panel's name is never in them. */
     public const REASON = 'This server is shared with other customers, so files and scheduled shell commands can no longer be changed from the control panel. Upload files over SFTP/FTP; jobs that already run keep running.';
 
+    /** A row that cannot be read counts as closed: the features stay off rather than trusting an old copy (below). */
     public static function closed(ProviderInstance $instance): bool
     {
-        try {
-            $options = ProviderInstance::query()->whereKey($instance->id)->value('options');
-        } catch (Throwable) {
-            $options = $instance->options; // the database away: the copy the adapter was built with is the best answer left
-        }
-
-        return (bool) data_get(is_array($options) ? $options : [], self::OPTION.'.closed', false);
+        return self::state($instance) ?? true;
     }
 
     public static function assertOpen(ProviderInstance $instance): void
     {
-        if (self::closed($instance)) {
+        $closed = self::state($instance);
+        if ($closed === null) {
+            throw new ProviderException('aapanel', ProviderErrorCode::TRANSIENT, 'Whether this server is shared could not be checked just now; nothing was changed. Try again shortly.');
+        }
+        if ($closed) {
             throw new ProviderException('aapanel', ProviderErrorCode::VALIDATION, self::REASON);
         }
+    }
+
+    /**
+     * Null when the row cannot be read. It used to fall back to the adapter's in-memory copy of the instance — the very
+     * copy this gate exists not to trust — so a database hiccup in a worker built before `--apply` failed OPEN and let a
+     * root write through (TASK-0034 review round 1). Now it fails closed: refused (and retried), never allowed.
+     */
+    private static function state(ProviderInstance $instance): ?bool
+    {
+        try {
+            $options = ProviderInstance::query()->whereKey($instance->id)->value('options');
+        } catch (Throwable) {
+            return null;
+        }
+
+        return (bool) data_get(is_array($options) ? $options : [], self::OPTION.'.closed', false);
     }
 }

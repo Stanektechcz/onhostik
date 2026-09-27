@@ -26,8 +26,9 @@ final class AaPanelShell implements NodeShell
 
     /**
      * Where the platform stages what it runs and reads on a node as root: the shell's output and exit files, download
-     * chunks, restores and archive listings. It used to be /tmp, which every site's PHP (`www`) can list and read on a
-     * node shared by several customers (TASK-0034, IF-7). /root is root's own and 0700; the folder is made 0700 too.
+     * chunks and archive listings (archives themselves: STAGE_DIR). It used to be /tmp, which every site's PHP (`www`)
+     * can list and read on a node shared by several customers (TASK-0034, IF-7). /root is root's own and 0700; the
+     * folder is made 0700 too.
      */
     public const PRIVATE_DIR = '/root/.onhost-shell';
 
@@ -35,6 +36,19 @@ final class AaPanelShell implements NodeShell
     public static function privateDir(): string
     {
         return 'mkdir -p -m 700 '.self::PRIVATE_DIR.' && chmod 700 '.self::PRIVATE_DIR;
+    }
+
+    /**
+     * Where archives are copied and unpacked as root before they reach a site (TASK-0034 review: an archive left in the
+     * site could be swapped between the check and the unpack). A whole site does not belong on the root file system, so
+     * this lives beside the sites under /www — which only root can write — and is 0700 like PRIVATE_DIR.
+     */
+    public const STAGE_DIR = '/www/.onhost-stage';
+
+    /** The shell words that make STAGE_DIR exist, root-only (chain with `&&`). */
+    public static function stageDir(): string
+    {
+        return 'mkdir -p -m 700 '.self::STAGE_DIR.' && chmod 700 '.self::STAGE_DIR;
     }
 
     /** Lines the panel's `www` shell wrapper prints on every `su`; not part of the command's output. */

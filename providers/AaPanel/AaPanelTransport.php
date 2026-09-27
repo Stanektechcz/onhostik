@@ -25,8 +25,11 @@ final class AaPanelTransport implements FileTransport
 
     private const DOWNLOAD_MAX = 2147483648;
 
-    /** @param Closure(string, array<string,mixed>, string, bool, array<string,mixed>): mixed $post the adapter's signed request (path, params, action, critical, files) */
-    public function __construct(private readonly Closure $post, private readonly NodeShell $shell, private readonly string $root, private readonly string $siteUser = 'www') {}
+    /**
+     * @param  Closure(string, array<string,mixed>, string, bool, array<string,mixed>): mixed  $post  the adapter's signed request (path, params, action, critical, files)
+     * @param  (Closure(): bool)|null  $sharedNode  whether the operator closed the node as shared (AaPanelTenancyGate), asked at the unpack itself
+     */
+    public function __construct(private readonly Closure $post, private readonly NodeShell $shell, private readonly string $root, private readonly string $siteUser = 'www', private readonly ?Closure $sharedNode = null) {}
 
     public function list(string $path): array
     {
@@ -221,14 +224,37 @@ final class AaPanelTransport implements FileTransport
      * The panel unpacks as root. Its entries are listed on the node first and the archive is refused when one of them
      * would land outside the site — a link out with a file beneath it, a hardlink, an absolute name, `..` (TASK-0034,
      * permission program IF-7, exploit PA-02). Applies to every unpack: the customer's own archive, an import, a restore.
+     *
+     * The archive lies in the site, which the tenant can still change: it is copied out first and only the copy is judged
+     * and unpacked (AaPanelArchivePreflight::stage, review round 1). On a node the operator closed as shared, the copy is
+     * unpacked as the site user instead of by the panel's root UnZip (AaPanelSiteUnpack).
      */
     public function extract(string $archive, string $targetDir): void
     {
-        $source = $this->abs($archive);
         $target = $this->abs($targetDir);
-        (new AaPanelArchivePreflight($this->shell))->assertSafe($source, $target, $this->root, $this->root);
-        $type = AaPanelArchivePreflight::isTar($archive) ? 'tar.gz' : 'zip';
-        ($this->post)('/files?action=UnZip', ['sfile' => $source, 'dfile' => $target, 'type' => $type, 'coding' => 'utf-8', 'password' => ''], 'files.unzip', true, []);
+        $tar = AaPanelArchivePreflight::isTar($archive);
+        $copy = (new AaPanelArchivePreflight($this->shell))->stage($this->abs($archive), $this->root, $target);
+        try {
+            if ($this->sharedNode !== null && ($this->sharedNode)()) {
+                $this->unpackAsSiteUser($copy, $tar, $target);
+
+                return;
+            }
+            ($this->post)('/files?action=UnZip', ['sfile' => $copy, 'dfile' => $target, 'type' => $tar ? 'tar.gz' : 'zip', 'coding' => 'utf-8', 'password' => ''], 'files.unzip', true, []);
+        } finally {
+            $this->shell->run('rm -f '.Q::arg($copy), ['timeout' => 30]);
+        }
+    }
+
+    private function unpackAsSiteUser(string $copy, bool $tar, string $target): void
+    {
+        $work = AaPanelShell::STAGE_DIR.'/unpack-'.bin2hex(random_bytes(6));
+        $run = $this->shell->run(AaPanelShell::stageDir().' && W='.Q::arg($work).' && rm -rf "$W" && mkdir -m 700 "$W" && '
+            .AaPanelSiteUnpack::unpackCommand($tar, Q::arg($copy), '"$W"').' && '
+            .AaPanelSiteUnpack::copyAsSiteUser('"$W"', $target, $this->siteUser, $target === $this->root).'; rc=$?; rm -rf "$W"; exit $rc', ['timeout' => 900]);
+        if (! $run->ok()) {
+            throw new ProviderException('aapanel', $run->timedOut ? ProviderErrorCode::TRANSIENT : ProviderErrorCode::VALIDATION, 'The archive could not be unpacked: '.mb_substr($run->output(), 0, 300));
+        }
     }
 
     public function exists(string $path): bool

@@ -172,6 +172,8 @@ it('packs and unpacks the whole site: "." is the site root for both file transpo
     $zip = collect($sent)->firstWhere(0, 'files.zip')[1];
     expect($zip['sfile'])->toBe('wp-admin,wp-content,index.php,')->and($zip['dfile'])->toBe('/www/wwwroot/firma.cz/onhost-final-abc.tar.gz')->and($zip['path'])->toBe('/www/wwwroot/firma.cz')->and($zip['z_type'])->toBe('tar.gz');
     $panel->extract('site-files.tar.gz', '.');
-    expect(collect($sent)->firstWhere(0, 'files.unzip')[1])->toMatchArray(['sfile' => '/www/wwwroot/firma.cz/site-files.tar.gz', 'dfile' => '/www/wwwroot/firma.cz']);
+    // … from a copy the tenant cannot swap (TASK-0034 review round 1), into the site root
+    $unzip = collect($sent)->firstWhere(0, 'files.unzip')[1];
+    expect($unzip['sfile'])->toStartWith('/www/.onhost-stage/stage-')->and($unzip['dfile'])->toBe('/www/wwwroot/firma.cz');
     expect(fn () => $panel->abs('../other-site'))->toThrow(ProviderException::class);
 });

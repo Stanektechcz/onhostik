@@ -190,6 +190,8 @@ trait AaPanelTools
 
     public function phpSettings(ResourceRef $site): array
     {
+        // the root read of `.user.ini` follows a link the tenant put in its place: closed on a shared node (TASK-0034 review)
+        AaPanelTenancyGate::assertOpen($this->instance);
         $ini = '';
         try {
             $ini = $this->transport($site)->read('.user.ini', 65536);
@@ -221,6 +223,7 @@ trait AaPanelTools
 
     public function setPhpSettings(ResourceRef $site, array $settings): ProviderResult
     {
+        AaPanelTenancyGate::assertOpen($this->instance); // root read + write of `.user.ini` (TASK-0034 review round 1)
         $transport = $this->transport($site);
         $current = '';
         try {
@@ -478,15 +481,22 @@ trait AaPanelTools
         $file = $this->backupFile($site, $backupRemoteId);
         $root = $this->sitePath($site);
         // unpacked where only root reads (in /tmp every site's PHP on the node could read this site's files), after the
-        // entries were listed and judged: the archive is the site's own content (TASK-0034, IF-7)
-        $tmp = AaPanelShell::PRIVATE_DIR.'/restore-'.bin2hex(random_bytes(5));
+        // entries were listed and judged: the archive is the site's own content (TASK-0034, IF-7). The panel's backup
+        // lies in its own root-only folder, so it is judged where it is; a whole site is staged beside the sites, not on /.
+        $tar = AaPanelArchivePreflight::isTar($file);
+        $tmp = AaPanelShell::STAGE_DIR.'/restore-'.bin2hex(random_bytes(5));
         (new AaPanelArchivePreflight($this->shell($site)))->assertSafe($file, $tmp, $tmp, $root);
-        $script = implode(' && ', [
-            AaPanelShell::privateDir(), 'rm -rf '.Q::arg($tmp), 'mkdir -p '.Q::arg($tmp), 'unzip -oq '.Q::arg($file).' -d '.Q::arg($tmp),
-            'src='.Q::arg($tmp).'; if [ -d "$src/'.basename($root).'" ]; then src="$src/'.basename($root).'"; fi',
-            'if command -v rsync >/dev/null; then rsync -a --delete --exclude ".user.ini" "$src/" '.Q::arg($root).'/; else cp -a "$src/." '.Q::arg($root).'/; fi',
-            'chown -R www:www '.Q::arg($root), 'rm -rf '.Q::arg($tmp),
-        ]);
+        // a closed shared node: the root rsync into the live site would follow a link the tenant planted there after the
+        // backup — the unpacked copy goes in as the site user instead (overlay: what the backup lacks stays; review round 1)
+        $copy = AaPanelTenancyGate::closed($this->instance)
+            ? AaPanelSiteUnpack::copyAsSiteUser('"$src"', $root, 'www', true)
+            : '{ if command -v rsync >/dev/null; then rsync -a --delete --exclude ".user.ini" "$src/" '.Q::arg($root).'/; else cp -a "$src/." '.Q::arg($root).'/; fi; } && chown -R www:www '.Q::arg($root);
+        // `src` is set in a group of its own: chained with `;` as before, a failed unpack left it empty and the copy ran
+        // from "/" into the site (and aaPanel's backups are .tar.gz, which `unzip` never unpacked — TASK-0034 review)
+        $script = AaPanelShell::stageDir().' && T='.Q::arg($tmp).' && rm -rf "$T" && mkdir -m 700 "$T" && '
+            .AaPanelSiteUnpack::unpackCommand($tar, Q::arg($file), '"$T"')
+            .' && { src="$T"; if [ -d "$src/'.basename($root).'" ]; then src="$src/'.basename($root).'"; fi; } && '.$copy
+            .'; rc=$?; rm -rf "$T"; exit $rc';
         $run = $this->shell($site)->run($script, ['timeout' => 900]);
         if (! $run->ok()) {
             throw new ProviderException('aapanel', ProviderErrorCode::VALIDATION, 'Restore failed on the node: '.$run->output());
@@ -710,7 +720,8 @@ trait AaPanelTools
 
     private function transportAt(ResourceRef $site, string $root): FileTransport
     {
-        return new AaPanelTransport(fn (string $path, array $params, string $action, bool $critical, array $files) => $this->post($path, $params, $action, $critical, $files), $this->shell($site), rtrim($root, '/'), 'www');
+        return new AaPanelTransport(fn (string $path, array $params, string $action, bool $critical, array $files) => $this->post($path, $params, $action, $critical, $files), $this->shell($site), rtrim($root, '/'), 'www',
+            fn () => AaPanelTenancyGate::closed($this->instance)); // a closed shared node unpacks as the site user (TASK-0034)
     }
 
     /** Node-level transport (backup folders, vhost configs) — never handed to customers. */

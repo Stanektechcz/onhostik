@@ -411,16 +411,18 @@ final class AaPanelWebProvider implements SelfProbing, WebHostingProvider, WebTo
     {
         // a node several customers share, closed by the operator (TASK-0034, IF-7): no in-panel file manager there —
         // browsing and reading included, the panel reads as root and follows a planted link just as it writes through
-        // one — and no import (it unpacks as root into the site). SFTP/FTP, backups and cron listings stay.
+        // one — no import (it unpacks as root into the site), no PHP settings (a root read and write of `.user.ini`, which
+        // a link can replace) and no one-click apps (the panel unpacks them as root into the site; review round 1).
+        // SFTP/FTP, backups and cron listings stay. The terminal and Node projects: owner decision, see TASK-0034.
         $shared = AaPanelTenancyGate::closed($this->instance);
 
         return [
             'php' => true, 'databases' => true, 'ftp' => true, 'ssl' => true, 'https' => true, 'cron' => true, 'logs' => true, 'backups' => true, 'restore' => true,
             'subdomains' => true, 'redirects' => true, 'ssh' => false, 'mail' => false, 'file_manager' => ! $shared, 'usage' => true,
             // extended tabs: file manager, rewrite rules, site password and one-click apps come from the panel API; no per-site DB users or statistics
-            'errpages' => false, 'directives' => true, 'protected' => true, 'db_users' => false, 'stats' => false, 'ssl_upload' => true, 'files' => ! $shared, 'apps' => true, 'db_admin' => (bool) $this->instance->option('phpmyadmin_url'),
+            'errpages' => false, 'directives' => true, 'protected' => true, 'db_users' => false, 'stats' => false, 'ssl_upload' => true, 'files' => ! $shared, 'apps' => ! $shared, 'db_admin' => (bool) $this->instance->option('phpmyadmin_url'),
             // tools (WebToolsProvider): the panel API plus the node shell — terminal/WP-CLI instead of SSH keys, restore, exports, security rules, HTTP/3, Node projects
-            'terminal' => true, 'php_settings' => true, 'security' => true, 'rate_limit' => true, 'http3' => true, 'cron_edit' => true, 'cron_logs' => true, 'db_export' => true, 'db_access' => true,
+            'terminal' => true, 'php_settings' => ! $shared, 'security' => true, 'rate_limit' => true, 'http3' => true, 'cron_edit' => true, 'cron_logs' => true, 'db_export' => true, 'db_access' => true,
             'backup_download' => true, 'backup_delete' => true, 'backup_on_demand' => true, 'files_advanced' => ! $shared, 'quotas' => true, 'node_projects' => true, 'staging' => true, 'deploy' => true, 'wordpress' => true, 'hsts' => true, 'panel_login' => false, 'proxy' => true, 'default_docs' => true,
         ];
     }
@@ -996,6 +998,7 @@ final class AaPanelWebProvider implements SelfProbing, WebHostingProvider, WebTo
 
     public function installApp(ResourceRef $site, array $spec): ProviderResult
     {
+        AaPanelTenancyGate::assertOpen($this->instance); // the panel unpacks the app as root into the site (TASK-0034 review round 1)
         $php = str_replace('.', '', (string) ($spec['php_version'] ?? ''));
         $this->post('/deployment?action=SetupPackage', array_filter(['dname' => (string) $spec['name'], 'site_name' => $site->meta['name'] ?? '', 'php_version' => $php !== '' ? $php : null], fn ($v) => $v !== null), 'apps.install', true);
 

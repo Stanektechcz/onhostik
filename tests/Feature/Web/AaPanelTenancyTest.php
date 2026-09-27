@@ -5,9 +5,14 @@ declare(strict_types=1);
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
+use Onhost\Domain\Provisioning\ProviderInstanceService;
 use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Services\Models\Service;
+use Onhost\Platform\Audit\AuditEvent;
+use Onhost\Platform\Commands\CommandContext;
+use Onhost\Platform\Errors\ProviderErrorCode;
 use Onhost\Platform\Errors\ProviderException;
 use Onhost\Providers\AaPanel\AaPanelWebProvider;
 use Onhost\Providers\Contracts\Naming;
@@ -108,7 +113,7 @@ it('still unpacks an ordinary site archive, links inside the site included (Lara
     $adapter->transport(tenancySite())->extract('site.tar.gz', '.');
 
     $unzip = collect($calls)->last(fn ($c) => str_contains($c[0], 'UnZip'));
-    expect($unzip)->not->toBeNull()->and($unzip[1]['sfile'])->toBe('/www/wwwroot/shop.cz/site.tar.gz')->and($unzip[1]['dfile'])->toBe('/www/wwwroot/shop.cz');
+    expect($unzip)->not->toBeNull()->and($unzip[1]['sfile'])->toStartWith('/www/.onhost-stage/stage-')->and($unzip[1]['dfile'])->toBe('/www/wwwroot/shop.cz');
     // the entries were listed by the node before the panel unpacked the archive, as root, from a place no tenant can read
     expect($shell->ran('--numeric-owner -tzvf'))->toBeTrue()->and($shell->ran('/root/.onhost-shell'))->toBeTrue();
 });
@@ -167,7 +172,7 @@ it('stages the chunks of a download and the files of a restore where only root c
 
     $adapter->restoreFromArchive(tenancySite(), '77');
     $restore = collect($shell->commands())->first(fn ($c) => str_contains($c, 'unzip -oq'));
-    expect($restore)->not->toContain('/tmp/')->toContain('/root/.onhost-shell/restore-');
+    expect($restore)->not->toContain('/tmp/')->toContain('/www/.onhost-stage/restore-');
     expect($shell->ran('unzip -Zs'))->toBeTrue(); // the panel's archive is listed before it is unpacked, too
 });
 
@@ -301,4 +306,175 @@ it('closes the shared nodes on --apply through the command bus, and reopens one 
     $this->artisan('operator:aapanel:tenancy --reopen')->assertExitCode(1); // reopening names the node
     $this->artisan('operator:aapanel:tenancy --reopen --instance=aapanel-managed01')->expectsOutputToContain('reopened')->assertExitCode(0);
     expect(ProviderInstance::query()->where('key', 'aapanel-managed01')->first()->option('tenancy.closed'))->toBeFalse();
+});
+
+// ── review round 1 (TASK-0034): what the first version still left open ────────────────────────────────────────
+
+dataset('archives the tenant can still change', [
+    'a link to a file outside the site (a neighbour\'s backup)' => ["S outside\n"],
+    'not a regular file' => ["S kind\n"],
+    'a second name of another file (hardlink)' => ["S links\n"],
+    'gone before it could be opened' => ["S missing\n"],
+    'unpacked into a folder that leads out of the site' => ["S target\n"],
+]);
+
+it('refuses an archive in the site that is a link, a hardlink or not a file, before root reads it', function (string $report) {
+    $calls = [];
+    tenancyPanelFake($calls);
+    $shell = tenancyTarShell($report);
+    AaPanelWebProvider::$shellFactory = fn () => $shell;
+    $adapter = aaToolsAdapter();
+
+    expect(fn () => $adapter->transport(tenancySite())->extract('site.tar.gz', '.'))->toThrow(ProviderException::class);
+    expect(tenancyCalled($calls, 'UnZip'))->toBeFalse();
+    expect($shell->ran("rm -f '/www/.onhost-stage/stage-"))->toBeTrue(); // the half-made copy does not stay behind
+})->with('archives the tenant can still change');
+
+it('judges and unpacks a copy the tenant cannot touch, never the archive in the site (the swap between check and unpack)', function () {
+    $calls = [];
+    tenancyPanelFake($calls);
+    $shell = tenancyTarShell("N 2 2\nT - 1\nT d 1\n");
+    AaPanelWebProvider::$shellFactory = fn () => $shell;
+    $adapter = aaToolsAdapter();
+
+    $adapter->transport(tenancySite())->extract('site.tar.gz', 'restore');
+
+    $stage = collect($shell->commands())->first(fn ($c) => str_contains($c, '-tzvf'));
+    // one root step: open the file once, prove what was opened lies in the site and is a single-named regular file,
+    // copy exactly that into the root-only stage, then list the copy
+    expect($stage)->toContain('exec 3<')->toContain('/proc/self/fd/3')->toContain("realpath -e -- '/www/wwwroot/shop.cz'")
+        ->toContain('cat <&3 >')->toContain('mkdir -p -m 700 /www/.onhost-stage');
+    expect(strpos($stage, 'cat <&3'))->toBeLessThan(strpos($stage, '-tzvf'));
+    $unzip = collect($calls)->last(fn ($c) => str_contains($c[0], 'UnZip'));
+    expect($unzip[1]['sfile'])->toStartWith('/www/.onhost-stage/stage-')->toEndWith('.tar.gz')->and($unzip[1]['dfile'])->toBe('/www/wwwroot/shop.cz/restore');
+    expect($shell->ran("rm -f '".$unzip[1]['sfile']."'"))->toBeTrue();
+});
+
+it('unpacks as the site user on a closed shared node: root writes only into its own folder, never through a planted link', function () {
+    $calls = [];
+    tenancyPanelFake($calls);
+    $shell = tenancyTarShell("N 2 2\nT - 1\nT d 1\n");
+    AaPanelWebProvider::$shellFactory = fn () => $shell;
+    $adapter = aaToolsAdapter();
+    tenancySetClosed(true);
+
+    $adapter->transport(tenancySite())->extract('onhost-restore-ab12cd.tar.gz', '.'); // what a backup restore does
+
+    expect(tenancyCalled($calls, 'UnZip'))->toBeFalse(); // the panel's root unpack writes through links in the site
+    $unpack = collect($shell->commands())->first(fn ($c) => str_contains($c, '-xzf'));
+    expect($unpack)->toContain('/www/.onhost-stage/unpack-')->toContain("| su -s /bin/bash 'www' -c")->toContain('--exclude=./.user.ini');
+    expect($shell->ran("rm -f '/www/.onhost-stage/stage-"))->toBeTrue();
+});
+
+it('refuses a malicious backup archive before restoring it over the site', function (string $archive, string $report) {
+    $calls = [];
+    tenancyPanelFake($calls, ['data?action=getData&table=backup' => ['data' => [['id' => 77, 'addtime' => '2026-09-10 02:30:00', 'size' => 1234, 'filename' => '/www/backup/site/'.$archive]]]]);
+    $shell = tenancyTarShell($report);
+    AaPanelWebProvider::$shellFactory = fn () => $shell;
+    $adapter = aaToolsAdapter();
+
+    expect(fn () => $adapter->restoreFromArchive(tenancySite(), '77'))->toThrow(ProviderException::class);
+    expect($shell->ran('unzip -oq'))->toBeFalse()->and($shell->ran('-xzf'))->toBeFalse()->and($shell->ran('rsync'))->toBeFalse();
+})->with('escaping archives');
+
+it('restores a backup as the site user on a closed shared node, and unpacks a tar.gz backup with tar', function () {
+    $calls = [];
+    tenancyPanelFake($calls, ['data?action=getData&table=backup' => ['data' => [['id' => 77, 'addtime' => '2026-09-10 02:30:00', 'size' => 1234, 'filename' => '/www/backup/site/shop.cz_20260910.tar.gz']]]]);
+    $shell = tenancyTarShell("N 2 2\nT - 1\nT d 1\n");
+    AaPanelWebProvider::$shellFactory = fn () => $shell;
+    $adapter = aaToolsAdapter();
+    tenancySetClosed(true);
+
+    $adapter->restoreFromArchive(tenancySite(), '77');
+
+    $restore = collect($shell->commands())->first(fn ($c) => str_contains($c, '/www/.onhost-stage/restore-') && str_contains($c, '-xzf'));
+    expect($restore)->not->toBeNull()->not->toContain('unzip -oq')->not->toContain('rsync')->not->toContain('chown -R')
+        ->toContain("| su -s /bin/bash 'www' -c");
+});
+
+it('never copies anything into the site after an unpack that failed (a lone `src=` let the root rsync copy "/" there)', function () {
+    $calls = [];
+    tenancyPanelFake($calls, ['data?action=getData&table=backup' => ['data' => [['id' => 77, 'addtime' => '2026-09-10 02:30:00', 'size' => 1234, 'filename' => '/www/backup/site/shop.cz_20260910.zip']]]]);
+    $shell = tenancyTarShell("N 2 2\nT - 1\nT d 1\n");
+    AaPanelWebProvider::$shellFactory = fn () => $shell;
+
+    aaToolsAdapter()->restoreFromArchive(tenancySite(), '77');
+
+    $restore = collect($shell->commands())->first(fn ($c) => str_contains($c, 'unzip -oq'));
+    // the copy is reached only through `&&` from the unpack; `src` is set inside a group, never as a `;` statement
+    expect($restore)->toContain(' -d "$T" && { src="$T"; if [ -d "$src/shop.cz" ]; then src="$src/shop.cz"; fi; } && { if command -v rsync')
+        ->not->toContain('src=\'');
+});
+
+it('closes PHP settings and one-click apps on a closed shared node: both are root writes into the site', function () {
+    $calls = [];
+    tenancyPanelFake($calls);
+    AaPanelWebProvider::$shellFactory = fn () => new ScriptedShell;
+    $adapter = aaToolsAdapter();
+    tenancySetClosed(true);
+
+    expect($adapter->siteFeatures())->toMatchArray(['php_settings' => false, 'apps' => false]);
+    foreach ([
+        fn () => $adapter->phpSettings(tenancySite()),
+        fn () => $adapter->setPhpSettings(tenancySite(), ['memory_limit' => '256M']),
+        fn () => $adapter->installApp(tenancySite(), ['name' => 'wordpress']),
+    ] as $closed) {
+        expect($closed)->toThrow(ProviderException::class, 'SFTP');
+    }
+    foreach (['GetFileBody', 'SaveFileBody', 'SetupPackage'] as $action) {
+        expect(tenancyCalled($calls, $action))->toBeFalse("{$action} reached the panel");
+    }
+});
+
+it('refuses rather than trusts an old copy when it cannot read whether the node is closed', function () {
+    $calls = [];
+    tenancyPanelFake($calls);
+    $adapter = aaToolsAdapter(); // built while the node was open
+    Schema::rename('provider_instances', 'provider_instances_away');
+    try {
+        expect(fn () => $adapter->writeFile(tenancySite(), 'index.php', 'x'))
+            ->toThrow(fn (ProviderException $e) => expect($e->errorCode)->toBe(ProviderErrorCode::TRANSIENT));
+        expect($adapter->siteFeatures()['files'])->toBeFalse();
+    } finally {
+        Schema::rename('provider_instances_away', 'provider_instances');
+    }
+    expect(tenancyCalled($calls, 'SaveFileBody'))->toBeFalse();
+});
+
+it('keeps a closed node closed when staff edit the instance without naming tenancy, and audits a change of it', function () {
+    aaToolsAdapter();
+    tenancySetClosed(true);
+    $instances = app(ProviderInstanceService::class);
+    $instance = ProviderInstance::query()->where('key', 'aapanel-managed01')->firstOrFail();
+
+    $instances->upsert(['key' => $instance->key, 'provider' => 'aapanel', 'base_url' => $instance->base_url, 'options' => ['verify_tls' => false]], CommandContext::system('test'));
+
+    expect($instance->fresh()->option('tenancy.closed'))->toBeTrue()->and($instance->fresh()->option('verify_tls'))->toBeFalse();
+
+    $instances->upsert(['key' => $instance->key, 'provider' => 'aapanel', 'base_url' => $instance->base_url, 'options' => ['tenancy' => ['closed' => false]]], CommandContext::system('test'));
+
+    expect($instance->fresh()->option('tenancy.closed'))->toBeFalse();
+    $audit = AuditEvent::query()->where('action', 'provider.instance.update')->orderByDesc('created_at')->orderByDesc('id')->firstOrFail();
+    expect(data_get($audit->detail, 'tenancy.from.closed'))->toBeTrue()->and(data_get($audit->detail, 'tenancy.to.closed'))->toBeFalse()
+        ->and(data_get($audit->detail, 'options_changed'))->toContain('tenancy');
+});
+
+it('closes a node the dry run did not list only on --apply --instance --force (one customer beside historical sites)', function () {
+    Http::fake(fn () => Http::response(['status' => true, 'msg' => 'ok']));
+    [, $org] = $this->customerWithOrganization();
+    featureWebService($org, 'aapanel');
+
+    $this->artisan('operator:aapanel:tenancy --apply --instance=aapanel-managed01')->expectsOutputToContain('Nothing to close')->assertExitCode(0);
+    expect(ProviderInstance::query()->where('key', 'aapanel-managed01')->first()->option('tenancy.closed'))->toBeNull();
+    $this->artisan('operator:aapanel:tenancy --apply --force')->assertExitCode(1); // never in bulk
+    $this->artisan('operator:aapanel:tenancy --force --instance=aapanel-managed01')->assertExitCode(1); // only with --apply
+
+    $this->artisan('operator:aapanel:tenancy --apply --force --instance=aapanel-managed01')->expectsOutputToContain('closed')->assertExitCode(0);
+    expect(ProviderInstance::query()->where('key', 'aapanel-managed01')->first()->option('tenancy.closed'))->toBeTrue();
+});
+
+it('refuses an unknown instance key instead of doing nothing', function () {
+    $this->artisan('operator:aapanel:tenancy --instance=does-not-exist')->expectsOutputToContain('does-not-exist')->assertExitCode(1);
+    $this->artisan('operator:aapanel:tenancy --apply --instance=does-not-exist')->assertExitCode(1);
+    $this->artisan('operator:aapanel:tenancy --reopen --instance=does-not-exist')->assertExitCode(1);
 });
