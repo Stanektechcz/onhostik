@@ -18,11 +18,22 @@ APP=/www/wwwroot/$SITE
 P=/www/server/php/83/bin/php
 STATE=/var/lib/onhost-deploy/$SITE
 G="git -c safe.directory=$APP -c core.hooksPath=/dev/null -c core.fsmonitor=false -C $APP"   # read-only git as root before S1b
+# artisan by hand runs as www wherever setpriv works: www can write this tree (on an existing staging all of it), so
+# root running its PHP is a www → root path (D32.13, open). AS_WWW empty = setpriv unusable: see S0.
+if setpriv --reuid=www --regid=www --init-groups true 2>/dev/null; then AS_WWW="setpriv --reuid=www --regid=www --init-groups --"; else AS_WWW=""; fi
+# storage and bootstrap/cache back to www after anything root ran — never `chown -R`/`chmod -R` (they follow a symlink
+# given on the command line, and www can plant one); the deployer's own guarded sequence:
+own() {
+  local d; for d in storage bootstrap bootstrap/cache; do
+    [ ! -L "$APP/$d" ] && [ -d "$APP/$d" ] && [ "$(realpath "$APP/$d")" = "$(realpath "$APP")/$d" ] || { echo "REFUSED: $APP/$d is a link or missing — report it"; return 1; }
+  done
+  find -P $APP/storage $APP/bootstrap/cache -exec chown -h www:www {} + && find -P $APP/storage $APP/bootstrap/cache ! -type l -exec chmod u+rwX,g+rX,o-rwx {} +
+}
 ```
 
-Every `$P artisan …` run as root writes logs as root: end each session on the host with
-`chown -R www:www $APP/storage $APP/bootstrap/cache && chmod -R o-rwx $APP/storage $APP/bootstrap/cache` (the deployer does
-this itself).
+Every `$P artisan …` that ran as root (no setpriv) writes logs as root: end each such session on the host with `own`
+(the deployer does this itself; on an installed site `INSTALL_REPAIR=1 bash /root/onhost-install.sh` does the same and
+also re-renders the units without starting them).
 
 ## A. Owner decisions (written, before S0 ends; a missing one is NO-GO)
 
@@ -108,14 +119,21 @@ grep -E 'opcache.validate_timestamps|opcache.revalidate_freq' /www/server/php/83
 command -v pg_dump pg_restore psql; ls /www/server/pgsql/bin 2>/dev/null
 $P -r 'echo ini_get("disable_functions"), PHP_EOL;'   # proc_open must not be listed
 su - postgres -c "psql -c '\du'"                  # the app role has CREATEDB, or the postgres superuser is usable (S6)
-cd $APP && $P artisan about --only=environment
-$P artisan onhost:staging:report                  # WITHOUT --check: writes storage/app/onhost-staging-report.json, asks no panel
-$P artisan onhost:doctor --json > /root/staging-doctor-s0.json
+echo "AS_WWW=${AS_WWW:-<empty: setpriv unusable>}"  # empty: STOP before the artisan lines below — see the note after this block
+cd $APP && $AS_WWW $P artisan about --only=environment
+$AS_WWW $P artisan onhost:staging:report          # WITHOUT --check: writes storage/app/onhost-staging-report.json, asks no panel
+$AS_WWW $P artisan onhost:doctor --json > /root/staging-doctor-s0.json
 grep -n '"providers"' -A3 /root/staging-doctor-s0.json | grep 'credentials stored'   # instances holding credentials
-$P artisan tinker --execute="dump(DB::table('users')->whereIn('email',['admin@onhost.cz','noc@onhost.cz','finance@onhost.cz','support@onhost.cz','demo@onhost.cz','agentura@onhost.cz'])->count(), DB::table('provider_instances')->get(['key','state']))"
+$AS_WWW $P artisan tinker --execute="dump(DB::table('users')->whereIn('email',['admin@onhost.cz','noc@onhost.cz','finance@onhost.cz','support@onhost.cz','demo@onhost.cz','agentura@onhost.cz'])->count(), DB::table('provider_instances')->get(['key','state']))"
 ```
 
-Record: git version, owner/mode of `.git`, whether `.env` is `/etc/onhost/app.env`, the FPM reload command
+The artisan lines run as www (`$AS_WWW`): an existing staging's tree belongs to www entirely, and these "read-only"
+calls load its code — as root that is a www → root path (D32.13). If `setpriv` is unusable (`AS_WWW` empty), do not run
+them as root without the owner's written acceptance of that path for S0 (recorded in the release record); the git,
+`stat` and `nginx` lines above need no PHP and stay. If www cannot read the environment file yet (artisan fails as
+www), record it — S0 changes nothing — and run the artisan lines right after S1b's `chown root:www … chmod 640` line.
+
+Record: whether S0 ran artisan as www, git version, owner/mode of `.git`, whether `.env` is `/etc/onhost/app.env`, the FPM reload command
 (`/etc/init.d/php-fpm-83 reload` is ASSUMED), opcache settings, the pg binary directory (`ONHOST_PG_BIN`), the
 instances and their state, the dev-account count, and every provider row whose detail says *credentials stored* — that
 list, by instance key, goes into O4 with the revocation date of question 13.
@@ -125,7 +143,7 @@ go-ahead; staging only; nothing is sent to any panel):
 
 ```bash
 cd $APP
-$P artisan onhost:provisioning:freeze "staging containment"
+$AS_WWW $P artisan onhost:provisioning:freeze "staging containment"
 systemctl stop onhost-scheduler.service 'onhost-queue@*'
 # staff console → Integrations: set every panel instance to state "disabled" (keeps its bindings and credentials unused)
 install -d -m 0700 $STATE && touch $STATE/expect-freeze   # the deployer re-asserts the freeze on every staging release
@@ -162,7 +180,8 @@ basic auth can be skipped with one header. Remove the `real_ip` setting (or narr
 ### S1b — One-time git hardening (after the S0 review found nothing foreign)
 
 ```bash
-chown -R root:root $APP/.git && chmod -R go-w $APP/.git && chmod 700 $APP/.git
+[ -d $APP/.git ] && [ ! -L $APP/.git ] || { echo "REFUSED: $APP/.git is a link or missing — report it"; false; } \
+  && find -P $APP/.git -exec chown -h root:root {} + && find -P $APP/.git ! -type l -exec chmod go-w {} + && chmod 700 $APP/.git
 install -d -m 0700 $STATE
 printf '[safe]\n\tdirectory = %s\n' "$APP" > $STATE/gitconfig && chmod 600 $STATE/gitconfig   # the deployer also creates it
 chown root:www /etc/onhost /etc/onhost/app.env && chmod 750 /etc/onhost && chmod 640 /etc/onhost/app.env
@@ -202,7 +221,7 @@ grep -cE '^(ONHOST_BANK_FIO_TOKEN|POWERDNS_HIDDEN01_URL)=.+' /etc/onhost/app.env
 
 ```bash
 REF=<STAGING_SHA> EXPECTED_SHA=<STAGING_SHA> START_UNITS=0 bash /root/onhost-install.sh
-cd $APP && $P artisan onhost:provisioning:freeze "staging phase 1 - no panels"
+cd $APP && $AS_WWW $P artisan onhost:provisioning:freeze "staging phase 1 - no panels"
 touch $STATE/expect-freeze
 # staff console → Integrations: wedos-main (created by InfrastructureSeeder) → state "disabled"
 ```
@@ -226,7 +245,7 @@ cat /usr/local/lib/onhost-deploy/source-sha         # = STAGING_SHA
 ### S5 — Staff
 
 ```bash
-$P artisan onhost:staff:create <owner-email> --name="<name>" --role=platform_owner   # hidden password prompt
+$AS_WWW $P artisan onhost:staff:create <owner-email> --name="<name>" --role=platform_owner   # hidden password prompt
 ```
 
 Each person signs in and enrols MFA themselves. **Never run `DevAccountSeeder` here.** A second approver only per O6.
@@ -252,7 +271,7 @@ Verify:
 - `$STATE/runs/<ts>-<sha12>/verdict.out` ends with `VERDICT pass` and lists no `HARD-FAIL`/`GATED-FAIL`; `report.json` has
   every HARD and GATED row `OK`.
 - The units listed in `drained-units` before the run are active again; units stopped for containment stay stopped.
-- `$P artisan onhost:doctor` six minutes or more later: the liveness rows (scheduler, worker) OK for the running units.
+- `$AS_WWW $P artisan onhost:doctor` six minutes or more later: the liveness rows (scheduler, worker) OK for the running units.
 - Record `drain_s` and `window_s` next to the backup duration in `backup.out` (O7).
 
 ### S8 — Negative rehearsals (staging only; each ends recovered)
@@ -264,7 +283,7 @@ Verify:
 | c | `QUEUE_CONNECTION=sync`, run | rc 5 (GATED `storage|queue driver`); a plain re-run → rc 5 again (no laundering); re-run with `ALLOW_DOCTOR_FAIL="<first 12 of STAGING_SHA>:staging override rehearsal"` → rc 0, override logged | `QUEUE_CONNECTION=redis`, deploy → rc 0 |
 | d | deploy the next SHA (TASK-0032+1), then `REF=<STAGING_SHA>` | rc 0 both; the rollback over a migration takes a backup | roll forward → rc 0. Only targets that contain the gate |
 | e | change a tracked file (`touch -d yesterday` is not enough: edit it), run | rc 2, no `down` in the output | `$G checkout -- <file>` |
-| f | `$P artisan down` by hand, run | rc 0; the site stays down ("left down") | `$P artisan up` |
+| f | `$AS_WWW $P artisan down` by hand, run | rc 0; the site stays down ("left down") | `$AS_WWW $P artisan up` |
 | g | the drain timeout with a synthetic job (below): `DRAIN_TIMEOUT=20` while a 60 s job runs | rc 3 after about 20 s; nothing switched; the site 200; the drill unit comes back **by itself** once its job ends (systemd queued the start behind the pending stop), and the job ran exactly once | stop the drill unit |
 | h | a unit that cannot come back: `systemctl start onhost-queue@deploy-drill.service && systemctl mask --runtime onhost-queue@deploy-drill.service`, run | rc 7 (`did not come back: onhost-queue@deploy-drill.service`); the site stays 503; every drained unit stopped again and listed in `drained-units` | `systemctl unmask --runtime onhost-queue@deploy-drill.service`, run the printed command → rc 0, then `systemctl stop onhost-queue@deploy-drill.service` |
 
@@ -277,7 +296,7 @@ is a closure that only sleeps and logs; it runs on its own queue, served by a th
 ```bash
 cd $APP
 systemctl start onhost-queue@deploy-drill.service
-$P artisan tinker --execute="dispatch(function () { sleep(60); \Illuminate\Support\Facades\Log::info('deploy-drill job done'); })->onQueue('deploy-drill');"
+$AS_WWW $P artisan tinker --execute="dispatch(function () { sleep(60); \Illuminate\Support\Facades\Log::info('deploy-drill job done'); })->onQueue('deploy-drill');"
 sleep 5; systemctl is-active onhost-queue@deploy-drill.service     # active, the job is running
 DRAIN_TIMEOUT=20 REF=<STAGING_SHA> EXPECTED_SHA=<STAGING_SHA> DEPLOY_OPERATOR=<name> PHP_FPM_RELOAD='<…>' \
   /usr/local/sbin/onhost-deploy; echo rc=$?                        # rc=3, "still running after 20s: … deploy-drill"
@@ -286,7 +305,7 @@ systemctl status onhost-queue@deploy-drill.service | head -3       # deactivatin
 sleep 60; systemctl is-active onhost-queue@deploy-drill.service    # active: the queued start ran after the job
 grep -c 'deploy-drill job done' storage/logs/*.log | awk -F: '{s+=$2} END {print s}'   # 1
 systemctl stop onhost-queue@deploy-drill.service
-chown -R www:www storage bootstrap/cache && chmod -R o-rwx storage bootstrap/cache   # tinker ran as root
+[ -n "$AS_WWW" ] || own                                            # only when tinker had to run as root
 ```
 
 Record the observed stop duration next to `DRAIN_TIMEOUT` (300 s default) and the longest job the production queues
@@ -325,7 +344,7 @@ the duration. The 7-day freshness rule is a proposal (question 9), not a gate.
 
 ### S10 — Daily, for 24 h, then with every release
 
-- the freeze is on (`$P artisan tinker --execute="dump(app(Onhost\Domain\Provisioning\FreezeSwitch::class)->meta())"` prints the
+- the freeze is on (`$AS_WWW $P artisan tinker --execute="dump(app(Onhost\Domain\Provisioning\FreezeSwitch::class)->meta())"` prints the
   reason, `null` = not frozen; the staff console shows a banner);
 - no `active` instance and no *credentials stored* row beyond O4 (`onhost:staging:report`, without `--check`); every
   contained credential O4 names is still before its revocation date (question 13) — one past it without the owner's
@@ -349,6 +368,9 @@ the duration. The 7-day freshness rule is a proposal (question 9), not a gate.
   S7-based estimate while production has not run).
 - The containment state matches the O2 decision: no active panel instance, no credentials beyond the O4 list (none
   past its revocation date), freeze on.
+- S0 and every later hand-run artisan ran as www (`AS_WWW`), or the owner accepted root execution for staging in
+  writing (release record). The deployer itself still runs the target's PHP as root (D32.13): accepted for staging
+  phase 1 only, never carried to production by default (F).
 - Anything else is NO-GO. Phase 2 (test panels) has its own go/no-go after the owner's per-panel decision.
 
 ## E. Rollback
@@ -363,6 +385,13 @@ the duration. The 7-day freshness rule is a proposal (question 9), not a gate.
 ## F. Promotion to production (outline; no AI action)
 
 - Only a SHA that passed S7–S10.
+- **Precondition:** the follow-up that runs the deployer's artisan/composer steps as www (`setpriv`) with a root-owned
+  code tree is done — or the owner accepts in writing, in the release record, that root runs the target's PHP in a tree
+  www can write (D32.13: code, `vendor/`, `bootstrap/cache`, `storage/framework/views`, root's writes of the `down` file
+  and logs in `storage/`). Without one of the two, production is NO-GO (go-live checklist row, handoff).
+- The tag is made only with `git tag -s`, never by editing a tag object: the deployer
+  refuses a tag with anything after its signature (review round 3) and reads `Accept-Gate:` only from the signed
+  message.
 - The owner creates and signs the annotated tag `vYYYY.MM.DD[-N]` with `Release-Record:` and `Verdict: READY`, plus an
   `Accept-Gate:` line only for a GATED row he accepts (`.ai/releases/README.md`).
 - On the production host: `allowed_signers` with the owner's key (root, 0600), git 2.34+, the deployer installed from

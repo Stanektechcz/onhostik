@@ -34,7 +34,9 @@ explicit: `2426c17..<sha>`.
 * **Annotated and SSH-signed by the owner** (`git tag -s -a v2026.10.01 -m "…" <sha>` with `gpg.format=ssh`), pushed by
   the owner. The production deployer (and its installer, `install-deployer.sh TAG=…`) refuses a lightweight tag, a tag
   whose last signature is not SSH (PGP/X.509 are never consulted), a tag object filed under a name its `tag` header does
-  not carry, and an unsigned tag; it refuses every production deploy until
+  not carry, an unsigned tag, and a tag with anything but blank lines after `-----END SSH SIGNATURE-----` (git and
+  OpenSSH leave those bytes unverified; `Accept-Gate:` is read only from the signed message); it refuses every
+  production deploy until
   the owner's public key is in the root-owned `/var/lib/onhost-deploy/<site>/allowed_signers`
   (`<email> namespaces="git" ssh-ed25519 AAAA…`).
 * Message:

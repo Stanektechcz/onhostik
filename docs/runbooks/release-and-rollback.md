@@ -37,7 +37,7 @@ REF=<tag|sha> EXPECTED_SHA=<40-hex sha> DEPLOY_OPERATOR=<name> PHP_FPM_RELOAD='<
 
 | Stage | What happens | On failure |
 | --- | --- | --- |
-| preflight | lock (`flock`); `REF` and the full `EXPECTED_SHA` required, `BRANCH` refused; the deployer, `deploy-gate.php` and `source-sha` root-owned and writable by nobody else; APP_ENV and APP_URL read fail-closed from the root-owned `/etc/onhost/app.env` (`ENV_FILE`) — never from `$APP_DIR/.env`, which must be that very file (only `staging`, `local`, `testing` are not production); APP_URL host = `SITE`; `storage`, `bootstrap`, `bootstrap/cache` real directories (no symlinks); `.git` root-owned and not group/world-writable; `git fetch --tags`; REF resolved (production: an annotated tag whose `tag` header names it, whose last signature block is SSH, and which `git verify-tag` accepts against the root-owned `allowed_signers` — with `gpg.program`/`gpg.x509.program` set to `false` and an empty `GNUPGHOME`); the target must not carry a newer deployer than the installed one; tree clean (except the generated `contracts/openapi/onhost-v1.yaml` and `VERSION`); `SKIP_BACKUP`/`ALLOW_DOCTOR_FAIL` validated and bound to the target SHA; `/up` reachable over loopback (401/403 = the vhost's basic auth is not bypassed for loopback) | exit **2**, nothing changed |
+| preflight | lock (`flock`); `REF` and the full `EXPECTED_SHA` required, `BRANCH` refused; the deployer, `deploy-gate.php` and `source-sha` root-owned and writable by nobody else; APP_ENV and APP_URL read fail-closed from the root-owned `/etc/onhost/app.env` (`ENV_FILE`) — never from `$APP_DIR/.env`, which must be that very file (only `staging`, `local`, `testing` are not production); APP_URL host = `SITE`; `storage`, `bootstrap`, `bootstrap/cache` real directories (no symlinks); `.git` root-owned and not group/world-writable; `git fetch --tags`; REF resolved (production: an annotated tag whose `tag` header names it, whose last signature block is SSH with nothing but blank lines after it, and which `git verify-tag` accepts (the object id resolved once) against the root-owned `allowed_signers` — with `gpg.program`/`gpg.x509.program` set to `false` and an empty `GNUPGHOME`); the target must not carry a newer deployer than the installed one; tree clean (except the generated `contracts/openapi/onhost-v1.yaml` and `VERSION`); `SKIP_BACKUP`/`ALLOW_DOCTOR_FAIL` validated and bound to the target SHA; `/up` reachable over loopback (401/403 = the vhost's basic auth is not bypassed for loopback) | exit **2**, nothing changed |
 | drain | the active `onhost-queue@*` and `onhost-scheduler` units are stopped and waited for (`DRAIN_TIMEOUT`, default 300 s; a worker finishes its job first); the list is kept in `drained-units` | exit **3**, the units are started again |
 | down | `artisan down --retry=60 --with-secret` (output discarded — the bypass URL never reaches a terminal or log); compiled Blade views dropped. From preflight on, every artisan and composer call reads Laravel's framework caches (`APP_PACKAGES_CACHE`, `APP_SERVICES_CACHE`, `APP_CONFIG_CACHE`, `APP_ROUTES_CACHE`, `APP_EVENTS_CACHE`) from a root-only directory of the run, never from the www-owned `bootstrap/cache` | exit 3, units started |
 | backup | `onhost:platform:backup`, the `Set …` line of THIS run, `onhost:platform:backup:verify <set>` must print `OK <set>`; the whole output (with the sha256 prefixes) stays in `runs/<ts>/backup.out` | exit **3**, nothing switched, the site back up if this run took it down |
@@ -48,7 +48,7 @@ REF=<tag|sha> EXPECTED_SHA=<40-hex sha> DEPLOY_OPERATOR=<name> PHP_FPM_RELOAD='<
 
 State lives in `/var/lib/onhost-deploy/<site>/` (root, 0700): `deploy.log`, `last-good.json`, `drained-units`,
 `down-by-deploy`, `expect-freeze`, `allowed_signers`, `gitconfig` and `runs/<ts>-<sha12>/` (`backup.out`,
-`report.json`, `verdict.out`, `tag.txt`).
+`report.json`, `verdict.out`, `tag.txt` — the signed message of the production tag, nothing after its signature).
 
 ### The gate (`infra/aapanel/deploy-gate.php`)
 
@@ -65,7 +65,7 @@ row, counts as failed (outside production a blocking row is `WARN`, not `FAIL`: 
   `storage|platform backup disk off the server`. Outside production:
   `ALLOW_DOCTOR_FAIL="<first 12 characters of the target SHA>:<reason, 10+ characters>"`, validated in preflight,
   logged with operator, both SHAs and the accepted rows. In production the variable is refused; a GATED row passes only
-  through a line `Accept-Gate: <area|check> — <reason>` in the owner's signed tag.
+  through a line `Accept-Gate: <area|check> — <reason>` in the signed message of the owner's tag (a tag with anything after its signature is refused in preflight).
 * Every other row is printed (`REPORT …`) and stored in `report.json`, never gating. The liveness rows (scheduler,
   worker) cannot be judged while the units are stopped: run `onhost:doctor` again six minutes after the release.
 

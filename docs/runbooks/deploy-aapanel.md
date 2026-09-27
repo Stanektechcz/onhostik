@@ -40,7 +40,10 @@ REF=$SHA EXPECTED_SHA=$SHA START_UNITS=0 bash /root/onhost-install.sh   # compos
 (`SITE=onhost.cz …` for production; `APP_DIR`, `PHP`, `RUN_USER` are overridable the same way; `BRANCH` is refused.)
 `install.sh` refuses a site that is already installed — the `installed` marker in `/var/lib/onhost-deploy/<site>/`, or,
 for installs older than the marker, an `APP_KEY` in `app.env` — because its seed step must never run on a live database
-again. `INSTALL_REPAIR=1` repairs only storage/bootstrap ownership and the systemd units. The Composer installer is
+again. `INSTALL_REPAIR=1 bash onhost-install.sh` (installed sites only, no REF) repairs only storage/bootstrap ownership
+(refused when either directory is a symlink) and re-renders the systemd units from the root-owned `.git`; it enables
+the units but never starts or restarts them — a staging stopped for containment stays stopped — unless `START_UNITS=1`
+is given. The Composer installer is
 checked against `composer.github.io/installer.sig` (or install Composer yourself at `COMPOSER`). The doctor line at the
 end is informational; install.sh does not gate.
 
