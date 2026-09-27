@@ -7,15 +7,21 @@ namespace Onhost\Providers\AaPanel;
 use Onhost\Providers\Shell\Q;
 
 /**
- * Shell words for unpacking an archive into a site without a root write inside the site (TASK-0034 review round 1,
+ * Shell words for unpacking an archive into a site without a root write inside the site (TASK-0034 review rounds 1–3,
  * permission program §3 "remaining writes run as the site user", exploit PA-02).
  *
  * The panel's `UnZip` and the restore's `rsync`/`cp -a` write into the live site as root. A link the tenant planted in
  * its own site after the archive was judged — a folder `wp-content` pointing at a neighbour's site or at /etc — is then
  * followed by root. On a node several customers share (closed by `operator:aapanel:tenancy`), the archive is therefore
- * unpacked as root only into a fresh folder in STAGE_DIR that no tenant can enter (its entries were judged, nothing on
- * disk there is theirs), and streamed from there into the site by a `tar` that runs as the site user: whatever link it
- * meets, it writes with the rights the tenant already has, never more.
+ * unpacked by the site user and nobody else: root only opens the (judged, root-only) archive and hands it over on the
+ * user's stdin. Whatever the archive carries and whatever link it meets, it is written with the rights the tenant
+ * already has, never more.
+ *
+ * Round 1–2 still unpacked as root into a folder of STAGE_DIR and only streamed the result in as the user; round 3 found
+ * that a root `tar -x` is a privileged extraction all the same (owners, modes, set-id bits and links of the archive,
+ * judged by nothing but the preflight's reading of a listing). Now no root `tar -x` or `unzip` runs for a closed node at
+ * all: the user unpacks into a fresh folder of its own inside the site (`mktemp -d`, 0700, removed whatever happens) with
+ * `--no-same-owner --no-same-permissions --no-overwrite-dir`, and copies from there into the target folder the same way.
  *
  * "The site user" is the site's own shell user (`<prefix>ag`, AaPanelTools::ensureAgent: a member of `www` with ACLs on
  * its site root), not `www` itself: the node's hardening stops `www` from running any binary (exit 126), so a `tar` as
@@ -26,25 +32,30 @@ use Onhost\Providers\Shell\Q;
  */
 final class AaPanelSiteUnpack
 {
-    /** Unpacks `$archive` (shell word) into `$into` (shell word) as the calling (root) shell. */
-    public static function unpackCommand(bool $tar, string $archive, string $into): string
-    {
-        return $tar
-            ? 'tar --force-local --no-same-owner -xzf '.$archive.' -C '.$into
-            : 'unzip -oq '.$archive.' -d '.$into;
-    }
+    /** What every `tar -x` of the site user is told: nobody's owner, the user's umask, existing folders left as they are. */
+    private const TAR_SAFE = '--no-same-owner --no-same-permissions --no-overwrite-dir';
 
     /**
-     * Streams the content of `$from` (shell word, root-readable) into `$to` (absolute path in the site) as `$user`.
-     * The site's `.user.ini` is the panel's (root-owned, often immutable, it carries open_basedir): never part of it,
-     * exactly as the root restore already left it out. A brace group: its status is the whole pipe's, whatever precedes
-     * it with `&&`.
+     * The whole unpack of `$archive` (shell word: a root-readable file, handed over on stdin — the user never opens it by
+     * name) into `$to` (absolute path in the site), run as `$user`. The fresh folder lies in `$siteRoot`, the one place
+     * the user may write and no other tenant may read (0700). `$folder`: the archive's own top folder that is moved in
+     * instead of the whole archive when the archive has it as a real folder (a panel backup packs `<site>/…`); a link of
+     * that name is not followed. The site's `.user.ini` is the panel's (root-owned, often immutable, it carries
+     * open_basedir): never part of the copy into the site root, exactly as the root restore already left it out.
      */
-    public static function copyAsSiteUser(string $from, string $to, string $user, bool $skipUserIni): string
+    public static function unpackAsSiteUser(bool $tar, string $archive, string $siteRoot, string $to, string $user, bool $skipUserIni, ?string $folder = null): string
     {
-        $receive = 'mkdir -p -- '.Q::arg($to).' && tar -C '.Q::arg($to).' -xf - --no-same-owner --no-overwrite-dir';
+        $script = 'set -e -o pipefail; umask 022; '
+            .'D=$(mktemp -d '.Q::arg(rtrim($siteRoot, '/').'/.onhost-unpack.XXXXXXXX').'); trap \'rm -rf -- "$D"\' EXIT; mkdir -- "$D/x"; '
+            .($tar
+                ? 'tar --force-local -xzf - -C "$D/x" '.self::TAR_SAFE.'; '
+                : 'cat > "$D/a.zip"; unzip -q "$D/a.zip" -d "$D/x"; rm -f -- "$D/a.zip"; ') // unzip needs a file it can seek in
+            .'src="$D/x"; '
+            .($folder !== null ? 'if [ -d "$src"/'.Q::arg($folder).' ] && [ ! -L "$src"/'.Q::arg($folder).' ]; then src="$src"/'.Q::arg($folder).'; fi; ' : '')
+            .'mkdir -p -- '.Q::arg($to).'; '
+            .'tar -C "$src" -cf - '.($skipUserIni ? '--exclude=./.user.ini ' : '').'. | tar -C '.Q::arg($to).' -xf - '.self::TAR_SAFE;
 
-        return '{ set -o pipefail; tar -C '.$from.' -cf - '.($skipUserIni ? '--exclude=./.user.ini ' : '').'. | su -s /bin/bash '.Q::arg($user).' -c '.Q::arg($receive).'; }';
+        return 'su -s /bin/bash '.Q::arg($user).' -c '.Q::arg($script).' < '.$archive;
     }
 
     /**

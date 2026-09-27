@@ -23,7 +23,9 @@ use Onhost\Providers\Shell\Q;
  * anything beneath a symlink of the archive, symlinks in a zip (zipinfo does not show where they point), and symlinks
  * whose target leaves the site. A symlink that stays inside the site is what real sites carry (Laravel's
  * `public/storage` points at its own absolute path, a release switch at `releases/<n>`) and is kept: refusing every
- * link would have refused the restore of such a site, which is legitimate behaviour of existing customers.
+ * link would have refused the restore of such a site, which is legitimate behaviour of existing customers. A link is
+ * judged together with the other links of its archive, where it will land (linkStaysInside(), landing(); review round
+ * 3): `y -> .` beside `x -> y/../other.cz` is the neighbour, not a name inside the site.
  *
  * An archive that lies in the site is copied out and judged as the copy (stage(), review round 1): the tenant can no
  * longer swap it or point it at a neighbour's file between the check and the unpack.
@@ -36,6 +38,9 @@ final class AaPanelArchivePreflight
 {
     /** More links than this in one archive is not a site, it is a probe; the beneath-check is O(names x links). */
     private const MAX_LINKS = 200;
+
+    /** Links followed while one target is resolved; more is a loop (Linux gives up at 40 as well: ELOOP). */
+    private const MAX_HOPS = 40;
 
     /** Entry types a site archive may carry: regular file, directory, symlink (the last one judged by its target). */
     private const ALLOWED_TYPES = ['-', 'd', 'l'];
@@ -54,13 +59,15 @@ final class AaPanelArchivePreflight
 
     /**
      * @param  string  $archive  absolute path of the archive on the node
-     * @param  string  $extractRoot  absolute folder the entries are unpacked into
+     * @param  string  $extractRoot  absolute folder the entries land in (where they will lie, not a folder they pass through)
      * @param  string  $relativeBound  a relative link target, resolved from where its entry lands, must stay inside this
      * @param  string  $siteRoot  an absolute link target must stay inside this (the site as it will serve)
+     * @param  string|null  $folder  the archive's top folder that alone lands in `$extractRoot` when the archive has it as
+     *                               a real folder (a panel backup packs `<site>/…`; AaPanelSiteUnpack moves it up)
      */
-    public function assertSafe(string $archive, string $extractRoot, string $relativeBound, string $siteRoot): void
+    public function assertSafe(string $archive, string $extractRoot, string $relativeBound, string $siteRoot, ?string $folder = null): void
     {
-        $this->judge(! self::isTar($archive), 'A='.Q::arg($archive).'; ', $extractRoot, $relativeBound, $siteRoot);
+        $this->judge(! self::isTar($archive), 'A='.Q::arg($archive).'; ', $extractRoot, $relativeBound, $siteRoot, $folder);
     }
 
     /**
@@ -103,9 +110,9 @@ final class AaPanelArchivePreflight
     }
 
     /** @param string $prelude shell words that leave the archive to list in `$A` (a copy made there, or a root-owned file) */
-    private function judge(bool $zip, string $prelude, string $extractRoot, string $relativeBound, string $siteRoot): void
+    private function judge(bool $zip, string $prelude, string $extractRoot, string $relativeBound, string $siteRoot, ?string $folder = null): void
     {
-        $run = $this->shell->run($zip ? self::zipScript($prelude) : self::tarScript($prelude), ['timeout' => 900]);
+        $run = $this->shell->run($zip ? self::zipScript($prelude) : self::tarScript($prelude, $folder), ['timeout' => 900]);
         if ($run->timedOut) {
             throw new ProviderException('aapanel', ProviderErrorCode::TRANSIENT, 'The archive could not be checked in time; it was not unpacked.');
         }
@@ -115,6 +122,7 @@ final class AaPanelArchivePreflight
         $types = [];
         $links = [];
         $counted = false;
+        $inFolder = null;
         foreach (preg_split('/\r?\n/', $run->stdout) ?: [] as $line) {
             if ($line === '') {
                 continue;
@@ -130,6 +138,7 @@ final class AaPanelArchivePreflight
                 $tag === 'U ' => self::refuse('an entry lies beneath a link of the same archive', $rest),
                 $tag === 'X ' => self::refuse('a link could not be read', $rest),
                 $tag === 'L ' => $links[] = $rest,
+                $tag === 'F ' => $inFolder = ctype_digit(trim($rest)) ? (int) trim($rest) : null,
                 default => null, // the panel's security banner and other chatter
             };
         }
@@ -149,12 +158,63 @@ final class AaPanelArchivePreflight
         if (count($links) > self::MAX_LINKS) {
             self::refuse('it carries more than '.self::MAX_LINKS.' symlinks');
         }
-        foreach ($links as $link) {
-            [$name, $target] = array_pad(explode("\t", $link, 2), 2, '');
-            if (! self::linkStaysInside(self::clean($name), $target, $extractRoot, $relativeBound, $siteRoot)) {
-                self::refuse('a symlink points outside the site', $name);
+        $landing = self::landing(self::linkMap($links), $folder, $inFolder);
+        foreach ($landing as $name => $target) {
+            $bound = str_starts_with($target, '/') ? $siteRoot : $relativeBound;
+            if (! self::linkStaysInside((string) $name, $target, $landing, $extractRoot, $bound)) {
+                self::refuse('a symlink points outside the site', (string) $name);
             }
         }
+    }
+
+    /**
+     * @param  list<string>  $links  "<name>\t<target>" as the listing printed them
+     * @return array<string, string> name (relative to where the archive lands) => target
+     */
+    private static function linkMap(array $links): array
+    {
+        $map = [];
+        foreach ($links as $link) {
+            [$name, $target] = array_pad(explode("\t", $link, 2), 2, '');
+            // tar escapes what it cannot print (`\\`, `\t`, octal): the name or target read is then not the one on disk,
+            // and a link can only be judged by what it really says (review round 3)
+            if (str_contains($name, '\\') || str_contains($target, '\\')) {
+                self::refuse('a symlink could not be judged (the listing had to escape its name or target)', $name);
+            }
+            $map[self::clean($name)] = $target;
+        }
+
+        return $map;
+    }
+
+    /**
+     * Where the links really land. With `$folder`, and the archive holding it as a real folder (entries beneath it, and
+     * not a link of that name — exactly the test AaPanelSiteUnpack makes), only that folder moves in and its entries
+     * land one level up; the rest of the archive never lands. A link judged where it was unpacked instead
+     * (`<site>/up -> ../other.cz` stays inside the unpack folder) would leave the site once moved (review round 3).
+     *
+     * @param  array<string, string>  $map
+     * @return array<string, string>
+     */
+    private static function landing(array $map, ?string $folder, ?int $inFolder): array
+    {
+        if ($folder === null || $map === []) {
+            return $map;
+        }
+        if ($inFolder === null) {
+            self::refuse('the node did not list it');
+        }
+        if ($inFolder === 0 || isset($map[$folder])) {
+            return $map;
+        }
+        $moved = [];
+        foreach ($map as $name => $target) {
+            if (str_starts_with((string) $name, $folder.'/')) {
+                $moved[substr((string) $name, strlen($folder) + 1)] = $target;
+            }
+        }
+
+        return $moved;
     }
 
     public static function isTar(string $archive): bool
@@ -167,9 +227,10 @@ final class AaPanelArchivePreflight
     /**
      * Two listings of the same archive, line for line in the same order: the verbose one for the type of each entry and
      * where a link points, the plain one for its name (GNU tar escapes both the same way). Nothing of the archive is
-     * written anywhere but PRIVATE_DIR, and both listings are removed whatever happens.
+     * written anywhere but PRIVATE_DIR, and both listings are removed whatever happens. With `$folder`, also how many
+     * entries lie beneath that top folder (`F <n>`; see landing()).
      */
-    private static function tarScript(string $prelude): string
+    private static function tarScript(string $prelude, ?string $folder = null): string
     {
         [$v, $n] = self::scratch();
 
@@ -178,6 +239,7 @@ final class AaPanelArchivePreflight
             .'if ! tar --force-local --numeric-owner -tzvf "$A" > "$V" 2>/dev/null || ! tar --force-local -tzf "$A" > "$N" 2>/dev/null; then echo ERR; exit 0; fi; '
             .'echo "N $(wc -l < "$N") $(wc -l < "$V")"; '
             .self::commonChecks()
+            .($folder !== null ? 'awk -v f='.Q::arg($folder).' \'{ n=$0; sub(/^(\.\/)+/, "", n); if (index(n, f "/")==1) c++ } END { print "F " c+0 }\' "$N"; ' : '')
             // every link: its name from the plain listing, its target from the verbose line after " <name> -> "
             .'awk \'NR==FNR { v[FNR]=$0; next } substr(v[FNR],1,1)=="l" { s=" " $0 " -> "; i=index(v[FNR], s); if (i==0) print "X " $0; else print "L " $0 "\t" substr(v[FNR], i+length(s)) }\' "$V" "$N" | head -n '.(self::MAX_LINKS + 1).'; '
             // the first entry that lies beneath a link of the same archive (unpacked, it would be written through the link)
@@ -228,50 +290,90 @@ final class AaPanelArchivePreflight
         return rtrim($name, '/');
     }
 
-    /** Lexical: the archive's own links are judged before they exist, so there is nothing on disk to resolve yet. */
-    private static function linkStaysInside(string $name, string $target, string $extractRoot, string $relativeBound, string $siteRoot): bool
+    /**
+     * Resolved the way the kernel will, one name at a time, against the other links of the same archive: a name that is
+     * a link of the archive is replaced by its target before the next `..` is taken. Judged on its own, `x -> y/../other.cz`
+     * looked like a name inside the site; with `y -> .` beside it, it is the neighbour (review round 3). Every step must
+     * stay inside `$bound` — a `..` above it is refused even when a later name would climb back, because what lies out
+     * there on disk is not the archive's and cannot be judged. An absolute target (the first or one met on the way) must
+     * name the bound literally. More than MAX_HOPS links on the way (a loop) is refused, as the kernel would (ELOOP).
+     *
+     * What is on disk inside the site already is not seen here (the archive is judged before it exists): a closed node
+     * lets only the site user unpack, so a link planted there gives nothing the tenant does not have (AaPanelSiteUnpack).
+     *
+     * @param  array<string, string>  $links  every link of the archive where it lands: name => target
+     */
+    private static function linkStaysInside(string $name, string $target, array $links, string $extractRoot, string $bound): bool
+    {
+        $base = self::parts($extractRoot);
+        $limit = self::parts($bound);
+        if ($limit === [] || array_slice($base, 0, count($limit)) !== $limit) {
+            return false;
+        }
+        $dir = dirname($name);
+        $path = array_merge($base, $dir === '.' || $dir === '' ? [] : self::parts($dir));
+        $queue = [];
+        if (! self::enter($target, $limit, $path, $queue)) {
+            return false;
+        }
+        $hops = 0;
+        while ($queue !== []) {
+            $part = array_shift($queue);
+            if ($part === '..') {
+                if (count($path) <= count($limit)) {
+                    return false;
+                }
+                array_pop($path);
+
+                continue;
+            }
+            $path[] = $part;
+            $landed = count($path) > count($base) && array_slice($path, 0, count($base)) === $base;
+            $relative = implode('/', array_slice($path, count($base)));
+            if ($landed && isset($links[$relative])) {
+                if (++$hops > self::MAX_HOPS) {
+                    return false;
+                }
+                array_pop($path);
+                if (! self::enter($links[$relative], $limit, $path, $queue)) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Puts a link target in front of what is still to resolve; an absolute one starts again at the bound, which its
+     * leading names must be exactly (no `..` among them).
+     *
+     * @param  list<string>  $limit
+     * @param  list<string>  $path
+     * @param  list<string>  $queue
+     */
+    private static function enter(string $target, array $limit, array &$path, array &$queue): bool
     {
         if ($target === '' || str_contains($target, "\0")) {
             return false;
         }
+        $parts = self::parts($target);
         if (str_starts_with($target, '/')) {
-            return self::inside(self::normalize($target), $siteRoot);
+            if (array_slice($parts, 0, count($limit)) !== $limit) {
+                return false;
+            }
+            $path = $limit;
+            $parts = array_slice($parts, count($limit));
         }
-        $dir = dirname($name);
-        $base = rtrim($extractRoot, '/').($dir === '.' || $dir === '' ? '' : '/'.$dir);
+        $queue = array_merge($parts, $queue);
 
-        return self::inside(self::normalize($base.'/'.$target), $relativeBound);
+        return true;
     }
 
-    private static function normalize(string $path): ?string
+    /** @return list<string> the names of a path, without empty ones and `.` */
+    private static function parts(string $path): array
     {
-        $out = [];
-        foreach (explode('/', $path) as $part) {
-            if ($part === '' || $part === '.') {
-                continue;
-            }
-            if ($part === '..') {
-                if ($out === []) {
-                    return null; // above the file system's root: not a place a site can mean
-                }
-                array_pop($out);
-
-                continue;
-            }
-            $out[] = $part;
-        }
-
-        return '/'.implode('/', $out);
-    }
-
-    private static function inside(?string $path, string $bound): bool
-    {
-        $bound = rtrim($bound, '/');
-        if ($path === null || $bound === '') {
-            return false;
-        }
-
-        return $path === $bound || str_starts_with($path, $bound.'/');
+        return array_values(array_filter(explode('/', $path), fn (string $part) => $part !== '' && $part !== '.'));
     }
 
     private static function refuse(string $why, ?string $entry = null): never

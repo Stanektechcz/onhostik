@@ -365,7 +365,8 @@ final class AaPanelTransport implements FileTransport
      *
      * The archive lies in the site, which the tenant can still change: it is copied out first and only the copy is judged
      * and unpacked (AaPanelArchivePreflight::stage, review round 1). On a node the operator closed as shared, the copy is
-     * unpacked as the site user instead of by the panel's root UnZip (AaPanelSiteUnpack).
+     * unpacked as the site user instead of by the panel's root UnZip (AaPanelSiteUnpack; since review round 3 the user
+     * does the whole unpack, root only hands the copy over).
      */
     public function extract(string $archive, string $targetDir): void
     {
@@ -384,12 +385,10 @@ final class AaPanelTransport implements FileTransport
         }
     }
 
+    /** Root only hands the judged copy over; the site user unpacks it (review round 3: no root `tar -x`, not even into STAGE_DIR). */
     private function unpackAsSiteUser(string $copy, bool $tar, string $target): void
     {
-        $work = AaPanelShell::STAGE_DIR.'/unpack-'.bin2hex(random_bytes(6));
-        $run = $this->shell->run(AaPanelShell::stageDir().' && W='.Q::arg($work).' && rm -rf "$W" && mkdir -m 700 "$W" && '
-            .AaPanelSiteUnpack::unpackCommand($tar, Q::arg($copy), '"$W"').' && '
-            .AaPanelSiteUnpack::copyAsSiteUser('"$W"', $target, $this->writer(), $target === $this->root).'; rc=$?; rm -rf "$W"; exit $rc', ['timeout' => 900]);
+        $run = $this->shell->run(AaPanelSiteUnpack::unpackAsSiteUser($tar, Q::arg($copy), $this->root, $target, $this->writer(), $target === $this->root), ['timeout' => 900]);
         if (! $run->ok()) {
             throw new ProviderException('aapanel', $run->timedOut ? ProviderErrorCode::TRANSIENT : ProviderErrorCode::VALIDATION, 'The archive could not be unpacked: '.mb_substr($run->output(), 0, 300));
         }

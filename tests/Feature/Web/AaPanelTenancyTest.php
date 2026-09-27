@@ -379,7 +379,8 @@ it('unpacks as the site user on a closed shared node: root writes only into its 
 
     expect(tenancyCalled($calls, 'UnZip'))->toBeFalse(); // the panel's root unpack writes through links in the site
     $unpack = collect($shell->commands())->first(fn ($c) => str_contains($c, '-xzf'));
-    expect($unpack)->toContain('/www/.onhost-stage/unpack-')->toContain("| su -s /bin/bash 'ohenancyag' -c")->toContain('--exclude=./.user.ini');
+    // since review round 3 the site user does the whole unpack; root only hands over the copy it judged
+    expect($unpack)->toStartWith("su -s /bin/bash 'ohenancyag' -c ")->toContain('--exclude=./.user.ini')->toContain("< '/www/.onhost-stage/stage-");
     expect($shell->ran("rm -f '/www/.onhost-stage/stage-"))->toBeTrue();
 });
 
@@ -404,9 +405,9 @@ it('restores a backup as the site user on a closed shared node, and unpacks a ta
 
     $adapter->restoreFromArchive(tenancySite(), '77');
 
-    $restore = collect($shell->commands())->first(fn ($c) => str_contains($c, '/www/.onhost-stage/restore-') && str_contains($c, '-xzf'));
+    $restore = collect($shell->commands())->first(fn ($c) => str_contains($c, '-xzf'));
     expect($restore)->not->toBeNull()->not->toContain('unzip -oq')->not->toContain('rsync')->not->toContain('chown -R')
-        ->toContain("| su -s /bin/bash 'ohenancyag' -c");
+        ->toStartWith("su -s /bin/bash 'ohenancyag' -c "); // the whole unpack as the site user (review round 3)
 });
 
 it('never copies anything into the site after an unpack that failed (a lone `src=` let the root rsync copy "/" there)', function () {
@@ -704,3 +705,149 @@ it('closes nothing when the node has dropped to one organization between the dry
     $this->artisan('operator:aapanel:tenancy --apply')->expectsOutputToContain('Nothing to close')->assertExitCode(0);
     expect(ProviderInstance::query()->where('key', 'aapanel-managed01')->first()->option('tenancy.closed'))->toBeNull();
 });
+
+// ── review round 3 (TASK-0034): no root tar unpacks an archive, and an archive's links are judged together ─────
+
+/** The panel's backup list, answering one backup file. */
+function tenancyBackupList(string $file): array
+{
+    return ['data?action=getData&table=backup' => ['data' => [['id' => 77, 'addtime' => '2026-09-10 02:30:00', 'size' => 1234, 'filename' => $file]]]];
+}
+
+/**
+ * The site user's own script when `$command` is nothing but `su <user> -c '<script>' < <archive>` (root hands the archive
+ * over on stdin and does nothing else); null for any other command.
+ */
+function tenancyUserScript(string $command, string $user = 'ohenancyag'): ?string
+{
+    if (! preg_match("~^su -s /bin/bash '".preg_quote($user, '~')."' -c '((?:[^']|'\\\\'')*)' < '[^']+'$~s", $command, $m)) {
+        return null;
+    }
+
+    return str_replace("'\\''", "'", $m[1]);
+}
+
+/** Every command in which root itself (not the site user behind `su … -c`) runs `tar -x`. */
+function tenancyRootTarUnpacks(ScriptedShell $shell): array
+{
+    return collect($shell->commands())
+        ->filter(fn ($c) => tenancyUserScript($c) === null && preg_match('/\btar\b[^;&|]*\s-x/', explode(' su -s /bin/bash ', $c, 2)[0]) === 1)
+        ->values()->all();
+}
+
+it('refuses a .tar.gz restore on a node nobody closed rather than unpacking it with a root tar (as before the task, now with the reason)', function () {
+    $calls = [];
+    tenancyPanelFake($calls, tenancyBackupList('/www/backup/site/shop.cz_20260910.tar.gz'));
+    $shell = tenancyTarShell("N 2 2\nT - 1\nT d 1\n");
+    AaPanelWebProvider::$shellFactory = fn () => $shell;
+    $adapter = aaToolsAdapter();
+
+    expect(fn () => $adapter->restoreFromArchive(tenancySite(), '77'))->toThrow(ProviderException::class, 'closed as shared');
+    expect(tenancyRootTarUnpacks($shell))->toBe([])->and($shell->ran('-xzf'))->toBeFalse()->and($shell->ran('rsync'))->toBeFalse()
+        ->and($shell->ran('chown'))->toBeFalse();
+});
+
+it('restores a .tar.gz backup on a closed node entirely as the site user: unpacked into a fresh folder, then moved in', function () {
+    $calls = [];
+    tenancyPanelFake($calls, tenancyBackupList('/www/backup/site/shop.cz_20260910.tar.gz'));
+    $shell = tenancyTarShell("N 2 2\nT - 1\nT d 1\nF 2\n");
+    AaPanelWebProvider::$shellFactory = fn () => $shell;
+    $adapter = aaToolsAdapter();
+    tenancySetClosed(true);
+
+    $adapter->restoreFromArchive(tenancySite(), '77');
+
+    expect(tenancyRootTarUnpacks($shell))->toBe([]); // root never runs tar -x, not even into its own folder
+    $command = collect($shell->commands())->first(fn ($c) => tenancyUserScript($c) !== null);
+    expect($command)->not->toBeNull()->toEndWith("< '/www/backup/site/shop.cz_20260910.tar.gz'");
+    $script = tenancyUserScript($command);
+    expect($script)->toContain("mktemp -d '/www/wwwroot/shop.cz/.onhost-unpack.")->toContain('trap \'rm -rf -- "$D"\' EXIT')
+        ->toContain('tar --force-local -xzf - -C "$D/x" --no-same-owner --no-same-permissions --no-overwrite-dir')
+        ->toContain('if [ -d "$src"/\'shop.cz\' ] && [ ! -L "$src"/\'shop.cz\' ]; then')
+        ->toContain("tar -C \"\$src\" -cf - --exclude=./.user.ini . | tar -C '/www/wwwroot/shop.cz' -xf - --no-same-owner --no-same-permissions --no-overwrite-dir")
+        ->not->toContain('chown')->not->toContain('chmod')->not->toContain('rsync');
+    expect($shell->ran('/www/.onhost-stage/restore-'))->toBeFalse();
+});
+
+dataset('archives unpacked on a closed node', [
+    'tar.gz' => ['onhost-restore-ab12cd.tar.gz', 'tar --force-local -xzf - -C "$D/x" --no-same-owner --no-same-permissions --no-overwrite-dir'],
+    'zip' => ['onhost-restore-ab12cd.zip', 'cat > "$D/a.zip"; unzip -q "$D/a.zip" -d "$D/x"'],
+]);
+
+it('unpacks an archive on a closed node entirely as the site user, from the root-only copy it was judged as', function (string $archive, string $unpack) {
+    $calls = [];
+    tenancyPanelFake($calls);
+    $shell = tenancyTarShell("N 2 2\nT - 1\nT d 1\n");
+    AaPanelWebProvider::$shellFactory = fn () => $shell;
+    $adapter = aaToolsAdapter();
+    tenancySetClosed(true);
+
+    $adapter->transport(tenancySite())->extract($archive, 'restore');
+
+    expect(tenancyCalled($calls, 'UnZip'))->toBeFalse()->and(tenancyRootTarUnpacks($shell))->toBe([])->and($shell->ran('unzip -oq'))->toBeFalse();
+    $command = collect($shell->commands())->first(fn ($c) => tenancyUserScript($c) !== null);
+    expect($command)->not->toBeNull()->toMatch("~< '/www/\\.onhost-stage/stage-[0-9a-f]{12}\\.(tar\\.gz|zip)'$~");
+    expect(tenancyUserScript($command))->toContain("mktemp -d '/www/wwwroot/shop.cz/.onhost-unpack.")->toContain($unpack)
+        ->toContain("mkdir -p -- '/www/wwwroot/shop.cz/restore'")
+        ->toContain("tar -C \"\$src\" -cf - . | tar -C '/www/wwwroot/shop.cz/restore' -xf - --no-same-owner --no-same-permissions --no-overwrite-dir")
+        ->not->toContain('.user.ini'); // a subfolder: the root .user.ini is not in the way
+    expect($shell->ran("rm -f '/www/.onhost-stage/stage-"))->toBeTrue();
+})->with('archives unpacked on a closed node');
+
+dataset('links that escape through another link of the same archive', [
+    'y -> . and x -> y/../other.cz' => ["N 2 2\nT l 2\nL y\t.\nL x\ty/../other.cz\n"],
+    'y -> the site root (absolute) and x -> y/../other.cz' => ["N 2 2\nT l 2\nL y\t/www/wwwroot/shop.cz\nL x\ty/../other.cz\n"],
+    'a/up -> .. and b -> a/up/../other.cz' => ["N 3 3\nT d 1\nT l 2\nL a/up\t..\nL b\ta/up/../other.cz\n"],
+    'links that point at each other (a loop)' => ["N 2 2\nT l 2\nL a\tb\nL b\ta\n"],
+    'a link the listing had to escape' => ["N 1 1\nT l 1\nL x\tfoo\\\\bar\n"],
+]);
+
+it('judges a link together with the other links of its archive, not on its own', function (string $report) {
+    $calls = [];
+    tenancyPanelFake($calls);
+    AaPanelWebProvider::$shellFactory = fn () => tenancyTarShell($report);
+    $adapter = aaToolsAdapter();
+
+    expect(fn () => $adapter->transport(tenancySite())->extract('site.tar.gz', '.'))->toThrow(ProviderException::class, 'The archive was not unpacked');
+    expect(tenancyCalled($calls, 'UnZip'))->toBeFalse();
+})->with('links that escape through another link of the same archive');
+
+it('keeps links that stay in the site through each other (a release switch and a web root inside it)', function () {
+    $calls = [];
+    tenancyPanelFake($calls);
+    AaPanelWebProvider::$shellFactory = fn () => tenancyTarShell("N 5 5\nT d 2\nT l 3\nL current\treleases/2\nL web\tcurrent/public\nL public/storage\t/www/wwwroot/shop.cz/storage/app/public\n");
+    $adapter = aaToolsAdapter();
+
+    $adapter->transport(tenancySite())->extract('site.tar.gz', '.');
+
+    expect(tenancyCalled($calls, 'UnZip'))->toBeTrue();
+});
+
+it('judges the links of a backup where they land after the restore, its site folder moved up into the site', function () {
+    $calls = [];
+    tenancyPanelFake($calls, tenancyBackupList('/www/backup/site/shop.cz_20260910.tar.gz'));
+    $shell = tenancyTarShell("N 3 3\nT d 1\nT - 1\nT l 1\nF 2\nL shop.cz/up\t../other.cz\n");
+    AaPanelWebProvider::$shellFactory = fn () => $shell;
+    $adapter = aaToolsAdapter();
+    tenancySetClosed(true);
+
+    // `shop.cz/up -> ../other.cz` stays inside the folder it is unpacked into, but not inside the site it is moved into
+    expect(fn () => $adapter->restoreFromArchive(tenancySite(), '77'))->toThrow(ProviderException::class, 'a symlink points outside the site');
+    expect(collect($shell->commands())->first(fn ($c) => tenancyUserScript($c) !== null))->toBeNull();
+});
+
+it('restores a backup whose links stay in the site once its site folder is moved up (and one without that folder)', function (string $report) {
+    $calls = [];
+    tenancyPanelFake($calls, tenancyBackupList('/www/backup/site/shop.cz_20260910.tar.gz'));
+    $shell = tenancyTarShell($report);
+    AaPanelWebProvider::$shellFactory = fn () => $shell;
+    $adapter = aaToolsAdapter();
+    tenancySetClosed(true);
+
+    $adapter->restoreFromArchive(tenancySite(), '77');
+
+    expect(collect($shell->commands())->first(fn ($c) => tenancyUserScript($c) !== null))->not->toBeNull();
+})->with([
+    'with the site folder' => ["N 4 4\nT d 1\nT - 1\nT l 2\nF 3\nL shop.cz/current\treleases/1\nL shop.cz/public/storage\t/www/wwwroot/shop.cz/storage/app/public\n"],
+    'without it' => ["N 3 3\nT d 1\nT l 2\nF 0\nL current\treleases/1\nL public/storage\t/www/wwwroot/shop.cz/storage/app/public\n"],
+]);
