@@ -20,7 +20,16 @@ mkdir -p "$box"/{seed,bin,sbin,lib,state,etc}
 box="$(cd "$box" && pwd)"
 gitc() { git -c user.name=deploy-e2e -c user.email=deploy-e2e@example.invalid -c core.autocrlf=false -c init.defaultBranch=development -c commit.gpgsign=false "$@"; }
 winpath() { (cd "$1" && (pwd -W 2>/dev/null || pwd)); }   # PHP on Windows needs C:/… paths inside .env
-fail() { echo "E2E FAIL: $*" >&2; exit 1; }
+fail() {
+  echo "E2E FAIL: $*" >&2
+  # the evidence a CI run cannot be asked for later: what the server and the application logged, and what /up answered
+  if [ -f "$box/server.log" ]; then echo "── tail server.log" >&2; tail -n 40 "$box/server.log" >&2; fi
+  if [ -n "${app:-}" ]; then
+    for log in "$app"/storage/logs/*.log; do [ -f "$log" ] && { echo "── tail $log" >&2; tail -n 80 "$log" >&2; }; done
+  fi
+  if [ -n "${PORT:-}" ]; then echo "── GET /up" >&2; curl -s "http://127.0.0.1:$PORT/up" 2>&1 | head -c 3000 >&2; echo >&2; fi
+  exit 1
+}
 server_pid=""
 cleanup() { [ -n "$server_pid" ] && kill "$server_pid" 2>/dev/null || true; }
 trap cleanup EXIT
