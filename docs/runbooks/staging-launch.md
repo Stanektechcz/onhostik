@@ -34,7 +34,10 @@ APP=/www/wwwroot/$SITE
 P=/www/server/php/83/bin/php
 STATE=/var/lib/onhost-deploy/$SITE
 DG=/usr/local/lib/onhost-deploy/deploy-gate.php   # the installed judge (S4b); before it exists: /root/deploy-gate.php (S0)
-G="git -c safe.directory=$APP -c core.hooksPath=/dev/null -c core.fsmonitor=false -C $APP"   # read-only git as root before S1b
+R=$STATE/repo.git                                  # the deployer's repository: root's, outside the site tree (S0 makes it)
+# git as root runs only on $R, never on a .git in the tree (review round 2, security HIGH: www can replace entries of
+# $APP, so a .git there can carry config, attributes, alternates and hooks root's git would obey) — the deployer's `g`
+G="env GIT_DIR=$R GIT_WORK_TREE=$APP GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null git -C $APP -c core.hooksPath=/dev/null -c core.fsmonitor=false"
 PROVIDER_LANES="provider-pterodactyl provider-aapanel provider-ispconfig provider-proxmox provider-powerdns provider-registrar provider-kubernetes"
 # artisan by hand runs as www, as the deployer does (review round 0): www can write this tree (on an existing staging
 # all of it), so root running its PHP is a www → root path. In a session of its own (setsid, review round 1): in
@@ -45,20 +48,27 @@ PROVIDER_LANES="provider-pterodactyl provider-aapanel provider-ispconfig provide
 www() { ( set -o pipefail; setpriv --reuid=www --regid=www --init-groups -- setsid --wait "$@" </dev/null 2> >(cat >&2) | cat ); }
 if www true 2>/dev/null; then AS_WWW=www; WWW_CMD="setpriv --reuid=www --regid=www --init-groups -- setsid --wait"; else AS_WWW=""; WWW_CMD=""; fi
 # storage and bootstrap/cache back to www after anything root ran — never `chown -R`/`chmod -R` (they follow a symlink
-# given on the command line, and www can plant one); the deployer's own guarded sequence:
+# given on the command line, and www can plant one). Review round 2 (security HIGH): `find … -exec chown -h {} +`
+# resolved every directory of a batched path at chown time — a window in which a directory www swapped for a link
+# re-owned files outside the tree. Now only what is not www's, each entry from inside its directory (-execdir: one
+# path component; -h: never a link's target), and `o-rwx` set by www itself (skipped without setpriv; it is privacy
+# only). The deployer's own function, by hand:
 own() {
   local d; for d in storage bootstrap bootstrap/cache; do
     [ ! -L "$APP/$d" ] && [ -d "$APP/$d" ] && [ "$(realpath "$APP/$d")" = "$(realpath "$APP")/$d" ] || { echo "REFUSED: $APP/$d is a link or missing — report it"; return 1; }
   done
-  find -P $APP/storage $APP/bootstrap/cache -exec chown -h www:www {} + && find -P $APP/storage $APP/bootstrap/cache ! -type l -exec chmod u+rwX,g+rX,o-rwx {} +
+  find -P $APP/storage $APP/bootstrap/cache ! -user www -execdir chown -h www:www {} + \
+    && { [ -z "$WWW_CMD" ] || $WWW_CMD find -P $APP/storage $APP/bootstrap/cache ! -type l -perm /o=rwx -exec chmod o-rwx {} +; }
 }
 # a database count as the postgres superuser ($1 = database, $2 = table) — read-only
 cnt() { su - postgres -c "psql -tA -d $1 -c 'select count(*) from $2'"; }
 ```
 
 Every `$P artisan …` that ran as root (no setpriv) writes logs as root: end each such session on the host with `own`
-(the deployer does this itself; on an installed site `INSTALL_REPAIR=1 bash /root/onhost-install.sh` does the same and
-re-renders the units without enabling or starting any).
+(on an installed site `INSTALL_REPAIR=1 bash /root/onhost-install.sh` does the same and re-renders the units without
+enabling or starting any). The deployer does **not** do it for you any more (review round 2): it refuses a release while
+anything in storage or bootstrap/cache is not www's, printing the first 20 entries, and re-owns only what its own
+checkout writes there.
 
 ## A. Owner decisions (written, before S0 ends; a missing one is NO-GO)
 
@@ -139,18 +149,33 @@ ls /etc/systemd/system/*.wants/ 2>/dev/null | grep onhost-                      
 git --version                                     # 2.32+ (production host: 2.34+ for SSH-signed tags)
 curl --version | head -1
 ss -ltnp | grep ':443'                            # nginx must answer on 127.0.0.1:443 (the deployer's HTTP gate)
-stat -c '%U %a %n' $APP/.git $APP/.git/config
+stat -c '%F %U %a %n' $APP/.git; cat $APP/.git/HEAD; cut -d' ' -f1 $APP/VERSION   # plain reads: git never runs on this .git
+#   HEAD "ref: refs/heads/X" → cat $APP/.git/refs/heads/X (or grep refs/heads/X $APP/.git/packed-refs) → <OLD_SHA>
+sysctl -n fs.protected_hardlinks                  # 1 (the distribution default): www cannot hard-link a root file into storage — the
+                                                  # deployer's hand-over and own() rely on it; 0: STOP, set it to 1 (sysctl.d)
 ls -l $APP/.env; stat -c '%U:%G %a %n' /etc/onhost /etc/onhost/app.env   # .env -> /etc/onhost/app.env; root:www 750/640
 [ $APP/.env -ef /etc/onhost/app.env ] && echo same-file                  # the deployer refuses otherwise (S1b fixes it)
 stat -c '%F %n' $APP/storage $APP/bootstrap $APP/bootstrap/cache           # directories, not symbolic links
 stat -c '%F %U %n' $APP/vendor; find -P $APP/vendor ! -user www -print -quit   # composer runs as www: S1b hands vendor over
 nginx -T 2>/dev/null | grep -nE 'real_ip|set_real_ip_from|X-Forwarded-For|X-Real-IP'   # review: see S1
-git config --file $APP/.git/config --list         # review: no foreign core.hooksPath, core.fsmonitor, url.*.insteadOf, filters
-ls $APP/.git/hooks | grep -v '\.sample$'          # review: nothing expected
-$G rev-parse HEAD; $G status --porcelain --untracked-files=all
+git config --file $APP/.git/config --get remote.origin.url   # a plain read → <ORIGIN>: the repository of question 11, else STOP
+# the deployer's repository (review round 2, security HIGH): root's own, in the root-only state dir, filled from origin —
+# never $APP/.git, which www can replace. Nothing in the site tree changes: the index is built from <OLD_SHA> and the
+# status compares it with the files as they are.
+install -d -m 0700 $STATE && [ ! -e $R ] && (umask 077; GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null git init -q --bare $R) \
+  && $G config core.bare false && $G remote add origin <ORIGIN>
+$G fetch -q --tags origin && $G update-ref --no-deref HEAD <OLD_SHA> && $G read-tree HEAD
+$G rev-parse HEAD; $G status --porcelain --untracked-files=all    # review: what in the tree differs from <OLD_SHA>
+# proxies the HTTP clients or ssh would use (review round 2, security MEDIUM: the per-address rules do not cover a
+# proxy): each line prints nothing, else STOP and record it
+systemctl show-environment | grep -i proxy
+for u in $(systemctl list-unit-files --plain --no-legend 'onhost-*' | awk '{print $1}'); do systemctl show -p Environment "$u"; done | grep -i proxy
+grep -rniE 'env\[[^]]*proxy' /www/server/php/83/etc/ 2>/dev/null; grep -ni proxy /etc/environment 2>/dev/null
+grep -niE 'ProxyCommand|ProxyJump' ~www/.ssh/config /etc/ssh/ssh_config /etc/ssh/ssh_config.d/* 2>/dev/null
 command -v setpriv setsid && www id   # uid=www (setpriv, and setsid --wait: util-linux 2.31+): the deployer needs both (else rc 2, NO-GO)
 sysctl -n dev.tty.legacy_tiocsti 2>/dev/null   # record: 1 or empty (kernel < 6.2) = TIOCSTI works; setsid is what stops it (review round 1)
 nft list tables 2>/dev/null; iptables -S OUTPUT 2>/dev/null | head; systemctl is-enabled nftables firewalld 2>/dev/null   # S0 GATE step 4
+nft -j list tables >/dev/null && echo nft-json    # the deployer reads the table as JSON (review round 2): no JSON support = Path A NO-GO
 grep -E 'opcache.validate_timestamps|opcache.revalidate_freq' /www/server/php/83/etc/php.ini; ls /etc/init.d | grep -i php-fpm
 command -v pg_dump pg_restore psql; ls /www/server/pgsql/bin 2>/dev/null; pg_dump --version
 $P -r 'echo ini_get("disable_functions"), PHP_EOL;'   # proc_open must not be listed
@@ -200,7 +225,8 @@ as www), record it — S0 changes nothing — and run the artisan lines right af
 (The `operations` states are `Operation`'s constants — PENDING, RUNNING, WAITING can still move; if a query fails on an older S0 HEAD, record the error, do not
 adapt it by writing.)
 
-Record: whether S0 ran artisan as www, git version, owner/mode of `.git`, whether `.env` is `/etc/onhost/app.env`, the FPM
+Record: whether S0 ran artisan as www, git version, the old `.git` (owner, `<OLD_SHA>`, `<ORIGIN>`) and `$G status` against
+it, `fs.protected_hardlinks`, the proxy lines (none), whether `.env` is `/etc/onhost/app.env`, the FPM
 reload command (`/etc/init.d/php-fpm-83 reload` is ASSUMED), opcache settings, the pg binary directory (`ONHOST_PG_BIN`),
 the isolation block and its owner confirmation, PostgreSQL parity, every instance with `secret=stored` and every
 `*_SECRET_REF` (→ O4, question 13), the dev-account count, the non-terminal operations, the backlog counts, the queue
@@ -252,8 +278,10 @@ nft list table inet onhost_containment > /etc/nftables.d/onhost-containment.nft 
 # the probe the deployer runs before every staging release (and S10 daily): a bare TCP connect as www, nothing is sent
 probe() { sed -e 's/#.*//' -e 's/[[:space:]]//g' -e '/^$/d' $STATE/egress-blocked | while read -r hp; do h=${hp%:*}; h=${h#[}; h=${h%]}; p=${hp##*:}; $AS_WWW timeout 5 bash -c 'exec 3<>"/dev/tcp/$1/$2"' _ "$h" "$p" 2>/dev/null && echo "OPEN $hp"; done; }
 probe                                                  # prints nothing; any OPEN line: STOP, the rule is incomplete
-# and each address has its own reject rule (the deployer checks this too: a refused probe alone proves nothing)
-t="$(nft list table inet onhost_containment)"; for a in $(names | xargs -r -n1 getent ahosts | awk '{print $1}' | sort -u); do case $a in 192.0.2.*) continue ;; esac; printf '%s\n' "$t" | grep -qE "daddr $a reject" || echo "NO RULE $a"; done   # prints nothing
+# and each address has its own reject rule ON THE OUTPUT HOOK — the judge reads the table the way the deployer does
+# (review round 2: a refused probe alone proves nothing, and a rule in a chain on another hook filters nothing outbound)
+nft -j list table inet onhost_containment > /root/onhost-containment.json && $P /root/deploy-gate.php nft-rejects --file /root/onhost-containment.json > /root/onhost-rejected.txt; echo rc=$?   # rc=0, else STOP
+for a in $(names | xargs -r -n1 getent ahosts | awk '{print $1}' | sort -u); do case $a in 192.0.2.*) grep -qx '192.0.2.0/24' /root/onhost-rejected.txt ;; *) grep -qx "$a" /root/onhost-rejected.txt ;; esac || echo "NO RULE $a"; done   # prints nothing
 ```
 
 The rule rejects in the host's own output path, so a probe of a covered address never leaves the machine; a probe of
@@ -261,10 +289,15 @@ an address the rule misses is a bare TCP connect without a byte of payload (no c
 release is refused. The deployer refuses a staging release (rc 2, nothing changed) when `$STATE/egress-blocked` is
 missing or malformed, when any address on it answers, and — review round 1, security MEDIUM: NXDOMAIN, a DNS outage or
 a panel that is down refused a connection exactly like the rule — when a listed name does not resolve now (`getent
-ahosts`), when `nft list table inet onhost_containment` does not exist, or when an address a line resolves to has no
+ahosts`), when `nft -j list table inet onhost_containment` does not exist, or when an address a line resolves to has no
 `ip daddr <a> reject` / `ip6 daddr <a> reject` rule in it (a name pinned to TEST-NET-1: the `192.0.2.0/24` rule).
 nftables is therefore required (on an iptables-only host: install nftables, or the owner accepts Path A as NO-GO). An
-**empty** list passes only on Path B without any live credential, and only with the root-owned marker — never on Path A:
+**empty** list passes only on Path B without any live credential, only with the root-owned marker — never on Path A — and
+only while the deployer, asking the application as www, counts **no** provider instance with a stored secret (review round
+2, security MEDIUM: the marker alone was a claim as unverifiable as the revocation; the count refuses the release when it
+is not 0 or cannot be read). Review round 2 also holds the rule to the output hook: the deployer reads the table with
+`nft -j` and counts a rule only in a `type filter hook output` chain; any rule of another shape in the table (an accept, a
+jump, a port match), a set or a dormant table refuses it:
 
 ```bash
 install -m 0600 /dev/null $STATE/path-b    # Path B only (O1 recorded), with the release record's owner confirmation
@@ -319,13 +352,17 @@ basic auth can be skipped with one header. Remove the `real_ip` setting (or narr
 ### S1b — One-time git hardening (after the S0 review found nothing foreign)
 
 ```bash
-[ -d $APP/.git ] && [ ! -L $APP/.git ] || { echo "REFUSED: $APP/.git is a link or missing — report it"; false; } \
-  && find -P $APP/.git -exec chown -h root:root {} + && find -P $APP/.git ! -type l -exec chmod go-w {} + && chmod 700 $APP/.git
-install -d -m 0700 $STATE
-printf '[safe]\n\tdirectory = %s\n' "$APP" > $STATE/gitconfig && chmod 600 $STATE/gitconfig   # the deployer also creates it
+# the repository is $R (S0 made it; review round 2, security HIGH): the old .git leaves the tree — kept under /root for
+# review, never used by root's git again — and so does the old global config that named $APP safe.directory
+{ [ -e $APP/.git ] || [ -L $APP/.git ]; } && mv -T $APP/.git /root/onhost-site-git-before-s1b
+rm -f $STATE/gitconfig
+[ "$($G rev-parse HEAD)" = <OLD_SHA> ] && [ -z "$($G status --porcelain --untracked-files=all -- . ':(exclude)VERSION')" ] \
+  || echo "STOP: the tree differs from <OLD_SHA> (S0's status) — report it"
+# storage and bootstrap/cache: what an older root run left there goes to www once (the deployer only reports it)
+own
 # vendor/ is www's from now on — composer runs as www (review round 0); a root-owned one of an older root build is
 # handed over without following a link (the deployer refuses a release while anything in it is not www's):
-[ ! -e $APP/vendor ] || { [ -d $APP/vendor ] && [ ! -L $APP/vendor ] && find -P $APP/vendor -exec chown -h www:www {} + ; } \
+[ ! -e $APP/vendor ] || { [ -d $APP/vendor ] && [ ! -L $APP/vendor ] && find -P $APP/vendor ! -user www -execdir chown -h www:www {} + ; } \
   || echo "REFUSED: $APP/vendor is a link — report it"
 chown root:www /etc/onhost /etc/onhost/app.env && chmod 750 /etc/onhost && chmod 640 /etc/onhost/app.env
 # only if S0 found .env NOT to be /etc/onhost/app.env — keep a copy, compare, and link only when nothing differs:
@@ -362,6 +399,7 @@ is refused); keep one of the two mail variants:
 ```bash
 install -m 0600 /dev/null $STATE/expected-env && cat > $STATE/expected-env <<'EOF'
 # staging-launch.md S3 — KEY=value must equal · KEY= empty or absent · KEY? set · KEY!=value differ · KEY~=regex · PREFIX_*= family empty
+#   · KEY alone: named, any value (reviewed) · *UNLISTED= every other key the file sets is refused (the allow-list)
 APP_ENV=staging
 APP_DEBUG=false
 APP_URL=https://staging.onhost.cz
@@ -384,6 +422,7 @@ PAYMENT_GATEWAY=comgate
 COMGATE_TEST=true
 COMGATE_RECURRING=false
 COMGATE_MERCHANT=<the Comgate test merchant id, O4>
+COMGATE_SECRET
 GOPAY_RECURRING=false
 STRIPE_RECURRING=false
 PEPPOL_SENDER_ID=
@@ -399,6 +438,26 @@ ONHOST_FOUR_EYES=false
 ONHOST_PLATFORM_BACKUP_DISK=<O4: s3 (the staging-only bucket) or local>
 ONHOST_EGRESS_DENY_CIDRS=0.0.0.0/0,::/0
 ONHOST_EGRESS_ALLOW_CIDRS=
+# proxies: phpdotenv puts app.env into the environment (so does systemd's EnvironmentFile), and the HTTP clients honour
+# both spellings — a proxy would carry provider traffic past every per-address rule (review round 2)
+HTTP_PROXY=
+HTTPS_PROXY=
+ALL_PROXY=
+NO_PROXY=
+http_proxy=
+https_proxy=
+all_proxy=
+no_proxy=
+# the keys every install sets, reviewed once: named, any value
+APP_NAME
+APP_KEY
+DB_HOST
+DB_PORT
+DB_USERNAME
+DB_PASSWORD
+REDIS_HOST
+REDIS_PORT
+REDIS_PASSWORD
 # outward credentials: staging phase 1 holds none of them — single keys, and whole env:// families (PREFIX_*=)
 ONHOST_CONSOLE_RELAY_URL=
 ONHOST_CONSOLE_RELAY_KEY=
@@ -434,12 +493,20 @@ POWERDNS_*=
 RKE2_*=
 WEDOS_MAIN_*=
 SUBREG_*=
+# the allow-list (review round 2, security MEDIUM): every other key app.env sets needs a line — the draft below
+*UNLISTED=
 EOF
 $EDITOR $STATE/expected-env                                     # fill the <…> lines
+# the keys app.env sets that no line names yet (names only, never values) — review EACH: a tunable of this staging (a
+# limit, a timeout, a locale, this host's own URL) → append the bare name; an address, a token, a secret, a reference,
+# a proxy → a rule of its own (KEY= or KEY!=<production value>), or empty it in app.env; record the review
+$P $DG env-assert --file /etc/onhost/app.env --spec $STATE/expected-env | sed -n 's/^UNLISTED \([A-Za-z0-9_]*\):.*/\1/p' > /root/expected-env.unlisted
+$EDITOR /root/expected-env.unlisted && cat /root/expected-env.unlisted >> $STATE/expected-env   # only the reviewed tunables
 $P $DG env-assert --file /etc/onhost/app.env --spec $STATE/expected-env; echo rc=$?   # before S4b: $P /root/deploy-gate.php env-assert …
 ```
 
-`rc=0` and every line `OK`, else STOP (`MISMATCH`/`UNFILLED` name the key, never its value; a key defined twice with
+`rc=0` and every line `OK`, else STOP (`MISMATCH`/`UNFILLED`/`UNLISTED` name the key, never its value; the deployer also
+refuses a spec without the `*UNLISTED=` line; a key defined twice with
 different values or a value with `${…}` is a `MISMATCH` whatever the line says — phpdotenv would load something the
 assertion never saw). Why the less obvious lines:
 `COMGATE_RECURRING=false` (and `GOPAY_`/`STRIPE_RECURRING=false`, which default to `true`; `PAYMENT_GATEWAY=comgate`
@@ -502,8 +569,8 @@ no *credentials stored* row; `stat -c '%a %U %n' $APP/storage /etc/onhost /etc/o
 ### S4b — Install the gated deployer, the unit list and the doctor list (both paths)
 
 ```bash
-GIT_CONFIG_GLOBAL=$STATE/gitconfig git -C $APP fetch --tags origin
-GIT_CONFIG_GLOBAL=$STATE/gitconfig git -C $APP show <STAGING_SHA>:infra/aapanel/install-deployer.sh > /root/install-deployer.sh
+$G fetch -q --tags origin                           # $R, root's repository (S0) — never a .git in the site tree
+$G show <STAGING_SHA>:infra/aapanel/install-deployer.sh > /root/install-deployer.sh
 sha256sum /root/install-deployer.sh                 # = the release record
 SHA=<STAGING_SHA> FIRST=1 bash /root/install-deployer.sh   # FIRST=1 only where no deployer is installed yet (refused
                                                              # otherwise); a later upgrade: SHA=<newer> bash … (forward only)
@@ -738,7 +805,8 @@ role rows); a `ROW-FAIL` is explained in the record. Record the duration. The 7-
   (question 13 b); every S0 `endpoint=` and node address on `$STATE/egress-blocked`, rejected by the host and the probe
   silent (S0 GATE step 4 — an empty list is NO-GO); the scheduler never started; the provider lanes masked.
 - S1: 401 from outside (also with `X-Forwarded-For: 127.0.0.1` and `X-Real-IP: 127.0.0.1`), no `set_real_ip_from`
-  trusting a range the operator does not control, 200 for `/v1/status` over loopback; `.git` root-owned;
+  trusting a range the operator does not control, 200 for `/v1/status` over loopback; no `.git` in the site tree and
+  `$R` root's (S0/S1b); `fs.protected_hardlinks` 1; no proxy in the units', FPM's or www's ssh environment (S0);
   `$APP/.env` is `/etc/onhost/app.env`; the deployer installed from `STAGING_SHA`.
 - S3: `env-assert` rc 0 with no line deleted without a recorded reason.
 - S7: rc 0 with every HARD and GATED row OK, no `ROW-FAIL`, `EXPECTED` only for O11 rows; the six-minute doctor shows

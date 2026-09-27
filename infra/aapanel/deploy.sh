@@ -23,10 +23,11 @@
 # production a fourth, egress-blocked: the addresses the run user must not reach (a contained staging's live panels);
 # each is connected to before the release, which is refused while one answers (review round 0, security MEDIUM).
 #
-# Root runs git, renames VERSION into place (an entry of $APP_DIR itself) and repairs ownership — never the site's
-# PHP. Every artisan and composer call runs as RUN_USER through setpriv with a clean environment (review round 0,
-# security HIGH: app.env is root:www 0640 and www can write the tree, so root running its code made a www compromise
-# root).
+# Root runs git on its own repository outside the site tree (DEPLOY_GIT_DIR; review round 2, security HIGH), renames
+# VERSION into place (an entry of $APP_DIR itself) and hands over to RUN_USER only the entries its own checkout wrote
+# into storage and bootstrap/cache — never the site's PHP. Every artisan and composer call runs as RUN_USER through
+# setpriv with a clean environment (review round 0, security HIGH: app.env is root:www 0640 and www can write the tree,
+# so root running its code made a www compromise root).
 #
 # Exit codes: 0 released · 2 preflight refused (nothing changed) · 3 drain, backup or verify failed (nothing switched,
 # units started again, site up again when this run took it down) · 4 build failed after the switch · 5 gate failed ·
@@ -60,13 +61,14 @@ PHP="${PHP:-/www/server/php/83/bin/php}"
 COMPOSER="${COMPOSER:-/usr/local/bin/composer}"
 RUN_USER="${RUN_USER:-www}"
 DEPLOY_STATE_DIR="${DEPLOY_STATE_DIR:-/var/lib/onhost-deploy/${SITE}}"
+DEPLOY_GIT_DIR="${DEPLOY_GIT_DIR:-${DEPLOY_STATE_DIR}/repo.git}"   # root's repository; $APP_DIR is only its work tree
 DEPLOY_LIB_DIR="${DEPLOY_LIB_DIR:-/usr/local/lib/onhost-deploy}"
 PHP_FPM_RELOAD="${PHP_FPM_RELOAD:-}"            # e.g. '/etc/init.d/php-fpm-83 reload' (opcache would keep serving old code)
 DEPLOY_HTTP_IP="${DEPLOY_HTTP_IP:-127.0.0.1}"   # where nginx answers https://$SITE on this host (the vhost lets loopback past basic auth)
 DEPLOY_HTTP_BASE="${DEPLOY_HTTP_BASE:-}"        # tests only: a plain base URL (php -S) instead of https://$SITE via --resolve
 DRAIN_TIMEOUT="${DRAIN_TIMEOUT:-300}"
 UNIT_SETTLE="${UNIT_SETTLE:-5}"                 # seconds a started unit gets before it must be active (a crash on boot shows by then)
-DEPLOY_OWNER_UID="${DEPLOY_OWNER_UID:-0}"       # who must own .git and allowed_signers (root; tests run unprivileged)
+DEPLOY_OWNER_UID="${DEPLOY_OWNER_UID:-0}"       # who must own the repository and allowed_signers (root; tests run unprivileged)
 DEPLOY_WORK_DIR="${DEPLOY_WORK_DIR:-/var/cache/onhost-deploy/${SITE}}"   # the run user's HOME, composer cache and build caches
 DEPLOY_SAFE_PATH="${DEPLOY_SAFE_PATH:-/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}"
 PROBE_TIMEOUT="${PROBE_TIMEOUT:-5}"             # seconds a connection to an egress-blocked address may take to fail
@@ -99,6 +101,7 @@ BOOT_CACHE=""
 BOOT_ENV=()
 EXPECTED_UNITS=""
 EXPECTED_NONOK_SUM=""
+PATH_B=0
 DEPLOY_LOG="${DEPLOY_STATE_DIR}/deploy.log"
 MARKER="${DEPLOY_STATE_DIR}/down-by-deploy"
 DRAINED_FILE="${DEPLOY_STATE_DIR}/drained-units"
@@ -111,9 +114,19 @@ say() { printf '\n\033[1;32m▶ %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33mWARN %s\033[0m\n' "$*" >&2; }
 die() { local rc=$1; shift; printf '\033[1;31m✖ %s\033[0m\n' "$*" >&2; exit "$rc"; }
 
-# git without anything the (www-writable) tree could inject: no system config, a root-owned global config that only
-# names this checkout safe, no hooks, no fsmonitor
-g() { GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="${DEPLOY_STATE_DIR}/gitconfig" git -C "$APP_DIR" -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"; }
+# git on root's repository, never on a .git in the site tree (review round 2, security HIGH): $APP_DIR stays writable by
+# www, so www could rename a root-owned $APP_DIR/.git after the preflight looked at it and put its own there — config
+# (filters, textconv, sshCommand, url rewrites), info/attributes, alternates and hooks that root's fetch, status, diff
+# and checkout would then obey, and the old global config named $APP_DIR safe.directory, which switched git's own
+# ownership check off. GIT_DIR names the root-only repository under the root-only state dir, so git never looks for a
+# .git in the tree; the tree is only the work tree. No system or global config is read (no safe.directory for a
+# www-owned path), no hooks, no fsmonitor. What the work tree itself can still carry (a .gitattributes, a nested
+# .gitignore) runs nothing without a config that names a driver, and changes only files www can write anyway.
+# Identical in install.sh and install-deployer.sh.
+g() { GIT_DIR="$DEPLOY_GIT_DIR" GIT_WORK_TREE="$APP_DIR" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null git -C "$APP_DIR" -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"; }
+# the repository is a real directory, owned by DEPLOY_OWNER_UID throughout and writable by nobody else. Identical in
+# install.sh and install-deployer.sh.
+repo_is_roots() { [ -d "$DEPLOY_GIT_DIR" ] && [ ! -L "$DEPLOY_GIT_DIR" ] && [ -z "$(find -P "$DEPLOY_GIT_DIR" \( ! -uid "$DEPLOY_OWNER_UID" -o -perm /022 \) -print -quit)" ]; }
 # The site's PHP — artisan, composer and the scripts composer runs — never runs as root (review round 0, security HIGH;
 # D32.13 until then): app.env is root:www 0640 and www can write this tree (all of it on an existing staging; vendor/,
 # bootstrap/cache and compiled views everywhere), so root executing that code made a www compromise root at the next
@@ -182,18 +195,21 @@ vendor_ready() {
 # destinations customers name). A refused connection alone proves nothing (review round 1, security MEDIUM: NXDOMAIN, a
 # DNS outage or a panel that is down refused like the host's rule): a name must resolve now, and every address it
 # resolves to must also be rejected by the host's own table inet onhost_containment, in the one-address rule shape S0
-# GATE step 4 writes (or TEST-NET-1 for a name pinned in /etc/hosts). An empty list passes only on a host marked Path B
-# (the root-owned path-b). Prints what is wrong; a bare TCP connect per address, nothing is sent.
+# GATE step 4 writes (or TEST-NET-1 for a name pinned in /etc/hosts). Review round 2 (security MEDIUM): the rule used to
+# count in any chain of the table, whatever its hook — a reject that filters nothing outbound plus a panel that
+# happened to be down passed. The table is now read as JSON (`nft -j`) by the judge (deploy-gate.php nft-rejects):
+# only a rule in a filter chain on the output hook counts, and a rule of any other shape in the table (an accept, a
+# jump, a port match) refuses the whole table. Prints what is wrong; a bare TCP connect per address, nothing is sent.
+# Exit 3 = the list is empty (the caller holds that to Path B: the path-b marker and path_b_stored_secrets).
 egress_addresses() { # $1 = host: an address literal as it is, a name as root's resolver (the application's) answers now
   if [[ "$1" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || [[ "$1" == *:* ]]; then printf '%s\n' "$1" | tr 'A-F' 'a-f'; return 0; fi
   getent ahosts "$1" 2>/dev/null | awk '{ print tolower($1) }' | sort -u
 }
-egress_rule_rejects() { # $1 = the table as nft lists it, $2 = address
-  printf '%s\n' "$1" | awk -v a="$2" '($1 == "ip" || $1 == "ip6") && $2 == "daddr" && $4 == "reject" \
-    && ($3 == a || ($3 == "192.0.2.0/24" && index(a, "192.0.2.") == 1)) { found = 1 } END { exit found ? 0 : 1 }'
+egress_rule_rejects() { # $1 = the addresses the table rejects on output (deploy-gate.php nft-rejects), $2 = address
+  printf '%s\n' "$1" | awk -v a="$2" '$1 == a || ($1 == "192.0.2.0/24" && index(a, "192.0.2.") == 1) { found = 1 } END { exit found ? 0 : 1 }'
 }
 egress_blocked_hold() {
-  local line hp host port a addrs table="" open="" unruled="" entries=()
+  local line hp host port a addrs rejected="" table=0 why="" open="" unruled="" entries=()
   while IFS= read -r line || [ -n "$line" ]; do
     hp="$(printf '%s' "${line%%#*}" | tr -d ' \t\r')"
     [ -z "$hp" ] && continue
@@ -201,30 +217,45 @@ egress_blocked_hold() {
       || { echo "not an address: '$hp' (host:port or [v6]:port)"; return 1; }
     entries+=("$hp")
   done < "$EGRESS_BLOCKED_FILE"
-  if [ "${#entries[@]}" = 0 ]; then
-    root_only "$DEPLOY_STATE_DIR/path-b" && return 0
-    echo "is empty: a contained staging (Path A) lists every live endpoint; only a Path B host with no live credential runs with none, marked by the root-owned $DEPLOY_STATE_DIR/path-b (staging-launch.md S0 GATE step 4)"
-    return 1
-  fi
+  [ "${#entries[@]}" = 0 ] && return 3
   command -v nft >/dev/null 2>&1 || { echo "needs nft: the host's reject table is read with it (staging-launch.md S0 GATE step 4)"; return 1; }
-  table="$(nft list table inet onhost_containment 2>/dev/null)" || table=""
+  (umask 077; nft -j list table inet onhost_containment > "$RUN_DIR/nft.json" 2>/dev/null) || : > "$RUN_DIR/nft.json"
+  if [ -s "$RUN_DIR/nft.json" ]; then
+    table=1
+    rejected="$(gate nft-rejects --file "$RUN_DIR/nft.json" 2>&1)" || { why="$rejected"; rejected=""; }
+  fi
   for hp in "${entries[@]}"; do
     [[ "$hp" =~ ^\[?([^]]*)\]?:([0-9]+)$ ]]; host="${BASH_REMATCH[1]}"; port="${BASH_REMATCH[2]}"
     addrs="$(egress_addresses "$host")"
     [ -n "$addrs" ] || { echo "'$host' does not resolve (getent ahosts): a name that does not resolve now is no proof — list its addresses, or pin it in /etc/hosts (staging-launch.md S0 GATE step 4)"; return 1; }
     for a in $addrs; do
-      egress_rule_rejects "$table" "$a" || unruled="$unruled $a"
+      egress_rule_rejects "$rejected" "$a" || unruled="$unruled $a"
       # shellcheck disable=SC2016 # $1/$2 belong to the inner bash
       if as_run timeout "$PROBE_TIMEOUT" bash -c 'exec 3<>"/dev/tcp/$1/$2"' probe "$a" "$port" 2>/dev/null; then open="$open $hp($a)"; fi
     done
   done
   [ -z "$open" ] || echo "can be reached as $RUN_USER:$open — the host's deny rule is missing or incomplete (staging-launch.md S0 GATE)"
-  if [ -z "$table" ]; then
-    echo "no table inet onhost_containment (nft): nothing on this host is shown to reject the listed addresses (staging-launch.md S0 GATE step 4)"
+  if [ "$table" = 0 ]; then
+    echo "no table inet onhost_containment (nft -j): nothing on this host is shown to reject the listed addresses (staging-launch.md S0 GATE step 4)"
+  elif [ -n "$why" ]; then
+    echo "table inet onhost_containment is not the S0 GATE step 4 shape: $why"
   elif [ -n "$unruled" ]; then
-    echo "not rejected by table inet onhost_containment:$unruled — a refused connection proves nothing without the host's rule (a panel that is down refuses too)"
+    echo "not rejected on the output hook by table inet onhost_containment:$unruled — a refused connection proves nothing without the host's rule (a panel that is down refuses too)"
   fi
-  [ -z "$open" ] && [ -n "$table" ] && [ -z "$unruled" ]
+  [ -z "$open" ] && [ "$table" = 1 ] && [ -z "$why" ] && [ -z "$unruled" ]
+}
+# An empty egress-blocked list is Path B: a host whose database holds no live credential (review round 1). The root-owned
+# path-b marker used to be the whole proof — an operator's claim, as unverifiable as the written revocation it replaced
+# (review round 2, security MEDIUM). The deployer now also counts, as the run user and through the application's own
+# secret store, the provider instances with a stored secret, and holds Path B to none. Prints the count; exit 1 when it
+# cannot be read (a reference that cannot be parsed counts as stored: fail closed). Runs after boot_cache_init, so the
+# count reads app.env, not the old release's cached config.
+path_b_stored_secrets() {
+  local out n
+  out="$(art tinker --execute='$n = 0; foreach (Onhost\Domain\Provisioning\Models\ProviderInstance::query()->get() as $i) { try { $s = app(Onhost\Platform\Secrets\SecretStore::class)->exists($i->secretRef()); } catch (Throwable $e) { $s = true; } $n += $s ? 1 : 0; } echo "stored-secrets=", $n, PHP_EOL;' 2>/dev/null)" || return 1
+  n="$(printf '%s\n' "$out" | tr -d '\r' | sed -n 's/^stored-secrets=\([0-9][0-9]*\)$/\1/p' | tail -n 1)"
+  [ -n "$n" ] || return 1
+  printf '%s' "$n"
 }
 gate() { "$PHP" "$DEPLOY_LIB_DIR/deploy-gate.php" "$@"; }
 utc_now() { date -u +%Y%m%d-%H%M%S; }
@@ -262,10 +293,17 @@ restore_drained_list() { # a failed run leaves the list as it found it (units a 
 }
 
 # ── ownership: storage and bootstrap/cache belong to the PHP-FPM user; the rest of the tree is not chowned ──────────
-# www can write $APP_DIR, so either directory (or bootstrap itself) could be swapped for a symlink: `chmod -R` follows a
-# symlink given on its command line and root would re-mode any tree. Refuse a link, walk with find -P (never follows),
-# chown -h (the link itself), chmod only what is not a link. The per-file check-then-act race of root's chown inside a
-# www-owned tree stays (review round 0: residual, recorded in the task file) — root runs no site code any more.
+# www can write $APP_DIR, so either directory (or bootstrap itself) could be swapped for a symlink: refuse a link, walk
+# with find -P (never follows). Review round 2 (security HIGH): the repair used to chown EVERY entry on every release
+# (preflight, build, live, exit) with `find … -exec chown -h {} +` — -h protects only the last component of each
+# batched path, so a directory www swapped for a link between find's walk and chown's resolution re-owned files
+# outside the tree. Since round 0 root runs none of the site's PHP, so in steady state everything there already is the
+# run user's: the preflight only reports (ownership_report) and refuses, and the one-time hand-over of an older root
+# install is the operator's (staging-launch.md S1b). What root's own checkout writes there (a tracked .gitignore, new
+# or changed) is handed over right after the build — only entries NOT owned by the run user, each by -execdir from
+# inside its directory as find entered it, so chown resolves one component and -h keeps it off a link; `o-rwx` is set
+# by the run user itself (as_run), so no root chmod follows a link. A hard link www made to a root file would still be
+# chowned: fs.protected_hardlinks=1 (the distribution default, checked in S0) forbids making one.
 tree_is_real() { # the two directories are real directories where the checkout says they are
   local d real_app
   real_app="$(realpath "$APP_DIR")" || return 1
@@ -275,10 +313,11 @@ tree_is_real() { # the two directories are real directories where the checkout s
 }
 repair_ownership() {
   tree_is_real || { warn "storage, bootstrap or bootstrap/cache is a symlink or missing: ownership NOT repaired"; return 1; }
-  find -P "$APP_DIR/storage" "$APP_DIR/bootstrap/cache" -exec chown -h "$RUN_USER:$RUN_USER" {} + \
-    && find -P "$APP_DIR/storage" "$APP_DIR/bootstrap/cache" ! -type l -exec chmod u+rwX,g+rX,o-rwx {} +
+  PATH="$DEPLOY_SAFE_PATH" find -P "$APP_DIR/storage" "$APP_DIR/bootstrap/cache" ! -user "$RUN_USER" -execdir chown -h "$RUN_USER:$RUN_USER" {} + \
+    && as_run find -P "$APP_DIR/storage" "$APP_DIR/bootstrap/cache" ! -type l -perm /o=rwx -exec chmod o-rwx {} +
 }
 ownership_ok() { tree_is_real && [ -z "$(find -P "$APP_DIR/storage" "$APP_DIR/bootstrap/cache" ! -user "$RUN_USER" -print -quit 2>/dev/null)" ]; }
+ownership_report() { find -P "$APP_DIR/storage" "$APP_DIR/bootstrap/cache" ! -user "$RUN_USER" -print 2>/dev/null | head -n 20; }
 # the file the deployer read APP_ENV from is the file Laravel loads (www can repoint the symlink $APP_DIR/.env)
 env_is_ours() { [ "$APP_DIR/.env" -ef "$ENV_FILE" ]; }
 # owned by DEPLOY_OWNER_UID and writable by nobody else ($@ = paths, not descended into)
@@ -336,7 +375,7 @@ on_exit() {
   local rc=$?
   set +e
   trap - EXIT
-  if [ "$STAGE" != preflight ]; then repair_ownership 2>/dev/null; fi
+  if [ "$SWITCHED" = 1 ]; then repair_ownership 2>/dev/null; fi   # what the checkout wrote, handed over (no-op when nothing)
   [ -n "$JAR" ] && rm -f "$JAR"
   if [ "$rc" -ne 0 ] && [ "$STAGE" != preflight ]; then
     if [ "$SWITCHED" = 0 ]; then
@@ -375,13 +414,15 @@ root_only "$DEPLOY_LIB_DIR" "$DEPLOY_LIB_DIR/deploy-gate.php" "$DEPLOY_LIB_DIR/s
   || die 2 "the deployer files ($self, $DEPLOY_LIB_DIR and its deploy-gate.php, source-sha) must belong to uid $DEPLOY_OWNER_UID and be writable by nobody else: reinstall with install-deployer.sh"
 for tool in git curl flock find sort sha256sum setpriv setsid timeout; do command -v "$tool" >/dev/null 2>&1 || die 2 "missing: $tool"; done
 [ -x "$PHP" ] || die 2 "PHP not found at $PHP"
-[ -d "$APP_DIR/.git" ] || die 2 "$APP_DIR is not a checkout"
+repo_is_roots || die 2 "$DEPLOY_GIT_DIR must be the release repository: a directory owned by uid $DEPLOY_OWNER_UID throughout and writable by nobody else, outside the site tree (a first install makes it; an older install moves to it: staging-launch.md S0/S1b)"
+[ -d "$APP_DIR" ] && [ ! -L "$APP_DIR" ] || die 2 "$APP_DIR is not a directory"
 cd "$APP_DIR" || die 2 "cannot enter $APP_DIR"
+# a .git left in the tree (the old layout) is never read by this deployer; it only invites root to run git there
+{ [ -e "$APP_DIR/.git" ] || [ -L "$APP_DIR/.git" ]; } && warn "$APP_DIR/.git exists and is ignored (git runs on $DEPLOY_GIT_DIR): take it out of the tree (staging-launch.md S1b)"
 
 (umask 077; mkdir -p "$DEPLOY_STATE_DIR/runs") && chmod 700 "$DEPLOY_STATE_DIR" || die 2 "cannot create $DEPLOY_STATE_DIR"
 exec 9>"$DEPLOY_STATE_DIR/lock"
 flock -n 9 || die 2 "another deploy of $SITE is running"
-[ -f "$DEPLOY_STATE_DIR/gitconfig" ] || (umask 077; printf '[safe]\n\tdirectory = %s\n' "$APP_DIR" > "$DEPLOY_STATE_DIR/gitconfig")
 
 git_version="$(git --version | awk '{print $3}')"
 ver_ge "$git_version" 2.32 || die 2 "git $git_version is too old (2.32+ for GIT_CONFIG_GLOBAL)"
@@ -402,9 +443,6 @@ run_uid="$(id -u "$RUN_USER" 2>/dev/null || true)"
 [[ "$run_uid" =~ ^[0-9]+$ ]] && [ "$run_uid" != 0 ] || die 2 "RUN_USER '$RUN_USER' must be an existing user other than root: the site's PHP never runs as root"
 [ "$(as_run id -u 2>/dev/null || true)" = "$run_uid" ] \
   || die 2 "cannot run the site's PHP as $RUN_USER (setpriv, and setsid --wait from util-linux 2.31+, run as root): the deployer never runs it as root (staging-launch.md S0)"
-
-[ -z "$(find "$APP_DIR/.git" \( ! -uid "$DEPLOY_OWNER_UID" -o -perm /022 \) -print -quit)" ] \
-  || die 2 ".git must belong to uid $DEPLOY_OWNER_UID and be writable by nobody else (chown -R root:root .git && chmod -R go-w .git)"
 
 FROM="$(g rev-parse HEAD)" || die 2 "cannot read HEAD of $APP_DIR"
 DEPLOYER_SHA="$(cat "$DEPLOY_LIB_DIR/source-sha" 2>/dev/null || true)"
@@ -450,17 +488,29 @@ if [ "$PROD" = 0 ]; then
   EXPECTED_NONOK_SUM="$(sha256sum "$EXPECTED_NONOK_FILE" | cut -c1-12)"
   root_only "$EXPECTED_ENV_FILE" \
     || die 2 "$EXPECTED_ENV_FILE must exist (root's, writable by nobody else): the staging environment spec of staging-launch.md S3"
+  # a deny-list alone let an outward key nobody listed pass (review round 2, security MEDIUM): the spec must also hold
+  # every other set key of the file to a line of its own — the allow-list line
+  grep -qE '^[[:space:]]*\*UNLISTED=[[:space:]]*$' "$EXPECTED_ENV_FILE" \
+    || die 2 "$EXPECTED_ENV_FILE has no '*UNLISTED=' line: every key $ENV_FILE sets must be named by the spec (staging-launch.md S3, the allow-list)"
   gate env-assert --file "$ENV_FILE" --spec "$EXPECTED_ENV_FILE" > "$RUN_DIR/env-assert.out" 2>&1 \
     || { grep -v '^OK ' "$RUN_DIR/env-assert.out" >&2; die 2 "$ENV_FILE does not hold what $EXPECTED_ENV_FILE expects (lines above; values are never printed)"; }
   root_only "$EGRESS_BLOCKED_FILE" \
     || die 2 "$EGRESS_BLOCKED_FILE must exist (root's, writable by nobody else): the addresses $RUN_USER must not reach, host:port per line — every live endpoint on a contained staging (staging-launch.md S0 GATE; an empty file = none)"
-  why="$(egress_blocked_hold)" || die 2 "$EGRESS_BLOCKED_FILE: $why"
+  egress_rc=0
+  why="$(egress_blocked_hold)" || egress_rc=$?
+  case "$egress_rc" in
+    0) ;;
+    3) root_only "$DEPLOY_STATE_DIR/path-b" \
+         || die 2 "$EGRESS_BLOCKED_FILE is empty: a contained staging (Path A) lists every live endpoint; only a Path B host with no live credential runs with none, marked by the root-owned $DEPLOY_STATE_DIR/path-b (staging-launch.md S0 GATE step 4)"
+       PATH_B=1 ;;   # held to no stored secret once the site's PHP can be asked (after boot_cache_init)
+    *) die 2 "$EGRESS_BLOCKED_FILE: $why" ;;
+  esac
 fi
 
 if g merge-base --is-ancestor "$DEPLOYER_SHA" "$SHA" 2>/dev/null \
   && ! g diff --quiet "$DEPLOYER_SHA" "$SHA" -- infra/aapanel/deploy.sh infra/aapanel/deploy-gate.php; then
   die 2 "the target carries a newer deployer than the installed one ($DEPLOYER_SHA): first run
-  g show $SHA:infra/aapanel/install-deployer.sh > /root/install-deployer.sh && SHA=$SHA${TAG:+ TAG=$TAG} bash /root/install-deployer.sh"
+  GIT_DIR=$DEPLOY_GIT_DIR git show $SHA:infra/aapanel/install-deployer.sh > /root/install-deployer.sh && SHA=$SHA${TAG:+ TAG=$TAG} bash /root/install-deployer.sh"
 fi
 g cat-file -e "${DEPLOYER_SHA}^{commit}" 2>/dev/null || die 2 "the installed deployer's source $DEPLOYER_SHA is not in this repository"
 
@@ -503,12 +553,19 @@ for u in $EXPECTED_UNITS; do
   in_list "$u" $running || in_list "$u" $PREV_DRAINED \
     || die 2 "$u is expected to run but is not running: a release would leave it dead (systemctl start $u; journalctl -u $u), or take it out of $EXPECTED_UNITS_FILE"
 done
-# the run user writes storage and bootstrap/cache from the first artisan call on (`down`): files an older root run left
-# there are handed back now, the guarded way
-repair_ownership || die 2 "storage or bootstrap/cache could not be handed to $RUN_USER"
+# the run user writes storage and bootstrap/cache from the first artisan call on (`down`). Files an older root run left
+# there are reported, not re-owned: root chowning a whole tree www controls on every release was the check-then-act
+# window of review round 2 (security HIGH); the one-time hand-over is the operator's (staging-launch.md S1b)
+ownership_ok || die 2 "storage or bootstrap/cache holds entries not owned by $RUN_USER (the first 20):
+$(ownership_report)
+hand them over once (staging-launch.md S1b, own) — the deployer re-owns only what its own checkout writes"
 work_dir_ready || die 2 "$DEPLOY_WORK_DIR must be a directory of $RUN_USER's whose parent only uid $DEPLOY_OWNER_UID can write (the run user's HOME and build caches)"
 vendor_ready || die 2 "$APP_DIR/vendor must be a real directory owned entirely by $RUN_USER, who runs composer (an older root build: staging-launch.md S1b)"
 boot_cache_init "$DEPLOY_WORK_DIR/run-$(basename "$RUN_DIR")" || die 2 "cannot make the run's cache directory as $RUN_USER"   # from here every artisan/composer call reads it
+if [ "$PATH_B" = 1 ]; then
+  stored="$(path_b_stored_secrets)" || die 2 "Path B (the path-b marker, an empty $EGRESS_BLOCKED_FILE): the provider instances with a stored secret could not be counted as $RUN_USER — refused (fail closed)"
+  [ "$stored" = 0 ] || die 2 "Path B (the path-b marker, an empty $EGRESS_BLOCKED_FILE) but $stored provider instance(s) hold a stored secret: this host is Path A — list every live endpoint in $EGRESS_BLOCKED_FILE (staging-launch.md S0 GATE step 4)"
+fi
 RUN_START="$(utc_now)"
 say "Release $FROM → $SHA ($kind $REF, $( [ "$PROD" = 1 ] && echo production || echo "$APP_ENV_VALUE"), operator $DEPLOY_OPERATOR)"
 [ -n "$OVERRIDE_REASON" ] && warn "ALLOW_DOCTOR_FAIL accepted for GATED rows only: $OVERRIDE_REASON"
@@ -583,7 +640,7 @@ art onhost:openapi > "$RUN_DIR/openapi.out" 2>&1 || warn "onhost:openapi failed 
 # round 3). Across file systems GNU mv removes the destination first and creates it exclusively.
 (umask 022; printf '%s %s\n' "$SHA" "$REF" > "$RUN_DIR/VERSION") && mv -fT "$RUN_DIR/VERSION" "$APP_DIR/VERSION" || die 4 "cannot write VERSION"
 publish_boot_cache || die 4 "cannot publish the framework caches into bootstrap/cache"
-repair_ownership || die 4 "ownership repair failed"
+repair_ownership || die 4 "cannot hand the entries the checkout wrote into storage or bootstrap/cache to $RUN_USER"   # only those: steady state re-owns nothing
 if [ -n "$PHP_FPM_RELOAD" ]; then sh -c "$PHP_FPM_RELOAD" || warn "PHP-FPM reload failed: opcache may serve the old code"; else warn "PHP_FPM_RELOAD is not set: opcache may serve the old code"; fi
 
 # ── 5 gate ──────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -617,7 +674,6 @@ rm -f "$JAR"; JAR=""
 
 # ── 6 live ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 STAGE=live
-repair_ownership || die 5 "ownership repair failed"
 ownership_ok || die 5 "storage or bootstrap/cache has files not owned by $RUN_USER"
 if [ -f "$DEPLOY_STATE_DIR/expect-freeze" ] && [ "$PROD" = 0 ]; then
   art onhost:provisioning:freeze "staging: expected freeze" >/dev/null || die 5 "could not re-assert the expected provisioning freeze"

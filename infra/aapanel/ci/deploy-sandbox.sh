@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Test fixture for tests/Feature/Platform/DeployGateTest.php (TASK-0032): builds a throw-away "host" in $1 — a bare
-# origin, a site checkout at commit A, commit B (adds a migration) with an annotated tag vtest, a lightweight tag
+# origin, the deployer's repository state/repo.git with the site tree app/ as its work tree at commit A (no .git in
+# the tree: review round 2), commit B (adds a migration) with an annotated tag vtest, a lightweight tag
 # vlight, SSH-signed tags vsigned and vaccept (an Accept-Gate line in its signed message) (+ vsigned's object as
 # vrenamed, a PGP-block tag vpgp; the key's allowed_signers
 # line in allowed_signers.src), the root-owned environment file etc/app.env that the site's .env is, stub binaries
@@ -45,9 +46,17 @@ pgp="$(printf 'object %s\ntype commit\ntag vpgp\ntagger deploy-test <deploy-test
 gitc -C "$seed" update-ref refs/tags/vpgp "$pgp"
 git clone -q --bare "$seed" "$box/origin.git"
 
+# the deployer's repository is root's, in the state dir, and the site tree is only its work tree (review round 2, security
+# HIGH: a .git in the www-writable tree could be swapped after the preflight looked at it)
 app="$box/app"
-git clone -q -c core.autocrlf=false "$box/origin.git" "$app"
-git -C "$app" checkout -q --detach "$sha_a"
+repo="$box/state/repo.git"
+mkdir -p "$app"
+git init -q --bare "$repo"
+git --git-dir="$repo" config core.bare false
+git --git-dir="$repo" config core.autocrlf false
+git --git-dir="$repo" remote add origin "$box/origin.git"
+git --git-dir="$repo" fetch -q --tags origin
+GIT_DIR="$repo" GIT_WORK_TREE="$app" git -C "$app" checkout -q -f --detach "$sha_a"
 mkdir -p "$app/storage/framework" "$app/storage/app" "$app/bootstrap/cache"
 # the root-owned environment file and the site's .env that IS it (a symlink on the host; a hard link here, because Git
 # Bash cannot make symlinks without privileges — the deployer's rule is "the same file", which both satisfy)
@@ -94,6 +103,7 @@ case "${2:-}" in
     if [ -n "$target" ] && command -v cygpath >/dev/null 2>&1; then target="$(cygpath -u "$(cygpath -m "$here" | cut -c1-2)$target")"; fi
     [ -z "$target" ] || printf '<?php return []; // built by the release build\n' > "$target" ;;
   onhost:doctor) cat "$here/doctor.json"; exit "${STUB_DOCTOR_EXIT:-0}" ;;
+  tinker) printf '%s\n' "${STUB_TINKER_OUT:-stored-secrets=0}"; exit "${STUB_TINKER_EXIT:-0}" ;;   # the Path B count (review round 2)
 esac
 exit 0
 EOF
@@ -113,7 +123,10 @@ case "${1:-}" in
   list-units)
     { for u in ${STUB_UNITS:-}; do echo "$u"; done; for f in "$here"/units/*; do [ -e "$f" ] && basename "$f"; done; } | sort -u \
       | while read -r u; do [ "$(state "$u")" = active ] && echo "$u loaded active running stub"; done; true ;;
-  stop) for u in "$@"; do case "$u" in stop|--*) ;; *) echo inactive > "$here/units/$u" ;; esac; done ;;
+  stop)
+    for u in "$@"; do case "$u" in stop|--*) ;; *) echo inactive > "$here/units/$u" ;; esac; done
+    # bin/on-drain: what www does while the release drains, after the preflight looked (review round 2) — run once
+    if [ -f "$here/on-drain" ]; then mv "$here/on-drain" "$here/on-drain.ran"; bash "$here/on-drain.ran"; fi ;;
   start)
     case " ${STUB_START_FAIL:-} " in *" $last "*) echo failed > "$here/units/$last"; exit 1 ;; esac
     echo active > "$here/units/$last" ;;
@@ -176,11 +189,13 @@ holder="$(cat "$here/flock.holder" 2>/dev/null || true)"
 if [ -n "$holder" ] && [ "$holder" != "$PPID" ] && kill -0 "$holder" 2>/dev/null; then exit 1; fi
 printf '%s\n' "$PPID" > "$here/flock.holder"
 EOF
-# nft and getent (review round 1): the host's reject table is bin/nft.table (absent = no such table); the resolver
+# nft and getent (review round 1): the host's reject table is bin/nft.json for `nft -j` (review round 2: the deployer
+# reads it as JSON) and bin/nft.table for the text form an older deployer read (absent = no such table); the resolver
 # answers from bin/hosts ("address name" lines)
 cat > "$box/bin/nft" <<'EOF'
 #!/usr/bin/env bash
 here="$(cd "$(dirname "$0")" && pwd)"
+if [ "$*" = "-j list table inet onhost_containment" ] && [ -f "$here/nft.json" ]; then exec cat "$here/nft.json"; fi
 if [ "$*" = "list table inet onhost_containment" ] && [ -f "$here/nft.table" ]; then exec cat "$here/nft.table"; fi
 echo "Error: No such file or directory" >&2
 exit 1
@@ -213,7 +228,7 @@ SHA="$sha_a" FIRST=1 APP_DIR="$app" ENV_FILE="$box/etc/app.env" DEPLOY_STATE_DIR
 (umask 077
   printf '# units that must run after every release\n' > "$box/state/expected-units"
   printf '# doctor rows expected non-OK on this staging (O11)\n' > "$box/state/expected-nonok"
-  printf 'APP_ENV=staging\nAPP_URL=https://staging.test\n' > "$box/state/expected-env"
+  printf 'APP_ENV=staging\nAPP_URL=https://staging.test\n*UNLISTED=\n' > "$box/state/expected-env"
   printf '# addresses the run user must not reach (staging-launch.md S0 GATE)\n' > "$box/state/egress-blocked"
   : > "$box/state/path-b")   # an empty list is allowed only on Path B (review round 1); the egress cases remove it
 

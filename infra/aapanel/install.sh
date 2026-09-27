@@ -4,15 +4,16 @@
 #
 #   REF=<sha|tag> EXPECTED_SHA=<40-hex sha> [START_UNITS=0] bash onhost-install.sh
 #
-# Run 1 clones the repository at EXPECTED_SHA, writes /etc/onhost/app.env from .env.example and stops; run 2 installs
+# Run 1 fetches the repository into root's $DEPLOY_GIT_DIR (outside the site tree: review round 2, security HIGH),
+# checks EXPECTED_SHA out into $APP_DIR, writes /etc/onhost/app.env from .env.example and stops; run 2 installs
 # (composer, key, migrations, seed, systemd units, caches). Every later release goes through the gated deployer
 # (install-deployer.sh → /usr/local/sbin/onhost-deploy). An installed site — marked `installed` in the state dir, or
 # a pre-marker install recognised by its APP_KEY — is refused: re-seeding a live database is not a repair.
 #
 #   INSTALL_REPAIR=1 bash onhost-install.sh      (an installed site only; no REF/EXPECTED_SHA)
 #
-# repairs storage/bootstrap ownership and re-renders the systemd units from the checked-out revision in the root-owned
-# .git. It never migrates or seeds, and it does NOT change whether a unit runs or starts at boot: with START_UNITS=0
+# hands over what in storage/bootstrap/cache is not the run user's and re-renders the systemd units from the checked-out
+# revision in root's repository. It never migrates or seeds, and it does NOT change whether a unit runs or starts at boot: with START_UNITS=0
 # (the repair's default) units are rendered only — never enabled, started or restarted. Review round 3 stopped the
 # repair from starting units; the pre-mortem of 2026-09-27 found that `enable` alone put every provider lane of a
 # contained staging back into the boot sequence (the next reboot restarted the workers that talk to live panels).
@@ -44,8 +45,9 @@ COMPOSER="${COMPOSER:-/usr/local/bin/composer}"
 RUN_USER="${RUN_USER:-www}"                            # aaPanel's PHP-FPM user
 ENV_DIR="${ENV_DIR:-/etc/onhost}"
 DEPLOY_STATE_DIR="${DEPLOY_STATE_DIR:-/var/lib/onhost-deploy/${SITE}}"
+DEPLOY_GIT_DIR="${DEPLOY_GIT_DIR:-${DEPLOY_STATE_DIR}/repo.git}"   # root's repository (the deployer's); $APP_DIR is only its work tree
 SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
-DEPLOY_OWNER_UID="${DEPLOY_OWNER_UID:-0}"              # who must own .git (root; tests run unprivileged)
+DEPLOY_OWNER_UID="${DEPLOY_OWNER_UID:-0}"              # who must own the repository (root; tests run unprivileged)
 INSTALL_REPAIR="${INSTALL_REPAIR:-0}"
 START_UNITS="${START_UNITS:-}"                         # install: 1 unless 0 (containment first) · repair: 0 unless 1
 QUEUES="${QUEUES:-default mails provider-pterodactyl provider-aapanel provider-ispconfig provider-proxmox provider-powerdns provider-registrar provider-kubernetes}"
@@ -56,7 +58,6 @@ say() { printf '\n\033[1;32m▶ %s\033[0m\n' "$*"; }
 die() { printf '\033[1;31m✖ %s\033[0m\n' "$*" >&2; exit 2; }
 warn() { printf '\033[1;33mWARN %s\033[0m\n' "$*" >&2; }
 need() { command -v "$1" >/dev/null 2>&1 || die "missing: $1"; }
-g() { GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="${DEPLOY_STATE_DIR}/gitconfig" git -C "$APP_DIR" -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"; }
 art() { as_run "$PHP" "$APP_DIR/artisan" "$@"; }
 
 # The site's PHP — artisan, composer and the scripts composer runs — never runs as root (review round 0, security HIGH;
@@ -96,10 +97,12 @@ vendor_ready() {
     && [ -z "$(find -P "$APP_DIR/vendor" ! -user "$RUN_USER" -print -quit 2>/dev/null)" ]
 }
 
-# storage and bootstrap/cache belong to the PHP-FPM user; the code tree and .git stay root's. www can write $APP_DIR, so
-# either directory (or bootstrap itself) could be swapped for a symlink, and `chown -R`/`chmod -R` run as root follow one
-# given on the command line. Review round 3: fix_owner still ran those plain recursive commands, on the INSTALL_REPAIR
-# path too. The two functions below are the deployer's, character for character (DeployGateTest compares them).
+# storage and bootstrap/cache belong to the PHP-FPM user; the code tree stays root's. www can write $APP_DIR, so either
+# directory (or bootstrap itself) could be swapped for a symlink: refuse a link, walk with find -P. Review round 2
+# (security HIGH): root no longer chowns every entry — only those not owned by the run user, each from inside its
+# directory (-execdir, one path component, -h), and `o-rwx` is set by the run user itself. A first install hands over
+# what root's checkout wrote; INSTALL_REPAIR hands over what an older root run left (the one-time S1b step). The two
+# functions below are the deployer's, character for character (DeployGateTest compares them).
 tree_is_real() { # the two directories are real directories where the checkout says they are
   local d real_app
   real_app="$(realpath "$APP_DIR")" || return 1
@@ -109,13 +112,25 @@ tree_is_real() { # the two directories are real directories where the checkout s
 }
 repair_ownership() {
   tree_is_real || { warn "storage, bootstrap or bootstrap/cache is a symlink or missing: ownership NOT repaired"; return 1; }
-  find -P "$APP_DIR/storage" "$APP_DIR/bootstrap/cache" -exec chown -h "$RUN_USER:$RUN_USER" {} + \
-    && find -P "$APP_DIR/storage" "$APP_DIR/bootstrap/cache" ! -type l -exec chmod u+rwX,g+rX,o-rwx {} +
+  PATH="$DEPLOY_SAFE_PATH" find -P "$APP_DIR/storage" "$APP_DIR/bootstrap/cache" ! -user "$RUN_USER" -execdir chown -h "$RUN_USER:$RUN_USER" {} + \
+    && as_run find -P "$APP_DIR/storage" "$APP_DIR/bootstrap/cache" ! -type l -perm /o=rwx -exec chmod o-rwx {} +
 }
-fix_owner() { repair_ownership || die "ownership repair refused: storage, bootstrap and bootstrap/cache must be real directories of $APP_DIR"; }
-git_is_roots() { [ -d "$APP_DIR/.git" ] && [ ! -L "$APP_DIR/.git" ] && [ -z "$(find -P "$APP_DIR/.git" \( ! -uid "$DEPLOY_OWNER_UID" -o -perm /022 \) -print -quit)" ]; }
+fix_owner() { repair_ownership || die "ownership hand-over refused or failed: storage, bootstrap and bootstrap/cache must be real directories of $APP_DIR"; }
+# git on root's repository, never on a .git in the site tree (review round 2, security HIGH): $APP_DIR stays writable by
+# www, so www could rename a root-owned $APP_DIR/.git after the preflight looked at it and put its own there — config
+# (filters, textconv, sshCommand, url rewrites), info/attributes, alternates and hooks that root's fetch, status, diff
+# and checkout would then obey, and the old global config named $APP_DIR safe.directory, which switched git's own
+# ownership check off. GIT_DIR names the root-only repository under the root-only state dir, so git never looks for a
+# .git in the tree; the tree is only the work tree. No system or global config is read (no safe.directory for a
+# www-owned path), no hooks, no fsmonitor. What the work tree itself can still carry (a .gitattributes, a nested
+# .gitignore) runs nothing without a config that names a driver, and changes only files www can write anyway.
+# Identical in install.sh and install-deployer.sh.
+g() { GIT_DIR="$DEPLOY_GIT_DIR" GIT_WORK_TREE="$APP_DIR" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null git -C "$APP_DIR" -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"; }
+# the repository is a real directory, owned by DEPLOY_OWNER_UID throughout and writable by nobody else. Identical in
+# install.sh and install-deployer.sh.
+repo_is_roots() { [ -d "$DEPLOY_GIT_DIR" ] && [ ! -L "$DEPLOY_GIT_DIR" ] && [ -z "$(find -P "$DEPLOY_GIT_DIR" \( ! -uid "$DEPLOY_OWNER_UID" -o -perm /022 \) -print -quit)" ]; }
 
-# The unit files come out of the root-owned .git at revision $1, never from the working tree: www can replace entries of
+# The unit files come out of root's repository at revision $1, never from the working tree: www can replace entries of
 # $APP_DIR, and a unit file it wrote (User=root, its own ExecStart) would run as root at the next start (review round 3).
 install_units() { # $1 = revision
   local unit q
@@ -148,7 +163,13 @@ need git; need curl
 [ -x "$PHP" ] || die "PHP not found at $PHP (aaPanel: App Store → PHP 8.3)"
 [ -n "${BRANCH:-}" ] && die "BRANCH is no longer accepted: pass REF=<sha|tag> and EXPECTED_SHA=<sha>"
 (umask 077; mkdir -p "$DEPLOY_STATE_DIR") && chmod 700 "$DEPLOY_STATE_DIR"
-[ -f "$DEPLOY_STATE_DIR/gitconfig" ] || (umask 077; printf '[safe]\n\tdirectory = %s\n' "$APP_DIR" > "$DEPLOY_STATE_DIR/gitconfig")
+# the site's PHP runs as the run user, never as root (as_run; review round 0, security HIGH) — the repair needs
+# it too: the run user itself sets o-rwx on what is handed over
+need setpriv
+need setsid
+run_uid="$(id -u "$RUN_USER" 2>/dev/null || true)"
+[[ "$run_uid" =~ ^[0-9]+$ ]] && [ "$run_uid" != 0 ] || die "RUN_USER '$RUN_USER' must be an existing user other than root: the site's PHP never runs as root"
+[ "$(as_run id -u 2>/dev/null || true)" = "$run_uid" ] || die "cannot run the site's PHP as $RUN_USER (setpriv, and setsid --wait from util-linux 2.31+, run as root)"
 
 # An installed site is never installed again (the old script re-ran `db:seed` on a live database)
 if [ -f "$DEPLOY_STATE_DIR/installed" ] || { [ ! -f "$DEPLOY_STATE_DIR/installing" ] && grep -qE '^APP_KEY=base64:' "$ENV_DIR/app.env" 2>/dev/null; }; then
@@ -156,7 +177,7 @@ if [ -f "$DEPLOY_STATE_DIR/installed" ] || { [ ! -f "$DEPLOY_STATE_DIR/installin
     START_UNITS="${START_UNITS:-0}"
     say "Repair only: storage/bootstrap ownership and the systemd units (no migrations, no seed, START_UNITS=$START_UNITS)"
     tree_is_real || die "storage, bootstrap and bootstrap/cache must be real directories of $APP_DIR (a symlink would let root re-own another tree): nothing repaired"
-    git_is_roots || die "$APP_DIR/.git must be a directory owned by uid $DEPLOY_OWNER_UID and writable by nobody else (staging-launch.md S1b); the units are rendered from it: nothing repaired"
+    repo_is_roots || die "$DEPLOY_GIT_DIR must be root's repository, owned by uid $DEPLOY_OWNER_UID throughout and writable by nobody else (staging-launch.md S0/S1b move an older install to it); the units are rendered from it: nothing repaired"
     fix_owner
     install_units HEAD
     exit 0
@@ -170,12 +191,6 @@ START_UNITS="${START_UNITS:-1}"
 REF="${REF:-$EXPECTED_SHA}"
 [[ "$REF" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$ ]] && [[ "$REF" != *..* ]] || die "REF '$REF' is not a plain ref name"
 has_ext() { "$PHP" -r 'exit(extension_loaded($argv[1]) ? 0 : 1);' "$1"; }   # php -m output differs between builds; ask PHP itself
-# the site's PHP runs as the run user, never as root (as_run; review round 0, security HIGH)
-need setpriv
-need setsid
-run_uid="$(id -u "$RUN_USER" 2>/dev/null || true)"
-[[ "$run_uid" =~ ^[0-9]+$ ]] && [ "$run_uid" != 0 ] || die "RUN_USER '$RUN_USER' must be an existing user other than root: the site's PHP never runs as root"
-[ "$(as_run id -u 2>/dev/null || true)" = "$run_uid" ] || die "cannot run the site's PHP as $RUN_USER (setpriv, and setsid --wait from util-linux 2.31+, run as root)"
 has_ext pdo_pgsql || die "PHP 8.3 needs pdo_pgsql (aaPanel → PHP 8.3 → Install extensions); loaded PDO drivers: $("$PHP" -r 'echo implode(",", PDO::getAvailableDrivers());')"
 for ext in intl bcmath mbstring openssl redis fileinfo zip gd opcache; do has_ext "$ext" || echo "warning: PHP extension ${ext} missing — install it in aaPanel (PHP 8.3 → extensions)"; done
 
@@ -191,14 +206,16 @@ if [ ! -x "$COMPOSER" ]; then
 fi
 
 say "Checkout in $APP_DIR ($REF = $EXPECTED_SHA)"
-if [ ! -d "$APP_DIR/.git" ]; then
-  mkdir -p "$(dirname "$APP_DIR")"
-  [ -L "$APP_DIR/.git" ] && die "$APP_DIR/.git is a symlink"
-  git clone -q --no-checkout "$REPO" "$APP_DIR"
-  chmod 700 "$APP_DIR/.git"
+# the repository is root's, outside the site tree (review round 2, security HIGH): made here on a first run — never a
+# .git in $APP_DIR (www can replace entries there), never a repository someone else left
+[ -e "$APP_DIR" ] || mkdir -p "$APP_DIR"
+[ -d "$APP_DIR" ] && [ ! -L "$APP_DIR" ] || die "$APP_DIR is not a directory"
+if [ ! -e "$DEPLOY_GIT_DIR" ] && [ ! -L "$DEPLOY_GIT_DIR" ]; then
+  (umask 077; GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null git init -q --bare "$DEPLOY_GIT_DIR") \
+    && g config core.bare false && g remote add origin "$REPO" || die "cannot create the repository $DEPLOY_GIT_DIR"
 fi
-# root's clone, never a .git someone else left (a re-run of an unfinished install): review it and hand it to root by hand
-git_is_roots || die "$APP_DIR/.git must be a directory owned by uid $DEPLOY_OWNER_UID and writable by nobody else (review its hooks and config, then staging-launch.md S1b)"
+repo_is_roots || die "$DEPLOY_GIT_DIR must be root's repository, owned by uid $DEPLOY_OWNER_UID throughout and writable by nobody else"
+{ [ -e "$APP_DIR/.git" ] || [ -L "$APP_DIR/.git" ]; } && warn "$APP_DIR/.git exists and is ignored (git runs on $DEPLOY_GIT_DIR): take it out of the tree (staging-launch.md S1b)"
 g fetch -q --prune --tags origin
 sha="$(g rev-parse -q --verify "${REF}^{commit}" 2>/dev/null || g rev-parse -q --verify "refs/remotes/origin/${REF}^{commit}" 2>/dev/null || true)"
 [ "$sha" = "$EXPECTED_SHA" ] || die "REF '$REF' resolves to '${sha:-nothing}', not EXPECTED_SHA $EXPECTED_SHA"

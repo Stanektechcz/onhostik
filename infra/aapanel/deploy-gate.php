@@ -24,6 +24,8 @@ declare(strict_types=1);
  *                12 another row failed that no Accept-Gate line (production) or expected-nonok line (staging) names]
  *   nonok       --report F [--production 0|1]  prints the rows a release needs listed (staging) or accepted (production) [0 · 2]
  *   env-assert  --file F --spec F             checks the environment file against a spec, never printing a value [0 · 2 · 13]
+ *   nft-rejects --file F                      prints the addresses `nft -j list table inet onhost_containment` rejects on
+ *                                             the output hook [0 · 2 not nft JSON · 3 no such table · 4 another shape]
  *   parse-env   --file F [--key APP_ENV]      prints the value phpdotenv would load (quotes, comment stripped) [0 · 2]
  *   backup-set  --output F --since YmdHis     prints the set `onhost:platform:backup` wrote in this run [0 · 3 · 4]
  *   override    --value V --sha S             validates "<sha12>:<reason of 10+ chars>", prints the reason [0 · 2]
@@ -224,13 +226,18 @@ final class OnhostDeployGate
     /**
      * The environment file against a spec (staging-launch.md S3; the deployer runs it before every staging release). Spec
      * lines: `KEY=value` must equal · `KEY=` empty or absent · `KEY?` set · `KEY!=value` must differ · `KEY~=regex`
-     * must match · `PREFIX_*=` every key of that family the spec does not name on a line of its own is empty or absent;
-     * `#` starts a comment line. A value in `<…>` is a placeholder nobody filled: refused. Values are read like
-     * phpdotenv (parseEnv) and never printed — the file holds secrets, and a mismatching secret must not show. A key
-     * defined twice with different values, or a value holding `${`, is a MISMATCH whatever the rule says.
+     * must match · `PREFIX_*=` every key of that family the spec does not name on a line of its own is empty or absent
+     * · `KEY` alone: named, any value (a reviewed tunable) · `*UNLISTED=` every key of the file that no line names, by
+     * itself or by its family, is empty or absent; `#` starts a comment line. Key names are case-sensitive, as phpdotenv
+     * reads them (`http_proxy` is not `HTTP_PROXY`). A value in `<…>` is a placeholder nobody filled: refused. Values are
+     * read like phpdotenv (parseEnv) and never printed — the file holds secrets, and a mismatching secret must not show.
+     * A key defined twice with different values, or a value holding `${`, is a MISMATCH whatever a rule of a value says.
      *
      * The family rule (review round 0, security MEDIUM): EnvSecretStore reads an `env://X` reference as every `X_*` key,
-     * and a live key under a name nobody listed passed a spec of single keys.
+     * and a live key under a name nobody listed passed a spec of single keys. The allow-list line (review round 2,
+     * security MEDIUM): the spec was still a deny-list — an env:// family nobody listed, a proxy variable, or an outward
+     * key added to the application later passed silently. With `*UNLISTED=` a set key the spec does not name is an
+     * `UNLISTED` line (the key, never its value), and the release is refused until someone reviews it into the spec.
      */
     public static function envAssert(string $file, string $spec): int
     {
@@ -240,24 +247,41 @@ final class OnhostDeployGate
             return 2;
         }
         $rules = [];
+        $allowList = false;
         foreach (preg_split('/\R/', (string) file_get_contents($spec)) ?: [] as $n => $line) {
             $line = trim($line);
             if ($line === '' || str_starts_with($line, '#')) {
                 continue;
             }
-            if (preg_match('/^([A-Z][A-Z0-9_]*)(\*?)(\?|!=|~=|=)(.*)$/', $line, $m) !== 1 || ($m[3] === '?' && trim($m[4]) !== '')
+            if ($line === '*UNLISTED=') {
+                $allowList = true;
+
+                continue;
+            }
+            if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $line) === 1) {
+                $rules[] = [$line, false, 'named', ''];
+
+                continue;
+            }
+            if (preg_match('/^([A-Za-z_][A-Za-z0-9_]*)(\*?)(\?|!=|~=|=)(.*)$/', $line, $m) !== 1 || ($m[3] === '?' && trim($m[4]) !== '')
                 || ($m[2] === '*' && ($m[3] !== '=' || trim($m[4]) !== ''))) {
-                fwrite(STDERR, 'spec line '.($n + 1)." is not KEY=value, KEY=, KEY?, KEY!=value, KEY~=regex or PREFIX_*=\n");
+                fwrite(STDERR, 'spec line '.($n + 1)." is not KEY=value, KEY=, KEY?, KEY!=value, KEY~=regex, KEY, PREFIX_*= or *UNLISTED=\n");
 
                 return 2;
             }
             $rules[] = [$m[1], $m[2] === '*', $m[3], trim($m[4])];
         }
         $named = array_column(array_filter($rules, fn (array $r) => ! $r[1]), 0);
-        $failed = false;
+        $families = array_column(array_filter($rules, fn (array $r) => $r[1]), 0);
+        $failed = $allowList && self::unlisted($file, $named, $families);
         foreach ($rules as [$key, $family, $op, $want]) {
             if ($family) {
                 $failed = self::familyEmpty($file, $key, $named) || $failed;
+
+                continue;
+            }
+            if ($op === 'named') { // reviewed into the spec: any value (the key is only allowed, not asserted)
+                fwrite(STDOUT, "OK {$key}\n");
 
                 continue;
             }
@@ -298,6 +322,49 @@ final class OnhostDeployGate
     }
 
     /**
+     * The allow-list line: every key of $file that no spec line names — by itself ($named) or by its family
+     * ($families) — must be empty or absent. Prints `UNLISTED KEY: …` (the name, never the value); true when a key failed.
+     *
+     * @param  list<string>  $named
+     * @param  list<string>  $families
+     */
+    private static function unlisted(string $file, array $named, array $families): bool
+    {
+        $failed = false;
+        foreach (self::envKeys($file) as $key) {
+            if (in_array($key, $named, true) || array_filter($families, fn (string $prefix) => str_starts_with($key, $prefix)) !== []) {
+                continue;
+            }
+            if (array_filter(self::envValues($file, $key), fn (string $v) => $v !== '') !== []) {
+                fwrite(STDOUT, "UNLISTED {$key}: set, and no spec line names it (*UNLISTED=: review it into the spec, or empty it)\n");
+                $failed = true;
+            }
+        }
+        if (! $failed) {
+            fwrite(STDOUT, "OK *UNLISTED\n");
+        }
+
+        return $failed;
+    }
+
+    /**
+     * Every key $file defines, in order of first definition.
+     *
+     * @return list<string>
+     */
+    private static function envKeys(string $file): array
+    {
+        $keys = [];
+        foreach (preg_split('/\R/', (string) file_get_contents($file)) ?: [] as $line) {
+            if (preg_match('/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/', $line, $m) === 1) {
+                $keys[$m[1]] = true;
+            }
+        }
+
+        return array_map('strval', array_keys($keys));
+    }
+
+    /**
      * A family line: every key of $file starting with $prefix and not named by a line of its own must be empty or
      * absent (read like envAssert: two different definitions or `${` count as a value). Prints OK/MISMATCH, never a
      * value; true when a key failed.
@@ -306,14 +373,9 @@ final class OnhostDeployGate
      */
     private static function familyEmpty(string $file, string $prefix, array $named): bool
     {
-        $keys = [];
-        foreach (preg_split('/\R/', (string) file_get_contents($file)) ?: [] as $line) {
-            if (preg_match('/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/', $line, $m) === 1 && str_starts_with($m[1], $prefix) && ! in_array($m[1], $named, true)) {
-                $keys[$m[1]] = true;
-            }
-        }
+        $keys = array_filter(self::envKeys($file), fn (string $key) => str_starts_with($key, $prefix) && ! in_array($key, $named, true));
         $failed = false;
-        foreach (array_keys($keys) as $key) {
+        foreach ($keys as $key) {
             if (array_filter(self::envValues($file, (string) $key), fn (string $v) => $v !== '') !== []) {
                 fwrite(STDOUT, "MISMATCH {$key}: expected empty or absent (family {$prefix}*)\n");
                 $failed = true;
@@ -324,6 +386,100 @@ final class OnhostDeployGate
         }
 
         return $failed;
+    }
+
+    /**
+     * The addresses `table inet onhost_containment` rejects on the output hook, one per line (`a.b.c.d`, `x::y`, or an
+     * `addr/len` prefix), read from `nft -j list table inet onhost_containment` (review round 2, security MEDIUM: the
+     * deployer used to accept an `ip daddr A reject` line in any chain of the table, whatever its hook — a rule that
+     * filters nothing outbound plus a panel that happened to be down passed). Counted: a rule of exactly
+     * `ip|ip6 daddr <address> reject` in a base chain of type filter on hook output. Refused as a whole (exit 4, the
+     * reason on stderr): any other rule in the table — an accept or a jump could let traffic past before the reject, a
+     * port match narrows it — anything else than chains and rules, and a dormant table. Exit 3: the JSON holds no such
+     * table; exit 2: not nft JSON. The shape is the one staging-launch.md S0 GATE step 4 writes.
+     */
+    public static function nftRejects(string $file): int
+    {
+        $json = is_file($file) && is_readable($file) ? json_decode((string) file_get_contents($file), true) : null;
+        if (! is_array($json) || ! is_array($json['nftables'] ?? null)) {
+            fwrite(STDERR, "not the JSON of `nft -j list table inet onhost_containment`\n");
+
+            return 2;
+        }
+        $ours = fn (array $o): bool => ($o['family'] ?? '') === 'inet' && ($o['table'] ?? $o['name'] ?? '') === 'onhost_containment';
+        $table = false;
+        $chains = [];
+        $rules = [];
+        foreach ($json['nftables'] as $item) {
+            $kind = is_array($item) ? (string) array_key_first($item) : '';
+            $body = is_array($item) && is_array($item[$kind] ?? null) ? $item[$kind] : [];
+            if ($kind === 'metainfo') {
+                continue;
+            }
+            if (! in_array($kind, ['table', 'chain', 'rule'], true) || ! $ours($body)) {
+                fwrite(STDERR, "the table holds a {$kind} the S0 GATE step 4 shape does not write\n");
+
+                return 4;
+            }
+            if ($kind === 'table') {
+                if (in_array('dormant', (array) ($body['flags'] ?? []), true)) {
+                    fwrite(STDERR, "the table is dormant: it filters nothing\n");
+
+                    return 4;
+                }
+                $table = true;
+            } elseif ($kind === 'chain') {
+                $chains[(string) ($body['name'] ?? '')] = $body;
+            } else {
+                $rules[] = $body;
+            }
+        }
+        if (! $table) {
+            fwrite(STDERR, "no table inet onhost_containment\n");
+
+            return 3;
+        }
+        $rejected = [];
+        foreach ($rules as $rule) {
+            $where = 'rule '.(string) ($rule['handle'] ?? '?').' of chain '.(string) ($rule['chain'] ?? '?');
+            $address = self::rejectedAddress($rule['expr'] ?? null);
+            if ($address === null) {
+                fwrite(STDERR, "{$where} is not `ip|ip6 daddr <address> reject`\n");
+
+                return 4;
+            }
+            $chain = $chains[(string) ($rule['chain'] ?? '')] ?? [];
+            if (($chain['type'] ?? '') === 'filter' && ($chain['hook'] ?? '') === 'output') {
+                $rejected[$address] = true;
+            }
+        }
+        foreach (array_keys($rejected) as $address) {
+            fwrite(STDOUT, $address."\n");
+        }
+
+        return 0;
+    }
+
+    /** The address or prefix of an `ip|ip6 daddr <address> reject` rule's expressions, lower-case; null for any other shape. */
+    private static function rejectedAddress(mixed $expr): ?string
+    {
+        if (! is_array($expr) || count($expr) !== 2 || ! is_array($expr[0] ?? null) || ! is_array($expr[1] ?? null)
+            || array_keys($expr[1]) !== ['reject'] || ! is_array($expr[0]['match'] ?? null)) {
+            return null;
+        }
+        $match = $expr[0]['match'];
+        $payload = is_array($match['left'] ?? null) && is_array($match['left']['payload'] ?? null) ? $match['left']['payload'] : [];
+        $protocol = $payload['protocol'] ?? '';
+        if (($match['op'] ?? '') !== '==' || ! in_array($protocol, ['ip', 'ip6'], true) || ($payload['field'] ?? '') !== 'daddr') {
+            return null;
+        }
+        $right = $match['right'] ?? null;
+        [$address, $suffix] = is_array($right) && is_array($right['prefix'] ?? null)
+            ? [(string) ($right['prefix']['addr'] ?? ''), '/'.(int) ($right['prefix']['len'] ?? -1)]
+            : [is_string($right) ? $right : '', ''];
+
+        return filter_var($address, FILTER_VALIDATE_IP, $protocol === 'ip' ? FILTER_FLAG_IPV4 : FILTER_FLAG_IPV6) === false
+            ? null : strtolower($address).$suffix;
     }
 
     /**
@@ -570,6 +726,8 @@ final class OnhostDeployGate
                 fwrite(STDOUT, $reason."\n");
 
                 return 0;
+            case 'nft-rejects':
+                return self::nftRejects((string) ($opt['file'] ?? ''));
             case 'cookie':
                 return self::cookie((string) ($opt['down-file'] ?? ''), (string) ($opt['out'] ?? ''), (int) ($opt['ttl'] ?? 900));
             case 'hint':
@@ -579,7 +737,7 @@ final class OnhostDeployGate
 
                 return 0;
             default:
-                fwrite(STDERR, "usage: deploy-gate.php verdict|nonok|env-assert|parse-env|backup-set|override|cookie|hint|names [--options]\n");
+                fwrite(STDERR, "usage: deploy-gate.php verdict|nonok|env-assert|nft-rejects|parse-env|backup-set|override|cookie|hint|names [--options]\n");
 
                 return 64;
         }

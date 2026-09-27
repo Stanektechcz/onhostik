@@ -4,7 +4,8 @@
 #   /usr/local/lib/onhost-deploy/deploy-gate.php  ← infra/aapanel/deploy-gate.php at $SHA
 #   /usr/local/lib/onhost-deploy/source-sha       ← $SHA (the deployer refuses a target that carries a different one)
 #
-# The files come out of the root-owned .git with `git show`, never from the www-writable working tree. The deployer
+# The files come out of root's repository ($DEPLOY_GIT_DIR, outside the site tree) with `git show`, never from the
+# www-writable working tree. The deployer
 # is the judge of every later release, so it is held to the release rules itself:
 #   * production (APP_ENV in the root-owned $ENV_FILE, fail closed): TAG must be an annotated tag whose last signature
 #     is SSH with nothing appended after it, signed by a key in $DEPLOY_STATE_DIR/allowed_signers, naming itself, and
@@ -22,12 +23,25 @@ SHA="${SHA:-}"
 TAG="${TAG:-}"
 FIRST="${FIRST:-0}"
 DEPLOY_STATE_DIR="${DEPLOY_STATE_DIR:-/var/lib/onhost-deploy/${SITE}}"
+DEPLOY_GIT_DIR="${DEPLOY_GIT_DIR:-${DEPLOY_STATE_DIR}/repo.git}"
 DEPLOYER_BIN="${DEPLOYER_BIN:-/usr/local/sbin/onhost-deploy}"
 DEPLOYER_LIB_DIR="${DEPLOYER_LIB_DIR:-/usr/local/lib/onhost-deploy}"
 DEPLOY_OWNER_UID="${DEPLOY_OWNER_UID:-0}"
 
 die() { printf '✖ %s\n' "$*" >&2; exit 2; }
-g() { GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="${DEPLOY_STATE_DIR}/gitconfig" git -C "$APP_DIR" -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"; }
+# git on root's repository, never on a .git in the site tree (review round 2, security HIGH): $APP_DIR stays writable by
+# www, so www could rename a root-owned $APP_DIR/.git after the preflight looked at it and put its own there — config
+# (filters, textconv, sshCommand, url rewrites), info/attributes, alternates and hooks that root's fetch, status, diff
+# and checkout would then obey, and the old global config named $APP_DIR safe.directory, which switched git's own
+# ownership check off. GIT_DIR names the root-only repository under the root-only state dir, so git never looks for a
+# .git in the tree; the tree is only the work tree. No system or global config is read (no safe.directory for a
+# www-owned path), no hooks, no fsmonitor. What the work tree itself can still carry (a .gitattributes, a nested
+# .gitignore) runs nothing without a config that names a driver, and changes only files www can write anyway.
+# Identical in install.sh and install-deployer.sh.
+g() { GIT_DIR="$DEPLOY_GIT_DIR" GIT_WORK_TREE="$APP_DIR" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null git -C "$APP_DIR" -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"; }
+# the repository is a real directory, owned by DEPLOY_OWNER_UID throughout and writable by nobody else. Identical in
+# install.sh and install-deployer.sh.
+repo_is_roots() { [ -d "$DEPLOY_GIT_DIR" ] && [ ! -L "$DEPLOY_GIT_DIR" ] && [ -z "$(find -P "$DEPLOY_GIT_DIR" \( ! -uid "$DEPLOY_OWNER_UID" -o -perm /022 \) -print -quit)" ]; }
 
 # APP_ENV as phpdotenv reads it; several differing definitions or none print nothing (= production, fail closed).
 # Same rule as deploy-gate.php parse-env, in bash: the helper of $SHA is not trusted before $SHA is.
@@ -68,13 +82,11 @@ verify_signed_tag() { # $1 = tag object id, $2 = tag name, $3 = expected commit,
 root_only() { [ -z "$(find -P "$@" -maxdepth 0 \( ! -uid "$DEPLOY_OWNER_UID" -o -perm /022 \) -print -quit)" ]; }
 
 [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || die "SHA must be the full 40-character commit to install the deployer from"
-[ -d "$APP_DIR/.git" ] || die "$APP_DIR is not a checkout"
-[ -z "$(find "$APP_DIR/.git" \( ! -uid "$DEPLOY_OWNER_UID" -o -perm /022 \) -print -quit)" ] \
-  || die ".git must belong to uid $DEPLOY_OWNER_UID and be writable by nobody else (chown -R root:root .git && chmod -R go-w .git)"
+[ -d "$APP_DIR" ] && [ ! -L "$APP_DIR" ] || die "$APP_DIR is not a directory"
+repo_is_roots || die "$DEPLOY_GIT_DIR must be root's repository: owned by uid $DEPLOY_OWNER_UID throughout and writable by nobody else, outside the site tree (staging-launch.md S0/S1b)"
 (umask 077; mkdir -p "$DEPLOY_STATE_DIR") && chmod 700 "$DEPLOY_STATE_DIR"
-[ -f "$DEPLOY_STATE_DIR/gitconfig" ] || (umask 077; printf '[safe]\n\tdirectory = %s\n' "$APP_DIR" > "$DEPLOY_STATE_DIR/gitconfig")
 
-g cat-file -e "${SHA}^{commit}" 2>/dev/null || die "$SHA is not in $APP_DIR (git fetch --tags origin first)"
+g cat-file -e "${SHA}^{commit}" 2>/dev/null || die "$SHA is not in $DEPLOY_GIT_DIR (GIT_DIR=$DEPLOY_GIT_DIR git fetch --tags origin first)"
 installed="$(cat "$DEPLOYER_LIB_DIR/source-sha" 2>/dev/null || true)"
 if [ "$FIRST" = 1 ]; then
   [ -z "$installed" ] && [ ! -e "$DEPLOYER_BIN" ] || die "a deployer is already installed (${installed:-$DEPLOYER_BIN}): FIRST=1 is for a first install only; a newer SHA installs without it"

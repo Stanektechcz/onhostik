@@ -8,6 +8,9 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Onhost\Domain\Provisioning\AutomationLedger;
+use Onhost\Domain\Provisioning\Models\ProviderInstance;
+use Onhost\Platform\Secrets\SecretRef;
+use Onhost\Platform\Secrets\SecretStore;
 use Symfony\Component\Process\Process;
 
 /*
@@ -336,6 +339,15 @@ it('holds the runbook\'s staging environment spec to every outward credential', 
             ->and($r->getOutput())->toContain('MISMATCH '.$key)
             ->and($r->getOutput().$r->getErrorOutput())->not->toContain('lIvE-vAlUe-0123');
     }
+    // review round 2 (security MEDIUM): the spec is an allow-list too — a proxy variable in either case (the HTTP
+    // clients honour both), and an outward key under a name no line and no family names
+    foreach (['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'all_proxy', 'ACME_PARTNER_API_KEY',
+        'NEWPANEL_EU1_TOKEN', 'COMGATE_BASE_URL'] as $key) {
+        $r = $assert($key."=lIvE-vAlUe-0123\n");
+        expect($r->getExitCode())->toBe(13, $key.': '.$r->getOutput())
+            ->and($r->getOutput())->toMatch('/^(MISMATCH|UNLISTED) '.preg_quote($key, '/').':/m')
+            ->and($r->getOutput().$r->getErrorOutput())->not->toContain('lIvE-vAlUe-0123');
+    }
     deployGateRemoveTree($dir);
 });
 
@@ -567,14 +579,64 @@ function deployGateDeployProcess(array $box, array $env, array $stub = [], strin
     return $process;
 }
 
+/**
+ * git on the sandbox's release repository: root's state/repo.git with app/ as its work tree (review round 2), or an
+ * older fixture's app/.git (red runs against the scripts of an earlier round).
+ *
+ * @param  list<string>  $args
+ */
+function deployGateGit(array $box, array $args): Process
+{
+    $repo = $box['dir'].'/state/repo.git';
+    $git = is_dir($repo) ? ['git', '--git-dir='.$repo, '--work-tree='.$box['dir'].'/app', '-C', $box['dir'].'/app'] : ['git', '-C', $box['dir'].'/app'];
+
+    return (new Process([...$git, ...$args]))->mustRun();
+}
+
 /** @return array{rc:int, out:string, log:string, stub:string, head:string} */
 function deployGateDeployResult(array $box, Process $process): array
 {
     return [
         'rc' => (int) $process->getExitCode(), 'out' => $process->getOutput().$process->getErrorOutput(),
         'log' => (string) @file_get_contents($box['dir'].'/state/deploy.log'), 'stub' => (string) @file_get_contents($box['dir'].'/stub.log'),
-        'head' => trim((string) (new Process(['git', '-C', $box['dir'].'/app', 'rev-parse', 'HEAD']))->mustRun()->getOutput()),
+        'head' => trim(deployGateGit($box, ['rev-parse', 'HEAD'])->getOutput()),
     ];
+}
+
+/**
+ * The host's reject table for the sandbox's nft stub: bin/nft.json as `nft -j list table inet onhost_containment` prints
+ * it (review round 2: what the deployer reads) and bin/nft.table, the text form the deployer of round 1 read.
+ *
+ * @param  array<string, array{string, list<string>}>  $chains  chain name → [hook, addresses or addr/len prefixes]
+ */
+function deployGateNftTable(array $box, array $chains): void
+{
+    $items = [['metainfo' => ['version' => '1.0.6', 'json_schema_version' => 1]], ['table' => ['family' => 'inet', 'name' => 'onhost_containment', 'handle' => 1]]];
+    $text = "table inet onhost_containment {\n";
+    $handle = 1;
+    foreach ($chains as $name => [$hook, $addresses]) {
+        $items[] = ['chain' => ['family' => 'inet', 'table' => 'onhost_containment', 'name' => $name, 'handle' => $handle++, 'type' => 'filter', 'hook' => $hook, 'prio' => 0, 'policy' => 'accept']];
+        $text .= "\tchain {$name} {\n\t\ttype filter hook {$hook} priority filter; policy accept;\n";
+        foreach ($addresses as $address) {
+            [$addr, $len] = array_pad(explode('/', $address, 2), 2, null);
+            $protocol = str_contains($addr, ':') ? 'ip6' : 'ip';
+            $items[] = ['rule' => ['family' => 'inet', 'table' => 'onhost_containment', 'chain' => $name, 'handle' => $handle++, 'expr' => [
+                ['match' => ['op' => '==', 'left' => ['payload' => ['protocol' => $protocol, 'field' => 'daddr']], 'right' => $len === null ? $addr : ['prefix' => ['addr' => $addr, 'len' => (int) $len]]]],
+                ['reject' => null],
+            ]]];
+            $text .= "\t\t{$protocol} daddr {$address} reject\n";
+        }
+        $text .= "\t}\n";
+    }
+    file_put_contents($box['dir'].'/bin/nft.json', (string) json_encode(['nftables' => $items], JSON_UNESCAPED_SLASHES));
+    file_put_contents($box['dir'].'/bin/nft.table', $text."}\n");
+}
+
+/** Removes the sandbox's reject table: nft answers "No such file or directory". */
+function deployGateNftNone(array $box): void
+{
+    @unlink($box['dir'].'/bin/nft.json');
+    @unlink($box['dir'].'/bin/nft.table');
 }
 
 /** The line number of the first stub-log line containing $needle (PHP_INT_MAX when absent). */
@@ -699,7 +761,7 @@ it('refuses a dirty tree, a skipped backup over migrations, a closed loopback an
 
     file_put_contents($box['dir'].'/app/artisan', "<?php // changed by hand on the server\n");
     $dirty = deployGateDeploy($box, $to);
-    (new Process(['git', '-C', $box['dir'].'/app', 'checkout', '--', 'artisan']))->mustRun();
+    deployGateGit($box, ['checkout', '--', 'artisan']);
     $skip = deployGateDeploy($box, $to + ['SKIP_BACKUP' => substr($box['SHA_B'], 0, 12).':no time for a backup']);
     $loopback = deployGateDeploy($box, $to, ['STUB_CURL_CODE' => '401']);
     $missing = deployGateDeploy($box, ['REF' => $box['SHA_B']]);
@@ -876,7 +938,7 @@ function deployGateInstall(array $box, array $env): array
         'STUB_BIN' => $box['posix'].'/bin', 'INSTALLER' => deployGatePosix((string) $script),
         'SITE' => 'staging.test', 'APP_DIR' => $box['APP'], 'PHP' => $box['posix'].'/bin/php', 'ENV_DIR' => $box['posix'].'/etc',
         'RUN_USER' => $box['USER'], 'DEPLOY_STATE_DIR' => $box['posix'].'/state', 'SYSTEMD_DIR' => $box['posix'].'/systemd',
-        'DEPLOY_WORK_DIR' => $box['posix'].'/work/staging.test',
+        'DEPLOY_WORK_DIR' => $box['posix'].'/work/staging.test', 'DEPLOY_SAFE_PATH' => $box['posix'].'/bin:/usr/bin:/bin',
         'DEPLOY_OWNER_UID' => $box['UID'], 'QUEUES' => 'default mails',
         'INSTALL_REPAIR' => '1', 'START_UNITS' => false, 'REF' => false, 'EXPECTED_SHA' => false, 'BRANCH' => false,
     ], $env));
@@ -886,7 +948,7 @@ function deployGateInstall(array $box, array $env): array
     return ['rc' => (int) $process->getExitCode(), 'out' => $process->getOutput().$process->getErrorOutput(), 'stub' => (string) @file_get_contents($box['dir'].'/stub.log')];
 }
 
-it('repairs an installed site without starting its units, without following a linked cache directory, and renders units from .git', function () {
+it('repairs an installed site without starting its units, without following a linked cache directory, and renders units from root\'s repository', function () {
     $box = $this->deployBox = deployGateSandbox();
     $app = $box['dir'].'/app';
 
@@ -919,7 +981,7 @@ it('repairs an installed site without starting its units, without following a li
     expect($repair['rc'])->toBe(0, $repair['out'])
         ->and($repair['stub'])->toContain('systemctl daemon-reload')
         ->not->toContain('systemctl enable')->not->toContain('systemctl start')->not->toContain('systemctl restart')
-        ->and($repair['stub'])->toContain('chown -h')
+        ->and($repair['stub'])->not->toContain('chown')   // review round 2: everything is already the run user's — root re-owns nothing
         ->and($unit)->toContain('User='.$box['USER'])->toContain('schedule:work')->not->toContain('planted by www')
         ->and((string) file_get_contents($box['dir'].'/state/expected-units'))->toBe("onhost-queue@default.service\n"); // the operator's list is kept
 
@@ -1111,7 +1173,7 @@ it('refuses a staging release while an address of the egress-blocked list can be
     $to = deployGateTo($box, $box['SHA_B']);
     $list = $box['dir'].'/state/egress-blocked';
     // the host's reject table covers loopback here (review round 1: the probe alone is not enough, see the next case)
-    file_put_contents($box['dir'].'/bin/nft.table', "table inet onhost_containment {\n\tchain out {\n\t\tip daddr 127.0.0.1 reject\n\t}\n}\n");
+    deployGateNftTable($box, ['out' => ['output', ['127.0.0.1']]]);
 
     rename($list, $list.'.kept');
     $missing = deployGateDeploy($box, $to);
@@ -1147,7 +1209,6 @@ it('holds the egress-blocked list to the host\'s reject rules: a name must resol
     $box = $this->deployBox = deployGateSandbox();
     $to = deployGateTo($box, $box['SHA_B']);
     $list = $box['dir'].'/state/egress-blocked';
-    $table = $box['dir'].'/bin/nft.table';
     $marker = $box['dir'].'/state/path-b';
 
     unlink($marker);
@@ -1158,10 +1219,10 @@ it('holds the egress-blocked list to the host\'s reject rules: a name must resol
 
     file_put_contents($box['dir'].'/bin/hosts', "127.0.0.1 panel.example.test\n");
     file_put_contents($list, "panel.example.test:1\n");
-    @unlink($table);
+    deployGateNftNone($box);
     $noTable = deployGateDeploy($box, $to);                     // nothing answers, but no rule refused it
 
-    file_put_contents($table, "table inet onhost_containment {\n\tchain out {\n\t\tip daddr 192.0.2.0/24 reject\n\t}\n}\n");
+    deployGateNftTable($box, ['out' => ['output', ['192.0.2.0/24']]]);
     $unruled = deployGateDeploy($box, $to);                     // a table, but not for this address
 
     foreach ([$emptyPathA, $unresolved, $noTable, $unruled] as $r) {
@@ -1173,7 +1234,7 @@ it('holds the egress-blocked list to the host\'s reject rules: a name must resol
         ->and($unruled['out'])->toContain('not rejected')->toContain('127.0.0.1');
 
     // the name's address is rejected by the host and nothing answers: released; the probe went to the resolved address
-    file_put_contents($table, "table inet onhost_containment {\n\tchain out {\n\t\tip daddr 192.0.2.0/24 reject\n\t\tip daddr 127.0.0.1 reject\n\t}\n}\n");
+    deployGateNftTable($box, ['out' => ['output', ['192.0.2.0/24', '127.0.0.1']]]);
     $held = deployGateDeploy($box, $to);
     expect($held['rc'])->toBe(0, $held['out'])->and($held['head'])->toBe($box['SHA_B'])
         ->and($held['stub'])->toMatch('#/dev/tcp[^\n]* 127\.0\.0\.1 1\n#');
@@ -1263,14 +1324,238 @@ function deployGateShellFunction(string $file, string $name): string
     return preg_match('/^'.preg_quote($name, '/').'\(\) \{.*?^\}$/ms', $source, $m) === 1 ? $m[0] : '';
 }
 
+/** A one-line shell function `name() { … }` of infra/aapanel/$file ('' when absent). */
+function deployGateShellLine(string $file, string $name): string
+{
+    $source = (string) file_get_contents(base_path('infra/aapanel/'.$file));
+
+    return preg_match('/^'.preg_quote($name, '/').'\(\) \{[^\n]*\}$/m', $source, $m) === 1 ? $m[0] : '';
+}
+
 it('keeps the security-critical shell functions identical where two scripts need them, and never writes VERSION through a name', function () {
     // the deployer and install.sh repair the same tree the same way, and run the site's PHP as the same user the same way
     foreach (['tree_is_real', 'repair_ownership', 'as_run', 'work_dir_ready', 'vendor_ready', 'keep_terminal_from_children'] as $name) {
         expect(deployGateShellFunction('deploy.sh', $name))->not->toBe('')->toBe(deployGateShellFunction('install.sh', $name));
     }
     expect(deployGateShellFunction('deploy.sh', 'verify_signed_tag'))->not->toBe('')->toBe(deployGateShellFunction('install-deployer.sh', 'verify_signed_tag'));
+    // review round 2: every root git call of the three scripts goes to the same root-only repository the same way
+    foreach (['g', 'repo_is_roots'] as $name) {
+        $line = deployGateShellLine('deploy.sh', $name);
+        expect($line)->not->toBe('')->toBe(deployGateShellLine('install.sh', $name))->toBe(deployGateShellLine('install-deployer.sh', $name));
+    }
     foreach (['deploy.sh', 'install.sh'] as $script) {
         $source = (string) file_get_contents(base_path('infra/aapanel/'.$script));
         expect($source)->not->toMatch('#>\s*"\$APP_DIR/VERSION"#')->not->toMatch('#chown -R[^\n]*(storage|bootstrap)#')->not->toMatch('#chmod -R[^\n]*(storage|bootstrap)#');
     }
+});
+
+// ── review round 2 (security: 2 HIGH, 2 MEDIUM) ─────────────────────────────────────────────────────────────────────
+
+// Review round 2 (security HIGH): root ran git on $APP_DIR/.git, checked root-owned once in the preflight — but $APP_DIR
+// stays writable by www, so www could rename that entry after the preflight and put its own .git there, and the
+// deployer's global config named $APP_DIR safe.directory (git's ownership check off). Root's fetch, status, diff and
+// checkout would then obey www's config, info/attributes, alternates. Now git runs only on root's repository in the
+// root-only state dir (GIT_DIR); the tree is its work tree and a .git in it is never read — by the deployer or by the
+// install.sh repair that renders the systemd units.
+it('runs git only on root\'s repository outside the site tree: a .git www puts into the tree during a release is never read', function () {
+    $box = $this->deployBox = deployGateSandbox();
+    $app = $box['dir'].'/app';
+    $posix = $box['posix'];
+    // what www does once the preflight has looked: its own .git in the tree (a copy of the repository, so that a
+    // deployer reading it would go on), whose config sends every file root checks out through a smudge filter
+    file_put_contents($box['dir'].'/bin/on-drain', <<<SH
+        set -e
+        app='{$posix}/app'
+        if [ -d "\$app/.git" ]; then mv "\$app/.git" "\$app/.git.root"; src="\$app/.git.root"; else src='{$posix}/state/repo.git'; fi
+        cp -r "\$src" "\$app/.git"
+        git --git-dir="\$app/.git" config filter.pwn.smudge "sh -c 'echo pwned >> {$posix}/pwned; cat'"
+        git --git-dir="\$app/.git" config filter.pwn.clean "sh -c 'echo pwned >> {$posix}/pwned; cat'"
+        mkdir -p "\$app/.git/info"
+        echo '* filter=pwn' > "\$app/.git/info/attributes"
+        SH);
+
+    $r = deployGateDeploy($box, deployGateTo($box, $box['SHA_B']), ['STUB_UNITS' => 'onhost-queue@default.service']);
+
+    expect(is_file($box['dir'].'/bin/on-drain.ran'))->toBeTrue()   // www did plant it, during the drain
+        ->and(file_exists($box['dir'].'/pwned'))->toBeFalse()
+        ->and($r['rc'])->toBe(0, $r['out'])->and($r['head'])->toBe($box['SHA_B'])
+        ->and(is_file($app.'/database/migrations/2026_09_27_000001_x.php'))->toBeTrue()
+        ->and(is_dir($box['dir'].'/state/repo.git'))->toBeTrue();
+
+    // install.sh's repair renders the units from root's repository, not from a .git www planted (its HEAD carries a
+    // unit that would run as root)
+    $evil = $box['dir'].'/evil';
+    (new Process(['git', 'init', '-q', $evil]))->mustRun();
+    File::ensureDirectoryExists($evil.'/infra/systemd');
+    foreach (['onhost-scheduler.service', 'onhost-queue@.service'] as $unit) {
+        file_put_contents($evil.'/infra/systemd/'.$unit, "[Service]\nUser=root\nExecStart=/bin/sh -c 'planted in .git'\n");
+    }
+    (new Process(['git', '-C', $evil, 'add', '-A']))->mustRun();
+    (new Process(['git', '-C', $evil, '-c', 'user.name=www', '-c', 'user.email=www@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'www']))->mustRun();
+    deployGateRemoveTree($app.'/.git');   // read-only git objects: File::deleteDirectory cannot remove them on Windows
+    rename($evil.'/.git', $app.'/.git');
+    touch($box['dir'].'/state/installed');
+    $repair = deployGateInstall($box, []);
+    $unit = (string) @file_get_contents($box['dir'].'/systemd/onhost-scheduler.service');
+    expect($repair['rc'])->toBe(0, $repair['out'])->and($unit)->toContain('User='.$box['USER'])->toContain('schedule:work')->not->toContain('planted in .git');
+});
+
+// Review round 2 (security HIGH): the ownership repair chowned EVERY entry of storage and bootstrap/cache as root on
+// every release (preflight, build, live, exit) with `find … -exec chown -h {} +`; -h protects only the last component
+// of each batched path, so a directory www swapped for a link in between re-owned files outside the tree. Since round 0
+// root writes nothing there in steady state: nothing is re-owned, and only what the checkout itself wrote is handed
+// over, each entry from inside its directory.
+it('re-owns nothing in a tree the run user already owns, and hands over only entries not the run user\'s, from inside their directory', function () {
+    $box = $this->deployBox = deployGateSandbox();
+
+    $r = deployGateDeploy($box, deployGateTo($box, $box['SHA_B']), ['STUB_UNITS' => 'onhost-queue@default.service']);
+
+    expect($r['rc'])->toBe(0, $r['out'])->and($r['head'])->toBe($box['SHA_B'])
+        // root changed no owner in storage or bootstrap/cache: everything there already was the run user's (the only
+        // chown calls hand over the two directories root itself just made: the run's work directory and vendor/)
+        ->and($r['stub'])->not->toMatch('#^chown [^\n]*(storage|bootstrap|\./)#m');
+
+    foreach (['deploy.sh', 'install.sh'] as $script) {
+        $repair = deployGateShellFunction($script, 'repair_ownership');
+        expect($repair)->toContain('find -P "$APP_DIR/storage" "$APP_DIR/bootstrap/cache" ! -user "$RUN_USER" -execdir chown -h "$RUN_USER:$RUN_USER" {} +')
+            ->toContain('as_run find -P')->not->toMatch('/-exec chown/')->not->toMatch('/\n\s*(&&\s*)?find -P[^\n]*chmod/');
+    }
+    // the preflight reports and refuses (the one-time hand-over is the operator's, S1b); the live stage only checks
+    $deploy = (string) file_get_contents(base_path('infra/aapanel/deploy.sh'));
+    expect(substr_count($deploy, "\nrepair_ownership || die"))->toBe(1)   // after the build: what the checkout wrote
+        ->and($deploy)->toContain('ownership_ok || die 2 "storage or bootstrap/cache holds entries not owned by $RUN_USER')
+        ->and($deploy)->toContain('$(ownership_report)');
+});
+
+// Review round 2 (security MEDIUM): the egress proof accepted `ip daddr A reject` in any chain of the table, whatever
+// its hook — a rule that filters nothing outbound, plus a panel that happened to be down, passed. The table is read as
+// JSON now: only a filter chain on the output hook counts, and a rule of another shape refuses the whole table.
+it('counts only reject rules on the output hook of the host\'s table, and refuses a table with rules of another shape', function () {
+    $dir = deployGateTempDir();
+    $file = $dir.'/table.json';
+    $table = ['table' => ['family' => 'inet', 'name' => 'onhost_containment', 'handle' => 1]];
+    $chain = fn (string $name, string $hook) => ['chain' => ['family' => 'inet', 'table' => 'onhost_containment', 'name' => $name, 'handle' => 1, 'type' => 'filter', 'hook' => $hook, 'prio' => 0, 'policy' => 'accept']];
+    $rule = fn (string $chainName, string $protocol, mixed $right, array $verdict = ['reject' => null], array $extra = []) => ['rule' => ['family' => 'inet', 'table' => 'onhost_containment', 'chain' => $chainName, 'handle' => 9,
+        'expr' => [...$extra, ['match' => ['op' => '==', 'left' => ['payload' => ['protocol' => $protocol, 'field' => 'daddr']], 'right' => $right]], $verdict]]];
+    $run = function (array $items) use ($file): Process {
+        file_put_contents($file, (string) json_encode(['nftables' => [['metainfo' => ['json_schema_version' => 1]], ...$items]]));
+
+        return deployGateCall(['nft-rejects', '--file', $file]);
+    };
+
+    $ok = $run([$table, $chain('out', 'output'), $chain('in', 'input'), $rule('out', 'ip', '10.0.0.1'), $rule('out', 'ip6', '2001:DB8::1'),
+        $rule('out', 'ip', ['prefix' => ['addr' => '192.0.2.0', 'len' => 24]]), $rule('in', 'ip', '10.0.0.2')]);
+    expect($ok->getExitCode())->toBe(0, $ok->getErrorOutput())
+        ->and(preg_split('/\R/', trim($ok->getOutput())))->toBe(['10.0.0.1', '2001:db8::1', '192.0.2.0/24']);   // not the input chain's
+
+    $accept = $run([$table, $chain('out', 'output'), $rule('out', 'ip', '10.0.0.1', ['accept' => null]), $rule('out', 'ip', '10.0.0.1')]);
+    $port = $run([$table, $chain('out', 'output'), $rule('out', 'ip', '10.0.0.1', ['reject' => null], [['match' => ['op' => '==', 'left' => ['payload' => ['protocol' => 'tcp', 'field' => 'dport']], 'right' => 22]]])]);
+    $dormant = $run([['table' => ['family' => 'inet', 'name' => 'onhost_containment', 'handle' => 1, 'flags' => ['dormant']]], $chain('out', 'output'), $rule('out', 'ip', '10.0.0.1')]);
+    $set = $run([$table, ['set' => ['family' => 'inet', 'table' => 'onhost_containment', 'name' => 'allowed', 'type' => 'ipv4_addr']]]);
+    expect($accept->getExitCode())->toBe(4)->and($port->getExitCode())->toBe(4)->and($dormant->getExitCode())->toBe(4)->and($set->getExitCode())->toBe(4)
+        ->and($accept->getErrorOutput())->toContain('is not `ip|ip6 daddr <address> reject`')
+        ->and($dormant->getErrorOutput())->toContain('dormant')
+        ->and($run([])->getExitCode())->toBe(3);
+    file_put_contents($file, "table inet onhost_containment {\n}\n");
+    expect(deployGateCall(['nft-rejects', '--file', $file])->getExitCode())->toBe(2);
+    deployGateRemoveTree($dir);
+
+    // the deployer: the only reject rule for the listed address sits in a chain on the input hook — refused
+    $box = $this->deployBox = deployGateSandbox();
+    file_put_contents($box['dir'].'/state/egress-blocked', "127.0.0.1:1\n");
+    deployGateNftTable($box, ['in' => ['input', ['127.0.0.1']]]);
+    $input = deployGateDeploy($box, deployGateTo($box, $box['SHA_B']));
+    expect($input['rc'])->toBe(2, $input['out'])->and($input['out'])->toContain('not rejected on the output hook')->toContain('127.0.0.1')
+        ->and($input['stub'])->not->toContain('artisan down')->and($input['head'])->toBe($box['SHA_A']);
+});
+
+// Review round 2 (security MEDIUM): an empty egress-blocked list passed on the root-owned path-b marker alone — an
+// operator's claim, as unverifiable as the written revocation it replaced. The deployer now counts, as the run user and
+// through the application's own secret store, the provider instances with a stored secret, and Path B must have none.
+it('holds Path B to no stored provider secret, counted as the run user, and refuses when the count cannot be read', function () {
+    $box = $this->deployBox = deployGateSandbox();   // Path B: an empty list and the marker
+    $to = deployGateTo($box, $box['SHA_B']);
+
+    $stored = deployGateDeploy($box, $to, ['STUB_TINKER_OUT' => 'stored-secrets=2']);
+    $garbage = deployGateDeploy($box, $to, ['STUB_TINKER_OUT' => 'PHP Fatal error: no database']);
+    $failed = deployGateDeploy($box, $to, ['STUB_TINKER_EXIT' => '1']);
+    foreach ([$stored, $garbage, $failed] as $r) {
+        expect($r['rc'])->toBe(2, $r['out'])->and($r['stub'])->not->toContain('artisan down')->not->toContain('systemctl stop')
+            ->and($r['head'])->toBe($box['SHA_A']);
+    }
+    expect($stored['out'])->toContain('2 provider instance(s) hold a stored secret')->toContain('this host is Path A')
+        ->and($garbage['out'])->toContain('could not be counted')->and($failed['out'])->toContain('could not be counted');
+
+    $none = deployGateDeploy($box, $to);
+    expect($none['rc'])->toBe(0, $none['out'])->and($none['head'])->toBe($box['SHA_B'])
+        ->and($none['stub'])->toMatch('#^php \S*/artisan tinker --execute=#m');
+    deployGateExpectRunAsUser($none['stub'], $box['USER']);   // the count too: as the run user, in its own session
+});
+
+it('counts the provider instances with a stored secret the way the deployer asks the site on Path B', function () {
+    expect(preg_match("/tinker --execute='([^']+)'/", (string) file_get_contents(base_path('infra/aapanel/deploy.sh')), $m))->toBe(1);
+    $count = function () use ($m): string {
+        ob_start();
+        eval($m[1]);
+
+        return (string) ob_get_clean();
+    };
+    expect(trim($count()))->toBe('stored-secrets=0');
+
+    ProviderInstance::query()->create(['key' => 'pathb-none', 'provider' => 'pbs', 'name' => 'PBS', 'base_url' => 'https://pbs.mgmt.test:8007',
+        'secret_ref' => 'env://DEPLOY_GATE_PATHB_NOTHING', 'state' => 'active', 'options' => []]);
+    expect(trim($count()))->toBe('stored-secrets=0');
+
+    app(SecretStore::class)->write(SecretRef::parse('env://DEPLOY_GATE_PATHB_STORED'), ['token' => 'x']);
+    ProviderInstance::query()->create(['key' => 'pathb-stored', 'provider' => 'pbs', 'name' => 'PBS', 'base_url' => 'https://pbs2.mgmt.test:8007',
+        'secret_ref' => 'env://DEPLOY_GATE_PATHB_STORED', 'state' => 'active', 'options' => []]);
+    expect(trim($count()))->toBe('stored-secrets=1');
+});
+
+// Review round 2 (security MEDIUM): the S3 spec was a deny-list — an env:// family nobody listed, a proxy variable
+// (phpdotenv puts app.env into the environment, and the HTTP clients honour HTTPS_PROXY and https_proxy), or an outward
+// key added later passed silently. `*UNLISTED=` makes every set key the spec does not name a refusal, `KEY` alone names
+// a reviewed tunable, and lower-case keys are expressible; the deployer refuses a spec without the allow-list line.
+it('holds every set key of the environment to a line of the spec once the spec says *UNLISTED=, without printing a value', function () {
+    $dir = deployGateTempDir();
+    $assert = function (string $env, string $spec) use ($dir): Process {
+        file_put_contents($dir.'/app.env', $env);
+        file_put_contents($dir.'/spec', $spec);
+
+        return deployGateCall(['env-assert', '--file', $dir.'/app.env', '--spec', $dir.'/spec']);
+    };
+    $env = "APP_ENV=staging\nAPP_NAME=ONhost\nLOG_LEVEL=info\nGOPAY_RECURRING=false\nEMPTY_ONE=\nACME_PARTNER_API_KEY=lIvE-1\nhttps_proxy=http://pRoXy.example:3128\n";
+    $spec = "APP_ENV=staging\nAPP_NAME\nGOPAY_RECURRING=false\nGOPAY_*=\nACME_PARTNER_*=\n";
+
+    expect($assert($env, $spec)->getExitCode())->toBe(13);   // the family catches its key already
+    $denyOnly = $assert($env, "APP_ENV=staging\n");
+    expect($denyOnly->getExitCode())->toBe(0, $denyOnly->getOutput());   // a deny-list alone: everything else passes
+
+    $allow = $assert($env, "APP_ENV=staging\nAPP_NAME\nGOPAY_RECURRING=false\n*UNLISTED=\n");
+    expect($allow->getExitCode())->toBe(13, $allow->getOutput())
+        ->and($allow->getOutput())->toContain('UNLISTED ACME_PARTNER_API_KEY')->toContain('UNLISTED https_proxy')->toContain('UNLISTED LOG_LEVEL')
+        ->toContain('OK APP_NAME')->not->toContain('EMPTY_ONE')->not->toContain('UNLISTED GOPAY_RECURRING')->not->toContain('UNLISTED APP_NAME')
+        ->and($allow->getOutput().$allow->getErrorOutput())->not->toContain('lIvE-1')->not->toContain('pRoXy');
+
+    $lower = $assert($env, "https_proxy=\nHTTPS_PROXY=\n");   // lower-case keys are their own keys, expressible now
+    expect($lower->getExitCode())->toBe(13)->and($lower->getOutput())->toContain('MISMATCH https_proxy')->toContain('OK HTTPS_PROXY');
+
+    $reviewed = $assert("APP_ENV=staging\nAPP_NAME=ONhost\nLOG_LEVEL=info\nEMPTY_ONE=\n", "APP_ENV=staging\nAPP_NAME\nLOG_LEVEL\n*UNLISTED=\n");
+    expect($reviewed->getExitCode())->toBe(0, $reviewed->getOutput())->and($reviewed->getOutput())->toContain('OK *UNLISTED');
+    expect($assert($env, "*UNLISTED=yes\n")->getExitCode())->toBe(2)->and($assert($env, "*UNLISTED?\n")->getExitCode())->toBe(2);
+    deployGateRemoveTree($dir);
+
+    // the deployer: a spec without the allow-list line is refused, and an unnamed proxy key in app.env stops the release
+    $box = $this->deployBox = deployGateSandbox();
+    $to = deployGateTo($box, $box['SHA_B']);
+    file_put_contents($box['dir'].'/state/expected-env', "APP_ENV=staging\nAPP_URL=https://staging.test\n");
+    $noAllowList = deployGateDeploy($box, $to);
+    file_put_contents($box['dir'].'/state/expected-env', "APP_ENV=staging\nAPP_URL=https://staging.test\n*UNLISTED=\n");
+    file_put_contents($box['dir'].'/etc/app.env', "APP_ENV=staging   # staging | production\nAPP_URL=https://staging.test\nhttps_proxy=http://pRoXy.example:3128\n");
+    $proxy = deployGateDeploy($box, $to);
+    foreach ([$noAllowList, $proxy] as $r) {
+        expect($r['rc'])->toBe(2, $r['out'])->and($r['stub'])->not->toContain('artisan down')->and($r['head'])->toBe($box['SHA_A']);
+    }
+    expect($noAllowList['out'])->toContain("no '*UNLISTED=' line")
+        ->and($proxy['out'])->toContain('UNLISTED https_proxy')->not->toContain('pRoXy');
 });
