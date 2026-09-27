@@ -193,7 +193,13 @@ it('sets staff mode on /v1/staff only: the hold is lifted there, the same person
     $this->withHeader('Idempotency-Key', 'smt-http-1')->postJson("/v1/services/{$held->id}/actions", ['action' => 'resume', 'reason' => 'odblokuji si to sám'])
         ->assertStatus(409)->assertJsonPath('error', 'service_suspension_held');
     $this->flushHeaders();
-    $operationId = $this->withHeader('Idempotency-Key', 'smt-http-2')->postJson("/v1/staff/services/{$held->id}/actions", ['action' => 'resume', 'reason' => 'obsah odstraněn, případ uzavřen'])
+    // P0-16 re-check: in an organization of their own, staff mode takes a second person (the operator's own quarantine is not
+    // theirs alone to lift); it was a 202 here
+    $approval = (string) $this->withHeader('Idempotency-Key', 'smt-http-2')->postJson("/v1/staff/services/{$held->id}/actions", ['action' => 'resume', 'reason' => 'obsah odstraněn, případ uzavřen'])
+        ->assertForbidden()->assertJsonPath('error', 'approval_required')->json('approval_id');
+    expect(SuspensionHold::holds($held->fresh()))->toBe(['abuse']);
+    $this->flushHeaders();
+    $operationId = $this->withHeader('Idempotency-Key', 'smt-http-3')->postJson("/v1/staff/services/{$held->id}/actions", ['action' => 'resume', 'reason' => 'obsah odstraněn, případ uzavřen', 'approval_ids' => [secondPersonApproves($approval)]])
         ->assertStatus(202)->json('operation_id');
     expect(SuspensionHold::holds($held->fresh()))->toBe([]);
     // the record says in which mode: the lift in the audit, the run in its operation
@@ -370,3 +376,68 @@ it('keeps the shadow entry when the work that asked is rolled back, and marks th
     expect($shadowRows())->toBe(3);
 });
 // ── end TASK-0039 review round 2 ──
+
+// ── TASK-0039 P0-16 re-check (staff mode asks staff keys) ──
+/*
+ * The re-check of the final Phase-0 chain: /v1/staff/services/{id}/actions and …/reinstate reused the customer controllers and
+ * the customer keys (`service.manage`, `billing.wallet.topup`), and StaffActor asked only for staff mode, `is_staff` and an
+ * active account. So any staff account — an auditor, an IAM admin — who is a member or a share guest of a service reached
+ * the staff powers there through that membership: EXPL-1..3 and SS-1 had moved to another URL. Staff mode now asks staff keys
+ * (`staff.service.manage`, the staff billing key `billing.dunning.manage`), StaffActor::may asks the key of a staff role, and a
+ * member of staff acting in staff mode in an organization of their own takes a second person or the time lock.
+ */
+
+it('refuses the staff route to a member of staff without the staff key, however they reach the service (P0-16 re-check)', function () {
+    // an auditor who owns an organization: the ownership is no staff power
+    [$auditor, $own] = smtStaffOwner('auditor_read_only');
+    app(StepUpService::class)->grant($auditor, 'totp', null, '127.0.0.1');
+    $held = app(ServiceService::class)->imposeHold(smtSuspended($own), SuspensionHold::ABUSE, 'abuse:AB-2026-0051', CommandContext::system('abuse')->withScope($own->id));
+    $this->actingAs($auditor, 'sanctum');
+    $this->withHeader('Idempotency-Key', 'smt-p16-1')->postJson("/v1/staff/services/{$held->id}/actions", ['action' => 'resume', 'reason' => 'odblokuji si to sám'])
+        ->assertForbidden()->assertJsonPath('message', 'Missing permission staff.service.manage');
+    $this->flushHeaders();
+    $this->withHeader('Idempotency-Key', 'smt-p16-2')->postJson("/v1/staff/services/{$held->id}/reinstate")
+        ->assertForbidden()->assertJsonPath('message', 'Missing permission billing.dunning.manage');
+    expect(SuspensionHold::holds($held->fresh()))->toBe(['abuse']);
+
+    // an IAM admin who was given one service to manage (a share, BASIS_MEMBER): the share is no staff power either
+    [, $org] = $this->customerWithOrganization();
+    $guest = $this->steppedUpStaff('iam_admin');
+    $shared = app(ServiceService::class)->imposeHold(smtSuspended($org, 'ispconfig'), SuspensionHold::ABUSE, 'abuse:AB-2026-0052', CommandContext::system('abuse')->withScope($org->id));
+    PolicyBinding::query()->create(['principal_type' => 'user', 'principal_id' => $guest->id, 'role_key' => 'svc_manage', 'scope_type' => 'resource', 'scope_id' => $shared->id, 'organization_id' => $org->id]);
+    $this->flushHeaders();
+    $this->actingAs($guest, 'sanctum')->withHeader('Idempotency-Key', 'smt-p16-3')->postJson("/v1/staff/services/{$shared->id}/actions", ['action' => 'resume', 'reason' => 'host to potřebuje'])
+        ->assertForbidden()->assertJsonPath('message', 'Missing permission staff.service.manage');
+    expect(SuspensionHold::holds($shared->fresh()))->toBe(['abuse'])
+        ->and(Operation::query()->whereIn('service_id', [$held->id, $shared->id])->count())->toBe(0);
+});
+
+it('lets a staff role with the staff key act on the staff route, and its run asks that key again (P0-16 re-check)', function () {
+    [, $org] = $this->customerWithOrganization();
+    $l2 = $this->steppedUpStaff('support_l2'); // staff.service.manage, and no customer key at all
+    $held = app(ServiceService::class)->imposeHold(smtSuspended($org), SuspensionHold::ABUSE, 'abuse:AB-2026-0053', CommandContext::system('abuse')->withScope($org->id));
+    $this->actingAs($l2, 'sanctum');
+
+    $operationId = $this->withHeader('Idempotency-Key', 'smt-p16-4')->postJson("/v1/staff/services/{$held->id}/actions", ['action' => 'resume', 'reason' => 'obsah odstraněn, případ uzavřen'])
+        ->assertStatus(202)->json('operation_id');
+    expect(SuspensionHold::holds($held->fresh()))->toBe([])
+        ->and(Operation::query()->findOrFail($operationId)->authorized_permission)->toBe('staff.service.manage');
+});
+
+it('takes a second person in any organization of their own, a share included; a stranger organization takes none (P0-16 re-check)', function () {
+    [, $org] = $this->customerWithOrganization();
+    $l2 = $this->steppedUpStaff('support_l2');
+    $mine = app(ServiceService::class)->imposeHold(smtSuspended($org), SuspensionHold::ABUSE, 'abuse:AB-2026-0054', CommandContext::system('abuse')->withScope($org->id));
+    $theirs = app(ServiceService::class)->imposeHold(smtSuspended($org, 'ispconfig'), SuspensionHold::ABUSE, 'abuse:AB-2026-0055', CommandContext::system('abuse')->withScope($org->id));
+    // a share of ONE service makes the organization theirs too: its other services are not a stranger's
+    PolicyBinding::query()->create(['principal_type' => 'user', 'principal_id' => $l2->id, 'role_key' => 'svc_view', 'scope_type' => 'resource', 'scope_id' => $mine->id, 'organization_id' => $org->id]);
+    $this->actingAs($l2, 'sanctum');
+
+    foreach ([$mine, $theirs] as $i => $service) {
+        $this->flushHeaders();
+        $this->withHeader('Idempotency-Key', "smt-p16-own-{$i}")->postJson("/v1/staff/services/{$service->id}/actions", ['action' => 'resume', 'reason' => 'obsah odstraněn, případ uzavřen'])
+            ->assertForbidden()->assertJsonPath('error', 'approval_required');
+        expect(SuspensionHold::holds($service->fresh()))->toBe(['abuse']);
+    }
+});
+// ── end TASK-0039 P0-16 re-check ──

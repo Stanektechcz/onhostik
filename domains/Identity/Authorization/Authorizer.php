@@ -187,6 +187,24 @@ final class Authorizer
         return array_values(array_unique($ids));
     }
 
+    // ── TASK-0039 P0-16 re-check ──
+    /**
+     * Whether the principal is a party of the organization: a binding of its own there (organization, project or a shared single
+     * service) — never a global binding or a JIT elevation. A member of staff acting in staff mode in such an organization takes a
+     * second person (IdentityCommandAuthorizer): the operator's own company is not theirs alone to lift a hold in.
+     */
+    public function belongsTo(Authenticatable|ServiceAccount $principal, string $organizationId): bool
+    {
+        foreach ($this->visibleBindings($principal) as $binding) {
+            if (! self::isReach($binding) && $binding['organization_id'] === $organizationId) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+    // ── end TASK-0039 P0-16 re-check ──
+
     public function hasGlobalBinding(Authenticatable|ServiceAccount $principal): bool
     {
         foreach ($this->visibleBindings($principal) as $binding) {

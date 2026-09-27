@@ -47,7 +47,7 @@ final class ServicesCommandHandler implements CommandHandler
     {
         $action = (string) $command->get('action');
         $params = (array) $command->get('params', []);
-        if (! StaffActor::acts($context)) { // a customer's request keeps only what a customer may choose (H21) — a member of staff on a customer route included (TASK-0039, IF-8)
+        if (! StaffActor::may($context, StaffActor::SERVICE_KEY)) { // a customer's request keeps only what a customer may choose (H21) — a member of staff on a customer route included (TASK-0039, IF-8), and one without the staff key on the staff route (P0-16 re-check)
             $params = CustomerActionParams::filter($action, $params);
         } elseif ($action === 'resize') { // staff repair or lower; more than the service holds is a raise, and a raise is an order (TASK-0022)
             LimitRaisePolicy::assertNoUnbilledRaise($service, (array) ($params['entitlements'] ?? []));
@@ -58,7 +58,7 @@ final class ServicesCommandHandler implements CommandHandler
         // checked backup.restore on this service only, and a single shared service is no right to another service's archive
         $operation = $action === 'archive.restore'
             ? $this->archives->restore($this->archives->archive((string) ($params['backup_id'] ?? ''), $service->organization_id), $service, $context, $command->idempotencyKey)
-            : $this->services->requestAction($service, $action, $context, $command->idempotencyKey, $params, authorizedPermission: $command->permission()); // the permission the bus just checked is the one the run asks for again before each step (H315)
+            : $this->services->requestAction($service, $action, $context, $command->idempotencyKey, $params, authorizedPermission: StaffActor::permissionOf($command, $context)); // the permission the bus just checked — the staff key in staff mode — is the one the run asks for again before each step (H315)
 
         return ['operation_id' => $operation->id, 'state' => $operation->state, 'kind' => $operation->kind, 'service_state' => $service->fresh()->state]
             + ($endsAgain ? ['warning' => ['code' => self::ENDS_AGAIN, 'message' => self::ENDS_AGAIN_MESSAGE]] : []);

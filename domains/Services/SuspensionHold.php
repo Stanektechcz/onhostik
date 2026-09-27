@@ -38,6 +38,8 @@ final class SuspensionHold
      */
     public static function kindFor(CommandContext $context, string $reason): ?string
     {
+        // staff mode, not a key (P0-16 re-check): the bus already asked the staff key of whatever suspends here (staff.service.manage,
+        // abuse.case.manage for compliance) — and a hold only ever takes a power away from the customer, it gives nobody one
         if ($context->actorType === 'user' && $context->actorId !== null && ! StaffActor::acts($context)) {
             return null;
         }

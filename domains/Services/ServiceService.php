@@ -315,8 +315,9 @@ final class ServiceService
             return $service;
         }
         // staff lift ONhost's holds in staff mode only (/v1/staff/*): a member of staff on a customer route is that customer — a
-        // quarantine of an operator's own organization was lifted by the operator (TASK-0039, IF-8, EXPL-2)
-        $staff = StaffActor::acts($context);
+        // quarantine of an operator's own organization was lifted by the operator (TASK-0039, IF-8, EXPL-2); and with the staff key only —
+        // an auditor who owns the organization lifted it on /v1/staff through the ownership (P0-16 re-check)
+        $staff = StaffActor::may($context, StaffActor::SERVICE_KEY);
         if ($context->actorType === 'user' && ! $staff) { // the customer, or anything acting as them
             $state = SuspensionHold::of($service);
 
@@ -498,7 +499,7 @@ final class ServiceService
         // planned end instead of failing in the queue for hours; staff working on the panel and system runs are not stopped
         if ($context->actorType === 'user') {
             $control = ControlPlaneStatus::of($service);
-            if (in_array($control['state'], ['maintenance', 'disabled'], true) && ! StaffActor::acts($context)) { // staff mode only (TASK-0039, IF-8, EXPL-3)
+            if (in_array($control['state'], ['maintenance', 'disabled'], true) && ! StaffActor::may($context, StaffActor::SERVICE_KEY)) { // staff mode with the staff key only (TASK-0039, IF-8, EXPL-3; P0-16 re-check)
                 $wait = $control['until'] === null ? 0 : (int) now()->diffInSeconds(Carbon::parse($control['until']), false);
 
                 throw new DomainError('control_plane_maintenance', (string) $control['message'], 503, ['control_plane' => $control] + ($wait > 0 ? ['retry_after' => $wait] : []));

@@ -15,8 +15,13 @@ declare(strict_types=1);
  *   PA-04 (both pins)            TokenPrincipalTest "refuses a token on another organization by header…", "…the resources of
  *                                another organization by id…" and "never lends a token the global reach of a staff role"
  *   IF-4                         StaffModeTest "counts a staff role on a customer key only as staff reach…"
- *   EXPL-1/2/3, SS-1             StaffModeTest "treats a member of staff on a customer route as the customer they are there…"
- *   credit gate / credit spend   ServiceReinstatement::actorMay / actsForPlatform ask StaffActor (StaffModeTest allow-list)
+ *   EXPL-1/2/3, SS-1             StaffModeTest "treats a member of staff on a customer route as the customer they are there…";
+ *                                on the staff route (the P0-16 re-check: they had moved there, with the customer keys) StaffModeTest
+ *                                "refuses the staff route to a member of staff without the staff key…", "takes a second person in
+ *                                any organization of their own…"
+ *   credit gate / credit spend   ServiceReinstatement::actorMay / actsForPlatform ask StaffActor::may with the staff billing key
+ *                                (PayAndRestoreTest "undoes a refunded cancellation on the platform authority only for a staff
+ *                                billing key…")
  *   SS-14                        StaffModeTest "passes the console pre-flight for whom the token was issued and for a member…"
  *   SE-3/SS-5, backup.delete     RiskFloorTest "makes staff reach on a customer CRITICAL key CRITICAL again…" and StaffModeTest
  *                                "makes a forced purge and a skipped archive CRITICAL staff.service.delete…"

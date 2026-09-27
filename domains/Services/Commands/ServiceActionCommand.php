@@ -6,6 +6,7 @@ namespace Onhost\Domain\Services\Commands;
 
 use Onhost\Domain\Identity\Authorization\PermissionCatalog;
 use Onhost\Domain\Identity\Authorization\RiskAwareCommand;
+use Onhost\Domain\Identity\Authorization\StaffModeCommand;
 use Onhost\Domain\Services\DestructivePreview;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Commands\CommandScope;
@@ -22,7 +23,7 @@ use Onhost\Platform\Errors\DomainError;
  * is HIGH for customers although the catalogue rates `backup.delete` CRITICAL: IdentityCommandAuthorizer forces CRITICAL only
  * for staff-audience permissions, and there is no customer four-eyes (D29.2) — the step-up is the customer's second lock.
  */
-final class ServiceActionCommand extends OrganizationCommand implements RiskAwareCommand
+final class ServiceActionCommand extends OrganizationCommand implements RiskAwareCommand, StaffModeCommand
 {
     /**
      * Every action of ServiceActionWorkflow::ACTIONS → the permission the bus asks for, and the operation row asks again before
@@ -254,6 +255,24 @@ final class ServiceActionCommand extends OrganizationCommand implements RiskAwar
         return array_key_exists('archive_before_delete', $params) && filter_var($params['archive_before_delete'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) !== true;
     }
     // ── end TASK-0039 ──
+
+    // ── TASK-0039 P0-16 re-check (staff mode asks staff keys) ──
+    /**
+     * The staff key of a customer key on /v1/staff/services/{id}/actions: managing a service (a resume, a suspend, a resize…) is
+     * `staff.service.manage`, removing one `staff.service.delete`. The staff route used to ask the customer key, which the staff
+     * person's own membership or a `svc_manage` share satisfied. A key with no staff counterpart stays what it is — the console,
+     * a restore, a copy deleted, the owner's panel password: staff reach it only as staff reach (shadow-logged, CRITICAL where
+     * the catalogue says so) or as a member, never with more than the customer route gives (StaffActor::may asks the staff key).
+     */
+    public const STAFF_PERMISSIONS = ['service.manage' => 'staff.service.manage', 'service.delete' => self::STAFF_DELETE, self::STAFF_DELETE => self::STAFF_DELETE];
+
+    public function staffPermission(): string
+    {
+        $permission = self::permissionFor((string) $this->get('action'), (array) $this->get('params', []));
+
+        return self::STAFF_PERMISSIONS[$permission] ?? $permission;
+    }
+    // ── end TASK-0039 P0-16 re-check ──
 
     public function requiresStepUp(): bool
     {

@@ -27,6 +27,12 @@ exploitable there, because their fix, TASK-0039, was in neither wave. TASK-0039 
 lines were struck: `EXPL-1`/`EXPL-2`/`EXPL-3` and `SS-1` (a member of staff on a customer route is the customer), `SS-14` (the
 console pre-flight), `credit.maySpend` (the reinstatement credit gate), `SS-5`/`SE-3` and `backup.delete` (CRITICAL
 `staff.service.delete`, staff reach on a customer CRITICAL key CRITICAL) and `SS-4`/`PA-06` (`PanelLoginCommand`).
+The P0-16 re-check of the final chain found `EXPL-1..3` and `SS-1` moved, not closed: `/v1/staff/services/{id}/actions` and
+`…/reinstate` asked the customer keys, so any staff account that was a member or a share guest of a service (an auditor, an IAM
+admin) lifted ONhost's holds and undid a refunded cancellation there. TASK-0039 closes that on the chain: staff mode asks staff
+keys (`staff.service.manage`, `staff.service.delete`, the staff billing key `billing.dunning.manage`), `StaffActor::may` asks
+the key of a staff role, and a member of staff acting in staff mode in an organization of their own takes a second person or
+the time lock (proofs: `StaffModeTest` "P0-16 re-check", `PayAndRestoreTest` "P0-16 re-check").
 
 What is left below is written down but still **allowed** until the operator switches the rule on. Until then the look-back for
 these is not a look-back: a clean report means only "not used yet", and a re-run after the Phase 0 deploy may grow. Phase 0 is

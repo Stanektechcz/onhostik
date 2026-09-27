@@ -396,6 +396,14 @@ final class ServiceController extends ApiController
         if ($service === null) {
             throw DomainError::notFound('service');
         }
+        // ── TASK-0039 P0-16 re-check ── on /v1/staff (the actions and reinstate routes) staff find a service with the staff key, not
+        // with a customer key their own membership or a share satisfies; what they may do to it the bus asks (StaffModeCommand)
+        if ($this->api::staffMode($request)) {
+            $this->api->authorize($request, 'staff.customer.read', CommandScope::global());
+
+            return $service;
+        }
+        // ── end TASK-0039 P0-16 re-check ──
         $this->api->authorize($request, $permission, CommandScope::resource($service->id, $service->organization_id, $service->project_id), $tokenPermission); // a project role covers the services of that project
 
         return $service;

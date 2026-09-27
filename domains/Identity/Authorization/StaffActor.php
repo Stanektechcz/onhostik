@@ -7,6 +7,7 @@ namespace Onhost\Domain\Identity\Authorization;
 use Onhost\Domain\Identity\Authorization\Models\JitElevation;
 use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
 use Onhost\Domain\Identity\Models\User;
+use Onhost\Platform\Commands\Command;
 use Onhost\Platform\Commands\CommandContext;
 
 /**
@@ -66,6 +67,48 @@ final class StaffActor
     {
         return self::acts($context) ? User::query()->find((string) $context->actorId) : null;
     }
+
+    // ── TASK-0039 P0-16 re-check (staff mode asks staff keys) ──
+    /** The staff key behind what staff do to a customer's service in staff mode: lift ONhost's holds, keep staff parameters, pass a panel under maintenance. */
+    public const SERVICE_KEY = 'staff.service.manage';
+
+    /**
+     * The staff billing key behind a decision about a customer's money on the platform's authority: a restore without the credit
+     * gate, a refunded or unpaid cancellation undone without a charge ("unsuspend for non-payment", finance and the owner).
+     */
+    public const BILLING_KEY = 'billing.dunning.manage';
+
+    /**
+     * Whether the context acts as staff AND the person holds `$key` through a staff role at platform level (a global binding or a
+     * live global JIT elevation). acts() alone asked only for staff mode, `is_staff` and an active account: an auditor or an IAM
+     * admin who is a member or a share guest of a service lifted ONhost's holds on /v1/staff through that membership (the P0-16
+     * re-check of the final Phase-0 chain). A membership is never a staff power.
+     */
+    public static function may(CommandContext $context, string $key): bool
+    {
+        $user = self::user($context);
+
+        return $user !== null && self::holds($user, $key, app(Authorizer::class));
+    }
+
+    /** Whether a staff role the person holds at platform level carries `$key`. */
+    public static function holds(User $user, string $key, Authorizer $authorizer): bool
+    {
+        foreach (self::staffRoles($user) as $role) {
+            if (in_array($key, $authorizer->roleCarries($role), true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** The permission the bus asks, and the run asks again: a StaffModeCommand's staff key in staff mode, else the command's own. */
+    public static function permissionOf(Command $command, CommandContext $context): ?string
+    {
+        return $context->staffMode && $command instanceof StaffModeCommand ? $command->staffPermission() : $command->permission();
+    }
+    // ── end TASK-0039 P0-16 re-check ──
 
     /**
      * Whether the person holds `staff.console` through a staff role whose families cover `$family` — a global binding or a live

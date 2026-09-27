@@ -35,7 +35,7 @@ final class IdentityCommandAuthorizer implements CommandAuthorizer
 
     public function authorize(Command $command, CommandContext $context): AuthorizationDecision
     {
-        $permission = $command->permission();
+        $permission = StaffActor::permissionOf($command, $context); // TASK-0039 P0-16 re-check: staff mode asks the staff key
         if ($permission === null) {
             return $context->actorType === 'system' || $context->actorType === 'user' || $context->actorType === 'service_account'
                 ? AuthorizationDecision::allow()
@@ -73,6 +73,15 @@ final class IdentityCommandAuthorizer implements CommandAuthorizer
         if ($basis === Authorizer::BASIS_STAFF && ! isset(PermissionCatalog::loweredRisk()[$command->name()][$permission])) {
             $risk = PermissionCatalog::risk($permission) === PermissionCatalog::CRITICAL ? PermissionCatalog::CRITICAL : $risk;
         }
+        // ── TASK-0039 P0-16 re-check ──
+        // a member of staff acting in staff mode in an organization of their own (a membership, a project, one shared service):
+        // what staff mode lets them do there — lift ONhost's hold on their own company, restore it on the platform's authority —
+        // is not theirs alone to decide. A second person, or the sole approver's time lock
+        $scope = $command->scope();
+        if ($context->staffMode && $command instanceof StaffModeCommand && $scope?->organizationId !== null && $this->authorizer->belongsTo($principal, $scope->organizationId)) {
+            $risk = PermissionCatalog::CRITICAL;
+        }
+        // ── end TASK-0039 P0-16 re-check ──
 
         $needsStepUp = $risk === PermissionCatalog::HIGH || $risk === PermissionCatalog::CRITICAL;
         $needsApproval = $risk === PermissionCatalog::CRITICAL;

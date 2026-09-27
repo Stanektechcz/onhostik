@@ -887,8 +887,10 @@ it('lets staff pay for a customer\'s restore while credit approval is on, as a r
 
     // TASK-0039 (IF-8): staff pay on the customer's behalf as staff, in staff mode; the same person on the customer's route is
     // asked like any member who may not spend the credit
-    $staff = $this->staff('cloud_vps_admin');
+    $staff = $this->staff('billing_operator');
     expect(fn () => app(ServiceReinstatement::class)->reinstate($service, $this->contextFor($staff), 'rr1-staff-pay-as-customer'))->toThrow(DomainError::class);
+    // P0-16 re-check: in staff mode too, only with the staff billing key — a service role does not spend a customer's credit
+    expect(fn () => app(ServiceReinstatement::class)->reinstate($service, $this->staffContextFor($this->staff('cloud_vps_admin')), 'rr1-staff-pay-no-key'))->toThrow(DomainError::class);
     expect(reinstateCharges())->toBe(0);
     $result = app(ServiceReinstatement::class)->reinstate($service, $this->staffContextFor($staff), 'rr1-staff-pay');
 
@@ -932,3 +934,19 @@ it('does not warn staff when a restore keeps a paid period or the auto-renew the
         expect(reinstateServiceAction($service, 'resume', $this->staffContextFor($staff, $org), "rr1-nowarn-{$i}", ['reason' => 'rozhodnutí podpory']))->not->toHaveKey('warning');
     }
 });
+
+// ── TASK-0039 P0-16 re-check (staff mode asks staff keys) ──
+it('undoes a refunded cancellation on the platform authority only for a staff billing key, not for any staff role (P0-16 re-check)', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $service = reinstateCancelled($org, ['hold' => null, 'reason' => 'chargeback cb_p16', 'period_end' => now()->addDays(20), 'operation_id' => 'op_chargeback_p16']);
+    ChargebackRequest::query()->create(['organization_id' => $org->id, 'service_id' => $service->id, 'requested_by' => $owner->id, 'state' => ChargebackRequest::REFUNDED, 'reason' => 'Odcházíme jinam.', 'percent' => 70, 'currency' => 'CZK',
+        'unused_minor' => 24200, 'refund_minor' => 16940, 'operation_id' => 'op_chargeback_p16', 'cancelled_at' => now()->subDays(5), 'refunded_at' => now()->subDays(5)]);
+    $reinstatement = app(ServiceReinstatement::class);
+
+    // support manages services, it does not give the customer's money back: the refunded period is not undone for free by it
+    expect(fn () => $reinstatement->assertCustomerMayResume($service, $this->staffContextFor($this->staff('support_l2'), $org)))
+        ->toThrow(fn (DomainError $e) => expect($e->error)->toBe('chargeback_cancelled'));
+    // the staff billing key decides it (and the staff route asks the same key of the restore itself)
+    expect(fn () => $reinstatement->assertCustomerMayResume($service, $this->staffContextFor($this->staff('billing_operator'), $org)))->not->toThrow(DomainError::class);
+});
+// ── end TASK-0039 P0-16 re-check ──

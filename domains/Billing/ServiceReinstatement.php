@@ -476,7 +476,7 @@ final class ServiceReinstatement
         $same = is_array($previous) && ($previous['cancellation'] ?? null) === $cancellation;
         $tags['reinstatement'] = [
             'requested_at' => ($same ? ($previous['requested_at'] ?? null) : null) ?? now()->toIso8601String(),
-            'by' => ($same ? ($previous['by'] ?? null) : null) ?? (StaffActor::acts($context) ? 'staff' : $context->actorType).($context->actorId !== null ? ':'.$context->actorId : ''),
+            'by' => ($same ? ($previous['by'] ?? null) : null) ?? (StaffActor::may($context, StaffActor::BILLING_KEY) ? 'staff' : $context->actorType).($context->actorId !== null ? ':'.$context->actorId : ''),
             'cancellation' => $cancellation, 'quoted_total_minor' => $quote['total_due']->minor, 'currency' => $quote['total_due']->currency->value, 'key' => mb_substr($key, 0, 160),
         ];
         $service->forceFill(['tags' => $tags])->save();
@@ -517,7 +517,8 @@ final class ServiceReinstatement
     }
 
     /**
-     * The actor holds the permission at the organization: staff always — in staff mode only (TASK-0039, IF-8: a member of staff on
+     * The actor holds the permission at the organization: staff always — in staff mode, with the staff billing key only (TASK-0039,
+     * P0-16 re-check: an auditor who owns the organization was staff enough there; IF-8: a member of staff on
      * the customer's route is asked like the customer); a user by their bindings (a user's API token acts as
      * that user — the token's scope is the bus's and the controller's check); an assistant or a service account never (reading
      * the credit, and asking to spend it, are the organization's people's own decision).
@@ -532,7 +533,7 @@ final class ServiceReinstatement
             return false;
         }
 
-        return $user->isActive() && (StaffActor::acts($context) || $this->authorizer->can($user, $permission, CommandScope::organization($organizationId)));
+        return $user->isActive() && (StaffActor::may($context, StaffActor::BILLING_KEY) || $this->authorizer->can($user, $permission, CommandScope::organization($organizationId)));
     }
 
     /** Which cancellation this is: a restore, its one charge and a recorded request belong to exactly one. */
@@ -628,11 +629,12 @@ final class ServiceReinstatement
     /**
      * Staff and the platform itself decide on their own authority; a customer, their API tokens and assistants do not. Staff in
      * staff mode only (TASK-0039, IF-8): a member of staff restoring a service of their own organization on the customer route
-     * skipped the credit gate every other member meets.
+     * skipped the credit gate every other member meets. And with the staff billing key (P0-16 re-check): support manages services,
+     * it does not give a customer's refunded period back for free.
      */
     private static function actsForPlatform(CommandContext $context): bool
     {
-        return $context->actorType === 'system' || StaffActor::acts($context);
+        return $context->actorType === 'system' || StaffActor::may($context, StaffActor::BILLING_KEY);
     }
 
     private static function label(Service $service): string
