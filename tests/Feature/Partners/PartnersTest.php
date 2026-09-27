@@ -14,6 +14,7 @@ use Onhost\Domain\Notifications\Models\Notification;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Partners\Models\Partner;
 use Onhost\Domain\Partners\Models\PartnerCommission;
+use Onhost\Domain\Partners\Models\PartnerPayoutAccount;
 use Onhost\Domain\Partners\PartnerService;
 use Onhost\Domain\Tax\Commands\OverrideVatStatusCommand;
 use Onhost\Domain\Tax\Commands\OverrideVatStatusHandler;
@@ -120,11 +121,15 @@ it('accrues commission from paid client invoices, reverses on credit notes, foll
     $this->actingAs($owner, 'sanctum');
     $h = ['X-Organization' => $partnerOrg->id];
     $clients = $this->withHeaders($h)->getJson('/v1/partner/clients')->assertOk();
-    expect($clients->json('data.0.name'))->toBe('Bezvazásilky s.r.o.')->and($clients->json('data.0.contact'))->toBe('petra@bezvazasilky.cz')->and($clients->json('data.0.st'))->toBe('ok');
+    // TASK-0040 (program D13, §10 O9): the partner sees its clients, not their contacts
+    expect($clients->json('data.0.name'))->toBe('Bezvazásilky s.r.o.')->and($clients->json('data.0.contact'))->toBeNull()->and($clients->json('data.0.contact_masked'))->toBeTrue()->and($clients->json('data.0.st'))->toBe('ok');
     $commissions = $this->withHeaders($h)->getJson('/v1/partner/commissions')->assertOk();
     expect($commissions->json('data.balance.payable.minor'))->toBe(1365000)->and($commissions->json('data.months'))->toHaveCount(4);
 
-    // payout: minimum, balance cap, IBAN, FIFO allocation with a split so the amount matches exactly
+    // payout: minimum, balance cap, IBAN, FIFO allocation with a split so the amount matches exactly — with a step-up, to the
+    // confirmed payout account (TASK-0040: the request's IBAN only confirms it)
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
+    PartnerPayoutAccount::query()->create(['partner_id' => $partner->id, 'iban' => 'CZ6508000000192000145399', 'source' => 'owner', 'usable_from' => now()->subDays(8)]);
     $this->withHeaders($h)->postJson('/v1/partner/payouts', ['amount' => 500, 'iban' => 'CZ6508000000192000145399'])->assertUnprocessable()->assertJsonPath('error', 'payout_below_minimum');
     $this->withHeaders($h)->postJson('/v1/partner/payouts', ['amount' => 99999, 'iban' => 'CZ6508000000192000145399'])->assertUnprocessable()->assertJsonPath('error', 'payout_exceeds_balance');
     $this->withHeaders($h)->postJson('/v1/partner/payouts', ['amount' => 5000, 'iban' => 'CZ65'])->assertUnprocessable()->assertJsonPath('error', 'payout_iban_invalid');
@@ -135,11 +140,17 @@ it('accrues commission from paid client invoices, reverses on credit notes, foll
     app(OutboxPublisher::class)->relayPending();
     expect(Notification::query()->where('audience', 'internal')->where('kind', 'partner')->exists())->toBeTrue();
 
+    // TASK-0040: one person approves the payout, another pays it, and a second person signs the payment
+    $approver = $this->steppedUpStaff('billing_finance_admin');
+    $this->actingAs($approver, 'sanctum');
+    $this->postJson("/v1/staff/partners/payouts/{$payout->json('id')}/approve")->assertOk()->assertJsonPath('state', 'approved');
     $finance = $this->staff('billing_finance_admin');
     $this->actingAs($finance, 'sanctum');
     $this->postJson("/v1/staff/partners/payouts/{$payout->json('id')}/pay", ['reference' => 'BANK-2026-0912'])->assertForbidden()->assertJsonPath('error', 'step_up_required');
     app(StepUpService::class)->grant($finance, 'totp', null, '127.0.0.1');
-    $this->postJson("/v1/staff/partners/payouts/{$payout->json('id')}/pay", ['reference' => 'BANK-2026-0912'])->assertOk()->assertJsonPath('state', 'paid');
+    $asked = $this->postJson("/v1/staff/partners/payouts/{$payout->json('id')}/pay", ['reference' => 'BANK-2026-0912'])->assertForbidden()->assertJsonPath('error', 'approval_required');
+    secondPersonApproves((string) $asked->json('approval_id'), $approver);
+    $this->postJson("/v1/staff/partners/payouts/{$payout->json('id')}/pay", ['reference' => 'BANK-2026-0912', 'approval_ids' => [$asked->json('approval_id')]])->assertOk()->assertJsonPath('state', 'paid');
     expect(LedgerTransaction::query()->where('kind', 'partner_payout')->exists())->toBeTrue()->and(PartnerCommission::query()->where('state', 'paid')->count())->toBe(2);
     app(OutboxPublisher::class)->relayPending();
     expect(MailOutbox::query()->where('template_key', 'payout')->where('to', $owner->email)->exists())->toBeTrue();

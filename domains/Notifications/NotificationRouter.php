@@ -399,10 +399,54 @@ final class NotificationRouter
             // ── TASK-0031: a VAT number checked in VIES — the billing contacts hear an invalid number, finance hears a staff override ──
             'tax.vat_number.checked' => $this->vatNumberChecked($m, $p, $org, $email, $portal, $locale),
             // ── end TASK-0031 ──
+            // ── TASK-0040 (permission program IF-14, D13, §10 O9): the payout account, a payout held for a look, and the masking notice ──
+            'partner.payout_account.changed' => $this->partnerAccountChanged($m, $p, $org, $portal, $locale),
+            'partner.payout_account.cancelled' => $this->customer($m, 'partner', 'Změna účtu pro výplaty zrušena', 'Výplaty dál odcházejí na dosavadní účet; zrušený účet '.($p['account'] ?? '').' se nepoužije.', '/partner#/vyplaty', 'info'),
+            'partner.payout.frozen' => $this->both($m, 'partner', 'Výplata provize pozastavena ke kontrole: '.$number, ($org->name ?? '').' · '.$money($p['amount'] ?? null).' · '.(string) ($p['reason'] ?? ''), 'Výplata '.$number.' čeká na kontrolu', 'Než ji finance schválí a odešlou, prověří ji. Napište podpoře, pokud máte otázku.', '/sprava/fakturace', '/partner#/vyplaty', 'warn'),
+            'partner.payout.unfrozen' => $this->both($m, 'partner', 'Výplata provize uvolněna: '.$number, (string) ($p['reason'] ?? ''), 'Výplata '.$number.' je po kontrole uvolněna', 'Finance ji schválí a odešlou jako obvykle.', '/sprava/fakturace', '/partner#/vyplaty', 'info'),
+            'partner.client_data.masked' => $this->customer($m, 'partner', 'Partnerský portál už neukazuje kontakty klientů', 'Kontaktní e-maily klientů a jejich upomínky v portálu nevidíte; provize, klienti a jejich služby zůstávají. Kontakty uvidíte znovu jen se souhlasem klienta.', '/partner', 'warn', $email, 'legal-notice', $this->partnerMaskingMail($portal, $locale)),
+            // ── end TASK-0040 ──
             default => null,
         };
     }
 
+    // ── TASK-0040 ──
+    /**
+     * A new payout account (program IF-14): it is the moment a stolen session would redirect the commission, so the owner and
+     * the billing contact hear it by the mandatory notice mail, each at their own address — not only in the portal the
+     * session could read — with the masked account, the day it is used from and how to call it off; finance hears it too.
+     *
+     * @param  array<string,mixed>  $p
+     */
+    private function partnerAccountChanged(OutboxMessage $m, array $p, ?Organization $org, string $portal, string $locale): void
+    {
+        $from = self::when($p['usable_from'] ?? null);
+        $this->customer($m, 'partner', 'Účet pro výplaty provizí změněn', 'Nový účet '.($p['account'] ?? '').' se použije od '.$from.'. Pokud jste změnu neprovedli vy, zrušte ji v partnerském portálu.', '/partner#/vyplaty', 'warn');
+        $this->internal($m, 'partner', 'Partner mění účet pro výplaty: '.($p['partner_code'] ?? ''), ($org->name ?? '').' · '.($p['previous'] ?? '—').' → '.($p['account'] ?? '').' · od '.$from, '/sprava/fakturace', 'info');
+        $en = $locale === 'en';
+        $vars = [
+            'nazev' => $en ? 'Payout account changed' : 'Změna účtu pro výplatu provizí',
+            'text' => $en
+                ? 'The account partner commissions are paid to was changed to '.($p['account'] ?? '').' (until now '.($p['previous'] ?? 'none').'). It is used from '.$from.'; until then payouts go to the account they went to. If you did not make this change, call it off in the partner portal and change your password.'
+                : 'Účet pro výplatu provizí partnerského programu byl změněn na '.($p['account'] ?? '').' (dosud '.($p['previous'] ?? 'žádný').'). Nový účet se použije od '.$from.'; do té doby odcházejí výplaty na dosavadní účet. Pokud jste změnu neprovedli vy, zrušte ji v partnerském portálu a změňte si heslo.',
+            'url' => "{$portal}/partner#/vyplaty",
+        ];
+        $owner = $org === null ? null : User::query()->find($org->owner_user_id);
+        $to = array_unique(array_filter([strtolower((string) ($owner->email ?? '')), strtolower((string) ($org->billing_email ?? ''))]));
+        foreach ($to as $address) {
+            $this->notifications->queueMail('legal-notice', $address, $vars, $m->aggregate_type, $m->aggregate_id, $m->organization_id, $org->locale ?? 'cs');
+        }
+    }
+
+    /** @return array<string,string> the notice mail of the masking (program §10 O9), in the organization's language */
+    private function partnerMaskingMail(string $portal, string $locale): array
+    {
+        return $locale === 'en'
+            ? ['nazev' => 'Client contacts are no longer shown in the partner portal', 'text' => 'From today the partner portal shows neither the contact e-mails of your clients nor whether they are behind with their invoices. Your commissions, your clients and their services stay as they were. Contact details come back only with the client\'s consent.', 'url' => "{$portal}/partner"]
+            : ['nazev' => 'Partnerský portál už neukazuje kontakty klientů', 'text' => 'Od dnešního dne partnerský portál neukazuje kontaktní e-maily vašich klientů ani to, zda jsou v prodlení s platbou. Provize, klienti a jejich služby zůstávají beze změny. Kontaktní údaje uvidíte znovu jen se souhlasem klienta.', 'url' => "{$portal}/partner"];
+    }
+
+    // ── end TASK-0040 ──
     // ── TASK-0031 ──
     /**
      * What a VIES verdict means for the customer (D31.8). An invalid number of another EU state is told to the billing contacts

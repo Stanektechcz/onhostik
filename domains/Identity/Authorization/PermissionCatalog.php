@@ -22,8 +22,13 @@ final class PermissionCatalog
      * Customer permissions that belong to the organization owner alone (owner decisions 14/15): no admin, operator, shared
      * (svc_*) or staff role holds them. RoleCatalog withholds them from org_admin; PermissionMatrixTest keeps it that way.
      */
-    public const OWNER_ONLY = ['organization.close', 'service.panel_account.manage'];
+    public const OWNER_ONLY = ['organization.close', 'service.panel_account.manage', ...self::PARTNER_OWNER_ONLY];
     // ── end TASK-0021 ──
+
+    // ── TASK-0040 (permission program IF-14, audit P2) ──
+    /** Where the partner's commission is paid is the owner's decision alone: no admin, billing role or staff sets it. */
+    public const PARTNER_OWNER_ONLY = ['partner.payout_account.manage'];
+    // ── end TASK-0040 ──
 
     // ── TASK-0037 (permission program IF-13, principle 6 "risk only goes up") ──
     /**
@@ -187,6 +192,11 @@ final class PermissionCatalog
             'staff.backup.read' => $s('View backups and restore points of customer services (operations)'),
             'staff.billing.read' => $s('View invoices, withdrawals and billing records of every customer (finance)'),
             // ── end TASK-0037 ──
+            // ── TASK-0040 (permission program IF-14, audit P2/P5): the partner portal is read by the roles that run the partnership,
+            // not by every member (client names, commissions and payouts); the payout account is the owner's, with a step-up ──
+            'partner.portal.read' => $c('View the partner portal: clients, commissions, payouts and the payout account'),
+            'partner.payout_account.manage' => $c('Set the bank account partner commissions are paid to (organization owner only; usable after a cooling-off)', self::HIGH),
+            // ── end TASK-0040 ──
         ];
     }
 

@@ -149,6 +149,11 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
         Route::post('model', [PartnerController::class, 'requestModel']);
         Route::get('changes', [PartnerController::class, 'changes']); // every contract term and its requests (audit §5n-1)
         Route::post('changes', [PartnerController::class, 'requestChange']);
+        // ── TASK-0040 (permission program IF-14): the payout account is its own step (owner, step-up, notice, cooling-off) ──
+        Route::get('payout-account', [PartnerController::class, 'payoutAccount']);
+        Route::put('payout-account', [PartnerController::class, 'setPayoutAccount']);
+        Route::delete('payout-account/pending', [PartnerController::class, 'cancelPayoutAccount']);
+        // ── end TASK-0040 ──
         // marketplace (audit §5j-1): the partner's listings and deliveries
         Route::get('marketplace/listings', [MarketplaceController::class, 'partnerListings']);
         Route::post('marketplace/listings', [MarketplaceController::class, 'createListing']);
@@ -610,6 +615,10 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
         Route::get('partners/{partner}', [StaffPartnerController::class, 'show']);
         Route::post('partners/{partner}/approve', [StaffPartnerController::class, 'approve']);
         Route::post('partners/{partner}/state', [StaffPartnerController::class, 'state']);
+        // ── TASK-0040 (permission program IF-14): a payout held for a look, and released with a reason ──
+        Route::post('partners/payouts/{payout}/freeze', [StaffPartnerController::class, 'freezePayout']);
+        Route::post('partners/payouts/{payout}/unfreeze', [StaffPartnerController::class, 'unfreezePayout']);
+        // ── end TASK-0040 ──
         Route::get('leads', [StaffContentController::class, 'leads']);
         Route::post('leads/{lead}/transition', [StaffContentController::class, 'transitionLead']);
         Route::put('content/posts', [StaffContentController::class, 'upsertPost']);

@@ -200,6 +200,16 @@ final class Lexicon
         'DIČ ' => 'VAT number ', 'Stav DIČ nastaven ručně: ' => 'VAT number status set by hand: ',
         'DIČ není v registru plátců DPH' => 'Your tax number is not in the VAT register', ' není v registru plátců DPH (VIES). Pokud jste plátce DPH, zkontrolujte ho ve fakturačních údajích.' => ' is not in the VAT register (VIES). If you are a VAT payer, please check it in your billing details.',
         // ── end TASK-0031 ──
+        // ── TASK-0040 partner payout account, payouts held for a look, masked client data ──
+        'Účet pro výplaty provizí změněn' => 'Payout account changed', 'Nový účet ' => 'The new account ', ' se použije od ' => ' is used from ',
+        '. Pokud jste změnu neprovedli vy, zrušte ji v partnerském portálu.' => '. If you did not make this change, call it off in the partner portal.',
+        'Změna účtu pro výplaty zrušena' => 'Payout account change called off', 'Výplaty dál odcházejí na dosavadní účet; zrušený účet ' => 'Payouts keep going to the account they went to; the called-off account ',
+        ' se nepoužije.' => ' will not be used.', 'Výplata ' => 'Payout ', ' čeká na kontrolu' => ' is waiting for a check', ' je po kontrole uvolněna' => ' was released after the check',
+        'Než ji finance schválí a odešlou, prověří ji. Napište podpoře, pokud máte otázku.' => 'Finance checks it before approving and sending it. Write to support if you have a question.',
+        'Finance ji schválí a odešlou jako obvykle.' => 'Finance will approve and send it as usual.',
+        'Partnerský portál už neukazuje kontakty klientů' => 'The partner portal no longer shows client contacts',
+        'Kontaktní e-maily klientů a jejich upomínky v portálu nevidíte; provize, klienti a jejich služby zůstávají. Kontakty uvidíte znovu jen se souhlasem klienta.' => 'Your clients\' contact e-mails and their payment reminders are no longer shown in the portal; commissions, clients and their services stay. Contacts come back only with the client\'s consent.',
+        // ── end TASK-0040 ──
     ];
 
     public static function translate(?string $text, string $locale): ?string

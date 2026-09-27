@@ -44,16 +44,43 @@ final class PartnerController extends ApiController
         [$partner] = $this->partner($request);
         $list = PartnerPayout::query()->where('partner_id', $partner->id)->orderByDesc('requested_at')->get()->map(fn (PartnerPayout $p) => PartnerPresenters::payout($p))->values()->all();
 
-        return $this->ok(['balance' => $partners->balance($partner), 'iban_masked' => PartnerPresenters::partner($partner)['iban_masked'], 'payouts' => $list]);
+        $account = $partners->payoutAccounts()->present($partner);
+
+        return $this->ok(['balance' => $partners->balance($partner), 'iban_masked' => $account['active']['iban_masked'] ?? null, 'payout_account' => $account, 'payouts' => $list]);
     }
 
+    /** TASK-0040: the IBAN is optional and only confirms the payout account; a different one is refused, never written. */
     public function requestPayout(Request $request): JsonResponse
     {
         [, $organization] = $this->partner($request);
-        $data = $request->validate(['amount' => ['required', 'numeric', 'min:1'], 'iban' => ['required', 'string', 'max:34'], 'method' => ['nullable', 'in:bank_transfer,offset']]);
+        $data = $request->validate(['amount' => ['required', 'numeric', 'min:1'], 'iban' => ['nullable', 'string', 'max:42'], 'method' => ['nullable', 'in:bank_transfer,offset']]);
 
         return $this->dispatch(new PartnerPortalCommand($organization->id, $this->idempotencyKey($request, "partner.payout:{$organization->id}"), ['op' => 'payout.request'] + $data), $this->api->context($request, $organization), 201);
     }
+
+    // ── TASK-0040 (permission program IF-14, audit P2): the payout account is its own step — the owner, a step-up, a notice, a cooling-off ──
+    public function payoutAccount(Request $request, PartnerService $partners): JsonResponse
+    {
+        [$partner] = $this->partner($request);
+
+        return $this->ok($partners->payoutAccounts()->present($partner));
+    }
+
+    public function setPayoutAccount(Request $request): JsonResponse
+    {
+        [, $organization] = $this->partner($request);
+        $data = $request->validate(['iban' => ['required', 'string', 'max:42']]);
+
+        return $this->dispatch(new PartnerPortalCommand($organization->id, $this->idempotencyKey($request, "partner.payout_account:{$organization->id}"), ['op' => 'payout_account.set', 'iban' => $data['iban']]), $this->api->context($request, $organization));
+    }
+
+    public function cancelPayoutAccount(Request $request): JsonResponse
+    {
+        [, $organization] = $this->partner($request);
+
+        return $this->dispatch(new PartnerPortalCommand($organization->id, $this->onceKey($request, "partner.payout_account.cancel:{$organization->id}"), ['op' => 'payout_account.cancel']), $this->api->context($request, $organization));
+    }
+    // ── end TASK-0040 ──
 
     /** The commission model is a contract term (audit §5m-1): the partner asks, finance decides, the change takes effect next month. */
     public function requestModel(Request $request): JsonResponse
@@ -122,7 +149,9 @@ final class PartnerController extends ApiController
     private function partner(Request $request): array
     {
         $organization = $this->api->organization($request);
-        $this->api->authorize($request, 'organization.read', CommandScope::organization($organization->id));
+        // TASK-0040 (audit P5): the portal shows client names, commissions and payouts — the roles that run the partnership
+        // read it (partner.portal.read), not every member with organization.read
+        $this->api->authorize($request, 'partner.portal.read', CommandScope::organization($organization->id));
         $partner = Partner::query()->where('organization_id', $organization->id)->first();
         if ($partner === null) {
             throw new DomainError('partner_missing', 'This organization is not enrolled in the partner programme.', 404);

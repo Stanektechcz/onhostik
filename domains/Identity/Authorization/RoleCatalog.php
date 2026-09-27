@@ -80,13 +80,13 @@ final class RoleCatalog
             'auditor_read_only' => self::role('AuditorReadOnly', 'Immutable audit/evidence read', 'global', true, ['audit.read.global', 'security.event.read', 'report.read', 'staff.customer.read', 'provisioning.operation.read', 'ai.ops.read']),
             // commission only (red-team round of the Phase-0 chain): it never had reseller powers, whatever its old name said; the panel
             // calls it „partner (jen provize)“ (TASK-0035)
-            'partner' => self::role('Partner (commission only)', 'Read access, orders and support tickets; earns commission only', 'organization', false, array_merge($customerRead, ['catalog.order.create', 'support.ticket.write', 'support.chat.use'])),
+            'partner' => self::role('Partner (commission only)', 'Read access, orders and support tickets; earns commission only', 'organization', false, array_merge($customerRead, ['catalog.order.create', 'support.ticket.write', 'support.chat.use'], self::PARTNER_PORTAL)),
         ];
     }
 
     // ── TASK-0021 ──
     /** Customer permissions no staff account holds, not even the break-glass one (owner decision 15): they are the organization owner's. */
-    public const STAFF_NEVER = ['service.panel_account.manage'];
+    public const STAFF_NEVER = ['service.panel_account.manage', ...PermissionCatalog::PARTNER_OWNER_ONLY]; // TASK-0040: the partner's payout account too
 
     /**
      * What an organization admin is NOT given — the one place the org_admin line is decided: the owner-only permissions
@@ -108,8 +108,17 @@ final class RoleCatalog
     public const CREDIT_SPENDING = ['billing.wallet.spend'];
 
     /** What the billing admin holds besides the billing line itself (owner decision 20). */
-    public const BILLING_ADMIN_EXTRA = self::CREDIT_SPENDING;
+    public const BILLING_ADMIN_EXTRA = [...self::CREDIT_SPENDING, ...self::PARTNER_PORTAL];
     // ── end TASK-0021 ──
+
+    // ── TASK-0040 (permission program IF-14, audit P5) ──
+    /**
+     * The partner portal (clients, commissions, payouts) is read by the roles that run the partnership: the owner and the
+     * organization admin (every customer permission but the owner's), the billing admin and the partner role. It used to
+     * need `organization.read` only, which every member holds — a viewer or a developer read the partner's client list.
+     */
+    public const PARTNER_PORTAL = ['partner.portal.read'];
+    // ── end TASK-0040 ──
 
     /** @param list<string> $permissions */
     private static function role(string $name, string $description, string $scope, bool $staff, array $permissions): array

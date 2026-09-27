@@ -171,7 +171,21 @@
       var d = r.data || r; reload(cmp);
       cmp.flash(tr(cmp, 'Žádost přijata', 'Request received'), (d.number || '') + ' — ' + tr(cmp, 'samofakturaci vystavíme a peníze odejdou do pěti pracovních dnů.', 'we issue the self-billed invoice and the money leaves within five working days.'));
       cmp.setState({ payAmount: '', payTouched: false });
-    }).catch(function (e) { cmp.flash(tr(cmp, 'Žádost neprošla', 'Request failed'), (e && e.message) || 'error'); });
+    }).catch(function (e) {
+      /* TASK-0040: payouts go to the confirmed payout account only; another IBAN is the owner's own step (step-up, notice e-mail,
+         used after the cooling-off) — offered here instead of a dead end, never sent along with the payout */
+      var code = e && e.body && e.body.error;
+      if ((code === 'payout_account_missing' || code === 'payout_account_mismatch') && iban && window.confirm(tr(cmp,
+        'Výplaty odcházejí jen na potvrzený účet. Nastavit ' + iban + ' jako účet pro výplaty? Použije se až po 7 dnech a majitel organizace dostane e-mail.',
+        'Payouts go to the confirmed account only. Set ' + iban + ' as the payout account? It is used after 7 days and the organization owner gets an e-mail.'))) {
+        a.put('/partner/payout-account', { iban: iban }, { 'Idempotency-Key': a.key() }).then(function () {
+          reload(cmp);
+          cmp.flash(tr(cmp, 'Účet pro výplaty uložen', 'Payout account saved'), tr(cmp, 'Použije se za 7 dní; do té doby odcházejí výplaty na dosavadní účet.', 'It is used in 7 days; until then payouts go to the account they went to.'));
+        }).catch(function (e2) { cmp.flash(tr(cmp, 'Účet se nepodařilo uložit', 'The account was not saved'), (e2 && e2.message) || 'error'); });
+        return;
+      }
+      cmp.flash(tr(cmp, 'Žádost neprošla', 'Request failed'), (e && e.message) || 'error');
+    });
   }
   /* white-label: the settings come from the API once (sync), saving goes through PUT, verification is the scheduler's job */
   function sync(cmp) {

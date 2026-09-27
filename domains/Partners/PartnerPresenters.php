@@ -30,7 +30,12 @@ final class PartnerPresenters
             'id' => $p->id, 'number' => $p->number, 'partner_id' => $p->partner_id, 'amount' => Money::minor($p->amount_minor, $p->currency), 'transfer' => $p->transferAmount(), 'method' => $p->method, 'state' => $p->state,
             'iban_masked' => $p->iban ? substr($p->iban, 0, 4).'…'.substr($p->iban, -4) : null, 'self_billing' => $internal ? $p->self_billing : self::partnerSelfBilling($p->self_billing), 'payment_reference' => $p->payment_reference, 'note' => $p->note,
             'requested_at' => $p->requested_at?->toIso8601String(), 'paid_at' => $p->paid_at?->toIso8601String(),
-        ];
+            // TASK-0040: a payout held for a look says so to both sides; who asked, approved and why it is held is finance's
+            'frozen' => $p->isFrozen(),
+        ] + ($internal ? [
+            'requested_by' => $p->requested_by, 'approved_by' => $p->approver(), 'approved_at' => $p->approved_at?->toIso8601String(), 'payout_account_id' => $p->payout_account_id,
+            'frozen_at' => $p->frozen_at?->toIso8601String(), 'frozen_by' => $p->frozen_by, 'frozen_reason' => $p->frozen_reason,
+        ] : []);
     }
 
     /**

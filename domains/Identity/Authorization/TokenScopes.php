@@ -171,6 +171,11 @@ final class TokenScopes
         'staff.backup.read' => null,
         'staff.billing.read' => null,
         // ── end TASK-0037 ──
+
+        // ── TASK-0040: the partner portal and the payout account stay with the portal session ──
+        'partner.portal.read' => null,
+        'partner.payout_account.manage' => null,
+        // ── end TASK-0040 ──
     ];
 
     /** The scope a token needs for `$permission`; null = not available to API tokens (unknown permissions included). */
