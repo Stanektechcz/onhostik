@@ -78,7 +78,9 @@ final class RoleCatalog
             'marketing_content' => self::role('MarketingContent', 'Public content only', 'global', true, ['content.manage']),
             'product_manager' => self::role('ProductManager', 'Catalogue, plan versions and prices, notification templates, feature flags; no customer data beyond the overview', 'global', true, ['catalog.manage', 'notification.template.manage', 'feature_flag.manage', 'content.manage', 'report.read', 'staff.customer.read']),
             'auditor_read_only' => self::role('AuditorReadOnly', 'Immutable audit/evidence read', 'global', true, ['audit.read.global', 'security.event.read', 'report.read', 'staff.customer.read', 'provisioning.operation.read', 'ai.ops.read']),
-            'partner' => self::role('Partner / Reseller', 'Sub-customers, commissions, white-label', 'organization', false, array_merge($customerRead, ['catalog.order.create', 'support.ticket.write', 'support.chat.use'])),
+            // commission only (red-team round of the Phase-0 chain): it never had reseller powers, whatever its old name said; the panel
+            // calls it „partner (jen provize)“ (TASK-0035)
+            'partner' => self::role('Partner (commission only)', 'Read access, orders and support tickets; earns commission only', 'organization', false, array_merge($customerRead, ['catalog.order.create', 'support.ticket.write', 'support.chat.use'])),
         ];
     }
 

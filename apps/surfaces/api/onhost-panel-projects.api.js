@@ -23,7 +23,9 @@
   function roles() { var acct = window.OnhostPanelAccount; return (acct && acct.roles) || FALLBACK_ROLES; }
   function roleKey(label) { var r = roles().filter(function (x) { return x[1] === label || x[2] === label || x[0] === label; })[0]; return r ? r[0] : label; }
   function roleLabel(key, cs) { var r = roles().filter(function (x) { return x[0] === key; })[0]; return r ? (cs ? r[1] : r[2]) : key; }
-  function canManage() { var u = me() || {}; return !u.member_role || u.member_role === 'owner' || u.member_role === 'org_admin'; }
+  /* fail closed (red-team round, IF-17): a role the server did not report manages nothing — the server refuses anyway, the page
+     must not offer what will be refused */
+  function canManage() { var u = me() || {}; return u.member_role === 'owner' || u.member_role === 'org_admin'; }
 
   function loadList(cmp) {
     if (S.list !== null || S.busy.list || !A() || !orgId()) return;
