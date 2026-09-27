@@ -224,9 +224,13 @@ final class OnhostDeployGate
     /**
      * The environment file against a spec (staging-launch.md S3; the deployer runs it before every staging release). Spec
      * lines: `KEY=value` must equal · `KEY=` empty or absent · `KEY?` set · `KEY!=value` must differ · `KEY~=regex`
-     * must match; `#` starts a comment line. A value in `<…>` is a placeholder nobody filled: refused. Values are read
-     * like phpdotenv (parseEnv) and never printed — the file holds secrets, and a mismatching secret must not show. A key
+     * must match · `PREFIX_*=` every key of that family the spec does not name on a line of its own is empty or absent;
+     * `#` starts a comment line. A value in `<…>` is a placeholder nobody filled: refused. Values are read like
+     * phpdotenv (parseEnv) and never printed — the file holds secrets, and a mismatching secret must not show. A key
      * defined twice with different values, or a value holding `${`, is a MISMATCH whatever the rule says.
+     *
+     * The family rule (review round 0, security MEDIUM): EnvSecretStore reads an `env://X` reference as every `X_*` key,
+     * and a live key under a name nobody listed passed a spec of single keys.
      */
     public static function envAssert(string $file, string $spec): int
     {
@@ -235,19 +239,28 @@ final class OnhostDeployGate
 
             return 2;
         }
-        $failed = false;
+        $rules = [];
         foreach (preg_split('/\R/', (string) file_get_contents($spec)) ?: [] as $n => $line) {
             $line = trim($line);
             if ($line === '' || str_starts_with($line, '#')) {
                 continue;
             }
-            if (preg_match('/^([A-Z][A-Z0-9_]*)(\?|!=|~=|=)(.*)$/', $line, $m) !== 1 || ($m[2] === '?' && trim($m[3]) !== '')) {
-                fwrite(STDERR, 'spec line '.($n + 1)." is not KEY=value, KEY=, KEY?, KEY!=value or KEY~=regex\n");
+            if (preg_match('/^([A-Z][A-Z0-9_]*)(\*?)(\?|!=|~=|=)(.*)$/', $line, $m) !== 1 || ($m[3] === '?' && trim($m[4]) !== '')
+                || ($m[2] === '*' && ($m[3] !== '=' || trim($m[4]) !== ''))) {
+                fwrite(STDERR, 'spec line '.($n + 1)." is not KEY=value, KEY=, KEY?, KEY!=value, KEY~=regex or PREFIX_*=\n");
 
                 return 2;
             }
-            [, $key, $op, $want] = $m;
-            $want = trim($want);
+            $rules[] = [$m[1], $m[2] === '*', $m[3], trim($m[4])];
+        }
+        $named = array_column(array_filter($rules, fn (array $r) => ! $r[1]), 0);
+        $failed = false;
+        foreach ($rules as [$key, $family, $op, $want]) {
+            if ($family) {
+                $failed = self::familyEmpty($file, $key, $named) || $failed;
+
+                continue;
+            }
             if (preg_match('/<[^>]*>/', $want) === 1) {
                 fwrite(STDOUT, "UNFILLED {$key}: the spec still holds a placeholder\n");
                 $failed = true;
@@ -282,6 +295,35 @@ final class OnhostDeployGate
         }
 
         return $failed ? 13 : 0;
+    }
+
+    /**
+     * A family line: every key of $file starting with $prefix and not named by a line of its own must be empty or
+     * absent (read like envAssert: two different definitions or `${` count as a value). Prints OK/MISMATCH, never a
+     * value; true when a key failed.
+     *
+     * @param  list<string>  $named
+     */
+    private static function familyEmpty(string $file, string $prefix, array $named): bool
+    {
+        $keys = [];
+        foreach (preg_split('/\R/', (string) file_get_contents($file)) ?: [] as $line) {
+            if (preg_match('/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/', $line, $m) === 1 && str_starts_with($m[1], $prefix) && ! in_array($m[1], $named, true)) {
+                $keys[$m[1]] = true;
+            }
+        }
+        $failed = false;
+        foreach (array_keys($keys) as $key) {
+            if (array_filter(self::envValues($file, (string) $key), fn (string $v) => $v !== '') !== []) {
+                fwrite(STDOUT, "MISMATCH {$key}: expected empty or absent (family {$prefix}*)\n");
+                $failed = true;
+            }
+        }
+        if (! $failed) {
+            fwrite(STDOUT, "OK {$prefix}*\n");
+        }
+
+        return $failed;
     }
 
     /**

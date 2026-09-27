@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # CI end-to-end run of the INSTALLED deployer against a real copy of this application (TASK-0032). Only systemctl,
-# chown and the PHP-FPM reload are stubbed; maintenance mode, composer, migrations, seeders, caches, onhost:openapi,
-# the platform backup and its verification, the doctor, the gate and the HTTP checks are real (SQLite, local backup
-# disk, `php -S` serving public/). Runs A → B → A, where B adds a migration and edits the committed OpenAPI file (the
+# chown, setpriv (unprivileged it cannot switch users; it logs and runs the command) and the PHP-FPM reload are
+# stubbed; maintenance mode, composer, migrations, seeders, caches, onhost:openapi, the platform backup and its
+# verification, the doctor, the gate, the egress probe and the HTTP checks are real (SQLite, local backup disk,
+# `php -S` serving public/). Runs A → B → A, where B adds a migration and edits the committed OpenAPI file (the
 # one tracked file a build rewrites). Nothing outside the work directory is touched.
 #
 #   PHP_BIN=php COMPOSER_BIN=/usr/local/bin/composer bash infra/aapanel/ci/deploy-e2e.sh [work dir]
@@ -83,8 +84,10 @@ if ! { ln -sfn "$box/etc/app.env" "$app/.env" 2>/dev/null && [ -L "$app/.env" ];
 (cd "$app" && COMPOSER_ALLOW_SUPERUSER=1 "$PHP_BIN" "$COMPOSER_BIN" install --no-dev --no-interaction --prefer-dist --no-progress --quiet)
 (cd "$app" && "$PHP_BIN" artisan migrate --force --no-interaction >/dev/null)
 
-echo "── stubs (systemctl, chown, fpm reload; flock only where the OS has none)"
+echo "── stubs (systemctl, chown, fpm reload, setpriv; flock only where the OS has none)"
 for tool in systemctl chown fpm-reload; do printf '#!/usr/bin/env bash\necho "%s $*" >> "%s/stub.log"\n[ "${1:-}" = is-active ] && exit 3\nexit 0\n' "$tool" "$box" > "$box/bin/$tool"; done
+# setpriv: the deployer hands every artisan/composer call to it (as_run); unprivileged it can only run the command
+printf '#!/usr/bin/env bash\necho "setpriv $*" >> "%s/stub.log"\nwhile [ $# -gt 0 ] && [ "$1" != -- ]; do shift; done\nshift\nexec "$@"\n' "$box" > "$box/bin/setpriv"
 command -v flock >/dev/null 2>&1 || printf '#!/usr/bin/env bash\nexit 0\n' > "$box/bin/flock"
 chmod +x "$box/bin/"*
 
@@ -102,7 +105,8 @@ echo "── the deployer's lists: no unit (systemctl is stubbed), the environme
 # mechanics, the refusal of a row outside the list is pinned in DeployGateTest
 (umask 077
   printf '# e2e: no unit is managed here\n' > "$box/state/expected-units"
-  printf 'APP_ENV=staging\nAPP_DEBUG=false\nAPP_URL=https://staging.test\nMAIL_MAILER=log\nONHOST_SECRETS_DRIVER=db\n' > "$box/state/expected-env")
+  printf 'APP_ENV=staging\nAPP_DEBUG=false\nAPP_URL=https://staging.test\nMAIL_MAILER=log\nONHOST_SECRETS_DRIVER=db\nAI_ANTHROPIC_*=\nONHOST_CONSOLE_RELAY_KEY=\n' > "$box/state/expected-env"
+  printf '# nothing listens here: the probe must fail\n127.0.0.1:1\n' > "$box/state/egress-blocked")
 (cd "$app" && "$PHP_BIN" artisan onhost:doctor --json > "$box/doctor-before.json") || true
 "$PHP_BIN" "$box/lib/deploy-gate.php" nonok --report "$box/doctor-before.json" --production 0 > "$box/expected-nonok.draft" || fail "cannot draft the expected-nonok list"
 (umask 077; cp "$box/expected-nonok.draft" "$box/state/expected-nonok")
@@ -113,7 +117,7 @@ deploy() { # $1 = sha
   [ "${E2E_ALLOW_DOCTOR_FAIL:-0}" = 1 ] && allow=(ALLOW_DOCTOR_FAIL="${1:0:12}:local e2e run without a CA bundle")
   (cd "$app" && env PATH="$box/bin:$PATH" ${allow[@]+"${allow[@]}"} SITE=staging.test APP_DIR="$app" PHP="$PHP_BIN" COMPOSER="$COMPOSER_BIN" \
     RUN_USER="$(id -un)" ENV_FILE="$box/etc/app.env" DEPLOY_STATE_DIR="$box/state" DEPLOY_LIB_DIR="$box/lib" PHP_FPM_RELOAD="$box/bin/fpm-reload" \
-    DEPLOY_HTTP_BASE="http://127.0.0.1:$PORT" DEPLOY_OWNER_UID="$(id -u)" DEPLOY_HOME="$HOME" \
+    DEPLOY_HTTP_BASE="http://127.0.0.1:$PORT" DEPLOY_OWNER_UID="$(id -u)" DEPLOY_WORK_DIR="$box/work/staging.test" \
     DEPLOY_SAFE_PATH="$box/bin:$(dirname "$PHP_BIN"):/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
     DEPLOY_OPERATOR=ci-e2e REF="$1" EXPECTED_SHA="$1" bash "$box/sbin/onhost-deploy")
 }
@@ -132,4 +136,7 @@ echo "── deploy B (migration + OpenAPI edit)"; deploy "$sha_b" || fail "depl
 echo "── deploy A again (rollback over a migration: the backup is taken, not skipped)"; deploy "$sha_a" || fail "rollback rc=$?"; check "$sha_a"
 [ "$(grep -c ' rc=0 ' "$box/state/deploy.log")" = 3 ] || fail "deploy.log does not hold three successful runs"
 [ "$(grep -c ' set=platform-backups/' "$box/state/deploy.log")" = 3 ] || fail "not every run took a verified backup"
+# review round 0 (security HIGH): the site's PHP ran through setpriv, as the run user — composer and migrations included
+grep -q '^setpriv .* -- env -i .*composer.* install' "$box/stub.log" && grep -q '^setpriv .* -- env -i .*artisan migrate' "$box/stub.log" \
+  || fail "the deployer did not run composer and artisan through setpriv"
 echo "E2E OK: A → B → A released through the gate ($box)"

@@ -10,8 +10,9 @@ instance state `disabled` the primary control. It is not one: nothing on the sys
 hands out an adapter with the stored credentials whatever the state, `OperationRunner` never asks, `ServiceService`
 applies it to customers only, and the backup scheduler prunes backups on the panels inline, as the system). Containment
 is now: the scheduler and the provider lanes cannot start (disabled and masked), every stored live credential revoked at
-its issuer, customer-named destinations denied (`ONHOST_EGRESS_DENY_CIDRS`), the environment asserted by the deployer on
-every release. The freeze stays, as a signal, not as a control.
+its issuer, every live endpoint rejected by the host itself and probed by the deployer before each release (review
+round 0: `$STATE/egress-blocked`, S0 GATE), customer-named destinations denied (`ONHOST_EGRESS_DENY_CIDRS`), the
+environment asserted by the deployer on every release. The freeze stays, as a signal, not as a control.
 
 ## Two paths — the owner chooses (question 1)
 
@@ -35,8 +36,9 @@ STATE=/var/lib/onhost-deploy/$SITE
 DG=/usr/local/lib/onhost-deploy/deploy-gate.php   # the installed judge (S4b); before it exists: /root/deploy-gate.php (S0)
 G="git -c safe.directory=$APP -c core.hooksPath=/dev/null -c core.fsmonitor=false -C $APP"   # read-only git as root before S1b
 PROVIDER_LANES="provider-pterodactyl provider-aapanel provider-ispconfig provider-proxmox provider-powerdns provider-registrar provider-kubernetes"
-# artisan by hand runs as www wherever setpriv works: www can write this tree (on an existing staging all of it), so
-# root running its PHP is a www → root path (D32.13, open). AS_WWW empty = setpriv unusable: see S0.
+# artisan by hand runs as www, as the deployer does (review round 0): www can write this tree (on an existing staging
+# all of it), so root running its PHP is a www → root path. AS_WWW empty = setpriv unusable: see S0 — the deployer
+# then refuses every release (rc 2).
 if setpriv --reuid=www --regid=www --init-groups true 2>/dev/null; then AS_WWW="setpriv --reuid=www --regid=www --init-groups --"; else AS_WWW=""; fi
 # storage and bootstrap/cache back to www after anything root ran — never `chown -R`/`chmod -R` (they follow a symlink
 # given on the command line, and www can plant one); the deployer's own guarded sequence:
@@ -137,11 +139,13 @@ stat -c '%U %a %n' $APP/.git $APP/.git/config
 ls -l $APP/.env; stat -c '%U:%G %a %n' /etc/onhost /etc/onhost/app.env   # .env -> /etc/onhost/app.env; root:www 750/640
 [ $APP/.env -ef /etc/onhost/app.env ] && echo same-file                  # the deployer refuses otherwise (S1b fixes it)
 stat -c '%F %n' $APP/storage $APP/bootstrap $APP/bootstrap/cache           # directories, not symbolic links
+stat -c '%F %U %n' $APP/vendor; find -P $APP/vendor ! -user www -print -quit   # composer runs as www: S1b hands vendor over
 nginx -T 2>/dev/null | grep -nE 'real_ip|set_real_ip_from|X-Forwarded-For|X-Real-IP'   # review: see S1
 git config --file $APP/.git/config --list         # review: no foreign core.hooksPath, core.fsmonitor, url.*.insteadOf, filters
 ls $APP/.git/hooks | grep -v '\.sample$'          # review: nothing expected
 $G rev-parse HEAD; $G status --porcelain --untracked-files=all
-command -v setpriv && setpriv --reuid=www --regid=www --init-groups id   # a fact for the follow-up (www execution)
+command -v setpriv && setpriv --reuid=www --regid=www --init-groups id   # uid=www: the deployer needs it (else rc 2, NO-GO)
+nft list tables 2>/dev/null; iptables -S OUTPUT 2>/dev/null | head; systemctl is-enabled nftables firewalld 2>/dev/null   # S0 GATE step 4
 grep -E 'opcache.validate_timestamps|opcache.revalidate_freq' /www/server/php/83/etc/php.ini; ls /etc/init.d | grep -i php-fpm
 command -v pg_dump pg_restore psql; ls /www/server/pgsql/bin 2>/dev/null; pg_dump --version
 $P -r 'echo ini_get("disable_functions"), PHP_EOL;'   # proc_open must not be listed
@@ -172,8 +176,9 @@ cd $APP && $AS_WWW $P artisan about --only=environment
 $AS_WWW $P artisan onhost:staging:report          # WITHOUT --check: writes storage/app/onhost-staging-report.json, asks no panel
 $AS_WWW $P artisan onhost:doctor --json > /root/staging-doctor-s0.json     # reads stored state; no provider call (DeployGateTest (b) runs it with stray HTTP forbidden)
 $AS_WWW $P artisan tinker --execute="dump(DB::table('users')->whereIn('email',['admin@onhost.cz','noc@onhost.cz','finance@onhost.cz','support@onhost.cz','demo@onhost.cz','agentura@onhost.cz'])->count())"
-# every instance, whatever its provider (panels, DNS, registrars, CDN) and whether a credential is stored — the O4 list
-$AS_WWW $P artisan tinker --execute="foreach (Onhost\Domain\Provisioning\Models\ProviderInstance::query()->orderBy('provider')->get() as \$i) { echo \$i->key, ' ', \$i->provider, ' ', \$i->state, ' secret=', app(Onhost\Platform\Secrets\SecretStore::class)->exists(\$i->secretRef()) ? 'stored' : 'none', PHP_EOL; }"
+# every instance, whatever its provider (panels, DNS, registrars, CDN), whether a credential is stored, and the
+# host:port it talks to — the O4 list and the first lines of $STATE/egress-blocked (S0 GATE step 4)
+$AS_WWW $P artisan tinker --execute="foreach (Onhost\Domain\Provisioning\Models\ProviderInstance::query()->orderBy('provider')->get() as \$i) { \$u = parse_url((string) \$i->base_url) ?: []; echo \$i->key, ' ', \$i->provider, ' ', \$i->state, ' secret=', app(Onhost\Platform\Secrets\SecretStore::class)->exists(\$i->secretRef()) ? 'stored' : 'none', ' endpoint=', isset(\$u['host']) ? \$u['host'].':'.(\$u['port'] ?? ((\$u['scheme'] ?? '') === 'http' ? 80 : 443)) : '-', PHP_EOL; }"
 grep -E '^[A-Z_]*SECRET_REF=' /etc/onhost/app.env | cut -d= -f1,2        # refs only; the secrets are in the database
 # what could move by itself: non-terminal operations, the relay backlog, customer webhooks, queued mail, queue lengths
 $AS_WWW $P artisan tinker --execute="dump(DB::table('operations')->whereIn('state',['PENDING','RUNNING','WAITING'])->selectRaw('state, queue, count(*) n')->groupBy('state','queue')->get(), ['outbox_unpublished' => DB::table('outbox_messages')->whereNull('published_at')->count(), 'webhook_endpoints_active' => DB::table('webhook_endpoints')->where('state','active')->count(), 'webhook_deliveries_open' => DB::table('webhook_deliveries')->whereIn('state',['pending','failed'])->count(), 'mail_queued' => DB::table('mail_outbox')->where('state','queued')->count()])"
@@ -219,6 +224,37 @@ install -d -m 0700 $STATE && touch $STATE/expect-freeze
 # KEEP the database. Report the inventory (staging report, doctor JSON, the S0 counts) to the owner for O2.
 ```
 
+**Step 4 — the live endpoints become unreachable from this host, verifiably** (review round 0, security MEDIUM: the
+revocation of step 3 is a written statement nobody on the host can check, and `EgressGuard` guards only the
+destinations customers name — the provider clients, the SSH toolkit and the mailers do not pass through it). Path A:
+**NO-GO without it.** One `host:port` per line (`[v6]:port` for IPv6), comments with `#`: every S0 `endpoint=`, every
+node address the panels' own inventories name (Wings nodes, Proxmox/PBS nodes, web and mail nodes — their SSH port and
+agent ports), the registrars' and DNS/CDN APIs, Discord. The operator reads the node addresses in the panels' own UIs;
+nothing is asked of a panel by the platform or the AI.
+
+```bash
+install -m 0600 /dev/null $STATE/egress-blocked && $EDITOR $STATE/egress-blocked
+# a CDN-fronted API name (api.cloudflare.com, discord.com) resolves to rotating addresses: pin it in /etc/hosts to
+# 192.0.2.1 (TEST-NET-1) instead, and list the name — the rule below rejects that range
+names() { sed -e 's/#.*//' -e 's/[[:space:]]//g' -e '/^$/d' $STATE/egress-blocked | sed -E 's/^\[?([^]]*)\]?:[0-9]+$/\1/' | sort -u; }
+nft add table inet onhost_containment
+nft add chain inet onhost_containment out '{ type filter hook output priority 0 ; policy accept ; }'
+nft add rule inet onhost_containment out ip daddr 192.0.2.0/24 reject
+for a in $(names | xargs -r -n1 getent ahosts | awk '{print $1}' | sort -u); do
+  case $a in *:*) nft add rule inet onhost_containment out ip6 daddr $a reject ;; *) nft add rule inet onhost_containment out ip daddr $a reject ;; esac
+done
+nft list table inet onhost_containment > /etc/nftables.d/onhost-containment.nft   # persisted — how the host loads it at boot: S0 (record)
+# the probe the deployer runs before every staging release (and S10 daily): a bare TCP connect as www, nothing is sent
+probe() { sed -e 's/#.*//' -e 's/[[:space:]]//g' -e '/^$/d' $STATE/egress-blocked | while read -r hp; do h=${hp%:*}; h=${h#[}; h=${h%]}; p=${hp##*:}; $AS_WWW timeout 5 bash -c 'exec 3<>"/dev/tcp/$1/$2"' _ "$h" "$p" 2>/dev/null && echo "OPEN $hp"; done; }
+probe                                                  # prints nothing; any OPEN line: STOP, the rule is incomplete
+```
+
+The rule rejects in the host's own output path, so a probe of a covered address never leaves the machine; a probe of
+an address the rule misses is a bare TCP connect without a byte of payload (no credential, no request) — and the
+release is refused. The deployer refuses a staging release when `$STATE/egress-blocked` is missing (an empty file =
+none: Path B without live credentials), malformed, or when any address on it answers (rc 2, nothing changed). A
+host without nftables: the same rules with `iptables`/`ip6tables -A OUTPUT -d <addr> -j REJECT` (S0 records which).
+
 The freeze is a cache key: a Redis flush or restart lifts it silently, and it never held in-flight operations or the
 backup scheduler. Root's cron re-asserts it and says so in the journal when it was gone — only with `setpriv` (`AS_WWW`
 set): without it the cron would run www's PHP as root every five minutes (D32.13), so there is no cron and S10 checks
@@ -233,7 +269,8 @@ chmod 0644 /etc/cron.d/onhost-staging-freeze
 
 Verify: `systemctl list-units --all --plain --no-legend 'onhost-*'` shows nothing active; `systemctl is-enabled
 onhost-scheduler.service` prints `masked-runtime` and every `onhost-queue@provider-*.service` prints `masked`; no
-`onhost-*` link in `/etc/systemd/system/*.wants/`; the freeze meta prints the reason. The instance state (staff console
+`onhost-*` link in `/etc/systemd/system/*.wants/`; the freeze meta prints the reason; `probe` prints nothing and
+`$STATE/egress-blocked` covers every S0 `endpoint=` (Path A: an empty list is NO-GO). The instance state (staff console
 → Integrations) may also be set to `disabled` for the staff view — **it is not a control** (pre-mortem BLOCKER).
 
 Operations that are not terminal cannot run while no scheduler and no provider lane exists; they stay listed in the O2
@@ -271,6 +308,10 @@ basic auth can be skipped with one header. Remove the `real_ip` setting (or narr
   && find -P $APP/.git -exec chown -h root:root {} + && find -P $APP/.git ! -type l -exec chmod go-w {} + && chmod 700 $APP/.git
 install -d -m 0700 $STATE
 printf '[safe]\n\tdirectory = %s\n' "$APP" > $STATE/gitconfig && chmod 600 $STATE/gitconfig   # the deployer also creates it
+# vendor/ is www's from now on — composer runs as www (review round 0); a root-owned one of an older root build is
+# handed over without following a link (the deployer refuses a release while anything in it is not www's):
+[ ! -e $APP/vendor ] || { [ -d $APP/vendor ] && [ ! -L $APP/vendor ] && find -P $APP/vendor -exec chown -h www:www {} + ; } \
+  || echo "REFUSED: $APP/vendor is a link — report it"
 chown root:www /etc/onhost /etc/onhost/app.env && chmod 750 /etc/onhost && chmod 640 /etc/onhost/app.env
 # only if S0 found .env NOT to be /etc/onhost/app.env — keep a copy, compare, and link only when nothing differs:
 install -m 0600 $APP/.env /root/env-before-s1b
@@ -305,7 +346,7 @@ is refused); keep one of the two mail variants:
 
 ```bash
 install -m 0600 /dev/null $STATE/expected-env && cat > $STATE/expected-env <<'EOF'
-# staging-launch.md S3 — KEY=value must equal · KEY= must be empty or absent · KEY? must be set · KEY!=value must differ · KEY~=regex
+# staging-launch.md S3 — KEY=value must equal · KEY= empty or absent · KEY? set · KEY!=value differ · KEY~=regex · PREFIX_*= family empty
 APP_ENV=staging
 APP_DEBUG=false
 APP_URL=https://staging.onhost.cz
@@ -343,6 +384,41 @@ ONHOST_FOUR_EYES=false
 ONHOST_PLATFORM_BACKUP_DISK=<O4: s3 (the staging-only bucket) or local>
 ONHOST_EGRESS_DENY_CIDRS=0.0.0.0/0,::/0
 ONHOST_EGRESS_ALLOW_CIDRS=
+# outward credentials: staging phase 1 holds none of them — single keys, and whole env:// families (PREFIX_*=)
+ONHOST_CONSOLE_RELAY_URL=
+ONHOST_CONSOLE_RELAY_KEY=
+ONHOST_NODE_BOOTSTRAP_SSH_KEY=
+ONHOST_GAME_OPERATOR_VARIABLES_REF=
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=
+# or, with the staging-only bucket (O4), instead of the two lines above:  AWS_ACCESS_KEY_ID?  AWS_SECRET_ACCESS_KEY?
+#   and  AWS_ACCESS_KEY_ID!=<production AWS_ACCESS_KEY_ID, question 14>
+SENTRY_DSN=
+LOG_SLACK_WEBHOOK_URL=
+AI_ANTHROPIC_*=
+AI_OPENAI_*=
+GOPAY_*=
+STRIPE_*=
+PEPPOL_*=
+OIDC_CLIENT_*=
+DISCORD_BOT_*=
+ONHOST_DISCORD_*=
+ONHOST_ONCALL_*=
+CLOUDFLARE_*=
+OPENBAO_*=
+OTEL_EXPORTER_OTLP_*=
+SLACK_*=
+POSTMARK_*=
+RESEND_*=
+PROXMOX_*=
+PBS_*=
+ISPCONFIG_*=
+AAPANEL_*=
+PTERODACTYL_*=
+POWERDNS_*=
+RKE2_*=
+WEDOS_MAIN_*=
+SUBREG_*=
 EOF
 $EDITOR $STATE/expected-env                                     # fill the <…> lines
 $P $DG env-assert --file /etc/onhost/app.env --spec $STATE/expected-env; echo rc=$?   # before S4b: $P /root/deploy-gate.php env-assert …
@@ -361,10 +437,19 @@ goes through `EgressGuard`, and this makes none public (VERIFIED: `EgressGuard::
 (`CommandBus` relays after every command, and `WebhookDispatcher` posts to each new delivery at once) — without this
 line S5 alone would send the backlog to real customer endpoints; the Discord/CDN/on-call keys empty — their
 scheduled jobs and bots would otherwise act with production's identities. A `!=` line may be deleted only when S0
-proved that the machine itself is staging's alone (record why). The `*_SECRET_REF` keys (`AI_ANTHROPIC_`, `AI_OPENAI_`,
-`ONHOST_ONCALL_`, `ONHOST_DISCORD_BOT_`, `GOPAY_`, `STRIPE_`, `PEPPOL_`, `OIDC_CLIENT_`) name secrets in the database,
-not values: they are contained by the revocation of question 13 b (Path A) or by nothing being stored (Path B), and
-the release record lists each with its state.
+proved that the machine itself is staging's alone (record why).
+
+The outward keys (review round 0, security MEDIUM — the spec used to miss them). A family line `PREFIX_*=` holds every
+key of the file that starts with `PREFIX_` and has no line of its own empty or absent: `EnvSecretStore` reads an
+`env://X` reference as every `X_*` key (`env://AI_ANTHROPIC`, `env://PROXMOX_CZ1`, …), so a live key under a name
+nobody listed would otherwise pass — and a `*_SECRET_REF` naming a `db://` or `bao://` secret is refused by its family
+too, not left to the revocation alone. The console relay's URL and key are empty: no console exists without panels,
+and a key shared with production's relay would mint console tokens production accepts. The AWS key pair is empty with
+the local disk; with the staging-only bucket it is set and its id is not production's (another id, another key).
+`SENTRY_DSN`, the OTLP exporter and Slack would report staging into production's projects and channels;
+`ONHOST_NODE_BOOTSTRAP_SSH_KEY` opens nodes. A tunable inside a family (`ONHOST_ONCALL_ESCALATE_MINUTES`) that must
+stay gets a line of its own. S0's `grep … SECRET_REF` lists every `*_SECRET_REF` of the file: one outside these
+families gets its own `KEY=` line (record it).
 
 **Path A — the old code, until S7.** `env-assert` checks the file; the old release serves with whatever it cached in
 `bootstrap/cache/config.php` (older installs ran `config:cache`) and may predate the egress deny list (`925f126`,
@@ -420,6 +505,9 @@ back):
 #   Path A — never the scheduler)
 # Path B: written by install.sh — review it
 chmod 0600 $STATE/expected-units; cat $STATE/expected-units
+# the addresses www must not reach (the deployer refuses a staging release without the file): Path A wrote it in the
+# S0 GATE (step 4); Path B holds no live credential — an empty file, or production's panel addresses (recommended)
+[ -f $STATE/egress-blocked ] || install -m 0600 /dev/null $STATE/egress-blocked
 ```
 
 The doctor rows expected non-OK on staging (O11). The gate stops a staging release on **any** non-OK row that is neither
@@ -612,6 +700,8 @@ role rows); a `ROW-FAIL` is explained in the record. Record the duration. The 7-
 - the units: `systemctl list-units --plain --no-legend 'onhost-*'` shows exactly `$STATE/expected-units` active;
   every provider lane `masked`; Path A: the scheduler `masked-runtime` — after a reboot it is `disabled`: mask it again
   (`systemctl mask --runtime onhost-scheduler.service`) and record the reboot;
+- the live endpoints stay unreachable: `probe` (S0 GATE step 4) prints nothing — after a reboot, `nft list table inet
+  onhost_containment` first (the rule is loaded at boot, or the reboot is recorded and the rule restored);
 - the freeze is on (`$AS_WWW $P artisan tinker --execute="dump(app(Onhost\Domain\Provisioning\FreezeSwitch::class)->meta())"`
   prints the reason; the staff console shows a banner); `journalctl -t onhost-freeze --since -1d` empty — a line there
   means the cache lost the freeze and the cron put it back: record it;
@@ -629,7 +719,8 @@ role rows); a `ROW-FAIL` is explained in the record. Record the duration. The 7-
 - S0: the isolation block confirmed by the owner (no shared database, Redis server + prefix, cache prefix, bucket,
   endpoint); PostgreSQL parity recorded.
 - Path A: every S0 *secret=stored* credential and `*_SECRET_REF` revoked at its issuer, confirmed in writing before S5
-  (question 13 b); the scheduler never started; the provider lanes masked.
+  (question 13 b); every S0 `endpoint=` and node address on `$STATE/egress-blocked`, rejected by the host and the probe
+  silent (S0 GATE step 4 — an empty list is NO-GO); the scheduler never started; the provider lanes masked.
 - S1: 401 from outside (also with `X-Forwarded-For: 127.0.0.1` and `X-Real-IP: 127.0.0.1`), no `set_real_ip_from`
   trusting a range the operator does not control, 200 for `/v1/status` over loopback; `.git` root-owned;
   `$APP/.env` is `/etc/onhost/app.env`; the deployer installed from `STAGING_SHA`.
@@ -642,8 +733,8 @@ role rows); a `ROW-FAIL` is explained in the record. Record the duration. The 7-
   S7-based estimate while production has not run).
 - S10: the environment, units and freeze held for its whole period (Path B: three nights of backup + verify without error).
 - S0 and every later hand-run artisan ran as www (`AS_WWW`), or the owner accepted root execution for staging in
-  writing (release record). The deployer itself still runs the target's PHP as root (D32.13): accepted for staging
-  phase 1 only, never carried to production by default (F).
+  writing (release record). The deployer runs every artisan and composer call as www itself (review round 0) and
+  refuses a host where `setpriv` cannot do that.
 - Anything else is NO-GO. Phase 2 (test panels) has its own go/no-go after the owner's per-panel decision, and needs
   first: the non-terminal operations of the kept database cancelled (Path A), and the code follow-up that makes a
   contained instance refuse every actor (`ProviderRegistry::forInstance`, the backup scheduler — handoff).
@@ -667,10 +758,11 @@ role rows); a `ROW-FAIL` is explained in the record. Record the duration. The 7-
   (`migrate` without `--isolated`, the full `db:seed` with `InfrastructureSeeder`), which no staging on Path A exercises.
 - **The time-of-day failures of `LimitRaiseTest`/`WithdrawalTest` are diagnosed** (and fixed, or proven to be test
   artefacts) by a billing task — production dunning and renewals run in exactly that window (pre-mortem).
-- **Precondition:** the follow-up that runs the deployer's artisan/composer steps as www (`setpriv`) with a root-owned
-  code tree is done — or the owner accepts in writing, in the release record, that root runs the target's PHP in a tree
-  www can write (D32.13: code, `vendor/`, `bootstrap/cache`, `storage/framework/views`, root's writes of the `down` file
-  and logs in `storage/`). Without one of the two, production is NO-GO (go-live checklist row, handoff).
+- The former precondition — the deployer's artisan/composer steps as www — is met since review round 0: root runs no
+  site code (`install.sh` neither). What root still does in a tree www can write is the recorded residual: the git
+  checkout, the per-file race of the guarded ownership repair, the rename of `VERSION` into place.
+  A root-owned code tree (atomic release directories, D32.11) removes it; the owner decides on the go-live checklist
+  whether production waits for it (handoff).
 - In production **every FAIL row of the doctor stops the deploy** (HARD never passes; any other row only with an
   `Accept-Gate: <area|check> — <reason>` line in the signed tag). The owner drafts those lines from the production
   doctor (`deploy-gate.php nonok --production 1`) before signing — a tag signed without them stops at the gate (rc 5).
@@ -688,6 +780,9 @@ role rows); a `ROW-FAIL` is explained in the record. Record the duration. The 7-
 
 ## G. Assumptions to check on the host (NOT verified from the repository)
 
+`setpriv` (util-linux) switches root to www with `--init-groups`, and www can read the tree and `app.env` (S0 prints
+`uid=www`); bash has `/dev/tcp` and coreutils `timeout` (the egress probe); nftables (or iptables) is available and its
+table survives a reboot the way S0 records;
 git ≥ 2.32 (GIT_CONFIG_GLOBAL) and ≥ 2.34 on production (SSH `verify-tag`); nginx answers on `127.0.0.1:443`; the staging
 nginx block behaves as written and no `real_ip` setting trusts a foreign range (S1 proves it); the FPM reload command;
 `DRAIN_TIMEOUT=300` s is enough (a worker job may run 900 s; the drain then fails with rc 3 and nothing changes — S8 g

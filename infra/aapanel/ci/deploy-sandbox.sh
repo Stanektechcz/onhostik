@@ -4,7 +4,7 @@
 # vlight, SSH-signed tags vsigned and vaccept (an Accept-Gate line in its signed message) (+ vsigned's object as
 # vrenamed, a PGP-block tag vpgp; the key's allowed_signers
 # line in allowed_signers.src), the root-owned environment file etc/app.env that the site's .env is, stub binaries
-# (php, systemctl with unit state, curl, flock, chown, fpm-reload) and the deployer installed from A with the real
+# (php, systemctl with unit state, curl, flock, chown, fpm-reload, setpriv) and the deployer installed from A with the real
 # install-deployer.sh. Nothing outside $1 is touched. Prints KEY=VALUE lines for the test.
 #
 #   REPO_ROOT=<this repository> REAL_PHP=<php binary> bash deploy-sandbox.sh <empty dir>
@@ -67,7 +67,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 . "$here/stub.env"
 case "${1:-}" in *deploy-gate.php) exec "$REAL_PHP" "$@" ;; esac
 printf 'php %s [cache=%s]\n' "$*" "${APP_CONFIG_CACHE:-}" >> "$STUB_LOG"
-case "${1:-}" in *composer*) exit "${STUB_COMPOSER_EXIT:-0}" ;; esac
+case "${1:-}" in *composer*) exit "${STUB_COMPOSER_EXIT:-0}" ;; -r) exit 0 ;; esac   # -r: install.sh asks for extensions
 app="$(dirname "${1:-.}")"
 case "${2:-}" in
   down)
@@ -90,7 +90,7 @@ case "${2:-}" in
     target="${APP_CONFIG_CACHE:-}"
     # on Windows the deployer hands PHP a drive-relative path (/Users/…); this stub is bash and needs /c/Users/…
     if [ -n "$target" ] && command -v cygpath >/dev/null 2>&1; then target="$(cygpath -u "$(cygpath -m "$here" | cut -c1-2)$target")"; fi
-    [ -z "$target" ] || printf '<?php return []; // built by root\n' > "$target" ;;
+    [ -z "$target" ] || printf '<?php return []; // built by the release build\n' > "$target" ;;
   onhost:doctor) cat "$here/doctor.json"; exit "${STUB_DOCTOR_EXIT:-0}" ;;
 esac
 exit 0
@@ -135,6 +135,20 @@ for a in "$@"; do
 done
 printf '%s' "$code"
 EOF
+# setpriv cannot switch users here (the tests run unprivileged): it logs its argv — the test checks the user, the
+# clean environment and that the site's PHP comes right after — and runs the command (STUB_SETPRIV_EXIT: a host
+# where setpriv does not work)
+cat > "$box/bin/setpriv" <<'EOF'
+#!/usr/bin/env bash
+here="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck disable=SC1091
+. "$here/stub.env"
+printf 'setpriv %s\n' "$*" >> "$STUB_LOG"
+[ "${STUB_SETPRIV_EXIT:-0}" = 0 ] || exit "$STUB_SETPRIV_EXIT"
+while [ $# -gt 0 ] && [ "$1" != -- ]; do shift; done
+shift
+exec "$@"
+EOF
 for tool in flock chown fpm-reload; do
   cat > "$box/bin/$tool" <<EOF
 #!/usr/bin/env bash
@@ -149,11 +163,13 @@ chmod +x "$box/bin/"*
 SHA="$sha_a" FIRST=1 APP_DIR="$app" ENV_FILE="$box/etc/app.env" DEPLOY_STATE_DIR="$box/state" DEPLOYER_BIN="$box/sbin/onhost-deploy" \
   DEPLOYER_LIB_DIR="$box/lib" DEPLOY_OWNER_UID="$(id -u)" bash "$REPO_ROOT/infra/aapanel/install-deployer.sh" >/dev/null
 
-# the deployer's lists (staging-launch.md O11/O12, S3): no unit is expected, no doctor row is expected to be non-OK
-# (the drained liveness rows are judged after the start), and the staging environment says staging
+# the deployer's lists (staging-launch.md O11/O12, S3, S0 GATE): no unit is expected, no doctor row is expected to be
+# non-OK (the drained liveness rows are judged after the start), the staging environment says staging, and no live
+# address has to be unreachable (the tests write the list they need)
 (umask 077
   printf '# units that must run after every release\n' > "$box/state/expected-units"
   printf '# doctor rows expected non-OK on this staging (O11)\n' > "$box/state/expected-nonok"
-  printf 'APP_ENV=staging\nAPP_URL=https://staging.test\n' > "$box/state/expected-env")
+  printf 'APP_ENV=staging\nAPP_URL=https://staging.test\n' > "$box/state/expected-env"
+  printf '# addresses the run user must not reach (staging-launch.md S0 GATE)\n' > "$box/state/egress-blocked")
 
 printf 'SHA_A=%s\nSHA_B=%s\nAPP=%s\nSEED=%s\nENV=%s\nUID=%s\nUSER=%s\n' "$sha_a" "$sha_b" "$app" "$seed" "$box/etc/app.env" "$(id -u)" "$(id -un)"

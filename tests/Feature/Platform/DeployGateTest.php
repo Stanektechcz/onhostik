@@ -277,6 +277,68 @@ it('refuses a key defined twice with different values and a value that interpola
     deployGateRemoveTree($dir);
 });
 
+// Review round 0 (security MEDIUM): the S3 spec named single keys, while EnvSecretStore reads a whole prefix per
+// `env://X` reference (every X_* key) — a live key under a name nobody listed passed. A family line `X_*=` requires
+// every X_ key the spec does not name on a line of its own to be empty or absent.
+it('asserts a key family empty except the keys the spec names on their own lines, without printing a value', function () {
+    $dir = deployGateTempDir();
+    $assert = function (string $env, string $spec) use ($dir): Process {
+        file_put_contents($dir.'/app.env', $env);
+        file_put_contents($dir.'/spec', $spec);
+
+        return deployGateCall(['env-assert', '--file', $dir.'/app.env', '--spec', $dir.'/spec']);
+    };
+
+    $clean = $assert("GOPAY_RECURRING=false\nAI_ANTHROPIC_MODEL=\nAPP_ENV=staging\n", "GOPAY_RECURRING=false\nGOPAY_*=\nAI_ANTHROPIC_*=\nPROXMOX_*=\n");
+    expect($clean->getExitCode())->toBe(0, $clean->getOutput())
+        ->and($clean->getOutput())->toContain('OK GOPAY_RECURRING')->toContain('OK GOPAY_*')->toContain('OK AI_ANTHROPIC_*')->toContain('OK PROXMOX_*');
+
+    $live = $assert("GOPAY_RECURRING=false\nGOPAY_GOID=8123456789\nAI_ANTHROPIC_API_KEY=sk-ant-lIvE\nPROXMOX_CZ1_TOKEN_SECRET=pRoXmOx-lIvE\n", "GOPAY_RECURRING=false\nGOPAY_*=\nAI_ANTHROPIC_*=\nPROXMOX_*=\n");
+    expect($live->getExitCode())->toBe(13, $live->getOutput())
+        ->and($live->getOutput())->toContain('OK GOPAY_RECURRING')->toContain('MISMATCH GOPAY_GOID')
+        ->toContain('MISMATCH AI_ANTHROPIC_API_KEY')->toContain('MISMATCH PROXMOX_CZ1_TOKEN_SECRET')
+        ->and($live->getOutput().$live->getErrorOutput())->not->toContain('8123456789')->not->toContain('sk-ant-lIvE')->not->toContain('pRoXmOx-lIvE');
+
+    expect($assert("X=1\n", "GOPAY_*=something\n")->getExitCode())->toBe(2)   // a family can only be required empty
+        ->and($assert("X=1\n", "GOPAY_*?\n")->getExitCode())->toBe(2);
+    deployGateRemoveTree($dir);
+});
+
+// Review round 0 (security MEDIUM): the S3 spec of the runbook missed the outward keys — the console relay's key and
+// URL, the AWS key pair, the AI keys, the `*_SECRET_REF` families, the panels' env:// families. The spec block of
+// staging-launch.md is run as written (placeholders filled) against a staging environment carrying each of them.
+it('holds the runbook\'s staging environment spec to every outward credential', function () {
+    $doc = (string) file_get_contents(base_path('docs/runbooks/staging-launch.md'));
+    expect(preg_match("/cat > \\\$STATE\\/expected-env <<'EOF'\\n(.*?)\\nEOF\\n/s", $doc, $m))->toBe(1);
+    $dir = deployGateTempDir();
+    file_put_contents($dir.'/spec', (string) preg_replace('/<[^>]*>/', 'filled-by-test', $m[1]));
+    $base = "APP_ENV=staging\nAPP_DEBUG=false\nAPP_URL=https://staging.onhost.cz\nDB_CONNECTION=pgsql\nQUEUE_CONNECTION=redis\nCACHE_STORE=redis\n"
+        ."SESSION_DRIVER=redis\nONHOST_SECRETS_DRIVER=db\nREDIS_PREFIX=onhost-staging-\nCACHE_PREFIX=onhost-staging-cache-\nDB_DATABASE=onhost_staging\n"
+        ."MAIL_MAILER=log\nPAYMENT_GATEWAY=comgate\nCOMGATE_TEST=true\nCOMGATE_RECURRING=false\nCOMGATE_MERCHANT=filled-by-test\nCOMGATE_SECRET=test-merchant\n"
+        ."GOPAY_RECURRING=false\nSTRIPE_RECURRING=false\nWEDOS_TEST_MODE=true\nONHOST_ACME_DIRECTORY=https://acme-staging-v02.api.letsencrypt.org/directory\n"
+        ."ONHOST_VIES_ENABLED=false\nONHOST_FOUR_EYES=false\nONHOST_PLATFORM_BACKUP_DISK=filled-by-test\nONHOST_EGRESS_DENY_CIDRS=0.0.0.0/0,::/0\n";
+    $assert = function (string $extra) use ($dir, $base): Process {
+        file_put_contents($dir.'/app.env', $base.$extra);
+
+        return deployGateCall(['env-assert', '--file', $dir.'/app.env', '--spec', $dir.'/spec']);
+    };
+    $ok = $assert('');
+    expect($ok->getExitCode())->toBe(0, $ok->getOutput());
+
+    foreach (['ONHOST_CONSOLE_RELAY_URL', 'ONHOST_CONSOLE_RELAY_KEY', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AI_ANTHROPIC_API_KEY',
+        'AI_OPENAI_API_KEY', 'AI_ANTHROPIC_SECRET_REF', 'AI_OPENAI_SECRET_REF', 'GOPAY_SECRET_REF', 'STRIPE_SECRET_REF', 'PEPPOL_SECRET_REF',
+        'OIDC_CLIENT_SECRET_REF', 'ONHOST_DISCORD_BOT_SECRET_REF', 'DISCORD_BOT_TOKEN', 'ONHOST_ONCALL_SECRET_REF', 'ONHOST_GAME_OPERATOR_VARIABLES_REF',
+        'ONHOST_CDN_CLOUDFLARE_SECRET_REF', 'CLOUDFLARE_API_TOKEN', 'ONHOST_NODE_BOOTSTRAP_SSH_KEY', 'OPENBAO_TOKEN', 'SENTRY_DSN', 'OTEL_EXPORTER_OTLP_HEADERS',
+        'PROXMOX_CZ1_TOKEN_SECRET', 'ISPCONFIG_SHARED01_PASSWORD', 'AAPANEL_MANAGED01_API_KEY', 'PTERODACTYL_GAMES01_API_KEY', 'POWERDNS_HIDDEN01_API_KEY',
+        'PBS_CZ1_TOKEN_SECRET', 'RKE2_CZ1_TOKEN', 'WEDOS_MAIN_PASSWORD', 'SUBREG_MAIN_PASSWORD'] as $key) {
+        $r = $assert($key."=lIvE-vAlUe-0123\n");
+        expect($r->getExitCode())->toBe(13, $key.': '.$r->getOutput())
+            ->and($r->getOutput())->toContain('MISMATCH '.$key)
+            ->and($r->getOutput().$r->getErrorOutput())->not->toContain('lIvE-vAlUe-0123');
+    }
+    deployGateRemoveTree($dir);
+});
+
 it('reads APP_ENV the way phpdotenv does and leaves anything ambiguous empty (the deployer then treats it as production)', function () {
     $dir = deployGateTempDir();
     $read = function (string $content) use ($dir): string {
@@ -471,7 +533,7 @@ function deployGateDeploy(array $box, array $env, array $stub = [], string|false
         'SITE' => 'staging.test', 'APP_DIR' => $box['APP'], 'PHP' => $box['posix'].'/bin/php', 'COMPOSER' => '/nonexistent/composer',
         'ENV_FILE' => $box['ENV'], 'UNIT_SETTLE' => '0',
         'RUN_USER' => $box['USER'], 'DEPLOY_STATE_DIR' => $box['posix'].'/state', 'DEPLOY_LIB_DIR' => $box['posix'].'/lib',
-        'PHP_FPM_RELOAD' => $box['posix'].'/bin/fpm-reload', 'DEPLOY_HTTP_BASE' => 'http://127.0.0.1:1', 'DEPLOY_OWNER_UID' => $box['UID'],
+        'DEPLOY_WORK_DIR' => $box['posix'].'/work/staging.test', 'PHP_FPM_RELOAD' => $box['posix'].'/bin/fpm-reload', 'DEPLOY_HTTP_BASE' => 'http://127.0.0.1:1', 'DEPLOY_OWNER_UID' => $box['UID'],
         'DEPLOY_HOME' => $box['posix'], 'DEPLOY_SAFE_PATH' => $box['posix'].'/bin:/usr/bin:/bin', 'DEPLOY_OPERATOR' => 'test-operator',
         'BRANCH' => false, 'ALLOW_DOCTOR_FAIL' => false, 'SKIP_BACKUP' => false, 'REF' => false, 'EXPECTED_SHA' => false,
     ], $env));
@@ -510,27 +572,24 @@ afterEach(function () {
 
 it('releases in order: drain, down, backup and verify, switch, migrate, gate, start, up — and records the release', function () {
     $box = $this->deployBox = deployGateSandbox();
-    // what a compromised www account could leave for root: framework caches and a compiled view in its own directories
-    file_put_contents($box['dir'].'/app/bootstrap/cache/config.php', "<?php // written by www\n");
-    File::ensureDirectoryExists($box['dir'].'/app/storage/framework/views');
-    file_put_contents($box['dir'].'/app/storage/framework/views/planted.php', "<?php // written by www\n");
-    // …and VERSION (gitignored, in a directory www owns) planted as a second name of a file root must not write: a hard
+    // a framework cache the old release left in bootstrap/cache (stale after an app.env edit)
+    file_put_contents($box['dir'].'/app/bootstrap/cache/config.php', "<?php // the old release's cache\n");
+    // VERSION (gitignored, in a directory www owns) planted as a second name of a file root must not write: a hard
     // link here (every OS), a symlink on Linux — root used to write through it with `>` (review round 3)
     file_put_contents($box['dir'].'/victim.txt', "not the release\n");
     PHP_OS_FAMILY === 'Windows' ? link($box['dir'].'/victim.txt', $box['dir'].'/app/VERSION') : symlink($box['dir'].'/victim.txt', $box['dir'].'/app/VERSION');
 
     $r = deployGateDeploy($box, deployGateTo($box, $box['SHA_B']), ['STUB_UNITS' => 'onhost-queue@default.service onhost-scheduler.service']);
     $s = $r['stub'];
-    $artisan = array_values(array_filter(explode("\n", $s), fn (string $line) => str_contains($line, '/artisan ')));
+    $artisan = array_values(array_filter(explode("\n", $s), fn (string $line) => str_starts_with($line, 'php ') && str_contains($line, '/artisan ')));
 
-    // root's artisan never reads the www-owned bootstrap/cache: every call points the framework caches at the run's
-    // root-only directory, and the build publishes the caches it made for PHP-FPM
+    // every artisan call reads the framework caches of this run's own directory (a config fresh from app.env, not what
+    // the old release cached), and the build publishes the caches it made for PHP-FPM
     expect($artisan)->not->toBeEmpty();
     foreach ($artisan as $line) {
-        expect($line)->toMatch('#\[cache=\S*/state/runs/[^ \]]+/bootstrap-cache/config\.php\]#');
+        expect($line)->toMatch('#\[cache=\S*/work/staging\.test/run-[^ \]]+/config\.php\]#');
     }
-    expect((string) file_get_contents($box['dir'].'/app/bootstrap/cache/config.php'))->toContain('built by root')
-        ->and(is_file($box['dir'].'/app/storage/framework/views/planted.php'))->toBeFalse();
+    expect((string) file_get_contents($box['dir'].'/app/bootstrap/cache/config.php'))->toContain('built by the release build');
 
     expect($r['rc'])->toBe(0, $r['out'])->and($r['head'])->toBe($box['SHA_B'])
         ->and(deployGateAt($s, 'systemctl stop'))->toBeLessThan(deployGateAt($s, 'artisan down'))
@@ -787,6 +846,7 @@ function deployGateInstall(array $box, array $env): array
         'STUB_BIN' => $box['posix'].'/bin', 'INSTALLER' => deployGatePosix((string) $script),
         'SITE' => 'staging.test', 'APP_DIR' => $box['APP'], 'PHP' => $box['posix'].'/bin/php', 'ENV_DIR' => $box['posix'].'/etc',
         'RUN_USER' => $box['USER'], 'DEPLOY_STATE_DIR' => $box['posix'].'/state', 'SYSTEMD_DIR' => $box['posix'].'/systemd',
+        'DEPLOY_WORK_DIR' => $box['posix'].'/work/staging.test',
         'DEPLOY_OWNER_UID' => $box['UID'], 'QUEUES' => 'default mails',
         'INSTALL_REPAIR' => '1', 'START_UNITS' => false, 'REF' => false, 'EXPECTED_SHA' => false, 'BRANCH' => false,
     ], $env));
@@ -909,6 +969,129 @@ it('stops a staging release on a doctor row that is not on the expected list, an
         ->and($passed['log'])->toMatch('/expected_nonok=[0-9a-f]{12} /');
 });
 
+/**
+ * Every line of a stub log in which the sandbox php ran the site's code (artisan or composer), each with the line
+ * before it — the setpriv stub logs its own argv just before it hands over.
+ *
+ * @return list<array{string, string}>
+ */
+function deployGateSitePhp(string $stubLog): array
+{
+    $lines = explode("\n", $stubLog);
+    $calls = [];
+    foreach ($lines as $i => $line) {
+        if (str_starts_with($line, 'php ') && (str_contains($line, '/artisan ') || str_contains($line, 'composer'))) {
+            $calls[] = [$line, $lines[$i - 1] ?? ''];
+        }
+    }
+
+    return $calls;
+}
+
+function deployGateExpectRunAsUser(string $stubLog, string $user): void
+{
+    $calls = deployGateSitePhp($stubLog);
+    expect($calls)->not->toBeEmpty();
+    foreach ($calls as [$php, $before]) {
+        $argv = explode(' [cache=', substr($php, 4))[0];
+        expect($before)->toStartWith("setpriv --reuid={$user} --regid={$user} --init-groups -- env -i PATH=")
+            ->and($before)->toContain(' '.$argv);
+    }
+    expect($stubLog)->not->toContain('COMPOSER_ALLOW_SUPERUSER');
+}
+
+// Review round 0 (security HIGH): app.env is root:www 0640 and the deployer ran the target's PHP (composer and its
+// scripts, artisan, the doctor, the seeders) as root in a tree www can write — code, vendor/, bootstrap/cache, compiled
+// views: a www compromise became root at the next release. Now root fetches, checks out, renames VERSION into place
+// and repairs ownership; every call into the site's PHP runs as the run user (setpriv) with a clean
+// environment, and a host where that cannot happen is refused before anything changes.
+it('runs every artisan and composer call as the run user with a clean environment, never as root', function () {
+    $box = $this->deployBox = deployGateSandbox();
+
+    $r = deployGateDeploy($box, deployGateTo($box, $box['SHA_B']), ['STUB_UNITS' => 'onhost-queue@default.service']);
+
+    expect($r['rc'])->toBe(0, $r['out'])->and($r['head'])->toBe($box['SHA_B']);
+    deployGateExpectRunAsUser($r['stub'], $box['USER']);
+    expect($r['stub'])->toContain('composer install')->toContain('HOME='.$box['posix'].'/work/staging.test/home')
+        ->and(is_dir($box['dir'].'/app/vendor'))->toBeTrue();
+});
+
+it('refuses before going down when the site\'s PHP cannot run as the run user, the run user is root, or vendor is a link', function () {
+    $box = $this->deployBox = deployGateSandbox();
+    $to = deployGateTo($box, $box['SHA_B']);
+    $app = $box['dir'].'/app';
+
+    $noSetpriv = deployGateDeploy($box, $to, ['STUB_SETPRIV_EXIT' => '1']);
+    $root = deployGateDeploy($box, $to + ['RUN_USER' => 'root']);
+
+    File::ensureDirectoryExists($box['dir'].'/elsewhere');
+    PHP_OS_FAMILY === 'Windows'
+        ? (new Process(['cmd', '/c', 'mklink', '/J', str_replace('/', '\\', $app.'/vendor'), str_replace('/', '\\', $box['dir'].'/elsewhere')]))->mustRun()
+        : symlink($box['dir'].'/elsewhere', $app.'/vendor');
+    $linkedVendor = deployGateDeploy($box, $to);
+    PHP_OS_FAMILY === 'Windows' ? rmdir($app.'/vendor') : unlink($app.'/vendor');
+
+    foreach ([$noSetpriv, $root, $linkedVendor] as $r) {
+        expect($r['rc'])->toBe(2, $r['out'])->and($r['stub'])->not->toContain('artisan down')->not->toContain('systemctl stop')
+            ->and($r['head'])->toBe($box['SHA_A']);
+    }
+    expect($noSetpriv['out'])->toContain('cannot run the site\'s PHP as')
+        ->and($root['out'])->toContain('RUN_USER')
+        ->and($linkedVendor['out'])->toContain('vendor');
+});
+
+// Review round 0 (security MEDIUM): Path A's isolation from the live panels rested on a written revocation nobody can
+// check, and EgressGuard guards only the destinations customers name. The staging list egress-blocked names every
+// address the kept database's instances point at; the deployer connects to each as the run user and refuses the release
+// while any of them answers.
+it('refuses a staging release while an address of the egress-blocked list can be reached, probing as the run user', function () {
+    $box = $this->deployBox = deployGateSandbox();
+    $to = deployGateTo($box, $box['SHA_B']);
+    $list = $box['dir'].'/state/egress-blocked';
+
+    rename($list, $list.'.kept');
+    $missing = deployGateDeploy($box, $to);
+    rename($list.'.kept', $list);
+
+    file_put_contents($list, "# O4: live panels\nnot an address\n");
+    $garbage = deployGateDeploy($box, $to);
+
+    $server = stream_socket_server('tcp://127.0.0.1:0', $errno, $error);
+    expect($server)->not->toBeFalse();
+    $open = (string) stream_socket_get_name($server, false);
+    file_put_contents($list, "# O4: live panels\n127.0.0.1:1\n{$open}\n");
+    $reached = deployGateDeploy($box, $to);
+    fclose($server);
+
+    foreach ([$missing, $garbage, $reached] as $r) {
+        expect($r['rc'])->toBe(2, $r['out'])->and($r['stub'])->not->toContain('artisan down')->and($r['head'])->toBe($box['SHA_A']);
+    }
+    expect($missing['out'])->toContain('egress-blocked')
+        ->and($garbage['out'])->toContain('not an address')
+        ->and($reached['out'])->toContain($open)->toContain('can be reached')->not->toContain('127.0.0.1:1 ')
+        ->and($reached['stub'])->toMatch('#setpriv --reuid='.preg_quote($box['USER'], '#').' [^\n]*/dev/tcp#');
+
+    $blocked = deployGateDeploy($box, $to);   // the listener is gone: nothing on the list answers
+    expect($blocked['rc'])->toBe(0, $blocked['out'])->and($blocked['head'])->toBe($box['SHA_B']);
+});
+
+it('installs with the site\'s PHP run only as the run user, and writes the application key itself', function () {
+    $box = $this->deployBox = deployGateSandbox();
+    // run 2 of a first install: the environment file is filled, nothing is installed yet
+    file_put_contents($box['dir'].'/etc/app.env', "APP_ENV=staging\nAPP_URL=https://staging.test\nAPP_KEY=\nDB_PASSWORD=filled\n");
+    file_put_contents($box['dir'].'/bin/composer', "#!/usr/bin/env bash\nexit 0\n");
+    chmod($box['dir'].'/bin/composer', 0755);
+
+    $r = deployGateInstall($box, ['INSTALL_REPAIR' => '0', 'REF' => $box['SHA_A'], 'EXPECTED_SHA' => $box['SHA_A'], 'START_UNITS' => '0',
+        'COMPOSER' => $box['posix'].'/bin/composer']);
+
+    expect($r['rc'])->toBe(0, $r['out']);
+    deployGateExpectRunAsUser($r['stub'], $box['USER']);
+    expect($r['stub'])->toContain('composer install')->toContain('artisan migrate')->not->toContain('key:generate')
+        ->and((string) file_get_contents($box['dir'].'/etc/app.env'))->toMatch('#^APP_KEY=base64:[A-Za-z0-9+/]{43}=$#m')
+        ->and(is_file($box['dir'].'/state/installed'))->toBeTrue();
+});
+
 it('keeps bash syntax valid and never ignores the doctor again', function () {
     $bash = deployGateBash();
     if ($bash === null) {
@@ -933,7 +1116,8 @@ function deployGateShellFunction(string $file, string $name): string
 }
 
 it('keeps the security-critical shell functions identical where two scripts need them, and never writes VERSION through a name', function () {
-    foreach (['tree_is_real', 'repair_ownership'] as $name) { // the deployer and install.sh repair the same tree the same way
+    // the deployer and install.sh repair the same tree the same way, and run the site's PHP as the same user the same way
+    foreach (['tree_is_real', 'repair_ownership', 'as_run', 'work_dir_ready', 'vendor_ready'] as $name) {
         expect(deployGateShellFunction('deploy.sh', $name))->not->toBe('')->toBe(deployGateShellFunction('install.sh', $name));
     }
     expect(deployGateShellFunction('deploy.sh', 'verify_signed_tag'))->not->toBe('')->toBe(deployGateShellFunction('install-deployer.sh', 'verify_signed_tag'));

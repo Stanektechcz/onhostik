@@ -33,14 +33,50 @@ DEPLOY_OWNER_UID="${DEPLOY_OWNER_UID:-0}"              # who must own .git (root
 INSTALL_REPAIR="${INSTALL_REPAIR:-0}"
 START_UNITS="${START_UNITS:-}"                         # install: 1 unless 0 (containment first) · repair: 0 unless 1
 QUEUES="${QUEUES:-default mails provider-pterodactyl provider-aapanel provider-ispconfig provider-proxmox provider-powerdns provider-registrar provider-kubernetes}"
-SAFE_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+DEPLOY_SAFE_PATH="${DEPLOY_SAFE_PATH:-/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}"
+DEPLOY_WORK_DIR="${DEPLOY_WORK_DIR:-/var/cache/onhost-deploy/${SITE}}"   # the run user's HOME and composer cache (the deployer's too)
 
 say() { printf '\n\033[1;32m▶ %s\033[0m\n' "$*"; }
 die() { printf '\033[1;31m✖ %s\033[0m\n' "$*" >&2; exit 2; }
 warn() { printf '\033[1;33mWARN %s\033[0m\n' "$*" >&2; }
 need() { command -v "$1" >/dev/null 2>&1 || die "missing: $1"; }
 g() { GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="${DEPLOY_STATE_DIR}/gitconfig" git -C "$APP_DIR" -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"; }
-art() { env -i PATH="$SAFE_PATH" HOME=/root "$PHP" "$APP_DIR/artisan" "$@"; }
+art() { as_run "$PHP" "$APP_DIR/artisan" "$@"; }
+
+# The site's PHP — artisan, composer and the scripts composer runs — never runs as root (review round 0, security HIGH;
+# D32.13 until then): app.env is root:www 0640 and www can write this tree (all of it on an existing staging; vendor/,
+# bootstrap/cache and compiled views everywhere), so root executing that code made a www compromise root at the next
+# release. setpriv switches to the run user (aaPanel kills `sudo -u www`), env -i gives it a fixed environment, and fd 9
+# (the deployer's lock; unused here) is closed. The three functions below are the deployer's, character for character.
+as_run() {
+  setpriv --reuid="$RUN_USER" --regid="$RUN_USER" --init-groups -- \
+    env -i PATH="$DEPLOY_SAFE_PATH" HOME="$DEPLOY_WORK_DIR/home" "$@" 9>&-
+}
+# The run user's own space outside the tree: HOME, the composer cache, a release's framework caches. Its parent is
+# root's and writable by nobody else, so www cannot swap the directory for a link; root makes it and reads nothing
+# from it.
+work_dir_ready() {
+  local parent
+  parent="$(dirname "$DEPLOY_WORK_DIR")"
+  (umask 022; mkdir -p "$parent") \
+    && [ -z "$(find -P "$parent" -maxdepth 0 \( ! -uid "$DEPLOY_OWNER_UID" -o -perm /022 \) -print -quit)" ] || return 1
+  if [ ! -e "$DEPLOY_WORK_DIR" ] && [ ! -L "$DEPLOY_WORK_DIR" ]; then
+    (umask 077; mkdir "$DEPLOY_WORK_DIR") && chown -h "$RUN_USER:$RUN_USER" "$DEPLOY_WORK_DIR" || return 1
+  fi
+  [ -d "$DEPLOY_WORK_DIR" ] && [ ! -L "$DEPLOY_WORK_DIR" ] \
+    && [ -n "$(find -P "$DEPLOY_WORK_DIR" -maxdepth 0 -user "$RUN_USER" -print)" ] \
+    && as_run mkdir -p "$DEPLOY_WORK_DIR/home"
+}
+# vendor/ is the run user's, because composer runs as it. Absent (a first build), root makes the empty directory and
+# hands it over; present, it must be a real directory the run user owns entirely — a root-owned vendor/ of an older
+# root build is handed over by hand (staging-launch.md S1b), never by a recursive chown here.
+vendor_ready() {
+  if [ ! -e "$APP_DIR/vendor" ] && [ ! -L "$APP_DIR/vendor" ]; then
+    mkdir "$APP_DIR/vendor" && chown -h "$RUN_USER:$RUN_USER" "$APP_DIR/vendor" || return 1
+  fi
+  [ -d "$APP_DIR/vendor" ] && [ ! -L "$APP_DIR/vendor" ] \
+    && [ -z "$(find -P "$APP_DIR/vendor" ! -user "$RUN_USER" -print -quit 2>/dev/null)" ]
+}
 
 # storage and bootstrap/cache belong to the PHP-FPM user; the code tree and .git stay root's. www can write $APP_DIR, so
 # either directory (or bootstrap itself) could be swapped for a symlink, and `chown -R`/`chmod -R` run as root follow one
@@ -116,6 +152,11 @@ START_UNITS="${START_UNITS:-1}"
 REF="${REF:-$EXPECTED_SHA}"
 [[ "$REF" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$ ]] && [[ "$REF" != *..* ]] || die "REF '$REF' is not a plain ref name"
 has_ext() { "$PHP" -r 'exit(extension_loaded($argv[1]) ? 0 : 1);' "$1"; }   # php -m output differs between builds; ask PHP itself
+# the site's PHP runs as the run user, never as root (as_run; review round 0, security HIGH)
+need setpriv
+run_uid="$(id -u "$RUN_USER" 2>/dev/null || true)"
+[[ "$run_uid" =~ ^[0-9]+$ ]] && [ "$run_uid" != 0 ] || die "RUN_USER '$RUN_USER' must be an existing user other than root: the site's PHP never runs as root"
+[ "$(as_run id -u 2>/dev/null || true)" = "$run_uid" ] || die "cannot run the site's PHP as $RUN_USER (setpriv from util-linux, run as root)"
 has_ext pdo_pgsql || die "PHP 8.3 needs pdo_pgsql (aaPanel → PHP 8.3 → Install extensions); loaded PDO drivers: $("$PHP" -r 'echo implode(",", PDO::getAvailableDrivers());')"
 for ext in intl bcmath mbstring openssl redis fileinfo zip gd opcache; do has_ext "$ext" || echo "warning: PHP extension ${ext} missing — install it in aaPanel (PHP 8.3 → extensions)"; done
 
@@ -159,16 +200,24 @@ ln -sfn "$ENV_DIR/app.env" "$APP_DIR/.env"
 chown root:"$RUN_USER" "$ENV_DIR" "$ENV_DIR/app.env" && chmod 750 "$ENV_DIR" && chmod 640 "$ENV_DIR/app.env"
 : > "$DEPLOY_STATE_DIR/installing"   # from here a re-run continues an unfinished install; `installed` ends it
 
-say "Composer (production, no dev packages)"
-env -i PATH="$SAFE_PATH" HOME=/root COMPOSER_ALLOW_SUPERUSER=1 "$PHP" "$COMPOSER" install --no-dev --no-interaction --prefer-dist --no-progress --optimize-autoloader
-
 if ! grep -qE '^APP_KEY=base64:' "$ENV_DIR/app.env"; then
   say "Application key"
-  art key:generate --force
+  # generated and written by root into the root-owned file www only reads: `artisan key:generate` would have been the
+  # site's PHP as root, and as www it cannot write app.env (review round 0, security HIGH)
+  key="base64:$(head -c 32 /dev/urandom | base64 | tr -d '\n')"
+  (umask 077; awk -v k="$key" '/^APP_KEY=/ { if (!done) print "APP_KEY=" k; done = 1; next } { print } END { if (!done) print "APP_KEY=" k }' \
+      "$ENV_DIR/app.env" > "$ENV_DIR/app.env.new") \
+    && chown root:"$RUN_USER" "$ENV_DIR/app.env.new" && chmod 640 "$ENV_DIR/app.env.new" && mv -f "$ENV_DIR/app.env.new" "$ENV_DIR/app.env" \
+    || die "cannot write APP_KEY into $ENV_DIR/app.env"
 fi
 
-say "Permissions"
+say "Permissions: storage, bootstrap/cache and vendor belong to $RUN_USER, who runs the site's PHP from here on"
 fix_owner
+work_dir_ready || die "$DEPLOY_WORK_DIR must be a directory of $RUN_USER's whose parent only uid $DEPLOY_OWNER_UID can write"
+vendor_ready || die "$APP_DIR/vendor must be a real directory owned entirely by $RUN_USER, who runs composer (hand it over: staging-launch.md S1b)"
+
+say "Composer (production, no dev packages; as $RUN_USER)"
+as_run COMPOSER_HOME="$DEPLOY_WORK_DIR/home/.composer" "$PHP" "$COMPOSER" install --no-dev --no-interaction --prefer-dist --no-progress --optimize-autoloader
 
 say "Database: migrations and seed (catalogue, tax rules, notification templates, legal entity from the env)"
 art migrate --force
@@ -183,14 +232,14 @@ say "Caches"
 art config:cache
 art route:cache
 art event:cache
-art onhost:openapi >/dev/null || echo "warning: onhost:openapi failed; the published contract may be stale"
+art onhost:openapi >/dev/null || echo "warning: onhost:openapi failed (a root-owned checkout: the committed contract stands)"
 # VERSION sits in a directory www owns: written in the root-only state dir and renamed over whatever name is there
 (umask 022; printf '%s %s\n' "$EXPECTED_SHA" "$REF" > "$DEPLOY_STATE_DIR/VERSION.new") && mv -fT "$DEPLOY_STATE_DIR/VERSION.new" "$APP_DIR/VERSION"
 
 say "nginx site snippet"
 echo "   → paste infra/aapanel/nginx-site.conf into aaPanel → Website → ${SITE} → Config (see the runbook); root = $APP_DIR/public"
 
-fix_owner # everything above ran as root (aaPanel refuses sudo -u www); storage and bootstrap/cache belong to the PHP-FPM user
+fix_owner # root's checkout may have written tracked files under storage; storage and bootstrap/cache belong to the PHP-FPM user
 : > "$DEPLOY_STATE_DIR/installed"
 rm -f "$DEPLOY_STATE_DIR/installing"
 
