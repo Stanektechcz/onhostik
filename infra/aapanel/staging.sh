@@ -94,7 +94,7 @@ check() {
 
 contain() {
   say "Stopping the old staging (nothing is deleted)"
-  for u in $( { systemctl list-units --all --plain --no-legend 'onhost-*' | awk '{print $1}'; ls /etc/systemd/system/*.wants/ 2>/dev/null | grep '^onhost-' || true; } | sort -u ); do
+  for u in $( { systemctl list-units --all --plain --no-legend 'onhost-*' | awk '{print $1}'; for w in /etc/systemd/system/*.wants/onhost-*; do [ -e "$w" ] && basename "$w"; done; } | sort -u ); do
     systemctl disable --now "$u" && ok "stopped $u"
   done
   for q in $LANES; do systemctl mask "onhost-queue@$q.service" >/dev/null 2>&1 || true; done; ok "provider lanes masked"
