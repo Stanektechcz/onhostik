@@ -13,7 +13,9 @@ use Onhost\Domain\Domains\Models\Domain;
 use Onhost\Domain\Domains\Models\RegistrarContact;
 use Onhost\Domain\Domains\Models\RegistrarOperation;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Commands\CommandScope;
+use Onhost\Platform\Commands\IdempotencyStore;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Redaction\Redactor;
 use Onhost\Platform\Support\Hostname;
@@ -145,7 +147,7 @@ final class DomainController extends ApiController
         $context = $this->api->context($request, $organization);
         $actor = substr(hash('sha256', $context->actorType.':'.($context->onBehalfOfUserId ?? $context->actorId ?? '')), 0, 16);
         $command = new DomainCommand($organization->id, $this->idempotencyKey($request, "domain.{$op}:".($target === null ? 'org' : $target->id).":{$actor}"), ['op' => $op] + $payload);
-        $this->assertKeyUnused($command, $organization);
+        $this->assertKeyUnused($command, $context);
 
         return $this->dispatch($command, $context, $status);
     }
@@ -157,10 +159,11 @@ final class DomainController extends ApiController
      * the caller already spent. Only answers still kept by the bus count (24 h, IdempotencyStore). A true retry (same
      * fingerprint) passes and is replayed by the bus.
      */
-    private function assertKeyUnused(DomainCommand $command, Organization $organization): void
+    private function assertKeyUnused(DomainCommand $command, CommandContext $context): void
     {
         $prefix = $command->idempotencyKey.'#';
-        $used = DB::table('idempotency_keys')->where('scope', $organization->id)->whereRaw('substr("key", 1, ?) = ?', [mb_strlen($prefix), $prefix])
+        // the bus's own scope (organization and person since the P0-16 red team round, IdempotencyStore)
+        $used = DB::table('idempotency_keys')->where('scope', IdempotencyStore::scopeOf($context))->whereRaw('substr("key", 1, ?) = ?', [mb_strlen($prefix), $prefix])
             ->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))->pluck('key');
         if ($used->contains(fn ($key) => (string) $key !== $command->idempotencyKey())) {
             throw DomainError::conflict('idempotency_key_reused', 'This idempotency key was already used for another domain request.', [

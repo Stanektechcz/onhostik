@@ -52,6 +52,32 @@ final class Redactor
         return $value;
     }
 
+    /**
+     * Whether a value hands out a secret (TASK-0041, P0-16 red team): a non-empty string under a secret-like key, or a string
+     * the free-text rules would mask, at any depth. A flag or a number under such a key (`totp_enabled: true`, `tokens_total`)
+     * is not a secret; a nested object under one (`ticket: {…}`) is looked into, not taken for one.
+     */
+    public function carriesSecret(mixed $value, ?string $key = null, int $depth = 0): bool
+    {
+        if ($depth > 12) {
+            return true; // deeper than redact() looks: it would be masked, so it is not kept either
+        }
+        if (is_array($value)) {
+            foreach ($value as $childKey => $item) {
+                if ($this->carriesSecret($item, is_string($childKey) ? $childKey : null, $depth + 1)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+        if (! is_string($value) || $value === '') {
+            return false;
+        }
+
+        return ($key !== null && $this->isSecretKey($key)) || $this->redactString($value) !== $value;
+    }
+
     public function isSecretKey(string $key): bool
     {
         $lower = strtolower($key);
@@ -79,6 +105,8 @@ final class Redactor
             '/\b(ptl[ac]_)[A-Za-z0-9]{10,}/' => '$1'.self::MASK,
             '/\b(onh_(?:live|test)_)[A-Za-z0-9]{6,}/' => '$1'.self::MASK,
             '/\b(sk_(?:live|test)_)[A-Za-z0-9]{6,}/' => '$1'.self::MASK,
+            // an action hook's token, also where it is the path of the hook's URL (`/v1/hooks/run/ahk_…`, TASK-0041)
+            '/\b(ahk_)[A-Za-z0-9]{10,}/' => '$1'.self::MASK,
             // a one-time secret in a link: an invitation (?pozvanka=), a signed download, an OAuth code
             '/([?&](?:pozvanka|invite|invitation|invitation_token|code|signature|sig|expires_signature)=)[^&#\s"\'<>]+/i' => '$1'.self::MASK,
             // SOAP/XML bodies (Subreg): <password>…</password>, <ssid>…</ssid>, <authid>…</authid> carry no ":" or "=" for the rule above

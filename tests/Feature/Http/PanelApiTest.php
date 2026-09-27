@@ -240,7 +240,8 @@ it('issues scoped API tokens after step-up and enforces the scopes on bearer req
     $this->postJson('/v1/tokens', ['name' => 'CI', 'scopes' => ['services:read']], ['Idempotency-Key' => 'ci-token'])->assertForbidden()->assertJsonPath('error', 'step_up_required')->assertHeaderMissing('Idempotent-Replayed');
     app(StepUpService::class)->grant($user, 'totp', null, '127.0.0.1');
     $created = $this->postJson('/v1/tokens', ['name' => 'CI', 'scopes' => ['services:read']], ['Idempotency-Key' => 'ci-token'])->assertCreated()->assertHeaderMissing('Idempotent-Replayed');
-    $this->postJson('/v1/tokens', ['name' => 'CI', 'scopes' => ['services:read']], ['Idempotency-Key' => 'ci-token'])->assertCreated()->assertHeader('Idempotent-Replayed', 'true');
+    // TASK-0041: the replay store keeps no token — the repeat is told the token was issued and shown once (ReplayStoreScopeTest)
+    $this->postJson('/v1/tokens', ['name' => 'CI', 'scopes' => ['services:read']], ['Idempotency-Key' => 'ci-token'])->assertStatus(409)->assertJsonPath('error', 'already_done')->assertHeader('Idempotent-Replayed', 'true');
     $plain = $created->json('token');
     expect($plain)->toContain('|onh_live_')->and($created->json('scopes'))->toBe(['services:read']);
     $this->getJson('/v1/tokens')->assertOk()->assertJsonPath('data.0.name', 'CI');

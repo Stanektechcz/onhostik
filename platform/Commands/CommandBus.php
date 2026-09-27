@@ -73,7 +73,9 @@ final class CommandBus
             };
         }
 
-        $replay = $this->idempotency->find($command->idempotencyKey(), $context);
+        // TASK-0041: the key is this person's, for this very command (IdempotencyStore) — another body under it is refused (409)
+        $requestHash = IdempotencyStore::requestHash($command, $context);
+        $replay = $this->idempotency->find($command->idempotencyKey(), $context, $requestHash);
         if ($replay !== null) {
             return $replay;
         }
@@ -85,9 +87,9 @@ final class CommandBus
 
         Context::add('command', $command->name()); // the error tracker and the trace tag the command (audit §5q-2)
         try {
-            $result = $this->tracer->span('command '.$command->name(), ['onhost.command' => $command->name(), 'onhost.actor_type' => $context->actorType, 'onhost.actor_id' => $context->actorId, 'onhost.organization_id' => $context->organizationId, 'onhost.idempotency_key' => $command->idempotencyKey()], fn () => DB::transaction(function () use ($handler, $command, $context, $handlerContext) {
+            $result = $this->tracer->span('command '.$command->name(), ['onhost.command' => $command->name(), 'onhost.actor_type' => $context->actorType, 'onhost.actor_id' => $context->actorId, 'onhost.organization_id' => $context->organizationId, 'onhost.idempotency_key' => $command->idempotencyKey()], fn () => DB::transaction(function () use ($handler, $command, $context, $handlerContext, $requestHash) {
                 $result = $handler->handle($command, $handlerContext);
-                $this->idempotency->remember($command->idempotencyKey(), $context, $result);
+                $this->idempotency->remember($command->idempotencyKey(), $context, $result, $requestHash);
 
                 return $result;
             }, 3));
