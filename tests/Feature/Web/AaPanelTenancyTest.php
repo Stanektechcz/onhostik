@@ -448,14 +448,18 @@ it('refuses rather than trusts an old copy when it cannot read whether the node 
     $calls = [];
     tenancyPanelFake($calls);
     $adapter = aaToolsAdapter(); // built while the node was open
-    Schema::rename('provider_instances', 'provider_instances_away');
+    // the unreadable table lives in a savepoint that is rolled back: on PostgreSQL the failing SELECT aborts the transaction it
+    // runs in (25P02), and the test's own transaction must stay usable for the rename back and the assertions after it
+    DB::beginTransaction();
     try {
+        Schema::rename('provider_instances', 'provider_instances_away');
         expect(fn () => $adapter->writeFile(tenancySite(), 'index.php', 'x'))
             ->toThrow(fn (ProviderException $e) => expect($e->errorCode)->toBe(ProviderErrorCode::TRANSIENT));
         expect($adapter->siteFeatures()['files'])->toBeFalse();
     } finally {
-        Schema::rename('provider_instances_away', 'provider_instances');
+        DB::rollBack();
     }
+    expect(Schema::hasTable('provider_instances'))->toBeTrue();
     expect(tenancyCalled($calls, 'SaveFileBody'))->toBeFalse();
 });
 
@@ -570,12 +574,14 @@ it('refuses the root file API at the transport itself on a closed node, also for
     }
     expect($shell->ran('cp -a'))->toBeFalse();
 
-    Schema::rename('provider_instances', 'provider_instances_away');
+    DB::beginTransaction(); // a savepoint rolled back below: PostgreSQL aborts the transaction the failing SELECT runs in
     try {
+        Schema::rename('provider_instances', 'provider_instances_away');
         expect(fn () => $transport->write('index.php', 'x'))->toThrow(fn (ProviderException $e) => expect($e->errorCode)->toBe(ProviderErrorCode::TRANSIENT));
     } finally {
-        Schema::rename('provider_instances_away', 'provider_instances');
+        DB::rollBack();
     }
+    expect(Schema::hasTable('provider_instances'))->toBeTrue();
 });
 
 it('uploads and deletes as the site\'s own shell user on a closed node: root writes only into its private folder', function () {

@@ -574,7 +574,9 @@ final class ServiceService
             $this->transition($service, $transient, $context, (string) ($params['reason'] ?? $action));
         }
         try {
-            $operation = $this->operations->start(self::actionWorkflowFor($action), $idempotencyKey, array_merge($params, ['action' => $action, 'service_id' => $service->id], OperationKey::desired($requestHash)), $context, $service->id, $service->organization_id, null, $service->provider_instance_id, authorizedPermission: $authorizedPermission, authorizedScope: $authorizedScope);
+            // in a savepoint: on PostgreSQL the losing INSERT aborts the whole surrounding transaction (SQLSTATE 25P02), so without
+            // one the caller could not even read after the 409 — SQLite forgives it, which is why only pest-postgres saw this
+            $operation = DB::transaction(fn () => $this->operations->start(self::actionWorkflowFor($action), $idempotencyKey, array_merge($params, ['action' => $action, 'service_id' => $service->id], OperationKey::desired($requestHash)), $context, $service->id, $service->organization_id, null, $service->provider_instance_id, authorizedPermission: $authorizedPermission, authorizedScope: $authorizedScope));
         } catch (UniqueConstraintViolationException) {
             // TASK-0036 review round 1: two copies of one request passed the look-up above at the same moment. The unique key of
             // `operations` lets exactly one of them in; the other is told so (409) instead of a 500. The surrounding bus

@@ -290,7 +290,9 @@ it('lets one request win when two carry the same key at the same moment, and ans
 
     expect(fn () => app(ServiceService::class)->requestAction($site, 'https.force', $this->contextFor($alice, $org), 'race-1', ['enabled' => true]))
         ->toThrow(fn (DomainError $e) => expect($e->status)->toBe(409)->and($e->error)->toBe('operation_in_progress'));
-    expect(Operation::query()->where('service_id', $site->id)->count())->toBe(1);
+    // nothing of the losing copy stays; the simulated winner is written inside the losing INSERT's savepoint here (in real life it
+    // commits on its own connection), so it is not counted — and the read itself proves the transaction survived on PostgreSQL
+    expect(Operation::query()->where('service_id', $site->id)->where('id', 'not like', 'op_twin_%')->count())->toBe(0);
 });
 
 it('invites a removed member again, takes a lapsed member off without renewing their role, and refuses dead links and gone people', function () {
