@@ -117,7 +117,9 @@ printf '#!/usr/bin/env bash\n[ "$*" = "-j list table inet onhost_containment" ] 
 chmod +x "$box/bin/"*
 
 echo "── serve public/ on 127.0.0.1:$PORT"
-(cd "$app" && exec "$PHP_BIN" -S "127.0.0.1:$PORT" -t public vendor/laravel/framework/src/Illuminate/Foundation/resources/server.php) > "$box/server.log" 2>&1 &
+# from public/, as `artisan serve` does: Laravel's router script requires getcwd().'/index.php' (on Linux the built-in server
+# does not change into the -t directory, so started from the app root every request was a 500)
+(cd "$app/public" && exec "$PHP_BIN" -S "127.0.0.1:$PORT" -t . ../vendor/laravel/framework/src/Illuminate/Foundation/resources/server.php) > "$box/server.log" 2>&1 &
 server_pid=$!
 for _ in $(seq 1 50); do curl -s -o /dev/null "http://127.0.0.1:$PORT/up" && break; sleep 0.2; done
 
