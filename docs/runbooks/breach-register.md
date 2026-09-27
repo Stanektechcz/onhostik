@@ -1,7 +1,9 @@
 # Breach register: the forensic look-back for the permission holes
 
-Phase 0 of the permission program closed nine holes that had been open since launch (program §1 and §9: TD-1, TD-2,
-TD-3, PA-01, G1, PA-02, PA-04, SS-1/SS-5 with EXPL-1..3, P1/P2). Closing a hole says nothing about the time **before** it was closed.
+Phase 0 of the permission program closes nine holes that had been open since launch (program §1 and §9: TD-1, TD-2,
+TD-3, PA-01, G1, PA-02, PA-04, SS-1/SS-5 with EXPL-1..3, P1/P2). Not all of them are closed yet: PA-04 and SS-1/SS-5 with
+EXPL-1..3 close only with TASK-0039, which waves 1 and 2 do not contain (see "Still open after Phase 0 wave 2" below).
+Closing a hole says nothing about the time **before** it was closed.
 This runbook answers two questions for each hole: did anybody use it, and what do we do if they did (program key
 P0-01 / IF-0, decision D16).
 
@@ -15,6 +17,39 @@ php artisan onhost:forensics:lookback [--since=2026-01-01] [--until=2026-09-27]
 | 0 | No source has a hit. Unknowns may still be listed; read them. |
 | 1 | At least one source has a hit. |
 | 2 | Bad options (unparsable date, `--since` after `--until`, unknown source). Nothing was read. |
+
+## Still open after Phase 0 wave 2
+
+The P0-16 red team of the stacked wave-two chain (TASK-0041, 2026-09-27) found these holes **still exploitable** there. Their
+fix is TASK-0039 (program P0-08, P0-09, P0-14), which is not in waves 1 and 2. Until it is integrated, the look-back for them is
+not a look-back: the hole is still open, a clean report means only "not used yet", and a re-run after the Phase 0 deploy may
+grow. Phase 0 is not signed off while this list has an entry. Each hole is pinned by a test in
+`tests/Feature/Security/PhaseZeroOpenItemsTest.php` that fails on purpose when TASK-0039 lands. Delete the pin then, keep the
+TASK-0039 proof in its place, and strike the line here.
+
+* `PA-04` (IF-5, P0-09, TASK-0039): an API token acts for any organization its person belongs to, by `X-Organization`, by a
+  missing header (the person's oldest membership) and by a resource id, queued runs included. A staff person's token carries
+  the staff role's global reach. Look-back source: `token_cross_org`.
+* `IF-4` (P0-08, then P0-15, TASK-0039): a global staff role with `staff.customer.read` enters any organization by
+  `X-Organization`, and the customer keys it holds globally apply there (`support.ticket.read`, `backup.delete`,
+  `backup.restore`). No consent, no ticket and no shadow log.
+* `EXPL-1`, `EXPL-2`, `EXPL-3` and `SS-1` (IF-8, P0-08, TASK-0039): a member of staff who is also an organization member acts on
+  the customer's own routes as staff. They force a purge inside the restore window, lift every ONhost hold with only a
+  reason, and pass a panel under maintenance. The reinstatement credit gate lets any staff account through
+  (`ServiceReinstatement::actorMay`). Look-back source: `staff_own_org`.
+* `SS-14` (IF-8, P0-08, TASK-0039): the console pre-flight counts `is_staff` as membership, so any member of staff passes it.
+* `SS-5` and `SE-3` (IF-9, P0-08, TASK-0039): a forced purge, or one that skips the final archive, is still `service.delete`
+  HIGH. One person can do it, with no time lock. Pinned by RiskFloorTest "pins the open items P0-08/IF-9". Look-back source:
+  `staff_own_org` (`purge_without_archive`).
+* `backup.delete` (IF-9, P0-08, TASK-0039): `backup_dr_admin` deletes any organization's backups, and the key is floored to
+  HIGH, so no second person is asked (RiskFloorTest, same pin).
+* `archive.restore` (IF-4, P0-08, TASK-0039): a global `backup.read`/`backup.restore` binding passes
+  `ServiceArchiveService::assertMayRestore` for every organization. One member of staff can restore an archive over a
+  customer's live site.
+* `SS-4` and `PA-06` (IF-16, P0-14, TASK-0039): staff sign on to a customer's panel with a GET that asks only for
+  `staff.console` plus a step-up. `support_l2`/`support_l3` hold that key. The reason is optional, and there is no ticket,
+  no family check, no second person and no notice to the customer. A `ticket_ref` is whatever the request says: P0-14 must
+  check that a real ticket about the service exists and was opened by the customer, and never trust `ticket_ref`.
 
 ## What it does, and what it never does
 
