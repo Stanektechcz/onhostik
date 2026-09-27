@@ -283,7 +283,7 @@ function deployGatePosix(string $path): string
     return preg_match('#^([A-Za-z]):/(.*)$#', $path, $m) === 1 ? '/'.strtolower($m[1]).'/'.$m[2] : $path;
 }
 
-/** @return array{dir:string, posix:string, SHA_A:string, SHA_B:string, APP:string, SEED:string, UID:string, USER:string} */
+/** @return array{dir:string, posix:string, SHA_A:string, SHA_B:string, APP:string, SEED:string, ENV:string, UID:string, USER:string} */
 function deployGateSandbox(): array
 {
     $bash = deployGateBash();
@@ -330,6 +330,7 @@ function deployGateDeploy(array $box, array $env, array $stub = []): array
     $process = new Process([(string) deployGateBash(), '-c', 'cd "$APP_DIR" && PATH="$STUB_BIN:$PATH" exec bash "$DEPLOYER"'], null, array_merge([
         'STUB_BIN' => $box['posix'].'/bin', 'DEPLOYER' => deployGatePosix((string) $script),
         'SITE' => 'staging.test', 'APP_DIR' => $box['APP'], 'PHP' => $box['posix'].'/bin/php', 'COMPOSER' => '/nonexistent/composer',
+        'ENV_FILE' => $box['ENV'], 'UNIT_SETTLE' => '0',
         'RUN_USER' => $box['USER'], 'DEPLOY_STATE_DIR' => $box['posix'].'/state', 'DEPLOY_LIB_DIR' => $box['posix'].'/lib',
         'PHP_FPM_RELOAD' => $box['posix'].'/bin/fpm-reload', 'DEPLOY_HTTP_BASE' => 'http://127.0.0.1:1', 'DEPLOY_OWNER_UID' => $box['UID'],
         'DEPLOY_HOME' => $box['posix'], 'DEPLOY_SAFE_PATH' => $box['posix'].'/bin:/usr/bin:/bin', 'DEPLOY_OPERATOR' => 'test-operator',
@@ -370,9 +371,23 @@ afterEach(function () {
 
 it('releases in order: drain, down, backup and verify, switch, migrate, gate, start, up — and records the release', function () {
     $box = $this->deployBox = deployGateSandbox();
+    // what a compromised www account could leave for root: framework caches and a compiled view in its own directories
+    file_put_contents($box['dir'].'/app/bootstrap/cache/config.php', "<?php // written by www\n");
+    File::ensureDirectoryExists($box['dir'].'/app/storage/framework/views');
+    file_put_contents($box['dir'].'/app/storage/framework/views/planted.php', "<?php // written by www\n");
 
     $r = deployGateDeploy($box, deployGateTo($box, $box['SHA_B']), ['STUB_UNITS' => 'onhost-queue@default.service onhost-scheduler.service']);
     $s = $r['stub'];
+    $artisan = array_values(array_filter(explode("\n", $s), fn (string $line) => str_contains($line, '/artisan ')));
+
+    // root's artisan never reads the www-owned bootstrap/cache: every call points the framework caches at the run's
+    // root-only directory, and the build publishes the caches it made for PHP-FPM
+    expect($artisan)->not->toBeEmpty();
+    foreach ($artisan as $line) {
+        expect($line)->toMatch('#\[cache=\S*/state/runs/[^ \]]+/bootstrap-cache/config\.php\]#');
+    }
+    expect((string) file_get_contents($box['dir'].'/app/bootstrap/cache/config.php'))->toContain('built by root')
+        ->and(is_file($box['dir'].'/app/storage/framework/views/planted.php'))->toBeFalse();
 
     expect($r['rc'])->toBe(0, $r['out'])->and($r['head'])->toBe($box['SHA_B'])
         ->and(deployGateAt($s, 'systemctl stop'))->toBeLessThan(deployGateAt($s, 'artisan down'))
@@ -484,7 +499,7 @@ it('leaves a site down that an operator took down before the deploy', function (
 
 it('in production accepts only an annotated tag signed by a key in allowed_signers', function () {
     $box = $this->deployBox = deployGateSandbox();
-    file_put_contents($box['dir'].'/app/.env', "APP_ENV=production\nAPP_URL=https://staging.test\n");
+    file_put_contents($box['dir'].'/etc/app.env', "APP_ENV=production\nAPP_URL=https://staging.test\n"); // the site's .env is the same file
     $b = $box['SHA_B'];
 
     $unsigned = deployGateDeploy($box, ['REF' => 'vtest', 'EXPECTED_SHA' => $b]);         // no allowed_signers on the host
@@ -496,6 +511,115 @@ it('in production accepts only an annotated tag signed by a key in allowed_signe
     foreach ([$unsigned, $light, $bySha, $override] as $r) {
         expect($r['rc'])->toBe(2, $r['out'])->and($r['stub'])->not->toContain('artisan down')->and($r['head'])->toBe($box['SHA_A']);
     }
+});
+
+/** Runs infra/aapanel/install-deployer.sh (or ONHOST_INSTALL_DEPLOYER_SCRIPT) against the sandbox. */
+function deployGateInstallDeployer(array $box, array $env): Process
+{
+    $script = getenv('ONHOST_INSTALL_DEPLOYER_SCRIPT') ?: base_path('infra/aapanel/install-deployer.sh');
+    $process = new Process([(string) deployGateBash(), deployGatePosix((string) $script)], null, array_merge([
+        'APP_DIR' => $box['APP'], 'ENV_FILE' => $box['ENV'], 'DEPLOY_STATE_DIR' => $box['posix'].'/state',
+        'DEPLOYER_BIN' => $box['posix'].'/sbin/onhost-deploy', 'DEPLOYER_LIB_DIR' => $box['posix'].'/lib', 'DEPLOY_OWNER_UID' => $box['UID'],
+        'SHA' => false, 'TAG' => false, 'FIRST' => false,
+    ], $env));
+    $process->setTimeout(60);
+    $process->run();
+
+    return $process;
+}
+
+it('in production verifies the tag itself: SSH signature, its own name, and no other signature kind — for the deployer and for a release', function () {
+    $box = $this->deployBox = deployGateSandbox();
+    file_put_contents($box['dir'].'/etc/app.env', "APP_ENV=production\nAPP_URL=https://staging.test\n");
+    copy($box['dir'].'/allowed_signers.src', $box['dir'].'/state/allowed_signers');
+    file_put_contents($box['dir'].'/bin/doctor.json', (string) json_encode(deployGateReport(environment: 'production')));
+    $b = $box['SHA_B'];
+    $sourceSha = fn () => trim((string) file_get_contents($box['dir'].'/lib/source-sha'));
+
+    // the judge is installed under the same rules as a release
+    $again = deployGateInstallDeployer($box, ['SHA' => $b, 'FIRST' => '1']);              // FIRST=1 on a host that has a deployer
+    $untagged = deployGateInstallDeployer($box, ['SHA' => $b]);                             // production without the owner's tag
+    $renamedInstall = deployGateInstallDeployer($box, ['SHA' => $b, 'TAG' => 'vrenamed']);
+    expect($again->getExitCode())->toBe(2, $again->getErrorOutput())->and($again->getErrorOutput())->toContain('already installed')
+        ->and($untagged->getExitCode())->toBe(2)->and($untagged->getErrorOutput())->toContain('TAG=')
+        ->and($renamedInstall->getExitCode())->toBe(2)->and($renamedInstall->getErrorOutput())->toContain("calls itself 'vsigned'")
+        ->and($sourceSha())->toBe($box['SHA_A']);
+
+    // a release: the same tag object filed under another name, a PGP block (root's GnuPG keyring would judge it), then the real one
+    $renamed = deployGateDeploy($box, ['REF' => 'vrenamed', 'EXPECTED_SHA' => $b]);
+    $pgp = deployGateDeploy($box, ['REF' => 'vpgp', 'EXPECTED_SHA' => $b]);
+    foreach ([$renamed, $pgp] as $r) {
+        expect($r['rc'])->toBe(2, $r['out'])->and($r['stub'])->not->toContain('artisan down')->and($r['head'])->toBe($box['SHA_A']);
+    }
+    expect($renamed['out'])->toContain("calls itself 'vsigned'")->and($pgp['out'])->toContain('not SSH-signed');
+
+    // B's deploy.sh is A's, so the installed deployer takes it; the signed tag passes the gate end to end
+    $installed = deployGateInstallDeployer($box, ['SHA' => $b, 'TAG' => 'vsigned']);
+    expect($installed->getExitCode())->toBe(0, $installed->getErrorOutput())->and($sourceSha())->toBe($b);
+    $signed = deployGateDeploy($box, ['REF' => 'vsigned', 'EXPECTED_SHA' => $b]);
+    expect($signed['rc'])->toBe(0, $signed['out'])->and($signed['head'])->toBe($b)
+        ->and(json_decode((string) file_get_contents($box['dir'].'/state/last-good.json'), true)['tag'])->toBe('vsigned');
+});
+
+it('refuses before going down when the site .env is not the root-owned file, a cache directory is a link, or the deployer files are not root\'s', function () {
+    $box = $this->deployBox = deployGateSandbox();
+    $to = deployGateTo($box, $box['SHA_B']);
+    $app = $box['dir'].'/app';
+
+    // www repoints .env at its own file saying staging while the root-owned file says production
+    file_put_contents($box['dir'].'/etc/app.env', "APP_ENV=production\nAPP_URL=https://staging.test\n");
+    unlink($app.'/.env');
+    file_put_contents($app.'/.env', "APP_ENV=staging\nAPP_URL=https://staging.test\n");
+    $repointed = deployGateDeploy($box, $to);
+    file_put_contents($box['dir'].'/etc/app.env', "APP_ENV=staging   # staging | production\nAPP_URL=https://staging.test\n");
+    unlink($app.'/.env');
+    link($box['dir'].'/etc/app.env', $app.'/.env');
+
+    // www swaps bootstrap/cache for a link to a tree root would then re-own and re-mode
+    File::ensureDirectoryExists($box['dir'].'/elsewhere');
+    file_put_contents($box['dir'].'/elsewhere/keep.txt', 'not the site');
+    File::deleteDirectory($app.'/bootstrap/cache');
+    PHP_OS_FAMILY === 'Windows'
+        ? (new Process(['cmd', '/c', 'mklink', '/J', str_replace('/', '\\', $app.'/bootstrap/cache'), str_replace('/', '\\', $box['dir'].'/elsewhere')]))->mustRun()
+        : symlink($box['dir'].'/elsewhere', $app.'/bootstrap/cache');
+    $linked = deployGateDeploy($box, $to);
+    PHP_OS_FAMILY === 'Windows' ? rmdir($app.'/bootstrap/cache') : unlink($app.'/bootstrap/cache');
+    File::ensureDirectoryExists($app.'/bootstrap/cache');
+
+    // the judge belongs to someone else
+    $foreign = deployGateDeploy($box, $to + ['DEPLOY_OWNER_UID' => (string) ((int) $box['UID'] + 1)]);
+
+    foreach ([$repointed, $linked, $foreign] as $r) {
+        expect($r['rc'])->toBe(2, $r['out'])->and($r['stub'])->not->toContain('artisan down')->not->toContain('chown')->and($r['head'])->toBe($box['SHA_A']);
+    }
+    expect($repointed['out'])->toContain('/.env is not')
+        ->and($linked['out'])->toContain('must be real directories')
+        ->and($foreign['out'])->toContain('deployer files')
+        ->and((string) file_get_contents($box['dir'].'/elsewhere/keep.txt'))->toBe('not the site');
+
+    if (PHP_OS_FAMILY !== 'Windows') { // Git Bash has no group/other permission bits to test
+        chmod($box['dir'].'/lib/deploy-gate.php', 0666);
+        $writable = deployGateDeploy($box, $to);
+        chmod($box['dir'].'/lib/deploy-gate.php', 0644);
+        expect($writable['rc'])->toBe(2, $writable['out'])->and($writable['out'])->toContain('deployer files');
+    }
+});
+
+it('does not call a release good when a drained unit does not come back: all of them stop again and the site stays down', function () {
+    $box = $this->deployBox = deployGateSandbox();
+    file_put_contents($box['dir'].'/state/last-good.json', (string) json_encode(['sha' => $box['SHA_A'], 'ref' => $box['SHA_A'], 'tag' => '', 'at' => 'x', 'operator' => 'op']));
+
+    $r = deployGateDeploy($box, deployGateTo($box, $box['SHA_B']), [
+        'STUB_UNITS' => 'onhost-queue@default.service onhost-scheduler.service', 'STUB_START_FAIL' => 'onhost-queue@default.service',
+    ]);
+
+    expect($r['rc'])->toBe(7, $r['out'])->and($r['out'])->toContain('did not come back: onhost-queue@default.service')
+        ->and(substr($r['stub'], (int) strpos($r['stub'], 'systemctl start onhost-scheduler.service')))->toContain('systemctl stop --no-block onhost-queue@default.service onhost-scheduler.service')
+        ->and($r['stub'])->not->toContain('artisan up')
+        ->and(json_decode((string) file_get_contents($box['dir'].'/app/storage/framework/down'), true)['secret'])->toBeNull()
+        ->and(trim((string) file_get_contents($box['dir'].'/state/drained-units')))->toBe("onhost-queue@default.service\nonhost-scheduler.service")
+        ->and($r['out'])->toContain("REF={$box['SHA_A']} EXPECTED_SHA={$box['SHA_A']}")
+        ->and($r['log'])->toContain('stage=live rc=7');
 });
 
 it('keeps bash syntax valid and never ignores the doctor again', function () {

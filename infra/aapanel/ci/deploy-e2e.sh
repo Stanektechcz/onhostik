@@ -14,7 +14,7 @@ PHP_BIN="${PHP_BIN:-$(command -v php)}"
 COMPOSER_BIN="${COMPOSER_BIN:-$(command -v composer)}"
 PORT="${E2E_PORT:-8123}"
 box="${1:-$(mktemp -d)}"
-mkdir -p "$box"/{seed,bin,sbin,lib,state}
+mkdir -p "$box"/{seed,bin,sbin,lib,state,etc}
 box="$(cd "$box" && pwd)"
 gitc() { git -c user.name=deploy-e2e -c user.email=deploy-e2e@example.invalid -c core.autocrlf=false -c init.defaultBranch=development -c commit.gpgsign=false "$@"; }
 winpath() { (cd "$1" && (pwd -W 2>/dev/null || pwd)); }   # PHP on Windows needs C:/… paths inside .env
@@ -62,7 +62,7 @@ git -C "$app" checkout -q --detach "$sha_a"
 
 echo "── the site as install.sh leaves it: .env, vendor, migrated database"
 : > "$app/database/e2e.sqlite"
-cat > "$app/.env" <<EOF
+cat > "$box/etc/app.env" <<EOF
 APP_NAME=ONhost
 APP_ENV=staging   # staging | production
 APP_KEY=base64:$("$PHP_BIN" -r 'echo base64_encode(random_bytes(32));')
@@ -78,6 +78,8 @@ LOG_CHANNEL=single
 ONHOST_SECRETS_DRIVER=db
 ONHOST_PLATFORM_BACKUP_DISK=local
 EOF
+# the site's .env IS the root-owned environment file (install.sh: a symlink; a hard link where symlinks need privileges)
+if ! { ln -sfn "$box/etc/app.env" "$app/.env" 2>/dev/null && [ -L "$app/.env" ]; }; then rm -f "$app/.env"; ln -f "$box/etc/app.env" "$app/.env"; fi
 (cd "$app" && COMPOSER_ALLOW_SUPERUSER=1 "$PHP_BIN" "$COMPOSER_BIN" install --no-dev --no-interaction --prefer-dist --no-progress --quiet)
 (cd "$app" && "$PHP_BIN" artisan migrate --force --no-interaction >/dev/null)
 
@@ -92,14 +94,14 @@ server_pid=$!
 for _ in $(seq 1 50); do curl -s -o /dev/null "http://127.0.0.1:$PORT/up" && break; sleep 0.2; done
 
 echo "── install the deployer from A"
-SHA="$sha_a" FIRST=1 APP_DIR="$app" DEPLOY_STATE_DIR="$box/state" DEPLOYER_BIN="$box/sbin/onhost-deploy" DEPLOYER_LIB_DIR="$box/lib" \
+SHA="$sha_a" FIRST=1 APP_DIR="$app" ENV_FILE="$box/etc/app.env" DEPLOY_STATE_DIR="$box/state" DEPLOYER_BIN="$box/sbin/onhost-deploy" DEPLOYER_LIB_DIR="$box/lib" \
   DEPLOY_OWNER_UID="$(id -u)" bash "$REPO_ROOT/infra/aapanel/install-deployer.sh"
 
 deploy() { # $1 = sha
   local allow=()
   [ "${E2E_ALLOW_DOCTOR_FAIL:-0}" = 1 ] && allow=(ALLOW_DOCTOR_FAIL="${1:0:12}:local e2e run without a CA bundle")
   (cd "$app" && env PATH="$box/bin:$PATH" ${allow[@]+"${allow[@]}"} SITE=staging.test APP_DIR="$app" PHP="$PHP_BIN" COMPOSER="$COMPOSER_BIN" \
-    RUN_USER="$(id -un)" DEPLOY_STATE_DIR="$box/state" DEPLOY_LIB_DIR="$box/lib" PHP_FPM_RELOAD="$box/bin/fpm-reload" \
+    RUN_USER="$(id -un)" ENV_FILE="$box/etc/app.env" DEPLOY_STATE_DIR="$box/state" DEPLOY_LIB_DIR="$box/lib" PHP_FPM_RELOAD="$box/bin/fpm-reload" \
     DEPLOY_HTTP_BASE="http://127.0.0.1:$PORT" DEPLOY_OWNER_UID="$(id -u)" DEPLOY_HOME="$HOME" \
     DEPLOY_SAFE_PATH="$box/bin:$(dirname "$PHP_BIN"):/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
     DEPLOY_OPERATOR=ci-e2e REF="$1" EXPECTED_SHA="$1" bash "$box/sbin/onhost-deploy")

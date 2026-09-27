@@ -15,12 +15,14 @@
 #
 # Exit codes: 0 released · 2 preflight refused (nothing changed) · 3 drain, backup or verify failed (nothing switched,
 # units started again, site up again when this run took it down) · 4 build failed after the switch · 5 gate failed ·
-# 6 the public /up check failed after `up`. After 4 and 5 the site stays in maintenance and the drained units stay
-# stopped; the script prints the recovery command (last good release) — there is no automatic rollback.
+# 6 the public /up check failed after `up` · 7 a drained unit did not come back after the start (they are all stopped
+# again). After 4, 5 and 7 the site stays in maintenance and the drained units stay stopped; the script prints the
+# recovery command (last good release) — there is no automatic rollback.
 set -euo pipefail
 
 SITE="${SITE:-staging.onhost.cz}"
 APP_DIR="${APP_DIR:-/www/wwwroot/${SITE}}"
+ENV_FILE="${ENV_FILE:-${ENV_DIR:-/etc/onhost}/app.env}"   # root-owned; $APP_DIR/.env must BE this file (install.sh symlinks it)
 PHP="${PHP:-/www/server/php/83/bin/php}"
 COMPOSER="${COMPOSER:-/usr/local/bin/composer}"
 RUN_USER="${RUN_USER:-www}"
@@ -30,6 +32,7 @@ PHP_FPM_RELOAD="${PHP_FPM_RELOAD:-}"            # e.g. '/etc/init.d/php-fpm-83 r
 DEPLOY_HTTP_IP="${DEPLOY_HTTP_IP:-127.0.0.1}"   # where nginx answers https://$SITE on this host (the vhost lets loopback past basic auth)
 DEPLOY_HTTP_BASE="${DEPLOY_HTTP_BASE:-}"        # tests only: a plain base URL (php -S) instead of https://$SITE via --resolve
 DRAIN_TIMEOUT="${DRAIN_TIMEOUT:-300}"
+UNIT_SETTLE="${UNIT_SETTLE:-5}"                 # seconds a started unit gets before it must be active (a crash on boot shows by then)
 DEPLOY_OWNER_UID="${DEPLOY_OWNER_UID:-0}"       # who must own .git and allowed_signers (root; tests run unprivileged)
 DEPLOY_HOME="${DEPLOY_HOME:-/root}"
 DEPLOY_SAFE_PATH="${DEPLOY_SAFE_PATH:-/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}"
@@ -57,6 +60,8 @@ ACCEPTED=""
 RUN_DIR=""
 JAR=""
 APP_ENV_VALUE=""
+BOOT_CACHE=""
+BOOT_ENV=()
 DEPLOY_LOG="${DEPLOY_STATE_DIR}/deploy.log"
 MARKER="${DEPLOY_STATE_DIR}/down-by-deploy"
 DRAINED_FILE="${DEPLOY_STATE_DIR}/drained-units"
@@ -68,10 +73,32 @@ die() { local rc=$1; shift; printf '\033[1;31m✖ %s\033[0m\n' "$*" >&2; exit "$
 # git without anything the (www-writable) tree could inject: no system config, a root-owned global config that only
 # names this checkout safe, no hooks, no fsmonitor
 g() { GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="${DEPLOY_STATE_DIR}/gitconfig" git -C "$APP_DIR" -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"; }
-# the target's PHP code runs with a clean, fixed environment (as root — aaPanel kills sudo -u www; ownership is repaired)
-art() { env -i PATH="$DEPLOY_SAFE_PATH" HOME="$DEPLOY_HOME" "$PHP" "$APP_DIR/artisan" "$@"; }
-art_pg() { env -i PATH="$DEPLOY_SAFE_PATH" HOME="$DEPLOY_HOME" PGOPTIONS='-c lock_timeout=10s' "$PHP" "$APP_DIR/artisan" "$@"; }
-comp() { env -i PATH="$DEPLOY_SAFE_PATH" HOME="$DEPLOY_HOME" COMPOSER_HOME="${COMPOSER_HOME:-$DEPLOY_HOME/.composer}" COMPOSER_ALLOW_SUPERUSER=1 "$PHP" "$COMPOSER" "$@"; }
+# the target's PHP code runs with a clean, fixed environment (as root — aaPanel kills sudo -u www; ownership is repaired).
+# BOOT_ENV points Laravel's framework caches (packages, services, config, routes, events) at a root-only directory of
+# this run: bootstrap/cache belongs to www on purpose (D32.13), so a www-written config.php/services.php would otherwise
+# be code root executes at the first artisan call. The build publishes its caches into bootstrap/cache for PHP-FPM.
+art() { env -i PATH="$DEPLOY_SAFE_PATH" HOME="$DEPLOY_HOME" ${BOOT_ENV[@]+"${BOOT_ENV[@]}"} "$PHP" "$APP_DIR/artisan" "$@"; }
+art_pg() { env -i PATH="$DEPLOY_SAFE_PATH" HOME="$DEPLOY_HOME" ${BOOT_ENV[@]+"${BOOT_ENV[@]}"} PGOPTIONS='-c lock_timeout=10s' "$PHP" "$APP_DIR/artisan" "$@"; }
+comp() { env -i PATH="$DEPLOY_SAFE_PATH" HOME="$DEPLOY_HOME" ${BOOT_ENV[@]+"${BOOT_ENV[@]}"} COMPOSER_HOME="${COMPOSER_HOME:-$DEPLOY_HOME/.composer}" COMPOSER_ALLOW_SUPERUSER=1 "$PHP" "$COMPOSER" "$@"; }
+# a path PHP reads as absolute: on a Windows test host (Git Bash) /c/x/… becomes the drive-relative /x/…; Linux: unchanged
+php_path() { if command -v cygpath >/dev/null 2>&1; then local p; p="$(cygpath -m "$1")"; printf '%s' "${p#?:}"; else printf '%s' "$1"; fi; }
+BOOT_FILES="packages.php services.php config.php routes-v7.php events.php"
+boot_cache_init() { # $1 = directory (root-only, inside the run directory)
+  BOOT_CACHE="$1"
+  (umask 077; mkdir -p "$BOOT_CACHE")
+  local p; p="$(php_path "$BOOT_CACHE")"
+  BOOT_ENV=(APP_PACKAGES_CACHE="$p/packages.php" APP_SERVICES_CACHE="$p/services.php" APP_CONFIG_CACHE="$p/config.php"
+    APP_ROUTES_CACHE="$p/routes-v7.php" APP_EVENTS_CACHE="$p/events.php")
+  # Windows test host only: stop Git Bash from rewriting /Users/… into C:/Program Files/Git/Users/… for native php.exe
+  if command -v cygpath >/dev/null 2>&1; then BOOT_ENV+=(MSYS2_ENV_CONV_EXCL=APP_); fi
+}
+publish_boot_cache() { # the caches the build made as root, for PHP-FPM (ownership is repaired right after)
+  local f
+  for f in $BOOT_FILES; do
+    rm -f "$APP_DIR/bootstrap/cache/$f"
+    if [ -f "$BOOT_CACHE/$f" ]; then cp --remove-destination "$BOOT_CACHE/$f" "$APP_DIR/bootstrap/cache/$f" || return 1; fi
+  done
+}
 gate() { "$PHP" "$DEPLOY_LIB_DIR/deploy-gate.php" "$@"; }
 utc_now() { date -u +%Y%m%d-%H%M%S; }
 ver_ge() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -n1)" = "$2" ]; }
@@ -93,17 +120,60 @@ start_units() { # $@ = unit names
   local u
   for u in "$@"; do systemctl start "$u" || warn "could not start $u (systemctl status $u)"; done
 }
+units_not_active() { # $@ = unit names; prints those that are not active
+  local u
+  for u in "$@"; do systemctl is-active --quiet "$u" || printf ' %s' "$u"; done
+}
 
 restore_drained_list() { # a failed run leaves the list as it found it (units a previous failed run stopped stay stopped)
   if [ -n "$PREV_DRAINED" ]; then printf '%s\n' "$PREV_DRAINED" > "$DRAINED_FILE"; else rm -f "$DRAINED_FILE"; fi
 }
 
 # ── ownership: storage and bootstrap/cache belong to the PHP-FPM user; the rest of the tree is not chowned ──────────
-repair_ownership() {
-  chown -R "$RUN_USER:$RUN_USER" "$APP_DIR/storage" "$APP_DIR/bootstrap/cache"
-  chmod -R u+rwX,g+rX,o-rwx "$APP_DIR/storage" "$APP_DIR/bootstrap/cache"
+# www can write $APP_DIR, so either directory (or bootstrap itself) could be swapped for a symlink: `chmod -R` follows a
+# symlink given on its command line and root would re-mode any tree. Refuse a link, walk with find -P (never follows),
+# chown -h (the link itself), chmod only what is not a link. The per-file check-then-act race inside a www-owned tree
+# stays until the follow-up runs these steps as www (setpriv).
+tree_is_real() { # the two directories are real directories where the checkout says they are
+  local d real_app
+  real_app="$(realpath "$APP_DIR")" || return 1
+  for d in storage bootstrap bootstrap/cache; do
+    [ ! -L "$APP_DIR/$d" ] && [ -d "$APP_DIR/$d" ] && [ "$(realpath "$APP_DIR/$d")" = "$real_app/$d" ] || return 1
+  done
 }
-ownership_ok() { [ -z "$(find "$APP_DIR/storage" "$APP_DIR/bootstrap/cache" ! -user "$RUN_USER" -print -quit 2>/dev/null)" ]; }
+repair_ownership() {
+  tree_is_real || { warn "storage, bootstrap or bootstrap/cache is a symlink or missing: ownership NOT repaired"; return 1; }
+  find -P "$APP_DIR/storage" "$APP_DIR/bootstrap/cache" -exec chown -h "$RUN_USER:$RUN_USER" {} + \
+    && find -P "$APP_DIR/storage" "$APP_DIR/bootstrap/cache" ! -type l -exec chmod u+rwX,g+rX,o-rwx {} +
+}
+ownership_ok() { tree_is_real && [ -z "$(find -P "$APP_DIR/storage" "$APP_DIR/bootstrap/cache" ! -user "$RUN_USER" -print -quit 2>/dev/null)" ]; }
+# the file the deployer read APP_ENV from is the file Laravel loads (www can repoint the symlink $APP_DIR/.env)
+env_is_ours() { [ "$APP_DIR/.env" -ef "$ENV_FILE" ]; }
+# owned by DEPLOY_OWNER_UID and writable by nobody else ($@ = paths, not descended into)
+root_only() {
+  local p
+  for p in "$@"; do [ -e "$p" ] || [ -L "$p" ] || return 1; done
+  [ -z "$(find -P "$@" -maxdepth 0 \( ! -uid "$DEPLOY_OWNER_UID" -o -perm /022 \) -print -quit)" ]   # a symlink (0777) fails too
+}
+
+# An annotated tag whose LAST signature block is SSH, whose `tag` header names it and which a key in $3 signed. Git picks
+# the verifier from the signature itself (a PGP or X.509 block would go to root's GnuPG keyring, not allowed_signers):
+# gpg.program/gpg.x509.program are `false` and GNUPGHOME is empty, and the armor is checked before verify-tag runs.
+verify_signed_tag() { # $1 = tag name, $2 = expected commit, $3 = allowed_signers; prints why on failure
+  local ref="refs/tags/$1" obj name last gh rc=0
+  [ "$(g cat-file -t "$ref" 2>/dev/null)" = tag ] || { echo "tag $1 is lightweight or missing: production needs an annotated, signed tag"; return 1; }
+  obj="$(g cat-file tag "$ref")"
+  name="$(printf '%s\n' "$obj" | awk 'NF == 0 { exit } /^tag / { print substr($0, 5); exit }')"
+  [ "$name" = "$1" ] || { echo "the tag object under $ref calls itself '$name', not '$1'"; return 1; }
+  last="$(printf '%s\n' "$obj" | grep -E '^-----BEGIN [A-Z ]+-----$' | tail -n 1)"
+  [ "$last" = "-----BEGIN SSH SIGNATURE-----" ] || { echo "tag $1 is not SSH-signed (${last:-no signature})"; return 1; }
+  [ "$(g rev-parse "${ref}^{commit}")" = "$2" ] || { echo "tag $1 does not point at $2"; return 1; }
+  gh="$(mktemp -d)"
+  GNUPGHOME="$gh" g -c gpg.format=ssh -c gpg.program=false -c gpg.x509.program=false -c gpg.ssh.program=ssh-keygen \
+    -c gpg.ssh.allowedSignersFile="$3" verify-tag "$ref" >/dev/null 2>&1 || rc=$?
+  rm -rf "$gh"
+  [ "$rc" = 0 ] || { echo "tag $1 is not signed by a key in $3"; return 1; }
+}
 
 # ── HTTP: https://$SITE on this host (--resolve), optionally with the maintenance bypass header ─────────────────────
 http_status() { # $1 = path, $2 = "bypass" to send the cookie
@@ -157,6 +227,9 @@ trap on_exit EXIT
 self="$(realpath "$0" 2>/dev/null || echo "$0")"
 case "$self" in "$(realpath "$APP_DIR" 2>/dev/null || echo "$APP_DIR")"/*) die 2 "run the installed deployer (/usr/local/sbin/onhost-deploy), not the copy in the site tree";; esac
 [ -f "$DEPLOY_LIB_DIR/deploy-gate.php" ] || die 2 "the deployer is not installed ($DEPLOY_LIB_DIR/deploy-gate.php): infra/aapanel/install-deployer.sh"
+# the judge must be as trustworthy as the deployer: root's, and writable by nobody else
+root_only "$DEPLOY_LIB_DIR" "$DEPLOY_LIB_DIR/deploy-gate.php" "$DEPLOY_LIB_DIR/source-sha" "$(dirname "$self")" "$self" \
+  || die 2 "the deployer files ($self, $DEPLOY_LIB_DIR and its deploy-gate.php, source-sha) must belong to uid $DEPLOY_OWNER_UID and be writable by nobody else: reinstall with install-deployer.sh"
 for tool in git curl flock find sort; do command -v "$tool" >/dev/null 2>&1 || die 2 "missing: $tool"; done
 [ -x "$PHP" ] || die 2 "PHP not found at $PHP"
 [ -d "$APP_DIR/.git" ] || die 2 "$APP_DIR is not a checkout"
@@ -170,12 +243,17 @@ flock -n 9 || die 2 "another deploy of $SITE is running"
 git_version="$(git --version | awk '{print $3}')"
 ver_ge "$git_version" 2.32 || die 2 "git $git_version is too old (2.32+ for GIT_CONFIG_GLOBAL)"
 
-APP_ENV_VALUE="$(gate parse-env --file "$APP_DIR/.env" --key APP_ENV || true)"
+# production is decided from the root-owned environment file, never from $APP_DIR/.env (a symlink in a tree www can
+# write: repointed at a file saying APP_ENV=staging it would have unlocked unsigned refs and ALLOW_DOCTOR_FAIL)
+root_only "$ENV_FILE" || die 2 "$ENV_FILE must exist, belong to uid $DEPLOY_OWNER_UID and be writable by nobody else (install.sh: root:www 0640)"
+env_is_ours || die 2 "$APP_DIR/.env is not $ENV_FILE (install.sh links it: ln -sfn $ENV_FILE $APP_DIR/.env); refusing to judge another file"
+APP_ENV_VALUE="$(gate parse-env --file "$ENV_FILE" --key APP_ENV || true)"
 case "$APP_ENV_VALUE" in staging|local|testing) PROD=0 ;; *) PROD=1 ;; esac   # fail closed: anything unclear is production
 [ "$PROD" = 1 ] && { ver_ge "$git_version" 2.34 || die 2 "production needs git 2.34+ (SSH-signed tags)"; }
-app_url="$(gate parse-env --file "$APP_DIR/.env" --key APP_URL || true)"
+app_url="$(gate parse-env --file "$ENV_FILE" --key APP_URL || true)"
 app_host="${app_url#*://}"; app_host="${app_host%%/*}"; app_host="${app_host%%:*}"
-[ "$app_host" = "$SITE" ] || die 2 "APP_URL host '$app_host' in $APP_DIR/.env is not SITE '$SITE'"
+[ "$app_host" = "$SITE" ] || die 2 "APP_URL host '$app_host' in $ENV_FILE is not SITE '$SITE'"
+tree_is_real || die 2 "storage, bootstrap and bootstrap/cache must be real directories of $APP_DIR (a symlink would let root re-own another tree)"
 
 [ -z "$(find "$APP_DIR/.git" \( ! -uid "$DEPLOY_OWNER_UID" -o -perm /022 \) -print -quit)" ] \
   || die 2 ".git must belong to uid $DEPLOY_OWNER_UID and be writable by nobody else (chown -R root:root .git && chmod -R go-w .git)"
@@ -198,14 +276,15 @@ fi
 [ "$SHA" = "$EXPECTED_SHA" ] || die 2 "REF '$REF' is $SHA, not EXPECTED_SHA $EXPECTED_SHA"
 RUN_DIR="$DEPLOY_STATE_DIR/runs/$(utc_now)-${SHA:0:12}"
 (umask 077; mkdir -p "$RUN_DIR")
+boot_cache_init "$RUN_DIR/bootstrap-cache"   # from here every artisan/composer call reads framework caches root wrote
 
 if [ "$PROD" = 1 ]; then
   [ "$kind" = tag ] || die 2 "production deploys only a signed, annotated tag (REF=v…)"
   [ "$(g cat-file -t "refs/tags/${REF}")" = tag ] || die 2 "tag $REF is lightweight: production needs an annotated, signed tag"
   signers="$DEPLOY_STATE_DIR/allowed_signers"
-  [ -f "$signers" ] && [ -z "$(find "$signers" \( ! -uid "$DEPLOY_OWNER_UID" -o -perm /022 \) -print -quit)" ] \
+  [ -f "$signers" ] && root_only "$signers" \
     || die 2 "no trusted $signers (root-owned, the owner's SSH public key): production deploys are refused until it exists"
-  g -c gpg.format=ssh -c gpg.ssh.allowedSignersFile="$signers" verify-tag "$REF" >/dev/null 2>&1 || die 2 "tag $REF is not signed by a key in $signers"
+  why="$(verify_signed_tag "$REF" "$SHA" "$signers")" || die 2 "$why"
   g cat-file tag "refs/tags/${REF}" > "$RUN_DIR/tag.txt"
   [ -n "${ALLOW_DOCTOR_FAIL:-}" ] && die 2 "ALLOW_DOCTOR_FAIL is refused in production: accept a GATED row with an 'Accept-Gate: <area|check> — <reason>' line in the signed tag"
 fi
@@ -213,7 +292,7 @@ fi
 if g merge-base --is-ancestor "$DEPLOYER_SHA" "$SHA" 2>/dev/null \
   && ! g diff --quiet "$DEPLOYER_SHA" "$SHA" -- infra/aapanel/deploy.sh infra/aapanel/deploy-gate.php; then
   die 2 "the target carries a newer deployer than the installed one ($DEPLOYER_SHA): first run
-  g show $SHA:infra/aapanel/install-deployer.sh > /root/install-deployer.sh && SHA=$SHA bash /root/install-deployer.sh"
+  g show $SHA:infra/aapanel/install-deployer.sh > /root/install-deployer.sh && SHA=$SHA${TAG:+ TAG=$TAG} bash /root/install-deployer.sh"
 fi
 g cat-file -e "${DEPLOYER_SHA}^{commit}" 2>/dev/null || die 2 "the installed deployer's source $DEPLOYER_SHA is not in this repository"
 
@@ -272,6 +351,9 @@ WENT_DOWN=1
 DOWN_AT=$SECONDS
 if [ "$WAS_DOWN" = 0 ] && [ ! -f "$MARKER" ]; then : > "$MARKER"; MARKER_BY_THIS_RUN=1; fi
 [ -f "$APP_DIR/storage/framework/down" ] || die 3 "artisan down wrote no storage/framework/down (APP_MAINTENANCE_DRIVER must be file)"
+# compiled Blade views are code in a www-owned directory: drop them now that PHP-FPM only answers the pre-boot 503, so a
+# root artisan call that renders a view compiles it afresh (a writer racing this stays open: setpriv follow-up)
+find -P "$APP_DIR/storage/framework/views" -maxdepth 1 -type f -name '*.php' -delete 2>/dev/null || true
 
 # ── 3 backup + verify inside the window: the set this run wrote, read back ─────────────────────────────────────────
 STAGE=backup
@@ -296,7 +378,8 @@ g checkout -q -f --detach "$SHA" || die 4 "checkout failed"
   && [ -z "$(g status --porcelain --untracked-files=all -- . ':(exclude)VERSION')" ] || die 4 "the tree is not clean after the checkout"
 
 STAGE=build
-rm -f bootstrap/cache/config.php bootstrap/cache/routes-v7.php bootstrap/cache/events.php bootstrap/cache/packages.php bootstrap/cache/services.php
+# the old release's caches go: from PHP-FPM's directory (published again after the build) and from this run's root copy
+for f in $BOOT_FILES; do rm -f "$APP_DIR/bootstrap/cache/$f" "$BOOT_CACHE/$f"; done
 say "Composer"
 comp install --no-dev --no-interaction --prefer-dist --no-progress --optimize-autoloader || die 4 "composer install failed"
 say "Migrations (additive, backward compatible for one release; lock_timeout 10s, no retry)"
@@ -307,6 +390,7 @@ say "Caches and contract"
 art config:cache && art route:cache && art event:cache || die 4 "caching failed"
 art onhost:openapi > "$RUN_DIR/openapi.out" 2>&1 || warn "onhost:openapi failed ($RUN_DIR/openapi.out); the published contract may be stale"
 (umask 022; printf '%s %s\n' "$SHA" "$REF" > "$APP_DIR/VERSION") || die 4 "cannot write VERSION"
+publish_boot_cache || die 4 "cannot publish the framework caches into bootstrap/cache"
 repair_ownership || die 4 "ownership repair failed"
 if [ -n "$PHP_FPM_RELOAD" ]; then sh -c "$PHP_FPM_RELOAD" || warn "PHP-FPM reload failed: opcache may serve the old code"; else warn "PHP_FPM_RELOAD is not set: opcache may serve the old code"; fi
 
@@ -314,6 +398,7 @@ if [ -n "$PHP_FPM_RELOAD" ]; then sh -c "$PHP_FPM_RELOAD" || warn "PHP-FPM reloa
 STAGE=gate
 say "Gate: ownership, doctor, HTTP"
 ownership_ok || die 5 "storage or bootstrap/cache still has files not owned by $RUN_USER"
+env_is_ours || die 5 "$APP_DIR/.env no longer is $ENV_FILE (repointed during the run)"
 doctor_rc=0
 art onhost:doctor --json > "$RUN_DIR/report.json" 2> "$RUN_DIR/doctor.err" || doctor_rc=$?
 verdict_rc=0
@@ -344,8 +429,19 @@ if [ -f "$DEPLOY_STATE_DIR/expect-freeze" ] && [ "$PROD" = 0 ]; then
   echo "   provisioning freeze re-asserted (expect-freeze)"
 fi
 say "Start the drained units"
-# shellcheck disable=SC2046
-start_units $(cat "$DRAINED_FILE" 2>/dev/null)
+to_start="$(cat "$DRAINED_FILE" 2>/dev/null || true)"
+# shellcheck disable=SC2086 # unit names are plain words
+start_units $to_start
+if [ -n "$to_start" ]; then
+  sleep "$UNIT_SETTLE"
+  # shellcheck disable=SC2086
+  dead="$(units_not_active $to_start)"
+  if [ -n "$dead" ]; then # a worker that cannot run the new code is a failed release, not a warning: all of them stop again
+    # shellcheck disable=SC2086
+    systemctl stop --no-block $to_start || true
+    die 7 "drained units did not come back:$dead (journalctl -u <unit>); every drained unit is stopped again, the site stays in maintenance"
+  fi
+fi
 rm -f "$DRAINED_FILE"
 if [ -f "$MARKER" ]; then
   art up >/dev/null || die 6 "artisan up failed"
