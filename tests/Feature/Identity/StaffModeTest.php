@@ -327,3 +327,46 @@ it('writes one shadow entry per person, key, organization and day', function () 
         ->and($auth->can($staff, 'backup.delete', CommandScope::organization($org->id)))->toBeTrue();
     expect(DB::table('security_events')->where('kind', 'authz.staff_reach')->where('user_id', $staff->id)->count())->toBe(2);
 });
+
+// ── TASK-0039 review round 2 ──
+it('keeps the shadow entry when the work that asked is rolled back, and marks the day logged only once it is written (review round 2)', function () {
+    [, $org] = $this->customerWithOrganization();
+    $staff = $this->staff('backup_dr_admin');
+    $auth = app(Authorizer::class);
+    $at = CommandScope::organization($org->id);
+    $shadowRows = fn () => DB::table('security_events')->where('kind', 'authz.staff_reach')->where('user_id', $staff->id)->count();
+
+    // the bus or a handler asks inside its transaction, and a later refusal rolls the transaction back: the allow still happened
+    expect(fn () => DB::transaction(function () use ($auth, $staff, $at) {
+        expect($auth->can($staff, 'backup.delete', $at))->toBeTrue();
+        throw DomainError::conflict('smt_refused_later', 'The handler refused after the Authorizer allowed.');
+    }))->toThrow(DomainError::class);
+    expect($shadowRows())->toBe(1);
+
+    // a nested unit rolled back while the outer one goes on: written once the outer one ends, whichever way
+    $this->travel(1)->days();
+    $auth->flush();
+    expect(fn () => DB::transaction(function () use ($auth, $staff, $at) {
+        try {
+            DB::transaction(function () use ($auth, $staff, $at) {
+                expect($auth->can($staff, 'backup.delete', $at))->toBeTrue();
+                throw DomainError::conflict('smt_inner_refused', 'The inner step refused.');
+            });
+        } catch (DomainError) {
+            // the outer unit carries on and fails later
+        }
+        throw DomainError::conflict('smt_outer_refused', 'The outer unit refused as well.');
+    }))->toThrow(DomainError::class);
+    expect($shadowRows())->toBe(2);
+
+    // … and the day is marked in the cache only by a written row: nothing more is written the same day
+    $auth->flush();
+    expect($auth->can($staff, 'backup.delete', $at))->toBeTrue()->and($shadowRows())->toBe(2);
+
+    // a unit that commits writes it too, once it has committed
+    $this->travel(1)->days();
+    $auth->flush();
+    DB::transaction(fn () => expect($auth->can($staff, 'backup.delete', $at))->toBeTrue());
+    expect($shadowRows())->toBe(3);
+});
+// ── end TASK-0039 review round 2 ──

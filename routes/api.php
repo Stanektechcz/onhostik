@@ -632,7 +632,9 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
     Route::prefix('staff')->group(function (): void {
         Route::post('services/{service}/actions', [ServiceController::class, 'action']);
         Route::post('services/{service}/reinstate', [ServiceController::class, 'reinstate']);
-        Route::post('services/{service}/panel-login', [WebToolsController::class, 'panelLogin']);
+        // review round 2: never through the HTTP replay store — it kept the answer (the one-time panel link) verbatim for 24 h and
+        // handed it out again without the bus: no audit row, no notice to the customer. The bus keeps its own replay (the spent handle)
+        Route::post('services/{service}/panel-login', [WebToolsController::class, 'panelLogin'])->withoutMiddleware('idempotency');
     });
     // ── end TASK-0039 ──
 });

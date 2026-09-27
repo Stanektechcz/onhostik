@@ -219,3 +219,24 @@ it('asks for the second person again when the consent is gone by the time the li
     expect(DB::table('approvals')->where('id', $approved)->value('consumed_at'))->toBeNull();
 });
 // ── end TASK-0039 review round 1 ──
+
+// ── TASK-0039 review round 2 ──
+it('never keeps the one-time link in the HTTP replay store: a repeat with the same Idempotency-Key does not hand it out again (review round 2)', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $service = featureWebService($org, 'ispconfig');
+    $ticket = splTicket($org, $owner, $service, ['consent' => $owner]);
+    $staff = $this->steppedUpStaff('shared_hosting_admin');
+    $body = ['ticket_id' => $ticket->id, 'reason' => 'Zákazník hlásí chybu 500 po aktualizaci, kontrola logů v panelu.'];
+    $this->actingAs($staff, 'sanctum')->withHeader('Idempotency-Key', 'spl-replay');
+
+    $first = splLogin($this, $service, $body)->assertOk()->assertJsonPath('data.url', 'https://isp.test:8080/login/?otp=SPL-ONE-TIME-7a1c');
+    expect(json_encode(DB::table('idempotency_keys')->get()))->not->toContain('SPL-ONE-TIME-7a1c')
+        ->and((string) $first->headers->get('Cache-Control'))->toContain('no-store');
+
+    // the same key and body: the idempotency middleware used to answer from its store — the link again, with no audit row and no
+    // notice to the customer; now the request reaches the bus, whose own replay carries only the spent handle
+    $repeat = splLogin($this, $service, $body)->assertStatus(409)->assertJsonPath('error', 'panel_login_spent');
+    expect((string) $repeat->getContent())->not->toContain('SPL-ONE-TIME-7a1c')
+        ->and($repeat->headers->get('Idempotent-Replayed'))->toBeNull();
+});
+// ── end TASK-0039 review round 2 ──

@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Identity\Authorization;
 
+use Closure;
 use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Database\DatabaseTransactionsManager;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -301,6 +303,12 @@ final class Authorizer
      * refused once `onhost.staff_reach_enforced` is on, with the roles and the route that relied on it. It never decides
      * anything: a row that cannot be written is logged and the answer stays what it was.
      *
+     * Review round 2: the row is written once the caller's transaction has ended, whichever way (afterTransaction). Written inside
+     * it, a later refusal (a DomainError that rolls back the bus or a handler) took the row with it while the day's cache mark
+     * stayed — the rest of the day went unlogged, and a rarely used staff workflow could leave the 7-day log empty and the switch
+     * be flipped too early. On PostgreSQL a failing insert inside the transaction also aborted it, try/catch or not. The cache
+     * mark now stands only for a written row.
+     *
      * @param  list<string>  $roles
      */
     private function shadow(Authenticatable|ServiceAccount $principal, string $permission, CommandScope $scope, array $roles): void
@@ -311,24 +319,72 @@ final class Authorizer
             return;
         }
         $this->shadowed[$key] = true;
+        $request = app()->bound('request') ? request() : null; // taken now: the row may be written after the request's work
+        $row = [
+            'id' => 'sev_'.strtolower((string) Str::ulid()), 'kind' => self::SHADOW_KIND, 'severity' => 'info',
+            'user_id' => $principal instanceof ServiceAccount ? null : $principalId, 'organization_id' => $scope->organizationId, 'ip' => $request?->ip(),
+            'detail' => json_encode([
+                'permission' => $permission, 'roles' => array_values(array_unique($roles)), 'scope_type' => $scope->type, 'scope_id' => $scope->id,
+                'principal_type' => $principal instanceof ServiceAccount ? 'service_account' : 'user', 'principal_id' => $principalId,
+                'route' => $request === null ? null : $request->method().' /'.ltrim($request->path(), '/'), 'enforced' => false,
+            ], JSON_UNESCAPED_SLASHES),
+            'created_at' => now(), 'updated_at' => now(),
+        ];
+        $this->afterTransaction(fn () => $this->writeShadow($key, $row, $permission));
+    }
+
+    /** @param  array<string,mixed>  $row */
+    private function writeShadow(string $key, array $row, string $permission): void
+    {
         try {
             if (! Cache::add($key, true, now()->endOfDay())) {
                 return; // written already today, by this or another process
             }
-            $request = app()->bound('request') ? request() : null;
-            DB::table('security_events')->insert([
-                'id' => 'sev_'.strtolower((string) Str::ulid()), 'kind' => self::SHADOW_KIND, 'severity' => 'info',
-                'user_id' => $principal instanceof ServiceAccount ? null : $principalId, 'organization_id' => $scope->organizationId, 'ip' => $request?->ip(),
-                'detail' => json_encode([
-                    'permission' => $permission, 'roles' => array_values(array_unique($roles)), 'scope_type' => $scope->type, 'scope_id' => $scope->id,
-                    'principal_type' => $principal instanceof ServiceAccount ? 'service_account' : 'user', 'principal_id' => $principalId,
-                    'route' => $request === null ? null : $request->method().' /'.ltrim($request->path(), '/'), 'enforced' => false,
-                ], JSON_UNESCAPED_SLASHES),
-                'created_at' => now(), 'updated_at' => now(),
-            ]);
         } catch (Throwable $e) {
+            unset($this->shadowed[$key]);
+            Log::warning('authz.staff_reach shadow entry not written', ['permission' => $permission, 'error' => $e->getMessage()]);
+
+            return;
+        }
+        try {
+            DB::table('security_events')->insert($row);
+        } catch (Throwable $e) {
+            unset($this->shadowed[$key]); // the mark stands only for a written row: the next allow tries again
+            try {
+                Cache::forget($key);
+            } catch (Throwable) {
+                // the cache is what failed as well: the mark expires at the end of the day
+            }
             Log::warning('authz.staff_reach shadow entry not written', ['permission' => $permission, 'error' => $e->getMessage()]);
         }
+    }
+
+    /**
+     * Runs `$write` once the transaction the caller is in has ended — committed OR rolled back — or at once outside one. A
+     * savepoint rolled back inside a unit that goes on waits for that unit too. "Open" is what Laravel's own after-commit
+     * callbacks count as open (the manager's applicable transactions), so a test's wrapping transaction is not waited for.
+     */
+    private function afterTransaction(Closure $write): void
+    {
+        $connection = DB::connection();
+        $manager = app()->bound('db.transactions') ? app('db.transactions') : null;
+        $open = $connection->transactionLevel() > 0 && $manager instanceof DatabaseTransactionsManager
+            && $manager->callbackApplicableTransactions()->contains(fn ($transaction) => $transaction->connection === $connection->getName());
+        if (! $open) {
+            $write();
+
+            return;
+        }
+        $done = false;
+        $once = function () use (&$done, $write): void {
+            if ($done) {
+                return;
+            }
+            $done = true;
+            $this->afterTransaction($write);
+        };
+        $connection->afterCommit($once);
+        $connection->afterRollBack($once);
     }
 
     /** @return list<string> */

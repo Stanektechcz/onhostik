@@ -238,7 +238,9 @@ final class WebToolsController extends ApiController
             throw new DomainError('panel_login_spent', 'This sign-on link was handed out already; ask for a new one.', 409);
         }
 
-        return $this->ok(['url' => $url, 'expires_in_seconds' => (int) ($result['expires_in_seconds'] ?? 60), 'ticket_number' => $result['ticket_number'] ?? null, 'consented' => (bool) ($result['consented'] ?? false)]);
+        // the route bypasses the HTTP replay store (TASK-0039 review round 2); no-store keeps the link out of any cache on the way too
+        return $this->ok(['url' => $url, 'expires_in_seconds' => (int) ($result['expires_in_seconds'] ?? 60), 'ticket_number' => $result['ticket_number'] ?? null, 'consented' => (bool) ($result['consented'] ?? false)])
+            ->header('Cache-Control', 'no-store');
     }
 
     private function resolve(Request $request, string $id, string $permission = 'service.read'): Service

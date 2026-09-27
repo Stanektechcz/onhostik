@@ -160,8 +160,9 @@ final class IdentityCommandAuthorizer implements CommandAuthorizer
      * organization's bindings, no global reach — the way the HTTP layer already decides it (Authorizer::visibleBindings). The
      * principal is loaded fresh here, without the token Sanctum attached to the request's user, so the token is attached again
      * from the session the context carries (`token:<id>`, ApiContext::sessionId). A token that is gone or revoked decides nothing.
+     * Public since review round 2: the operation runner re-checks a token-started run the same way before each step.
      */
-    private static function asToken(User|ServiceAccount $principal, CommandContext $context): User|ServiceAccount|null
+    public static function asToken(User|ServiceAccount $principal, CommandContext $context): User|ServiceAccount|null
     {
         $session = (string) $context->sessionId;
         if (! str_starts_with($session, 'token:')) {
