@@ -462,7 +462,9 @@ it('keeps a yearly raise whose overdue renewal is paid after the suspension stag
 
     $dunning->tick(); // day 40: past the suspension stage
     $invoice->forceFill(['state' => Invoice::PAID, 'paid_minor' => $invoice->total_minor])->save(); // paid in full before day 60
-    $this->travel(1)->days();
+    // the next day, PAST the hour the case may be looked at again (tomorrow 06:00): a flat day from a run started between
+    // midnight and 06:00 UTC landed before it, the case was not due and stayed SUSPENDED (as 6904cb0 fixed DunningEnforcementTest)
+    $this->travelTo(now()->addDay()->startOfDay()->addHours(7));
     $dunning->tick();
 
     expect($case->fresh()->state)->toBe('RESOLVED')
