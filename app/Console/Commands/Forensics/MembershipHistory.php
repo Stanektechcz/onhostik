@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\DB;
  */
 final class MembershipHistory
 {
-    /** @var array<string, list<array{kind:string, user:string, at:CarbonImmutable}>> */
+    /** @var array<string, list<array{id:string, kind:string, user:string, role:string, at:CarbonImmutable}>> */
     private array $events = [];
 
     /** @var array<string, ?array{created_at:CarbonImmutable, expires_at:?CarbonImmutable, role:string}> */
@@ -178,15 +178,69 @@ final class MembershipHistory
         return count(array_diff($emails, $known));
     }
 
-    /** @return list<array{kind:string, user:string, at:CarbonImmutable}> */
+    /**
+     * Was the person a member just before this attach row? The last attach/remove of theirs that precedes the row in the
+     * audit's own order; with none, a membership row older than the attach (it predates the audit), else "no" where the
+     * audit reaches back to the organization's creation and null where it does not (TD-2, review round 2).
+     *
+     * @return array{0:?bool, 1:bool} [member before, the row before was a removal]
+     */
+    public function memberBeforeRow(string $organizationId, string $userId, string $eventId, CarbonImmutable $at): array
+    {
+        $this->judged["{$organizationId}#{$userId}"] = true;
+        $last = null;
+        foreach ($this->events($organizationId) as $event) {
+            if ($event['id'] === $eventId) {
+                break;
+            }
+            if ($event['user'] === $userId) {
+                $last = $event;
+            }
+        }
+        if ($last !== null) {
+            return [$last['kind'] === 'attach', $last['kind'] === 'remove'];
+        }
+        $current = $this->currentMembership($organizationId, $userId);
+        if ($current !== null && $current['created_at']->lessThan($at->subSeconds(2))) { // made before this row: the row changed a role
+            return [true, false];
+        }
+
+        return [$this->historyCovered($organizationId) ? false : null, false];
+    }
+
+    /**
+     * The organization role the person held at that moment: the role of their last attach row (`true`: read from the
+     * audit), or today's role where no row precedes it (`false`: the role of that moment is not stored). null role: not
+     * a member then (TD-3, review round 2).
+     *
+     * @return array{0:?string, 1:bool}
+     */
+    public function roleAt(string $organizationId, string $userId, CarbonImmutable $at): array
+    {
+        $last = null;
+        foreach ($this->events($organizationId) as $event) {
+            if ($event['user'] === $userId && $event['at']->lessThanOrEqualTo($at)) {
+                $last = $event;
+            }
+        }
+        if ($last !== null) {
+            return [$last['kind'] === 'attach' ? $last['role'] : null, true];
+        }
+
+        return [$this->currentMembership($organizationId, $userId)['role'] ?? null, false];
+    }
+
+    /** @return list<array{id:string, kind:string, user:string, role:string, at:CarbonImmutable}> */
     private function events(string $organizationId): array
     {
         return $this->events[$organizationId] ??= DB::table('audit_events')->where('organization_id', $organizationId)
-            ->whereIn('action', ['organization.member.attach', 'organization.member.remove'])->orderBy('created_at')->orderBy('id')->get(['action', 'detail', 'created_at'])
+            ->whereIn('action', ['organization.member.attach', 'organization.member.remove'])->orderBy('created_at')->orderBy('id')->get(['id', 'action', 'detail', 'created_at'])
             ->map(function ($row) {
                 $detail = is_string($row->detail) ? json_decode($row->detail, true) : $row->detail;
+                $detail = is_array($detail) ? $detail : [];
 
-                return ['kind' => $row->action === 'organization.member.remove' ? 'remove' : 'attach', 'user' => (string) (is_array($detail) ? ($detail['user_id'] ?? '') : ''), 'at' => CarbonImmutable::parse($row->created_at)];
+                return ['id' => (string) $row->id, 'kind' => $row->action === 'organization.member.remove' ? 'remove' : 'attach', 'user' => (string) ($detail['user_id'] ?? ''),
+                    'role' => (string) ($detail['role'] ?? ''), 'at' => CarbonImmutable::parse($row->created_at)];
             })
             ->all();
     }

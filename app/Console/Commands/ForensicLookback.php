@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
+use App\Console\Commands\Forensics\GrantTraces;
 use App\Console\Commands\Forensics\MembershipHistory;
 use App\Console\Commands\Forensics\PayoutChecks;
 use App\Console\Commands\Forensics\SitePaths;
@@ -19,9 +20,10 @@ use Throwable;
  * Did anybody use the permission holes before Phase 0 closed them? (TASK-0038 — permission program P0-01 / IF-0,
  * decision D16; runbook docs/runbooks/breach-register.md)
  *
- * For every verified exploit of the program (§9: TD-1, PA-01, G1, PA-02, PA-04, SS-1/SS-5 with IF-8, P1/P2) it reads what the
- * platform already stored and reports the tables it read, the rows that match the exploit's trace and what the data
- * cannot tell. Strictly read-only: SELECTs only, inside a transaction that is always rolled back, no CommandBus, no
+ * For every verified exploit of the program (§1/§9: TD-1, TD-2, TD-3, PA-01, G1, PA-02, PA-04, SS-1/SS-5 with IF-8, P1/P2) it
+ * reads what the platform already stored and reports the tables it read, the rows that match the exploit's trace and what
+ * the data cannot tell. Strictly read-only: SELECTs only, in the database's own read-only mode (pgsql, sqlite) inside a
+ * transaction that is always rolled back, no CommandBus, no
  * provider adapter, no panel call, no file — the report goes to stdout (a table, or JSON with --json). It prints ids,
  * never e-mail addresses, full IBANs or customer text beyond the offending path. Exit 1 when any source has a hit,
  * 2 for bad options. Whether a hit is a personal-data breach, and whether anybody is notified, is the owner's
@@ -33,6 +35,11 @@ final class ForensicLookback extends Command
     private const SOURCES = [
         'owner_demotion' => ['TD-1', 'The owner accepted an invitation to their own organization at a lower role',
             'Only the owner\'s current e-mail is known: an owner who changed the address after accepting is found by the audit row alone. Who owned the organization at a moment is read from the ownership transfers in the audit.'],
+        // review round 2 (HIGH): program §1/§9 list TD-2 and TD-3 as exploitable today (IF-2, IF-3); D16's five were not all
+        'member_without_invitation' => ['TD-2', 'A person was made a member of an organization without accepting an invitation (change_role with any user_id), and the organization saw their e-mail',
+            'An attach is explained only by the closest event within 60 s of the same role: an accepted invitation to the person\'s current e-mail, the organization\'s creation (owner), an ownership transfer (owner for the new, org_admin for the previous owner). An invitation accepted under an address the account no longer carries makes a hit possible. A transfer to a non-member counts as explained (consent to a transfer is TD-9). Before an organization older than the audit, membership cannot be told.'],
+        'project_grant_bypass' => ['TD-3', 'A project role granted past mayGrant: to oneself, or beyond the organization and project role the granting person held',
+            'The role of a moment is read from the attach and project.member.add rows; where none precedes the grant, today\'s role stands in (possible). Permissions are today\'s RoleCatalog. Staff are not bound by mayGrant by design: only their self-grants are hits. A removal discloses nothing and is not judged.'],
         'game_panel_identity' => ['PA-01', 'A game service runs on a panel user that was created for another organization',
             'A panel user\'s external_id lives on the panel; the database knows it only for users the platform recorded creating. Standing state, not limited by the window.'],
         'discord_after_removal' => ['G1', 'Discord /onhost or an action hook was used after the person left the organization',
@@ -65,7 +72,7 @@ final class ForensicLookback extends Command
     protected $signature = 'onhost:forensics:lookback
         {--since= : only events from this moment (ISO date); default: the whole history}
         {--until= : only events up to this moment (ISO date); default: now}
-        {--source=* : one or more sources (default: all): owner_demotion, game_panel_identity, discord_after_removal, aapanel_outside_root, token_cross_org, staff_own_org, partner_payouts}
+        {--source=* : one or more sources (default: all): owner_demotion, member_without_invitation, project_grant_bypass, game_panel_identity, discord_after_removal, aapanel_outside_root, token_cross_org, staff_own_org, partner_payouts}
         {--json : print the report as JSON instead of a table}';
 
     protected $description = 'Read-only forensic look-back: did anybody use the permission holes of Phase 0 (TASK-0038)';
@@ -76,6 +83,8 @@ final class ForensicLookback extends Command
 
     private MembershipHistory $history;
 
+    private GrantTraces $grants;
+
     public function handle(): int
     {
         $this->history = new MembershipHistory;
@@ -85,14 +94,24 @@ final class ForensicLookback extends Command
 
             return self::INVALID;
         }
+        $this->grants = new GrantTraces($this->history, $this->window());
         $selected = array_values(array_unique(array_map('strval', (array) $this->option('source')))) ?: array_keys(self::SOURCES);
 
         DB::beginTransaction(); // nothing below writes; rolling back anyway means no later change can make a look-back leave a trace
-        try {
+        $driver = DB::getDriverName();
+        try { // review round 2 (MEDIUM): the database itself refuses a write, not only the code. PostgreSQL takes READ ONLY at any point of a
+            // transaction (only READ WRITE must precede the first query) and a savepoint's rollback ends it; SQLite has a connection flag.
+            // MySQL takes the mode only before BEGIN: there the SELECT-only code and the runbook's read-only database role stand.
+            if ($driver === 'pgsql' || $driver === 'sqlite') {
+                DB::statement($driver === 'pgsql' ? 'SET TRANSACTION READ ONLY' : 'PRAGMA query_only = ON');
+            }
             $sources = array_map(fn (string $key) => $this->source($key), $selected);
             $coverage = $this->coverage();
         } finally {
             DB::rollBack();
+            if ($driver === 'sqlite') {
+                DB::statement('PRAGMA query_only = OFF'); // a connection flag, not part of the transaction
+            }
         }
         $hits = array_sum(array_map(fn (array $s) => count($s['hits']), $sources));
         $report = [
@@ -133,6 +152,8 @@ final class ForensicLookback extends Command
         $this->history->resetJudged();
         $found = match ($key) {
             'owner_demotion' => $this->ownerDemotion(),
+            'member_without_invitation' => $this->grants->withoutInvitation(),
+            'project_grant_bypass' => $this->grants->projectGrants(),
             'game_panel_identity' => $this->gamePanelIdentity(),
             'discord_after_removal' => $this->discordAfterRemoval(),
             'aapanel_outside_root' => $this->aaPanelOutsideRoot(),
@@ -188,8 +209,8 @@ final class ForensicLookback extends Command
             if ($organization === null || $user === '' || (string) ($detail['role'] ?? 'owner') === 'owner' || $user !== $this->history->ownerAt($organization, $orgTransfers, $at)) {
                 continue; // an attach of somebody who was not the owner at that moment is history, not a demotion
             }
-            if ($orgTransfers->contains(fn (array $t) => $t['from'] === $user && abs($t['at']->diffInSeconds($at)) <= 60)) {
-                continue; // the transfer's own step: the previous owner becomes org_admin
+            if ((string) ($detail['role'] ?? '') === 'org_admin' && $orgTransfers->contains(fn (array $t) => $t['from'] === $user && abs($t['at']->diffInSeconds($at)) <= 60)) {
+                continue; // the transfer's own step: the previous owner becomes org_admin (review round 2: that role only)
             }
             foreach ($hits as $i => $hit) { // the same acceptance, seen twice: the audit row is its evidence
                 if ($hit['organization_id'] === $row->organization_id && $hit['user_id'] === $user && $hit['audit_event_id'] === null && abs(CarbonImmutable::parse($hit['at'])->diffInSeconds($at)) <= 60) {
@@ -563,7 +584,7 @@ final class ForensicLookback extends Command
      * IF-8 (review round 1): OrganizationsCommandHandler::mayGrant returns early for staff, so self_membership_locked and
      * role_above_own never stop a staff user raising their own role. The trace is an attach row whose actor is its own
      * target — once the attaches an invitation acceptance, the creation of the organization or an ownership transfer
-     * write for the actor themselves are set aside.
+     * write for the actor themselves are set aside, each only for its own role (review round 2, GrantTraces::explained).
      *
      * @return array{0: list<array<string,mixed>>, 1: int}
      */
@@ -578,7 +599,7 @@ final class ForensicLookback extends Command
                 continue;
             }
             $at = CarbonImmutable::parse($row->created_at);
-            if ($this->ownAttachExplained((string) $row->organization_id, $user, $at)) {
+            if ($this->grants->explained((string) $row->organization_id, $user, (string) ($this->json($row->detail)['role'] ?? ''), $at)) {
                 continue;
             }
             $hits[] = ['kind' => 'staff_self_grant', 'confidence' => 'confirmed', 'audit_event_id' => $row->id, 'user_id' => $user, 'organization_id' => $row->organization_id,
@@ -586,20 +607,6 @@ final class ForensicLookback extends Command
         }
 
         return [$hits, $rows];
-    }
-
-    /** An attach of the actor themselves that an accepted invitation, the organization's creation or an ownership transfer wrote. */
-    private function ownAttachExplained(string $organizationId, string $userId, CarbonImmutable $at): bool
-    {
-        $near = [$at->subMinute(), $at->addMinute()];
-        $email = $this->history->emailOf($userId);
-        if ($email !== null && DB::table('organization_invitations')->where('organization_id', $organizationId)->whereBetween('accepted_at', $near)->whereRaw('lower(email) = ?', [$email])->exists()) {
-            return true;
-        }
-
-        return DB::table('audit_events')->where('organization_id', $organizationId)->whereBetween('created_at', $near)
-            ->where(fn ($q) => $q->where('action', 'organization.create')->orWhere('action', 'organization.ownership.transfer'))->get(['action', 'actor_id', 'detail'])
-            ->contains(fn ($e) => $e->action === 'organization.create' ? (string) $e->actor_id === $userId : in_array($userId, [(string) ($this->json($e->detail)['from'] ?? ''), (string) ($this->json($e->detail)['to'] ?? '')], true));
     }
 
     /**

@@ -274,12 +274,14 @@ it('reads only: no write, no panel call, and a clean database says CLEAN or name
     $code = Artisan::call('onhost:forensics:lookback');
     $table = Artisan::output();
 
-    expect(collect($statements)->reject(fn (string $sql) => preg_match('/^\s*select\b/i', $sql) === 1)->all())->toBe([]);
+    // review round 2: besides SELECTs only the database's own read-only switch (and, on SQLite, switching it back off)
+    expect(collect($statements)->reject(fn (string $sql) => preg_match('/^\s*select\b|^SET TRANSACTION READ ONLY$|^PRAGMA query_only = (ON|OFF)$/i', $sql) === 1)->all())->toBe([]);
     expect(collect(['audit_events', 'operations', 'organization_memberships', 'discord_links', 'outbox_messages', 'provider_calls'])->mapWithKeys(fn ($t) => [$t => DB::table($t)->count()]))->toEqual($before);
     Http::assertNothingSent();
     expect($code)->toBe(0)
         ->and($table)->toContain('owner_demotion')->toContain('game_panel_identity')->toContain('discord_after_removal')->toContain('aapanel_outside_root')
-        ->toContain('token_cross_org')->toContain('staff_own_org')->toContain('partner_payouts')->toContain('Verdict');
+        ->toContain('token_cross_org')->toContain('staff_own_org')->toContain('partner_payouts')->toContain('Verdict')
+        ->toContain('member_without_invitation')->toContain('project_grant_bypass'); // review round 2: TD-2, TD-3
 
     [, $report] = flbRun();
     expect($report['read_only'])->toBeTrue()
@@ -470,4 +472,105 @@ it('reads the staff self-grant and reinstatement shortcuts and counts membership
         ->and($kinds['staff_self_grant'])->toMatchArray(['audit_event_id' => $grant, 'user_id' => $staff->id, 'organization_id' => $own->id, 'role' => 'org_admin', 'member_before' => true])
         ->and($kinds['staff_reinstate_own_org'])->toMatchArray(['audit_event_id' => $reinstate, 'user_id' => $staff->id, 'organization_id' => $own->id, 'service_id' => $mine->id])
         ->and(implode(' ', $source['unknowns']))->toContain('1 staff action');
+});
+
+// ── review round 2 (TASK-0038): TD-2 and TD-3 were missing, an invitation explained any role, the database was not asked to refuse writes ──
+
+it('finds a person attached to another organization without an invitation, and re-entries after a removal (TD-2, review round 2)', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $admin = flbUser('spravce@firma.test');
+    $victim = flbUser('obet@jinde.test');
+    $colleague = flbUser('pozvany@firma.test');
+    $returner = flbUser('vraceny@firma.test');
+    $renamed = flbUser('nova-adresa@firma.test');
+    $t0 = CarbonImmutable::parse('2026-09-08 09:00:00');
+    DB::table('organization_invitations')->insert(['id' => 'inv_flb_admin', 'organization_id' => $org->id, 'email' => 'spravce@firma.test', 'role_key' => 'org_admin', 'token_hash' => hash('sha256', 'td2a'), 'invited_by' => $owner->id, 'expires_at' => $t0->addDays(7), 'accepted_at' => $t0, 'created_at' => $t0, 'updated_at' => $t0]);
+    flbAudit($t0, $this->contextFor($admin, $org), 'organization.member.attach', ['user_id' => $admin->id, 'role' => 'org_admin'], 'organization', $org->id);
+    // the exploit: change_role with the user_id of somebody who never was a member — updateOrCreate makes the membership
+    $joined = flbAudit($t0->addHour(), $this->contextFor($admin, $org), 'organization.member.attach', ['user_id' => $victim->id, 'role' => 'viewer'], 'organization', $org->id);
+    // an ordinary acceptance is not a finding
+    DB::table('organization_invitations')->insert(['id' => 'inv_flb_td2', 'organization_id' => $org->id, 'email' => 'pozvany@firma.test', 'role_key' => 'developer', 'token_hash' => hash('sha256', 'td2b'), 'invited_by' => $owner->id, 'expires_at' => $t0->addDays(7), 'accepted_at' => $t0->addHours(2), 'created_at' => $t0, 'updated_at' => $t0]);
+    flbAudit($t0->addHours(2), $this->contextFor($colleague, $org), 'organization.member.attach', ['user_id' => $colleague->id, 'role' => 'developer'], 'organization', $org->id);
+    // a role change of a member is not an entry
+    flbAudit($t0->addHours(3), $this->contextFor($admin, $org), 'organization.member.attach', ['user_id' => $colleague->id, 'role' => 'viewer'], 'organization', $org->id);
+    // removed, then brought back by change_role without a new invitation: an entry without consent too
+    DB::table('organization_invitations')->insert(['id' => 'inv_flb_ret', 'organization_id' => $org->id, 'email' => 'vraceny@firma.test', 'role_key' => 'developer', 'token_hash' => hash('sha256', 'td2c'), 'invited_by' => $owner->id, 'expires_at' => $t0->addDays(7), 'accepted_at' => $t0, 'created_at' => $t0, 'updated_at' => $t0]);
+    flbAudit($t0, $this->contextFor($returner, $org), 'organization.member.attach', ['user_id' => $returner->id, 'role' => 'developer'], 'organization', $org->id);
+    flbAudit($t0->addDay(), $this->contextFor($owner, $org), 'organization.member.remove', ['user_id' => $returner->id], 'organization', $org->id);
+    $back = flbAudit($t0->addDays(2), $this->contextFor($admin, $org), 'organization.member.attach', ['user_id' => $returner->id, 'role' => 'developer'], 'organization', $org->id);
+    // accepted under an address the account no longer carries: the acceptance may be theirs — possible, not confirmed
+    DB::table('organization_invitations')->insert(['id' => 'inv_flb_old', 'organization_id' => $org->id, 'email' => 'stara-adresa@firma.test', 'role_key' => 'developer', 'token_hash' => hash('sha256', 'td2d'), 'invited_by' => $owner->id, 'expires_at' => $t0->addDays(7), 'accepted_at' => $t0->addDays(3), 'created_at' => $t0, 'updated_at' => $t0]);
+    $renamedRow = flbAudit($t0->addDays(3), $this->contextFor($renamed, $org), 'organization.member.attach', ['user_id' => $renamed->id, 'role' => 'developer'], 'organization', $org->id);
+    // an organization older than the audit: an attach of somebody with no recorded past there cannot be judged
+    [, $ancient] = $this->customerWithOrganization();
+    Organization::query()->whereKey($ancient->id)->update(['created_at' => '2020-01-01 00:00:00']);
+    flbAudit($t0, $this->contextFor($admin, $ancient), 'organization.member.attach', ['user_id' => $victim->id, 'role' => 'viewer'], 'organization', $ancient->id);
+
+    [$code, $report] = flbRun(['--source' => ['member_without_invitation']]);
+    $source = flbSource($report, 'member_without_invitation');
+    $byEvent = collect($source['hits'])->keyBy('audit_event_id');
+
+    expect($code)->toBe(1)
+        ->and($source['exploit'])->toBe('TD-2')
+        ->and($source['hits'])->toHaveCount(3)
+        ->and($byEvent[$joined])->toMatchArray(['kind' => 'member_attached_without_invitation', 'confidence' => 'confirmed', 'organization_id' => $org->id, 'user_id' => $victim->id, 'role' => 'viewer', 'actor_id' => $admin->id, 're_entry' => false])
+        ->and($byEvent[$back])->toMatchArray(['kind' => 'member_attached_without_invitation', 'confidence' => 'confirmed', 'user_id' => $returner->id, 're_entry' => true])
+        ->and($byEvent[$renamedRow])->toMatchArray(['confidence' => 'possible', 'user_id' => $renamed->id])
+        ->and(implode(' ', $source['unknowns']))->toContain('1 attach');
+    expect(json_encode($report))->not->toContain('obet@jinde.test')->not->toContain('stara-adresa');
+});
+
+it('finds project roles granted past mayGrant: to oneself, or above the granting role (TD-3, review round 2)', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $admin = flbUser('admin@projekt.test');
+    $dev = flbUser('vyvojar@projekt.test');
+    $other = flbUser('dalsi@projekt.test');
+    $t0 = CarbonImmutable::parse('2026-09-09 09:00:00');
+    foreach ([[$admin, 'org_admin'], [$dev, 'developer'], [$other, 'viewer']] as [$person, $role]) {
+        flbAudit($t0, $this->contextFor($owner, $org), 'organization.member.attach', ['user_id' => $person->id, 'role' => $role], 'organization', $org->id);
+    }
+    $project = fn (User $actor) => new CommandContext('user', $actor->id, $org->id, 'prj_flb_1', '127.0.0.1', 'pest', 'test-session');
+    $self = flbAudit($t0->addHour(), $project($admin), 'project.member.add', ['user_id' => $admin->id, 'role' => 'developer'], 'project', 'prj_flb_1');
+    $above = flbAudit($t0->addHours(2), $project($dev), 'project.member.add', ['user_id' => $other->id, 'role' => 'org_admin'], 'project', 'prj_flb_1');
+    flbAudit($t0->addHours(3), $project($owner), 'project.member.add', ['user_id' => $dev->id, 'role' => 'developer'], 'project', 'prj_flb_1');   // the owner covers every role
+    flbAudit($t0->addHours(4), $project($admin), 'project.member.add', ['user_id' => $other->id, 'role' => 'developer'], 'project', 'prj_flb_1'); // an admin grants what their role covers
+
+    [$code, $report] = flbRun(['--source' => ['project_grant_bypass']]);
+    $source = flbSource($report, 'project_grant_bypass');
+    $byEvent = collect($source['hits'])->keyBy('audit_event_id');
+
+    expect($code)->toBe(1)
+        ->and($source['exploit'])->toBe('TD-3')
+        ->and($source['hits'])->toHaveCount(2)
+        ->and($byEvent[$self])->toMatchArray(['kind' => 'project_self_grant', 'confidence' => 'confirmed', 'user_id' => $admin->id, 'actor_id' => $admin->id, 'project_id' => 'prj_flb_1', 'role' => 'developer'])
+        ->and($byEvent[$above])->toMatchArray(['kind' => 'project_grant_above_own', 'confidence' => 'confirmed', 'user_id' => $other->id, 'actor_id' => $dev->id, 'role' => 'org_admin', 'actor_role' => 'developer'])
+        ->and($byEvent[$above]['missing'])->not->toBeEmpty();
+});
+
+it('explains a staff attach only by an event of the same role: invite as viewer, then raise oneself (IF-8, review round 2)', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $staff = $this->staff();
+    $at = CarbonImmutable::parse('2026-09-10 11:00:00');
+    DB::table('organization_invitations')->insert(['id' => 'inv_flb_raise', 'organization_id' => $org->id, 'email' => mb_strtolower((string) $staff->email), 'role_key' => 'viewer', 'token_hash' => hash('sha256', 'raise'), 'invited_by' => $owner->id, 'expires_at' => $at->addDays(7), 'accepted_at' => $at, 'created_at' => $at, 'updated_at' => $at]);
+    flbAudit($at, $this->contextFor($staff, $org), 'organization.member.attach', ['user_id' => $staff->id, 'role' => 'viewer'], 'organization', $org->id); // the acceptance itself
+    $raise = flbAudit($at->addSeconds(30), $this->contextFor($staff, $org), 'organization.member.attach', ['user_id' => $staff->id, 'role' => 'org_admin'], 'organization', $org->id);
+
+    [$code, $report] = flbRun(['--source' => ['staff_own_org']]);
+    $source = flbSource($report, 'staff_own_org');
+
+    expect($code)->toBe(1)
+        ->and($source['hits'])->toHaveCount(1)
+        ->and($source['hits'][0])->toMatchArray(['kind' => 'staff_self_grant', 'audit_event_id' => $raise, 'role' => 'org_admin', 'member_before' => true]);
+});
+
+it('asks the database itself to refuse writes for the length of the look-back (review round 2)', function () {
+    $statements = [];
+    DB::listen(function ($query) use (&$statements) {
+        $statements[] = $query->sql;
+    });
+
+    Artisan::call('onhost:forensics:lookback', ['--source' => ['token_cross_org']]);
+
+    $guard = DB::getDriverName() === 'pgsql' ? 'SET TRANSACTION READ ONLY' : 'PRAGMA query_only = ON';
+    expect($statements[0] ?? null)->toBe($guard); // the first statement of the run, before any read
 });

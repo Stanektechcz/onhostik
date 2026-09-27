@@ -1,7 +1,7 @@
 # Breach register: the forensic look-back for the permission holes
 
-Phase 0 of the permission program closed seven holes that had been open since launch (program §9: TD-1, PA-01, G1,
-PA-02, PA-04, SS-1/SS-5 with EXPL-1..3, P1/P2). Closing a hole says nothing about the time **before** it was closed.
+Phase 0 of the permission program closed nine holes that had been open since launch (program §1 and §9: TD-1, TD-2,
+TD-3, PA-01, G1, PA-02, PA-04, SS-1/SS-5 with EXPL-1..3, P1/P2). Closing a hole says nothing about the time **before** it was closed.
 This runbook answers two questions for each hole: did anybody use it, and what do we do if they did (program key
 P0-01 / IF-0, decision D16).
 
@@ -18,7 +18,10 @@ php artisan onhost:forensics:lookback [--since=2026-01-01] [--until=2026-09-27]
 
 ## What it does, and what it never does
 
-* **Read-only.** It runs SELECTs inside a database transaction that is always rolled back. It dispatches no
+* **Read-only.** It runs SELECTs inside a database transaction that is always rolled back, and it first puts the
+  database itself into read-only mode for that transaction (`SET TRANSACTION READ ONLY` on PostgreSQL,
+  `PRAGMA query_only` on SQLite), so a write would be refused by the database, not only avoided by the code. On
+  production it additionally runs under a read-only database role (see "Isolation for every run"). It dispatches no
   CommandBus command, resolves no provider adapter, **calls no panel** (no aaPanel, ISPConfig, Pterodactyl, Proxmox,
   Discord, bank or registrar), writes no file and publishes no event. It has no schedule entry and no route. The test
   `tests/Feature/Platform/ForensicLookbackTest.php` ("changes nothing") checks this: only selects reach the database,
@@ -42,8 +45,9 @@ for an exploit whose trace they repaired, and it reports CLEAN. Every report car
 1. **The baseline is the first run, and it is required.** Run the command on production **before the first Phase 0
    branch is deployed**. If the release that brings this command already contains the fixes, as it will
    (TASK-0038 is rebased last), run it on a **restore of the last backup taken before the first Phase 0 deploy**:
-   * Restore the backup into an isolated database. Point a checkout of the new release at it with
-     `APP_ENV=production` and no queue worker and no scheduler. Run no operator repair command against it.
+   * Restore the backup into an isolated database on a host with **no outbound network** (below). Point a checkout
+     of the new release at it with `APP_ENV=production`, the isolation settings below, no queue worker and no
+     scheduler. Run no operator repair command against it.
    * **Do not run migrations on the restore.** The command reads only tables that existed before Phase 0. If a
      source fails because a table is missing, record that source as *unknown (restore predates the table)*. Never
      record it as clean.
@@ -55,10 +59,44 @@ for an exploit whose trace they repaired, and it reports CLEAN. Every report car
    never replaces it**. A hit that is in the baseline and missing from a later run was repaired, not disproved. It
    stays in the register.
 
+## Isolation for every run (mandatory)
+
+The code reads only, and it switches the database into read-only mode for its own transaction. That is not enough on
+its own: a release booted in production mode against production data, or against a restore that still holds the live
+panel, registrar and bank credentials, must not be able to write, mail, queue or call out even through a mistake
+outside the command (a worker started by habit, a `tinker` line, a listener nobody expected). Every run, baseline or
+later, on production or on a restore, uses all of the following:
+
+1. **A read-only database role.** On PostgreSQL, once, by the database administrator:
+   ```
+   CREATE ROLE onhost_forensics LOGIN PASSWORD '<generated, kept in the password manager>';
+   GRANT CONNECT ON DATABASE <db> TO onhost_forensics;
+   GRANT USAGE ON SCHEMA public TO onhost_forensics;
+   GRANT SELECT ON ALL TABLES IN SCHEMA public TO onhost_forensics;
+   ALTER ROLE onhost_forensics SET default_transaction_read_only = on;
+   ```
+   On a restore, also `ALTER DATABASE <restore> SET default_transaction_read_only = on`. Before the run, prove the
+   role refuses a write: `psql -U onhost_forensics -d <db> -c 'CREATE TEMP TABLE forensic_probe (i int)'` must fail
+   with "cannot execute CREATE TABLE in a read-only transaction". Record that line in the register entry.
+2. **A separate checkout with its own `.env`**, never the live deploy directory and never `config:cache` there (a
+   cached config ignores every override). Its `.env` is a root-only (`chmod 600`) copy of the production one with:
+   `DB_USERNAME`/`DB_PASSWORD` of the read-only role (and `DB_HOST`/`DB_DATABASE` of the restore, on a restore),
+   `MAIL_MAILER=array`, `QUEUE_CONNECTION=null`, and no queue worker or scheduler started from it. On a restore, use a
+   fresh `APP_KEY` (`php artisan key:generate --show`) instead of the production one when the command starts with it:
+   the command decrypts nothing, and without the production key the credentials in the restore stay unreadable.
+3. **No outbound network on a restore host**: an egress firewall that denies everything except the database
+   connection. A restore holds live panel, registrar, bank and Discord credentials; nothing on that host may reach
+   them. On the production host the command's own test proves it sends no HTTP request (`Http::assertNothingSent`),
+   and the read-only role, the null mailer and the null queue stop the rest.
+
+Delete the separate checkout, its `.env` and the restore once the evidence is attached, and drop or lock the role
+(`ALTER ROLE onhost_forensics NOLOGIN`) until the next look-back.
+
 ## Running it on production
 
-1. Only the operator runs it, on the application host as the deploy user (the same shell as `php artisan doctor`).
-   It needs no credentials beyond the application's own database connection. It is just as good, and preferred when
+1. Only the operator runs it, on the application host as the deploy user (the same shell as `php artisan doctor`),
+   from the separate checkout under the read-only role described in "Isolation for every run". It needs no other
+   credentials. It is just as good, and preferred when
    the database is large, to run it against a **restored copy** of the production database (a backup restored into
    an isolated instance, `APP_ENV=production`, no queue worker, no scheduler). The event traces are the same. For
    the baseline, the backup must predate the first Phase 0 deploy (above).
@@ -96,11 +134,13 @@ Each source row lists `checked` (table and row count), `hits`, `unknowns`, `note
 | Source key | Exploit | Hit kinds | Follow-up for hits and unknowns |
 | --- | --- | --- | --- |
 | `owner_demotion` | TD-1 | `owner_accepted_lower_role`, `owner_attached_lower_role`, `owner_membership_not_owner` | Each event is judged against the owner **of its moment**, read from the ownership transfers. A demotion stays a hit after the organization was later transferred away (`owner_now: false`). Look at the organization's audit trail around the audit event id. Was the owner the person who clicked, or was the invitation sent to their address by somebody else? |
+| `member_without_invitation` | TD-2 | `member_attached_without_invitation` (confirmed, or possible when an invitation of the same role was accepted beside it under an address no account carries now) | Somebody with member management put a person who was not a member into the organization (`change_role` with any `user_id`), or brought a removed person back (`re_entry: true`), without their consent. From that moment the organization saw the person's e-mail and name: **this is the source that most directly discloses personal data**. An attach counts as explained only by the closest event within a minute **of the same role**: an accepted invitation to the person's current address, the organization's creation, an ownership transfer. An attach in an organization older than the audit, of somebody with no recorded past there, is an unknown. Ask the person (through the owner) whether they knew. |
+| `project_grant_bypass` | TD-3 | `project_self_grant` (confirmed), `project_grant_above_own` (confirmed, or possible when the granter's role of that moment is not in the audit) | `add_project_member` never went through `mayGrant`. The hit names the role granted, the granter's organization and project role of that moment, and up to five permissions the granter did not hold. Staff are not bound by `mayGrant` by design; only their self-grants are hits. Compare with what the person did in the project afterwards (audit rows with that `project_id`). |
 | `game_panel_identity` | PA-01 | `panel_user_of_other_org` (confirmed), `panel_user_shared_across_orgs` (possible) | Services on a panel user the platform did not record creating are unknowns. The Pterodactyl identity dry-run of TASK-0033 reads the panel's `external_id` for them (read-only). |
 | `discord_after_removal` | G1 | `discord_used_after_removal` (use_or_attempt), `discord_command_after_removal`, `discord_ask_after_removal` (an assistant run of `/onhost ask`), `hook_run_after_removal` (an action hook whose creator had left) | `services` and `status` leave no row. A link whose person was removed and re-admitted is an unknown, because `last_used_at` keeps only the latest use. A hook URL is a bearer credential: hook runs after somebody left are unknowns, since the one who left may still hold a colleague's URL. Links and hooks still open after a removal are listed in `notes`; TASK-0035 revokes them. |
 | `aapanel_outside_root` | PA-02 | `path_outside_root` (confirmed or attempt), `cron_reaches_outside_root`, `command_reaches_outside_root` (terminal `command.run`; possible) | Symlinks and archive contents live only on the node, and so does whatever SFTP, SSH or the site's code made. Every aaPanel service is a standing unknown for the aaPanel tenancy dry-run of TASK-0034 (`operator:aapanel:tenancy`, read-only). Never open or run a file you find; copy it with its hash into the evidence store. |
 | `token_cross_org` | PA-04 | `token_used_on_other_org` (grouped per token and organization) | Only writes are audited. The token's owner, and what the actions changed, come from the listed audit ids. |
-| `staff_own_org` | SS-1, SS-5 (EXPL-1..3), IF-8 | `staff_hold_lift_own_org`, `staff_force_purge_own_org`, `staff_self_grant` (a staff user attached themselves at a role, past `mayGrant`), `staff_reinstate_own_org` (possible) | Compare with the approval record and the reason in the audit row. A staff member acting on their own company without a second person is a hit even when the action was right. A staff action in an organization older than the audit is an unknown: whether they were a member then cannot be told. |
+| `staff_own_org` | SS-1, SS-5 (EXPL-1..3), IF-8 | `staff_hold_lift_own_org`, `staff_force_purge_own_org`, `staff_self_grant` (a staff user attached themselves at a role, past `mayGrant`; an invitation, creation or transfer explains only an attach of its own role, so accepting a viewer invitation and raising oneself seconds later is a hit), `staff_reinstate_own_org` (possible) | Compare with the approval record and the reason in the audit row. A staff member acting on their own company without a second person is a hit even when the action was right. A staff action in an organization older than the audit is an unknown: whether they were a member then cannot be told. |
 | `partner_payouts` | P1, P2 | `payout_above_allocated` (confirmed), `payout_iban_changed` (possible, a **rejected** request included) | A rejected request still wrote its IBAN into the partner, and the automatic payouts pay there. A payout with no earlier paid payout to compare with is an unknown. Finance checks the bank statement. Only the partner's written confirmation proves that a new IBAN is theirs. Do not contact the partner before the owner has decided (the partner may be the actor). |
 
 ## Recording findings
