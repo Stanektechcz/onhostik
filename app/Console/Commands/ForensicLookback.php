@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
+use App\Console\Commands\Forensics\MembershipHistory;
+use App\Console\Commands\Forensics\PayoutChecks;
+use App\Console\Commands\Forensics\SitePaths;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\LazyCollection;
-use Onhost\Platform\Money\Money;
 use Symfony\Component\Console\Output\OutputInterface;
 use Throwable;
 
@@ -17,7 +19,7 @@ use Throwable;
  * Did anybody use the permission holes before Phase 0 closed them? (TASK-0038 — permission program P0-01 / IF-0,
  * decision D16; runbook docs/runbooks/breach-register.md)
  *
- * For every verified exploit of the program (§9: TD-1, PA-01, G1, PA-02, PA-04, SS-1/SS-5, P1/P2) it reads what the
+ * For every verified exploit of the program (§9: TD-1, PA-01, G1, PA-02, PA-04, SS-1/SS-5 with IF-8, P1/P2) it reads what the
  * platform already stored and reports the tables it read, the rows that match the exploit's trace and what the data
  * cannot tell. Strictly read-only: SELECTs only, inside a transaction that is always rolled back, no CommandBus, no
  * provider adapter, no panel call, no file — the report goes to stdout (a table, or JSON with --json). It prints ids,
@@ -30,27 +32,33 @@ final class ForensicLookback extends Command
     /** key => [exploit ids of the program §9, what the hit means, what the stored data can never show] */
     private const SOURCES = [
         'owner_demotion' => ['TD-1', 'The owner accepted an invitation to their own organization at a lower role',
-            'Only the owner\'s current e-mail is known: an owner who changed the address after accepting is found by the audit row alone.'],
+            'Only the owner\'s current e-mail is known: an owner who changed the address after accepting is found by the audit row alone. Who owned the organization at a moment is read from the ownership transfers in the audit.'],
         'game_panel_identity' => ['PA-01', 'A game service runs on a panel user that was created for another organization',
             'A panel user\'s external_id lives on the panel; the database knows it only for users the platform recorded creating. Standing state, not limited by the window.'],
-        'discord_after_removal' => ['G1', 'Discord /onhost was used after the person left the organization',
-            'Reads (services, status, ask) leave no audit row: the link\'s last_used_at proves a use after the removal, not what was read.'],
-        'aapanel_outside_root' => ['PA-02', 'An aaPanel file operation or scheduled command reached outside the site root',
-            'A symlink planted inside the site root makes an in-root path land elsewhere; symlinks are not in the database, only on the node. File reads leave no operation row.'],
+        'discord_after_removal' => ['G1', 'Discord /onhost or an action hook was used after the person left the organization',
+            'Reads (services, status) leave no row; `ask` leaves its assistant run. last_used_at keeps only the latest use and is written before any authorization (a use or a refused attempt). An action hook URL is a bearer credential: the audit names the hook\'s creator, not whoever held the URL; a refused hook run leaves no audit row.'],
+        'aapanel_outside_root' => ['PA-02', 'An aaPanel file operation, terminal command or scheduled command reached outside the site root',
+            'A symlink planted inside the site root makes an in-root path land elsewhere; symlinks are not in the database, only on the node. SFTP, SSH, the site\'s own code and file reads leave no operation row.'],
         'token_cross_org' => ['PA-04', 'An API token of one organization wrote in another organization',
             'Only writes are audited; reads with a token leave no row.'],
-        'staff_own_org' => ['SS-1, SS-5 (EXPL-1..3)', 'A staff user force-purged or lifted a hold on a service of an organization they belong to',
-            'The route (customer or staff API) is not recorded; the reason given is in the audit row.'],
+        'staff_own_org' => ['SS-1, SS-5 (EXPL-1..3), IF-8', 'A staff user used an is_staff shortcut in an organization they belong to: force purge, hold lift, a grant to themselves, a reinstatement',
+            'The route (customer or staff API) is not recorded; the reason given is in the audit row. is_staff is read as it is now: a person who was staff then and is not any more is judged as a customer. The role a member held at a moment is not stored, only that they were a member.'],
         'partner_payouts' => ['P1, P2', 'A partner payout above the commissions allocated to it, or to an IBAN no earlier paid payout used',
-            'A changed IBAN may be the partner\'s own new account: only the partner\'s confirmation proves it.'],
+            'A changed IBAN may be the partner\'s own new account: only the partner\'s confirmation proves it. partners.iban keeps only the latest IBAN: the payouts are its history.'],
     ];
+
+    /**
+     * Review round 1 (HIGH, D16): PA-01, TD-1's current roles and the G1 open links are read as they stand NOW, and the Phase
+     * 0 fixes and their operator commands may change that state. A run after them cannot see what they changed, so the
+     * reference run is the one before them; every report carries the rule (runbook breach-register.md, "The baseline run").
+     */
+    private const STANDING_STATE = 'Standing state (PA-01 panel users, TD-1 current roles, the G1 open links and hooks) is read as it is now: a Phase 0 repair can change it. The baseline is a run on production before the first Phase 0 deploy, or on a restore of the last backup taken before it; later runs are compared with it, never replace it.';
 
     private const FILE_ACTIONS = ['file.save', 'file.mkdir', 'file.delete', 'file.rename', 'file.copy', 'file.chmod', 'file.archive', 'file.extract'];
 
     private const CRON_ACTIONS = ['cron.create', 'cron.update'];
 
-    /** Absolute paths a site's scheduled command may name without reaching another tenant: binaries, PHP builds, null device. */
-    private const SYSTEM_PREFIXES = ['/usr/', '/bin/', '/sbin/', '/opt/', '/www/server/php/', '/www/server/onhost/', '/tmp/', '/dev/null', '/dev/stdout', '/dev/stderr'];
+    private const COMMAND_ACTIONS = ['command.run'];
 
     private const LIST_LIMIT = 25;
 
@@ -66,20 +74,11 @@ final class ForensicLookback extends Command
 
     private CarbonImmutable $until;
 
-    /** @var array<string, list<array{kind:string, user:string, at:CarbonImmutable}>> */
-    private array $membershipEvents = [];
-
-    /** @var array<string, ?array{created_at:CarbonImmutable, expires_at:?CarbonImmutable, role:string}> */
-    private array $memberships = [];
-
-    /** @var array<string, bool> */
-    private array $staff = [];
-
-    /** @var array<string, true> the (organization, person) pairs the current source judged a membership for */
-    private array $judged = [];
+    private MembershipHistory $history;
 
     public function handle(): int
     {
+        $this->history = new MembershipHistory;
         $problem = $this->readOptions();
         if ($problem !== null) {
             $this->error($problem);
@@ -98,7 +97,7 @@ final class ForensicLookback extends Command
         $hits = array_sum(array_map(fn (array $s) => count($s['hits']), $sources));
         $report = [
             'command' => 'onhost:forensics:lookback', 'generated_at' => CarbonImmutable::now()->toIso8601String(), 'read_only' => true,
-            'window' => ['since' => $this->since?->toIso8601String(), 'until' => $this->until->toIso8601String()],
+            'window' => ['since' => $this->since?->toIso8601String(), 'until' => $this->until->toIso8601String()], 'standing_state' => self::STANDING_STATE,
             'summary' => ['sources' => count($sources), 'hits' => $hits, 'unknowns' => array_sum(array_map(fn (array $s) => count($s['unknowns']), $sources)),
                 'sources_with_hits' => array_values(array_map(fn (array $s) => $s['key'], array_filter($sources, fn (array $s) => $s['hits'] !== [])))],
             'coverage' => $coverage,
@@ -131,7 +130,7 @@ final class ForensicLookback extends Command
     private function source(string $key): array
     {
         [$exploit, $title, $limit] = self::SOURCES[$key];
-        $this->judged = [];
+        $this->history->resetJudged();
         $found = match ($key) {
             'owner_demotion' => $this->ownerDemotion(),
             'game_panel_identity' => $this->gamePanelIdentity(),
@@ -153,67 +152,70 @@ final class ForensicLookback extends Command
     private function ownerDemotion(): array
     {
         $organizations = DB::table('organizations')->get(['id', 'owner_user_id', 'created_at'])->keyBy('id');
-        $owners = DB::table('users')->whereIn('id', $organizations->pluck('owner_user_id')->filter()->unique()->values()->all())->pluck('email', 'id')->map(fn ($e) => mb_strtolower((string) $e));
+        // Review round 1 (QA): an owner who demoted themselves and later handed the organization on by a legitimate transfer
+        // is not today's owner — judged against the current owner, the demotion vanished (and the successor's own earlier
+        // acceptance looked like one). Every event is judged against the owner OF ITS MOMENT, read from the transfers.
+        $transfers = DB::table('audit_events')->where('action', 'organization.ownership.transfer')->orderBy('created_at')->orderBy('id')->get(['organization_id', 'detail', 'created_at'])
+            ->map(fn ($t) => ['organization_id' => (string) $t->organization_id, 'from' => (string) ($this->json($t->detail)['from'] ?? ''), 'to' => (string) ($this->json($t->detail)['to'] ?? ''), 'at' => CarbonImmutable::parse($t->created_at)])
+            ->groupBy('organization_id');
         $invitations = DB::table('organization_invitations')->whereNotNull('accepted_at')->where('role_key', '!=', 'owner')->whereBetween('accepted_at', $this->window())->orderBy('accepted_at')->get();
         $hits = [];
         $unmatched = [];
+        $ownerGone = 0;
         foreach ($invitations as $invitation) {
-            $owner = (string) ($organizations[$invitation->organization_id]->owner_user_id ?? '');
-            if ($owner !== '' && ($owners[$owner] ?? null) === mb_strtolower((string) $invitation->email)) {
+            $organization = $organizations[$invitation->organization_id] ?? null;
+            $owner = $this->history->ownerAt($organization, $transfers->get((string) $invitation->organization_id, collect()), CarbonImmutable::parse($invitation->accepted_at));
+            $email = $owner === '' ? null : $this->history->emailOf($owner);
+            if ($owner !== '' && $email === null) { // the owner of that moment has no account any more: their address cannot be compared
+                $ownerGone++;
+            } elseif ($email !== null && $email === mb_strtolower((string) $invitation->email)) {
                 $hits[] = ['kind' => 'owner_accepted_lower_role', 'confidence' => 'confirmed', 'organization_id' => $invitation->organization_id, 'user_id' => $owner,
                     'invitation_id' => $invitation->id, 'role' => $invitation->role_key, 'at' => $this->iso($invitation->accepted_at), 'audit_event_id' => null,
-                    'current_role' => $this->currentMembership($invitation->organization_id, $owner)['role'] ?? null];
+                    'current_role' => $this->history->currentMembership($invitation->organization_id, $owner)['role'] ?? null, 'owner_now' => $owner === (string) ($organization->owner_user_id ?? '')];
             } else {
                 $unmatched[] = mb_strtolower((string) $invitation->email);
             }
         }
-        $nobody = $this->addressesWithoutAccount(array_values(array_unique($unmatched)));
-        $transfers = DB::table('audit_events')->where('action', 'organization.ownership.transfer')->orderBy('created_at')->get(['organization_id', 'detail', 'created_at']);
+        $nobody = $this->history->addressesWithoutAccount(array_values(array_unique($unmatched)));
         $attaches = 0;
         foreach ($this->auditRows(['organization.member.attach']) as $row) {
             $attaches++;
             $detail = $this->json($row->detail);
             $organization = $organizations[$row->organization_id] ?? null;
-            if ($organization === null || (string) ($detail['user_id'] ?? '') !== (string) $organization->owner_user_id || (string) ($detail['role'] ?? 'owner') === 'owner') {
-                continue;
-            }
+            $orgTransfers = $transfers->get((string) $row->organization_id, collect());
+            $user = (string) ($detail['user_id'] ?? '');
             $at = CarbonImmutable::parse($row->created_at);
+            if ($organization === null || $user === '' || (string) ($detail['role'] ?? 'owner') === 'owner' || $user !== $this->history->ownerAt($organization, $orgTransfers, $at)) {
+                continue; // an attach of somebody who was not the owner at that moment is history, not a demotion
+            }
+            if ($orgTransfers->contains(fn (array $t) => $t['from'] === $user && abs($t['at']->diffInSeconds($at)) <= 60)) {
+                continue; // the transfer's own step: the previous owner becomes org_admin
+            }
             foreach ($hits as $i => $hit) { // the same acceptance, seen twice: the audit row is its evidence
-                if ($hit['organization_id'] === $row->organization_id && $hit['audit_event_id'] === null && abs(CarbonImmutable::parse($hit['at'])->diffInSeconds($at)) <= 60) {
+                if ($hit['organization_id'] === $row->organization_id && $hit['user_id'] === $user && $hit['audit_event_id'] === null && abs(CarbonImmutable::parse($hit['at'])->diffInSeconds($at)) <= 60) {
                     $hits[$i]['audit_event_id'] = $row->id;
 
                     continue 2;
                 }
             }
-            $since = $transfers->where('organization_id', $row->organization_id)->filter(fn ($t) => ($this->json($t->detail)['to'] ?? null) === $organization->owner_user_id)->last()->created_at ?? $organization->created_at;
-            if ($since === null || $at->greaterThanOrEqualTo(CarbonImmutable::parse($since))) { // an attach before they became the owner is history, not a demotion
-                $hits[] = ['kind' => 'owner_attached_lower_role', 'confidence' => 'confirmed', 'organization_id' => $row->organization_id, 'user_id' => $organization->owner_user_id,
-                    'role' => (string) ($detail['role'] ?? ''), 'at' => $at->toIso8601String(), 'audit_event_id' => $row->id,
-                    'current_role' => $this->currentMembership($row->organization_id, (string) $organization->owner_user_id)['role'] ?? null];
-            }
+            $hits[] = ['kind' => 'owner_attached_lower_role', 'confidence' => 'confirmed', 'organization_id' => $row->organization_id, 'user_id' => $user,
+                'role' => (string) ($detail['role'] ?? ''), 'at' => $at->toIso8601String(), 'audit_event_id' => $row->id,
+                'current_role' => $this->history->currentMembership($row->organization_id, $user)['role'] ?? null, 'owner_now' => $user === (string) $organization->owner_user_id];
         }
-        $explained = array_column($hits, 'organization_id');
+        $explained = array_map(fn (array $h) => $h['organization_id'].'#'.$h['user_id'], $hits);
         foreach ($organizations as $organization) { // what the owner holds today, whatever put it there
-            $role = $this->currentMembership((string) $organization->id, (string) $organization->owner_user_id)['role'] ?? null;
-            if ($role !== 'owner' && ! in_array($organization->id, $explained, true)) {
+            $role = $this->history->currentMembership((string) $organization->id, (string) $organization->owner_user_id)['role'] ?? null;
+            if ($role !== 'owner' && ! in_array($organization->id.'#'.$organization->owner_user_id, $explained, true)) {
                 $hits[] = ['kind' => 'owner_membership_not_owner', 'confidence' => 'confirmed', 'organization_id' => $organization->id, 'user_id' => $organization->owner_user_id, 'current_role' => $role];
             }
         }
-        $unknowns = $nobody > 0 ? ["{$nobody} accepted invitation".($nobody === 1 ? '' : 's').' went to an address that belongs to no account any more: who accepted cannot be told.'] : [];
+        $unknowns = array_values(array_filter([
+            $nobody > 0 ? "{$nobody} accepted invitation".($nobody === 1 ? '' : 's').' went to an address that belongs to no account any more: who accepted cannot be told.' : null,
+            $ownerGone > 0 ? "{$ownerGone} accepted invitation".($ownerGone === 1 ? '' : 's').' fall in a time whose owner has no account any more: whether the owner accepted cannot be told.' : null,
+        ]));
 
-        return ['checked' => ['organization_invitations' => $invitations->count(), 'audit_events' => $attaches + $transfers->count(), 'organizations' => $organizations->count(), 'organization_memberships' => $organizations->count()],
+        return ['checked' => ['organization_invitations' => $invitations->count(), 'audit_events' => $attaches + $transfers->flatten(1)->count(), 'organizations' => $organizations->count(), 'organization_memberships' => $organizations->count()],
             'hits' => $hits, 'unknowns' => $unknowns];
-    }
-
-    /** @param list<string> $emails */
-    private function addressesWithoutAccount(array $emails): int
-    {
-        $known = [];
-        foreach (array_chunk($emails, 500) as $chunk) {
-            $known = array_merge($known, DB::table('users')->whereIn(DB::raw('lower(email)'), $chunk)->selectRaw('lower(email) as e')->pluck('e')->map(fn ($e) => (string) $e)->all());
-        }
-
-        return count(array_diff($emails, $known));
     }
 
     // ── PA-01: a game server on another organization's panel user ────────────────────────────────────────────
@@ -280,40 +282,120 @@ final class ForensicLookback extends Command
     /** @return array{checked:array<string,int>, hits:list<array<string,mixed>>, unknowns:list<string>, notes:list<string>} */
     private function discordAfterRemoval(): array
     {
-        $links = DB::table('discord_links')->whereNotNull('linked_at')->get(['id', 'organization_id', 'user_id', 'state', 'last_used_at', 'commands']);
+        $links = DB::table('discord_links')->whereNotNull('linked_at')->get(['id', 'organization_id', 'user_id', 'state', 'linked_at', 'last_used_at', 'commands']);
         $hits = [];
         $unknown = 0;
         $open = [];
+        $gaps = [];
         foreach ($links as $link) {
-            if ($link->state === 'linked' && $this->membershipAt((string) $link->organization_id, (string) $link->user_id, CarbonImmutable::now())[0] === false) {
+            if ($link->state === 'linked' && $this->history->membershipAt((string) $link->organization_id, (string) $link->user_id, CarbonImmutable::now())[0] === false) {
                 $open[] = $link->id;
+            }
+            // review round 1: last_used_at is overwritten by every use — remove, use, re-admit, use again hides the middle one
+            if ($link->last_used_at !== null && $this->history->readmittedSince((string) $link->organization_id, (string) $link->user_id, CarbonImmutable::parse($link->linked_at))) {
+                $gaps[] = $link->id;
             }
             if ($link->last_used_at === null || ! $this->inWindow($link->last_used_at)) {
                 continue;
             }
-            [$member, $ended] = $this->membershipAt((string) $link->organization_id, (string) $link->user_id, CarbonImmutable::parse($link->last_used_at));
-            if ($member === false) { // last_used_at is the latest use: when it lies after the removal, the link was used after it
-                $hits[] = ['kind' => 'discord_used_after_removal', 'confidence' => 'confirmed', 'link_id' => $link->id, 'organization_id' => $link->organization_id, 'user_id' => $link->user_id,
+            [$member, $ended] = $this->history->membershipAt((string) $link->organization_id, (string) $link->user_id, CarbonImmutable::parse($link->last_used_at));
+            if ($member === false) { // last_used_at is written before any authorization (DiscordService): a use after the removal, or a refused attempt
+                $hits[] = ['kind' => 'discord_used_after_removal', 'confidence' => 'use_or_attempt', 'link_id' => $link->id, 'organization_id' => $link->organization_id, 'user_id' => $link->user_id,
                     'removed_at' => $ended?->toIso8601String(), 'last_used_at' => $this->iso($link->last_used_at), 'commands' => (int) $link->commands, 'link_state' => $link->state];
             } elseif ($member === null) {
                 $unknown++;
             }
         }
-        $audited = 0;
-        foreach (DB::table('audit_events')->where('session_id', 'like', 'discord:%')->whereBetween('created_at', $this->window())->whereNotNull('organization_id')->lazyById(1000, 'id') as $row) {
-            $audited++;
-            [$member, $ended] = $this->membershipAt((string) $row->organization_id, (string) $row->actor_id, CarbonImmutable::parse($row->created_at));
+        [$audit, $askAudited, $hookRuns] = $this->sessionRowsAfterRemoval();
+        [$ask, $runs] = $this->askRunsAfterRemoval($askAudited);
+        [$openHooks, $hookCount] = $this->hooksOfFormerMembers();
+        $unknown += $audit['unknown'] + $ask['unknown'];
+
+        return ['checked' => ['discord_links' => $links->count(), 'audit_events' => $audit['rows'], 'support_ai_runs' => $runs, 'action_hooks' => $hookCount, 'organization_memberships' => $this->history->judgedCount()],
+            'hits' => [...$hits, ...$audit['hits'], ...$ask['hits']],
+            'unknowns' => array_values(array_filter([
+                $unknown > 0 ? "{$unknown} Discord or hook use(s) by a person whose membership history is not recorded: cannot say whether they were still a member." : null,
+                $gaps !== [] ? count($gaps).' Discord link(s) whose person was removed and re-admitted while linked: last_used_at keeps only the latest use, so a read in the gap leaves nothing — '.$this->ids($gaps).'.' : null,
+                $hookRuns > 0 ? "{$hookRuns} action hook run".($hookRuns === 1 ? '' : 's').' after somebody left the organization: the hook URL is a bearer credential, and whether the one who left still held it cannot be told.' : null,
+            ])),
+            'notes' => array_values(array_filter([
+                $open !== [] ? count($open).' Discord link(s) are still linked for people who are no longer members (an open door, no use after the removal seen): '.$this->ids($open).' — TASK-0035 revokes them.' : null,
+                $openHooks !== [] ? count($openHooks).' action hook(s) are still enabled although their creator is no longer a member: '.$this->ids($openHooks).' — TASK-0035 revokes them.' : null,
+            ]))];
+    }
+
+    /**
+     * Audit rows written through Discord (`discord:<uid>`) and through an action hook (`hook:<id>`, ActionHookService) by a
+     * person who was no longer a member.
+     *
+     * @return array{0: array{rows:int, unknown:int, hits:list<array<string,mixed>>}, 1: array<string,true>, 2: int} [result, assistant runs these rows already cover, hook runs after somebody's removal]
+     */
+    private function sessionRowsAfterRemoval(): array
+    {
+        $out = ['rows' => 0, 'unknown' => 0, 'hits' => []];
+        $askAudited = [];
+        $hookRuns = 0;
+        $rows = DB::table('audit_events')->where(fn ($q) => $q->where('session_id', 'like', 'discord:%')->orWhere('session_id', 'like', 'hook:%'))
+            ->whereBetween('created_at', $this->window())->whereNotNull('organization_id')->lazyById(1000, 'id');
+        foreach ($rows as $row) {
+            $out['rows']++;
+            $viaHook = str_starts_with((string) $row->session_id, 'hook:');
+            if (! $viaHook && $row->action === 'assistant.chat' && $row->resource_id !== null) {
+                $askAudited[(string) $row->resource_id] = true;
+            }
+            $at = CarbonImmutable::parse($row->created_at);
+            [$member, $ended] = $this->history->membershipAt((string) $row->organization_id, (string) $row->actor_id, $at);
             if ($member === false) {
-                $hits[] = ['kind' => 'discord_command_after_removal', 'confidence' => 'confirmed', 'audit_event_id' => $row->id, 'organization_id' => $row->organization_id, 'user_id' => $row->actor_id,
-                    'action' => (string) ($this->json($row->detail)['action'] ?? $row->action), 'at' => $this->iso($row->created_at), 'removed_at' => $ended?->toIso8601String()];
+                $out['hits'][] = ['kind' => $viaHook ? 'hook_run_after_removal' : 'discord_command_after_removal', 'confidence' => 'confirmed', 'audit_event_id' => $row->id]
+                    + ($viaHook ? ['hook_id' => substr((string) $row->session_id, 5)] : [])
+                    + ['organization_id' => $row->organization_id, 'user_id' => $row->actor_id, 'action' => (string) ($this->json($row->detail)['action'] ?? $row->action), 'at' => $at->toIso8601String(), 'removed_at' => $ended?->toIso8601String()];
             } elseif ($member === null) {
-                $unknown++;
+                $out['unknown']++;
+            } elseif ($viaHook && $this->history->removedBefore((string) $row->organization_id, $at)) {
+                $hookRuns++;
             }
         }
 
-        return ['checked' => ['discord_links' => $links->count(), 'audit_events' => $audited, 'organization_memberships' => count($this->judged)], 'hits' => $hits,
-            'unknowns' => $unknown > 0 ? ["{$unknown} Discord use(s) by a person whose membership history is not recorded: cannot say whether they were still a member."] : [],
-            'notes' => $open !== [] ? [count($open).' Discord link(s) are still linked for people who are no longer members (an open door, no use after the removal seen): '.$this->ids($open).' — TASK-0035 revokes them.'] : []];
+        return [$out, $askAudited, $hookRuns];
+    }
+
+    /**
+     * `/onhost ask` leaves one assistant run per question (session `discord:<uid>`, DiscordService::askReply) even where no
+     * audit row was written; a run the audit already judged is not counted twice.
+     *
+     * @param  array<string,true>  $askAudited
+     * @return array{0: array{unknown:int, hits:list<array<string,mixed>>}, 1: int}
+     */
+    private function askRunsAfterRemoval(array $askAudited): array
+    {
+        $out = ['unknown' => 0, 'hits' => []];
+        $runs = 0;
+        $rows = DB::table('support_ai_runs')->where('session_id', 'like', 'discord:%')->whereNotNull('organization_id')->whereNotNull('user_id')
+            ->whereBetween('created_at', $this->window())->lazyById(1000, 'id');
+        foreach ($rows as $run) {
+            $runs++;
+            if (isset($askAudited[(string) $run->id])) {
+                continue;
+            }
+            [$member, $ended] = $this->history->membershipAt((string) $run->organization_id, (string) $run->user_id, CarbonImmutable::parse($run->created_at));
+            if ($member === false) {
+                $out['hits'][] = ['kind' => 'discord_ask_after_removal', 'confidence' => 'confirmed', 'ai_run_id' => $run->id, 'organization_id' => $run->organization_id, 'user_id' => $run->user_id,
+                    'outcome' => $run->outcome, 'at' => $this->iso($run->created_at), 'removed_at' => $ended?->toIso8601String()];
+            } elseif ($member === null) {
+                $out['unknown']++;
+            }
+        }
+
+        return [$out, $runs];
+    }
+
+    /** @return array{0: list<string>, 1: int} [enabled hooks whose creator is no longer a member, hooks read] */
+    private function hooksOfFormerMembers(): array
+    {
+        $hooks = DB::table('action_hooks')->where('enabled', true)->whereNotNull('created_by')->get(['id', 'organization_id', 'created_by']);
+        $open = $hooks->filter(fn ($h) => $this->history->membershipAt((string) $h->organization_id, (string) $h->created_by, CarbonImmutable::now())[0] === false)->pluck('id')->map(fn ($id) => (string) $id)->values()->all();
+
+        return [$open, $hooks->count()];
     }
 
     // ── PA-02: aaPanel file operations outside the site root ─────────────────────────────────────────────────
@@ -325,7 +407,7 @@ final class ForensicLookback extends Command
         $services = DB::table('services')->whereIn('provider_instance_id', $instances)->pluck('id')->all();
         $roots = DB::table('provider_bindings')->where('remote_type', 'site')->whereIn('provider_instance_id', $instances)->get(['service_id', 'meta'])
             ->mapWithKeys(fn ($b) => [(string) $b->service_id => (string) ($this->json($b->meta)['path'] ?? '')])->filter();
-        $operations = DB::table('operations')->where('kind', 'service.action')->whereIn('desired->action', [...self::FILE_ACTIONS, ...self::CRON_ACTIONS])
+        $operations = DB::table('operations')->where('kind', 'service.action')->whereIn('desired->action', [...self::FILE_ACTIONS, ...self::CRON_ACTIONS, ...self::COMMAND_ACTIONS])
             ->whereBetween('created_at', $this->window())->where(fn ($q) => $q->whereIn('provider_instance_id', $instances)->orWhereIn('service_id', $services))
             ->orderBy('created_at')->get(['id', 'organization_id', 'service_id', 'state', 'actor_id', 'desired', 'created_at']);
         $hits = [];
@@ -337,16 +419,17 @@ final class ForensicLookback extends Command
             $root = $roots[$operation->service_id] ?? null;
             $base = ['operation_id' => $operation->id, 'service_id' => $operation->service_id, 'organization_id' => $operation->organization_id, 'action' => $action,
                 'state' => $operation->state, 'actor_id' => $operation->actor_id, 'at' => $this->iso($operation->created_at)];
-            if (in_array($action, self::CRON_ACTIONS, true)) {
+            // review round 1: `command.run` runs a shell as the site agent (ServiceActionWorkflow) — the same `ln -s` and `..` as a cron
+            $isCommand = in_array($action, self::COMMAND_ACTIONS, true);
+            if ($isCommand || in_array($action, self::CRON_ACTIONS, true)) {
                 $command = (string) ($desired['command'] ?? '');
                 if ($root === null && str_contains($command, '/')) {
                     $noRoot++;
                 }
-                $outside = array_values(array_filter($this->absolutePaths($command), fn (string $p) => $root !== null && ! $this->systemPath($p) && $this->outsideRoot($p, $root)));
-                $climbs = preg_match('~(^|[\s/=\'"])\.\.(/|\s|$)~', $command) === 1;
-                $symlink = preg_match('~(^|[\s;&|(])ln\s+(-\w*s\w*|--symbolic)\b~', $command) === 1;
-                if ($outside !== [] || $climbs || $symlink) { // only the offending paths leave the report: a command may carry keys in a URL
-                    $hits[] = ['kind' => 'cron_reaches_outside_root', 'confidence' => 'possible'] + $base + ['paths' => array_map(fn ($p) => $this->clean($p), $outside), 'symlink' => $symlink, 'climbs' => $climbs];
+                $trace = SitePaths::commandTrace($command, (string) ($desired['cwd'] ?? ''), $root);
+                if ($trace['outside'] !== [] || $trace['climbs'] || $trace['symlink']) { // only the offending paths leave the report: a command may carry keys in a URL
+                    $hits[] = ['kind' => $isCommand ? 'command_reaches_outside_root' : 'cron_reaches_outside_root', 'confidence' => 'possible'] + $base
+                        + ['paths' => array_map(fn ($p) => $this->clean($p), $trace['outside']), 'symlink' => $trace['symlink'], 'climbs' => $trace['climbs']];
                 }
 
                 continue;
@@ -354,7 +437,7 @@ final class ForensicLookback extends Command
             if ($action === 'file.extract' && $operation->state === 'SUCCEEDED') {
                 $extractions++;
             }
-            $outside = array_values(array_filter($this->filePaths($desired), fn (string $p) => $this->outsideRoot($p, $root)));
+            $outside = array_values(array_filter(SitePaths::filePaths($desired), fn (string $p) => SitePaths::outsideRoot($p, $root)));
             if ($outside !== []) {
                 $hits[] = ['kind' => 'path_outside_root', 'confidence' => $operation->state === 'SUCCEEDED' ? 'confirmed' : 'attempt'] + $base + ['paths' => array_map(fn ($p) => $this->clean($p), $outside)];
             }
@@ -366,7 +449,7 @@ final class ForensicLookback extends Command
             }
             $uploads++;
             $path = (string) ($this->json($row->detail)['path'] ?? '');
-            if ($path !== '' && $this->outsideRoot($path, $roots[$row->resource_id] ?? null)) {
+            if ($path !== '' && SitePaths::outsideRoot($path, $roots[$row->resource_id] ?? null)) {
                 $hits[] = ['kind' => 'path_outside_root', 'confidence' => 'confirmed', 'audit_event_id' => $row->id, 'service_id' => $row->resource_id, 'organization_id' => $row->organization_id,
                     'action' => 'file.upload', 'actor_id' => $row->actor_id, 'at' => $this->iso($row->created_at), 'paths' => [$this->clean($path)]];
             }
@@ -376,71 +459,15 @@ final class ForensicLookback extends Command
             $unknowns[] = "{$extractions} archive extraction".($extractions === 1 ? '' : 's').' ran on aaPanel: what the archive held (a symlink, an absolute or ../ entry) is not stored — only the node shows it.';
         }
         if ($noRoot > 0) {
-            $unknowns[] = "{$noRoot} scheduled command(s) belong to a service whose site root is not stored: their absolute paths cannot be judged.";
+            $unknowns[] = "{$noRoot} terminal or scheduled command(s) belong to a service whose site root is not stored: their absolute paths cannot be judged.";
+        }
+        if ($services !== []) { // review round 1: never CLEAN while aaPanel sites exist — a symlink made by SFTP, SSH or the site's own code leaves no row
+            $active = $operations->pluck('service_id')->map(fn ($id) => (string) $id)->unique()->values()->all();
+            $unknowns[] = count($services).' aaPanel service(s): a symlink or a path outside the root made through SFTP, SSH, the site\'s own code or an archive leaves no row here, only on the node — the aaPanel tenancy dry-run of TASK-0034 (operator:aapanel:tenancy, read-only) looks there. Those with file operations or commands in the window first: '
+                .$this->ids(array_values(array_unique([...$active, ...array_map('strval', $services)]))).'.';
         }
 
         return ['checked' => ['operations' => $operations->count(), 'audit_events' => $uploads, 'provider_bindings' => $roots->count()], 'hits' => $hits, 'unknowns' => $unknowns];
-    }
-
-    /** @param array<string,mixed> $desired @return list<string> */
-    private function filePaths(array $desired): array
-    {
-        $paths = array_merge(array_map(fn ($k) => $desired[$k] ?? null, ['path', 'from', 'to', 'target']), (array) ($desired['paths'] ?? []));
-
-        return array_values(array_filter($paths, fn ($p) => is_string($p) && $p !== ''));
-    }
-
-    /** Lexically: a NUL, a `..` that climbs above the root, or an absolute path not under the root (stored paths are relative). */
-    private function outsideRoot(string $path, ?string $root): bool
-    {
-        $path = str_replace('\\', '/', $path);
-        if (str_contains($path, "\0")) {
-            return true;
-        }
-        if (str_starts_with($path, '/')) {
-            $normal = $this->normalize($path);
-
-            return $root === null || $normal === null || ($normal !== rtrim($root, '/') && ! str_starts_with($normal, rtrim($root, '/').'/'));
-        }
-
-        return $this->normalize('/'.$path) === null;
-    }
-
-    /** `/a/b/../c` → `/a/c`; null when `..` climbs above `/`. */
-    private function normalize(string $absolute): ?string
-    {
-        $stack = [];
-        foreach (explode('/', $absolute) as $segment) {
-            if ($segment === '..') {
-                if ($stack === []) {
-                    return null;
-                }
-                array_pop($stack);
-            } elseif ($segment !== '' && $segment !== '.') {
-                $stack[] = $segment;
-            }
-        }
-
-        return '/'.implode('/', $stack);
-    }
-
-    /** @return list<string> absolute paths named in a shell command (not the `//` of a URL) */
-    private function absolutePaths(string $command): array
-    {
-        preg_match_all('~(?<![^\s\'"=<>])/[^\s\'"`;|&<>()]*~', $command, $matches);
-
-        return array_values(array_unique($matches[0]));
-    }
-
-    private function systemPath(string $path): bool
-    {
-        foreach (self::SYSTEM_PREFIXES as $prefix) {
-            if ($path === rtrim($prefix, '/') || str_starts_with($path, $prefix)) {
-                return ! str_contains($path, '..');
-            }
-        }
-
-        return false;
     }
 
     // ── PA-04: a token of one organization used in another ──────────────────────────────────────────────────
@@ -498,15 +525,17 @@ final class ForensicLookback extends Command
     private function staffOwnOrg(): array
     {
         $hits = [];
+        $unknown = 0;
         $lifts = 0;
         foreach ($this->auditRows(['service.hold.lift']) as $row) {
             $lifts++;
             $detail = $this->json($row->detail);
             // a customer lifts the one hold it names (a string); the staff path lifts them all (a list) — ServiceService::liftHolds
-            if ($row->actor_type !== 'user' || $row->organization_id === null || ! (is_array($detail['lifted'] ?? null) || $this->isStaff((string) $row->actor_id))) {
+            if ($row->actor_type !== 'user' || $row->organization_id === null || ! (is_array($detail['lifted'] ?? null) || $this->history->isStaff((string) $row->actor_id))) {
                 continue;
             }
-            if ($this->membershipAt((string) $row->organization_id, (string) $row->actor_id, CarbonImmutable::parse($row->created_at))[0] === true) {
+            $member = $this->memberOrUnknown((string) $row->organization_id, (string) $row->actor_id, CarbonImmutable::parse($row->created_at), $unknown);
+            if ($member) {
                 $hits[] = ['kind' => 'staff_hold_lift_own_org', 'confidence' => 'confirmed', 'audit_event_id' => $row->id, 'user_id' => $row->actor_id, 'organization_id' => $row->organization_id,
                     'service_id' => $row->resource_id, 'lifted' => $detail['lifted'] ?? null, 'at' => $this->iso($row->created_at)];
             }
@@ -516,14 +545,102 @@ final class ForensicLookback extends Command
         foreach ($purges as $operation) {
             $desired = $this->json($operation->desired);
             $forced = (($desired['action'] ?? '') === 'purge' && ! empty($desired['force'])) || ($desired['archive_before_delete'] ?? true) === false;
-            if ($forced && $operation->organization_id !== null && $this->membershipAt((string) $operation->organization_id, (string) $operation->actor_id, CarbonImmutable::parse($operation->created_at))[0] === true) {
+            if ($forced && $operation->organization_id !== null && $this->memberOrUnknown((string) $operation->organization_id, (string) $operation->actor_id, CarbonImmutable::parse($operation->created_at), $unknown)) {
                 $hits[] = ['kind' => 'staff_force_purge_own_org', 'confidence' => 'confirmed', 'operation_id' => $operation->id, 'user_id' => $operation->actor_id, 'organization_id' => $operation->organization_id,
                     'service_id' => $operation->service_id, 'action' => $desired['action'] ?? null, 'archive_skipped' => ($desired['archive_before_delete'] ?? true) === false,
-                    'state' => $operation->state, 'staff_now' => $this->isStaff((string) $operation->actor_id), 'at' => $this->iso($operation->created_at)];
+                    'state' => $operation->state, 'staff_now' => $this->history->isStaff((string) $operation->actor_id), 'at' => $this->iso($operation->created_at)];
+            }
+        }
+        [$grants, $grantRows] = $this->staffSelfGrants();
+        [$reinstates, $reinstateRows] = $this->staffReinstatements($unknown);
+
+        return ['checked' => ['audit_events' => $lifts + $grantRows + $reinstateRows, 'operations' => $purges->count(), 'organization_memberships' => $this->history->judgedCount()],
+            'hits' => [...$hits, ...$grants, ...$reinstates],
+            'unknowns' => $unknown > 0 ? ["{$unknown} staff action(s) in an organization older than the audit, by a staff user with no recorded membership there: whether they were a member then cannot be told."] : []];
+    }
+
+    /**
+     * IF-8 (review round 1): OrganizationsCommandHandler::mayGrant returns early for staff, so self_membership_locked and
+     * role_above_own never stop a staff user raising their own role. The trace is an attach row whose actor is its own
+     * target — once the attaches an invitation acceptance, the creation of the organization or an ownership transfer
+     * write for the actor themselves are set aside.
+     *
+     * @return array{0: list<array<string,mixed>>, 1: int}
+     */
+    private function staffSelfGrants(): array
+    {
+        $hits = [];
+        $rows = 0;
+        foreach ($this->auditRows(['organization.member.attach']) as $row) {
+            $rows++;
+            $user = (string) ($this->json($row->detail)['user_id'] ?? '');
+            if ($row->actor_type !== 'user' || $row->organization_id === null || $user === '' || $user !== (string) $row->actor_id || ! $this->history->isStaff($user)) {
+                continue;
+            }
+            $at = CarbonImmutable::parse($row->created_at);
+            if ($this->ownAttachExplained((string) $row->organization_id, $user, $at)) {
+                continue;
+            }
+            $hits[] = ['kind' => 'staff_self_grant', 'confidence' => 'confirmed', 'audit_event_id' => $row->id, 'user_id' => $user, 'organization_id' => $row->organization_id,
+                'role' => (string) ($this->json($row->detail)['role'] ?? ''), 'member_before' => $this->history->membershipAt((string) $row->organization_id, $user, $at->subSecond())[0], 'at' => $at->toIso8601String()];
+        }
+
+        return [$hits, $rows];
+    }
+
+    /** An attach of the actor themselves that an accepted invitation, the organization's creation or an ownership transfer wrote. */
+    private function ownAttachExplained(string $organizationId, string $userId, CarbonImmutable $at): bool
+    {
+        $near = [$at->subMinute(), $at->addMinute()];
+        $email = $this->history->emailOf($userId);
+        if ($email !== null && DB::table('organization_invitations')->where('organization_id', $organizationId)->whereBetween('accepted_at', $near)->whereRaw('lower(email) = ?', [$email])->exists()) {
+            return true;
+        }
+
+        return DB::table('audit_events')->where('organization_id', $organizationId)->whereBetween('created_at', $near)
+            ->where(fn ($q) => $q->where('action', 'organization.create')->orWhere('action', 'organization.ownership.transfer'))->get(['action', 'actor_id', 'detail'])
+            ->contains(fn ($e) => $e->action === 'organization.create' ? (string) $e->actor_id === $userId : in_array($userId, [(string) ($this->json($e->detail)['from'] ?? ''), (string) ($this->json($e->detail)['to'] ?? '')], true));
+    }
+
+    /**
+     * IF-8 (review round 1): ServiceReinstatement::actorMay answers true for any staff user, so a staff member asks or pays
+     * a reinstatement in their own organization without the role that permits it. `possible`: a member whose role holds
+     * the permission may have done the same legitimately — the role of that moment is not stored.
+     *
+     * @return array{0: list<array<string,mixed>>, 1: int}
+     */
+    private function staffReinstatements(int &$unknown): array
+    {
+        $hits = [];
+        $rows = 0;
+        foreach ($this->auditRows(['service.reinstate', 'service.reinstate.requested']) as $row) {
+            $rows++;
+            if ($row->actor_type !== 'user' || $row->organization_id === null || ! $this->history->isStaff((string) $row->actor_id)) {
+                continue;
+            }
+            if ($this->memberOrUnknown((string) $row->organization_id, (string) $row->actor_id, CarbonImmutable::parse($row->created_at), $unknown)) {
+                $hits[] = ['kind' => 'staff_reinstate_own_org', 'confidence' => 'possible', 'audit_event_id' => $row->id, 'action' => $row->action, 'user_id' => $row->actor_id,
+                    'organization_id' => $row->organization_id, 'service_id' => $row->resource_id, 'current_role' => $this->history->currentMembership((string) $row->organization_id, (string) $row->actor_id)['role'] ?? null,
+                    'at' => $this->iso($row->created_at)];
             }
         }
 
-        return ['checked' => ['audit_events' => $lifts, 'operations' => $purges->count(), 'organization_memberships' => count($this->judged)], 'hits' => $hits, 'unknowns' => []];
+        return [$hits, $rows];
+    }
+
+    /**
+     * Was the actor a member? A membership nothing recorded counts as "not a member" only where the audit reaches back to
+     * the organization's creation — every membership since then left an attach row. Otherwise it is counted as unknown
+     * (review round 1: a null membership was silently read as "not a member").
+     */
+    private function memberOrUnknown(string $organizationId, string $userId, CarbonImmutable $at, int &$unknown): bool
+    {
+        $member = $this->history->membershipAt($organizationId, $userId, $at)[0];
+        if ($member === null && ! $this->history->historyCovered($organizationId)) {
+            $unknown++;
+        }
+
+        return $member === true;
     }
 
     // ── P1 / P2: partner payouts ─────────────────────────────────────────────────────────────────────────────
@@ -540,105 +657,38 @@ final class ForensicLookback extends Command
         $requesters = DB::table('audit_events')->where('action', 'partner.payout.request')->whereIn('resource_id', $payouts->pluck('id')->all())->pluck('actor_id', 'resource_id');
         $hits = [];
         $unknown = 0;
+        $first = [];
         foreach ($payouts as $payout) {
-            if ($payout->state === 'rejected') { // a rejection hands the commissions back: nothing left the platform
-                continue;
-            }
-            $rows = $allocated[$payout->id] ?? new Collection;
-            $amount = $sum = null;
-            try {
-                $amount = Money::minor((int) $payout->amount_minor, (string) $payout->currency);
-                $sum = $rows->reduce(fn (Money $carry, $r) => $carry->add(Money::minor((int) $r->total, (string) $r->currency)), Money::zero($amount->currency));
-            } catch (Throwable) { // another currency among its commissions, or one the platform does not know
+            // a rejection hands the commissions back, so its amount took nothing — but requestPayout had already written its IBAN
+            // into partners.iban, and the automatic payouts pay there: the IBAN of a rejected request is still read (review round 1)
+            $excess = $payout->state === 'rejected' ? null : PayoutChecks::excess($payout, $allocated[$payout->id] ?? new Collection);
+            if ($excess === false) {
                 $unknown++;
-            }
-            if ($amount !== null && $sum !== null && $amount->greaterThan($sum)) {
+            } elseif ($excess !== null) {
                 $hits[] = ['kind' => 'payout_above_allocated', 'confidence' => 'confirmed', 'payout_id' => $payout->id, 'number' => $payout->number, 'partner_id' => $payout->partner_id,
-                    'amount_minor' => $amount->minor, 'allocated_minor' => $sum->minor, 'excess_minor' => $amount->subtract($sum)->minor, 'currency' => $amount->currency->value,
+                    'amount_minor' => $excess['amount']->minor, 'allocated_minor' => $excess['allocated']->minor, 'excess_minor' => $excess['excess']->minor, 'currency' => $excess['amount']->currency->value,
                     'state' => $payout->state, 'requested_at' => $this->iso($payout->requested_at)];
             }
             $confirmed = collect($paid[$payout->partner_id] ?? [])->filter(fn ($p) => $p->id !== $payout->id && $p->requested_at < $payout->requested_at)
-                ->map(fn ($p) => $this->normalIban((string) $p->iban))->unique()->values();
-            $iban = $this->normalIban((string) $payout->iban);
+                ->map(fn ($p) => PayoutChecks::normalIban((string) $p->iban))->unique()->values();
+            $iban = PayoutChecks::normalIban((string) $payout->iban);
+            if ($payout->method === 'bank_transfer' && $iban !== '' && $confirmed->isEmpty()) { // nothing earlier to compare with: neither a hit nor clean
+                $first[] = (string) $payout->id;
+            }
             if ($payout->method === 'bank_transfer' && $iban !== '' && $confirmed->isNotEmpty() && ! $confirmed->contains($iban)) {
                 $requester = $requesters[$payout->id] ?? null;
                 $hits[] = ['kind' => 'payout_iban_changed', 'confidence' => 'possible', 'payout_id' => $payout->id, 'number' => $payout->number, 'partner_id' => $payout->partner_id,
-                    'iban' => $this->maskIban($iban), 'confirmed_ibans' => $confirmed->map(fn (string $i) => $this->maskIban($i))->all(), 'state' => $payout->state,
+                    'iban' => PayoutChecks::maskIban($iban), 'confirmed_ibans' => $confirmed->map(fn (string $i) => PayoutChecks::maskIban($i))->all(), 'state' => $payout->state,
                     'requested_by' => $requester, 'requested_by_owner' => $requester === null ? null : $requester === ($partnerOwners[$partners[$payout->partner_id]->organization_id ?? ''] ?? null),
                     'requested_at' => $this->iso($payout->requested_at)];
             }
         }
 
         return ['checked' => ['partner_payouts' => $payouts->count(), 'partner_commissions' => $allocated->count(), 'audit_events' => $requesters->count()], 'hits' => $hits,
-            'unknowns' => $unknown > 0 ? ["{$unknown} payout(s) mix currencies with their commissions: the allocated sum cannot be compared."] : []];
-    }
-
-    private function normalIban(string $iban): string
-    {
-        return strtoupper((string) preg_replace('/\s+/', '', $iban));
-    }
-
-    /** The country and the last four characters: enough to tell accounts apart in a report, not enough to use one. */
-    private function maskIban(string $iban): string
-    {
-        return strlen($iban) <= 8 ? '…' : substr($iban, 0, 4).'…'.substr($iban, -4);
-    }
-
-    // ── membership history: the audit's attach/remove rows, the current membership as its last word ─────────
-
-    /**
-     * Was the person a member of the organization at that moment? null when nothing recorded says either way.
-     *
-     * @return array{0:?bool, 1:?CarbonImmutable} [member, when the membership had ended]
-     */
-    private function membershipAt(string $organizationId, string $userId, CarbonImmutable $at): array
-    {
-        $this->judged["{$organizationId}#{$userId}"] = true;
-        $last = null;
-        foreach ($this->membershipEvents($organizationId) as $event) {
-            if ($event['user'] === $userId && $event['at']->lessThanOrEqualTo($at)) {
-                $last = $event;
-            }
-        }
-        $current = $this->currentMembership($organizationId, $userId);
-        if ($last !== null && $last['kind'] === 'remove') {
-            return [false, $last['at']];
-        }
-        if ($current !== null && $current['expires_at'] !== null && $current['expires_at']->lessThan($at)) { // access that ended on its date (H343)
-            return [false, $current['expires_at']];
-        }
-        if ($last !== null) {
-            return [true, null];
-        }
-
-        return $current === null ? [null, null] : [$current['created_at']->lessThanOrEqualTo($at), null];
-    }
-
-    /** @return list<array{kind:string, user:string, at:CarbonImmutable}> */
-    private function membershipEvents(string $organizationId): array
-    {
-        return $this->membershipEvents[$organizationId] ??= DB::table('audit_events')->where('organization_id', $organizationId)
-            ->whereIn('action', ['organization.member.attach', 'organization.member.remove'])->orderBy('created_at')->orderBy('id')->get(['action', 'detail', 'created_at'])
-            ->map(fn ($row) => ['kind' => $row->action === 'organization.member.remove' ? 'remove' : 'attach', 'user' => (string) ($this->json($row->detail)['user_id'] ?? ''), 'at' => CarbonImmutable::parse($row->created_at)])
-            ->all();
-    }
-
-    /** @return ?array{created_at:CarbonImmutable, expires_at:?CarbonImmutable, role:string} */
-    private function currentMembership(string $organizationId, string $userId): ?array
-    {
-        $key = "{$organizationId}#{$userId}";
-        if (! array_key_exists($key, $this->memberships)) {
-            $row = DB::table('organization_memberships')->where('organization_id', $organizationId)->where('user_id', $userId)->first(['created_at', 'expires_at', 'role_key']);
-            $this->memberships[$key] = $row === null ? null : ['created_at' => CarbonImmutable::parse($row->created_at ?? '1970-01-01'),
-                'expires_at' => $row->expires_at === null ? null : CarbonImmutable::parse($row->expires_at), 'role' => (string) $row->role_key];
-        }
-
-        return $this->memberships[$key];
-    }
-
-    private function isStaff(string $userId): bool
-    {
-        return $this->staff[$userId] ??= (bool) DB::table('users')->where('id', $userId)->value('is_staff');
+            'unknowns' => array_values(array_filter([
+                $unknown > 0 ? "{$unknown} payout(s) mix currencies with their commissions: the allocated sum cannot be compared." : null,
+                $first !== [] ? count($first).' bank-transfer payout(s) have no earlier paid payout of the partner to compare the IBAN with (the first one, or all earlier ones unpaid): only the partner\'s confirmation clears them — '.$this->ids($first).'.' : null,
+            ]))];
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -709,6 +759,7 @@ final class ForensicLookback extends Command
     private function printTable(array $report): void
     {
         $this->line('Forensic look-back (read-only) · window '.($report['window']['since'] ?? 'whole history').' → '.$report['window']['until']);
+        $this->line('BASELINE '.$report['standing_state']);
         $this->table(['Source', 'Exploit', 'Checked (rows)', 'Hits', 'Unknowns', 'Verdict'], array_map(fn (array $s) => [
             $s['key'], $s['exploit'], implode(', ', array_map(fn ($t, $n) => "{$t} {$n}", array_keys($s['checked']), $s['checked'])), count($s['hits']), count($s['unknowns']), $s['verdict'],
         ], $report['sources']));

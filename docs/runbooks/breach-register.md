@@ -29,12 +29,39 @@ php artisan onhost:forensics:lookback [--since=2026-01-01] [--until=2026-09-27]
 * **It decides nothing and sends nothing.** Whether a hit is a personal-data breach, and whether anybody is told, is
   the owner's decision (§10 O3, below).
 
+## The baseline run: before the first Phase 0 deploy (mandatory)
+
+D16 says the look-back runs **before** the Phase 0 fixes go live. Several sources read what stands in the database
+now, not an event log: PA-01 (the panel user in `provider_bindings.meta.user_id` and `game_servers.ptero_user_id`),
+TD-1 `owner_membership_not_owner` (the owner's current membership), and the G1 notes on links and hooks that are
+still open. The Phase 0 fixes and their operator commands (the TASK-0035 orphan-links command, a manual re-homing
+after the TASK-0033 dry-run, a membership repair) can change that state. A run after them finds nothing to report
+for an exploit whose trace they repaired, and it reports CLEAN. Every report carries this rule in its
+`standing_state` field (`BASELINE` line in the table).
+
+1. **The baseline is the first run, and it is required.** Run the command on production **before the first Phase 0
+   branch is deployed**. If the release that brings this command already contains the fixes, as it will
+   (TASK-0038 is rebased last), run it on a **restore of the last backup taken before the first Phase 0 deploy**:
+   * Restore the backup into an isolated database. Point a checkout of the new release at it with
+     `APP_ENV=production` and no queue worker and no scheduler. Run no operator repair command against it.
+   * **Do not run migrations on the restore.** The command reads only tables that existed before Phase 0. If a
+     source fails because a table is missing, record that source as *unknown (restore predates the table)*. Never
+     record it as clean.
+   * Write down which backup was used (its id, its timestamp and the timestamp of the first Phase 0 deploy). The
+     backup must be older than the deploy.
+2. Hash the baseline JSON with `sha256sum` and attach it to the cyber incident as the **first** evidence item, with
+   `legal_hold: true` (see "Recording findings"). The register is not complete without it.
+3. Every later run (on production after the deploy, or a re-run of one source) is **compared with the baseline and
+   never replaces it**. A hit that is in the baseline and missing from a later run was repaired, not disproved. It
+   stays in the register.
+
 ## Running it on production
 
 1. Only the operator runs it, on the application host as the deploy user (the same shell as `php artisan doctor`).
    It needs no credentials beyond the application's own database connection. It is just as good, and preferred when
-   the database is large, to run it against a **restored copy** of the production database (the latest backup
-   restored into an isolated instance, `APP_ENV=production`, no queue worker, no scheduler). The traces are the same.
+   the database is large, to run it against a **restored copy** of the production database (a backup restored into
+   an isolated instance, `APP_ENV=production`, no queue worker, no scheduler). The event traces are the same. For
+   the baseline, the backup must predate the first Phase 0 deploy (above).
 2. Run the whole history first, with no `--since`. The window only limits event-based sources. Memberships made
    before the window still count, and standing state (PA-01 panel users, TD-1 current roles) is always read in full.
    ```
@@ -47,8 +74,9 @@ php artisan onhost:forensics:lookback [--since=2026-01-01] [--until=2026-09-27]
 3. Read `coverage` first. It gives the number of audit and operation rows and the oldest one. If the oldest row is
    younger than the hole (audit retention, a restore), everything before it is **unknown, not clean**. Write that
    in the register entry.
-4. Re-run one source with `--source=<key>` while you follow up a hit. Re-run the whole report after every Phase 0
-   branch is deployed: the report must not grow afterwards.
+4. Re-run one source with `--source=<key>` while you follow up a hit. Re-run the whole report after the Phase 0
+   branches are deployed and compare it with the baseline. It must not grow: a new hit after the fixes is a new
+   incident. It may shrink where a repair changed standing state. Those baseline hits stay in the register.
 
 ## Reading the report
 
@@ -58,19 +86,22 @@ Each source row lists `checked` (table and row count), `hits`, `unknowns`, `note
   * `confirmed`: the row itself is the trace;
   * `possible`: the data allows an innocent reading, such as a partner's own new IBAN;
   * `attempt`: the operation was refused or failed. It still shows intent.
+  * `use_or_attempt`: a Discord link's `last_used_at` lies after the removal. The field is written before any
+    authorization, so it proves a use **or** a refused attempt. Either way, somebody still held the link.
 * **UNKNOWNS**: no hit, but part of the question cannot be answered from the database. Every unknown says why and
   which tool answers it.
-* **CLEAN**: nothing found and nothing left open. The fixed caveats in `limits` still apply.
+* **CLEAN**: nothing found and nothing left open. The fixed caveats in `limits` still apply. `aapanel_outside_root`
+  is never CLEAN while aaPanel services exist, because a symlink is only on the node.
 
 | Source key | Exploit | Hit kinds | Follow-up for hits and unknowns |
 | --- | --- | --- | --- |
-| `owner_demotion` | TD-1 | `owner_accepted_lower_role`, `owner_attached_lower_role`, `owner_membership_not_owner` | Look at the organization's audit trail around the audit event id. Was the owner the person who clicked, or was the invitation sent to their address by somebody else? |
+| `owner_demotion` | TD-1 | `owner_accepted_lower_role`, `owner_attached_lower_role`, `owner_membership_not_owner` | Each event is judged against the owner **of its moment**, read from the ownership transfers. A demotion stays a hit after the organization was later transferred away (`owner_now: false`). Look at the organization's audit trail around the audit event id. Was the owner the person who clicked, or was the invitation sent to their address by somebody else? |
 | `game_panel_identity` | PA-01 | `panel_user_of_other_org` (confirmed), `panel_user_shared_across_orgs` (possible) | Services on a panel user the platform did not record creating are unknowns. The Pterodactyl identity dry-run of TASK-0033 reads the panel's `external_id` for them (read-only). |
-| `discord_after_removal` | G1 | `discord_used_after_removal`, `discord_command_after_removal` | Reads leave no audit row: `last_used_at` proves a use after the removal, not what was read. Links still open after a removal are listed in `notes`; TASK-0035 revokes them. |
-| `aapanel_outside_root` | PA-02 | `path_outside_root` (confirmed or attempt), `cron_reaches_outside_root` (possible) | Symlinks and archive contents live only on the node. The aaPanel tenancy dry-run of TASK-0034 (`operator:aapanel:tenancy`, read-only) looks there. Never open or run a file you find; copy it with its hash into the evidence store. |
+| `discord_after_removal` | G1 | `discord_used_after_removal` (use_or_attempt), `discord_command_after_removal`, `discord_ask_after_removal` (an assistant run of `/onhost ask`), `hook_run_after_removal` (an action hook whose creator had left) | `services` and `status` leave no row. A link whose person was removed and re-admitted is an unknown, because `last_used_at` keeps only the latest use. A hook URL is a bearer credential: hook runs after somebody left are unknowns, since the one who left may still hold a colleague's URL. Links and hooks still open after a removal are listed in `notes`; TASK-0035 revokes them. |
+| `aapanel_outside_root` | PA-02 | `path_outside_root` (confirmed or attempt), `cron_reaches_outside_root`, `command_reaches_outside_root` (terminal `command.run`; possible) | Symlinks and archive contents live only on the node, and so does whatever SFTP, SSH or the site's code made. Every aaPanel service is a standing unknown for the aaPanel tenancy dry-run of TASK-0034 (`operator:aapanel:tenancy`, read-only). Never open or run a file you find; copy it with its hash into the evidence store. |
 | `token_cross_org` | PA-04 | `token_used_on_other_org` (grouped per token and organization) | Only writes are audited. The token's owner, and what the actions changed, come from the listed audit ids. |
-| `staff_own_org` | SS-1, SS-5 (EXPL-1..3) | `staff_hold_lift_own_org`, `staff_force_purge_own_org` | Compare with the approval record and the reason in the audit row. A staff member acting on their own company without a second person is a hit even when the action was right. |
-| `partner_payouts` | P1, P2 | `payout_above_allocated` (confirmed), `payout_iban_changed` (possible) | Finance checks the bank statement. Only the partner's written confirmation proves that a new IBAN is theirs. Do not contact the partner before the owner has decided (the partner may be the actor). |
+| `staff_own_org` | SS-1, SS-5 (EXPL-1..3), IF-8 | `staff_hold_lift_own_org`, `staff_force_purge_own_org`, `staff_self_grant` (a staff user attached themselves at a role, past `mayGrant`), `staff_reinstate_own_org` (possible) | Compare with the approval record and the reason in the audit row. A staff member acting on their own company without a second person is a hit even when the action was right. A staff action in an organization older than the audit is an unknown: whether they were a member then cannot be told. |
+| `partner_payouts` | P1, P2 | `payout_above_allocated` (confirmed), `payout_iban_changed` (possible, a **rejected** request included) | A rejected request still wrote its IBAN into the partner, and the automatic payouts pay there. A payout with no earlier paid payout to compare with is an unknown. Finance checks the bank statement. Only the partner's written confirmation proves that a new IBAN is theirs. Do not contact the partner before the owner has decided (the partner may be the actor). |
 
 ## Recording findings
 
@@ -82,7 +113,9 @@ Every run is recorded, including a clean one: the register is the evidence that 
    (`GDPR_72H`, `GET /v1/staff/compliance/timers`). The clock runs from the moment we became **aware** of a breach,
    meaning a confirmed hit that concerns personal data. It does not run from the date of the exploit.
 2. Attach the report as evidence: `POST /v1/staff/security/incidents/{case}/evidence` with `name`, `sha256` (from
-   step 2 above), the private `path` and `legal_hold: true`. Attach every later re-run the same way.
+   step 2 above), the private `path` and `legal_hold: true`. The **baseline** run goes first. Its name says which
+   database it read, production before the deploy or the restore of backup `<id>` taken before it. Attach every
+   later re-run the same way.
 3. Add one register entry per hit, or one per source when the source is clean, to the incident case:
 
    ```
@@ -98,7 +131,8 @@ Every run is recorded, including a clean one: the register is the evidence that 
    ```
 
 4. The acceptance of TASK-0038 is one row per verified exploit, each with sources checked, hits and unknowns, and
-   the **owner's decision recorded**. A register without the owner's decision line is not finished.
+   the **owner's decision recorded**. It rests on the baseline run, and the entries name its evidence hash. A
+   register without the baseline or without the owner's decision line is not finished.
 
 ## GDPR Art. 33 and 34: drafted, never sent without the owner (§10 O3)
 
