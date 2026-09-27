@@ -114,7 +114,7 @@ final class ProjectService
             PolicyBinding::query()->where('principal_type', 'user')->where('principal_id', $user->id)->where('scope_type', 'project')->where('scope_id', $project->id)->delete();
             PolicyBinding::query()->create([
                 'principal_type' => 'user', 'principal_id' => $user->id, 'role_key' => $roleKey,
-                'scope_type' => 'project', 'scope_id' => $project->id, 'organization_id' => $organization->id, 'granted_by' => $context->actorId, 'expires_at' => $accessUntil,
+                'scope_type' => 'project', 'scope_id' => $project->id, 'organization_id' => $organization->id, 'granted_by' => $context->onBehalfOfUserId ?? $context->actorId, 'expires_at' => $accessUntil,
             ]);
             $this->audit->record($context->withScope($organization->id, $project->id), 'project.member.add', 'succeeded', ['user_id' => $user->id, 'role' => $roleKey, 'access_until' => $accessUntil?->toIso8601String()], 'project', $project->id);
 

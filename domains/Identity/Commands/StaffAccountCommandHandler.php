@@ -9,6 +9,7 @@ use Onhost\Domain\Identity\Authorization\ApprovalService;
 use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
 use Onhost\Domain\Identity\Authorization\RoleResolver;
 use Onhost\Domain\Identity\Models\User;
+use Onhost\Domain\Organizations\GrantPolicy;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Audit\HashChain;
 use Onhost\Platform\Commands\Command;
@@ -46,6 +47,7 @@ final class StaffAccountCommandHandler implements CommandHandler
         if (! RoleResolver::exists($role)) {
             throw new DomainError('invalid_role', "Unknown role {$role}.", 422, ['field' => 'role']);
         }
+        GrantPolicy::assertStaffRole($role); // TASK-0042 (I11 at global scope): a customer role written globally reached every organization
         if (strlen($password) < 12) {
             throw new DomainError('password_too_short', 'The password must have at least 12 characters.', 422, ['field' => 'password']);
         }

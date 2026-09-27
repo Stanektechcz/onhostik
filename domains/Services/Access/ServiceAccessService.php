@@ -9,9 +9,9 @@ use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
 use Onhost\Domain\Identity\Authorization\RoleCatalog;
-use Onhost\Domain\Identity\Models\ServiceAccount;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Notifications\NotificationService;
+use Onhost\Domain\Organizations\GrantPolicy;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationInvitation;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
@@ -74,11 +74,10 @@ final class ServiceAccessService
         if ($until !== null && $until->isPast()) {
             throw new DomainError('access_until_past', 'access_until must be in the future.', 422, ['field' => 'access_until']);
         }
-        $actor = $this->grantor($context);
-        if ($actor instanceof User && mb_strtolower((string) $actor->email) === $email) {
-            throw new DomainError('cannot_share_with_self', 'You already manage this service.', 422, ['field' => 'email']);
-        }
-        $this->assertMayGrant($actor, $service, $capabilities, $context);
+        // TASK-0042 (permission program S1-01, D1): the share is decided by GrantPolicy like every other grant — I1 (only what the
+        // sharer holds on the service), I2 (not with oneself), I3 (not narrowing a share they could not have given), I12 (two levels
+        // deep at most) — and it ends no later than the sharer's own access there (I5)
+        $until = app(GrantPolicy::class)->assertMayShareService($organization, $service, $context, $email, $capabilities, $until);
 
         $user = User::query()->where('email', $email)->first();
         $scope = CommandScope::resource($service->id, $service->organization_id, $service->project_id);
@@ -131,6 +130,13 @@ final class ServiceAccessService
 
                 continue;
             }
+            // I6 (TASK-0042): a share waits for the address only while whoever shared it could still share it. A removed admin's
+            // pending share was collected by the same address when somebody else let the person in later
+            if (! app(GrantPolicy::class)->backsShare($organization, $grant)) {
+                $grant->forceFill(['state' => ServiceAccessGrant::REVOKED, 'revoked_at' => now()])->save();
+
+                continue;
+            }
             $grant->forceFill(['state' => ServiceAccessGrant::ACTIVE, 'user_id' => $user->id, 'accepted_at' => now()])->save();
             $this->bind($grant, $user);
             $activated++;
@@ -148,6 +154,7 @@ final class ServiceAccessService
         if (! in_array($grant->state, [ServiceAccessGrant::PENDING, ServiceAccessGrant::ACTIVE], true)) {
             return $grant;
         }
+        app(GrantPolicy::class)->assertMayRevokeShare($organization, $service, $context, $grant); // I3 (TASK-0042): only who could have given it all
 
         return DB::transaction(function () use ($organization, $service, $grant, $context, $state) {
             $user = $grant->user_id !== null ? User::query()->find($grant->user_id) : null;
@@ -276,47 +283,6 @@ final class ServiceAccessService
         }
 
         return array_values(array_intersect(array_keys(self::CAPABILITIES), array_unique($wanted))); // catalogue order
-    }
-
-    /**
-     * Nobody hands out what they do not hold themselves on that service (the rule of the team page, asked at the service).
-     * Staff included, by what they hold in the customer's organization: `is_staff` skipped the rule, and a global binding shared
-     * any customer's service — the console with it — with any address (red-team round of the Phase-0 chain, audit SS-1; staff
-     * tooling needs a staff permission of its own, P0-08).
-     *
-     * @param  list<string>  $capabilities
-     */
-    /**
-     * The person whose rights a share is compared with and who is recorded as having granted it (TASK-0041, permission
-     * program P0-07 follow-up; GrantPolicy::grantor): the person a staff member or the assistant acts for first, then the
-     * actor. It read `actorId` alone — acting for a viewer, the carrier's own console right was handed out in the viewer's
-     * name — and an `ai` or service-account actor was not compared at all. The system (sweeps, operators) has no grantor to
-     * compare; an actor that cannot be found grants nothing.
-     */
-    private function grantor(CommandContext $context): User|ServiceAccount|null
-    {
-        if ($context->actorType === 'system') {
-            return null;
-        }
-        if ($context->actorType === 'service_account') {
-            return ServiceAccount::query()->find((string) $context->actorId) ?? throw DomainError::forbidden('Unknown actor.');
-        }
-
-        return User::query()->find((string) ($context->onBehalfOfUserId ?? $context->actorId)) ?? throw DomainError::forbidden('Unknown actor.');
-    }
-
-    private function assertMayGrant(User|ServiceAccount|null $actor, Service $service, array $capabilities, CommandContext $context): void
-    {
-        if ($actor === null) {
-            return; // the platform acts under its own permissions (checked by the command)
-        }
-        $scope = CommandScope::resource($service->id, $service->organization_id, $service->project_id);
-        $held = $this->authorizer->customerPermissionsAt($actor, $scope);
-        foreach ($this->permissionsOf($capabilities) as $permission) {
-            if (! in_array($permission, $held, true)) {
-                throw new DomainError('capability_above_own', "You cannot hand out {$permission}: you do not hold it on this service yourself.", 403, ['field' => 'capabilities']);
-            }
-        }
     }
 
     /** @param list<string> $capabilities */

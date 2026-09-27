@@ -6,6 +6,7 @@ namespace Onhost\Domain\Organizations\Listeners;
 
 use Onhost\Domain\Integrations\ActionHookService;
 use Onhost\Domain\Integrations\DiscordService;
+use Onhost\Domain\Organizations\GrantCascade;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Platform\Commands\CommandContext;
@@ -46,6 +47,11 @@ final class RevokeMemberSideDoors
         $organization = Organization::query()->find($organizationId);
         if ($organization !== null) {
             $this->organizations->revokeUnbackedInvitations($organization, $userId, $removed ? 'member_removed' : 'role_changed', $context);
+            // TASK-0042 (I6): the grants they GAVE that they could not give now — pending shares cancelled, active grants recorded
+            // (revoked behind onhost.grants.cascade_enabled). An ownership transfer is no loss: the organization keeps what was given
+            if (data_get($message->payload, 'via') !== 'ownership_transfer') {
+                app(GrantCascade::class)->onGrantorLoss($organization, $userId, $removed ? 'member_removed' : 'role_changed', $context);
+            }
         }
     }
 }
