@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Console\Commands\Forensics\AaPanelTraces;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -573,4 +574,238 @@ it('asks the database itself to refuse writes for the length of the look-back (r
 
     $guard = DB::getDriverName() === 'pgsql' ? 'SET TRANSACTION READ ONLY' : 'PRAGMA query_only = ON';
     expect($statements[0] ?? null)->toBe($guard); // the first statement of the run, before any read
+});
+
+// ── review round 3 ───────────────────────────────────────────────────────────────────────────────────────────
+
+/** The methods of a PHP source, by name: whether public, and the text up to the next method. @return array<string, array{public:bool, body:string}> */
+function flbwMethods(string $source): array
+{
+    preg_match_all('~^    (public|private|protected)( static)? function (\w+)\(~m', $source, $found, PREG_OFFSET_CAPTURE);
+    $methods = [];
+    foreach ($found[3] as $i => [$name, $at]) {
+        $methods[$name] = ['public' => $found[1][$i][0] === 'public', 'body' => substr($source, $at, ($found[0][$i + 1][1] ?? strlen($source)) - $at)];
+    }
+
+    return $methods;
+}
+
+function flbwClassSource(string $class): ?string
+{
+    static $sources = null;
+    if ($sources === null) { // every class under domains/, read once
+        $sources = [];
+        foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator(base_path('domains'), FilesystemIterator::SKIP_DOTS)) as $file) {
+            if (str_ends_with((string) $file, '.php')) {
+                $sources[basename((string) $file, '.php')] ??= (string) $file;
+            }
+        }
+    }
+
+    return isset($sources[$class]) ? (string) file_get_contents($sources[$class]) : null;
+}
+
+/**
+ * Whether code reaches an aaPanel write: its own text (when it acts through the web contracts), or — three calls deep —
+ * the methods it calls on a class it makes (`make(X::class)`) or holds (`$this->x->m()`). Returns the evidence.
+ *
+ * @param  array<string,true>  $seen
+ */
+function flbwReaches(string $body, string $calls, bool $selfCounts, ?string $classSource = null, string $where = 'self', int $depth = 0, array &$seen = []): ?string
+{
+    if ($selfCounts && preg_match($calls, $body, $hit) === 1) {
+        return $where.': '.$hit[0];
+    }
+    if ($depth >= 3) {
+        return null;
+    }
+    preg_match_all('~->(\w+)\(~', $body, $called);
+    preg_match_all('~(?:make|app)\((\w+)::class\)~', $body, $made);
+    $targets = array_fill_keys(array_unique($made[1]), array_unique($called[1]));
+    if ($classSource !== null) {
+        preg_match_all('~(?:private|protected|public)\s+(?:readonly\s+)?\??(\w+)\s+\$(\w+)~', $classSource, $props);
+        $types = array_combine($props[2], $props[1]);
+        preg_match_all('~\$this->(\w+)->(\w+)\(~', $body, $held);
+        foreach ($held[1] as $i => $property) {
+            if (isset($types[$property])) {
+                $targets[$types[$property]][] = $held[2][$i];
+            }
+        }
+    }
+    foreach ($targets as $class => $names) {
+        $source = flbwClassSource($class);
+        if ($source === null) {
+            continue;
+        }
+        $methods = flbwMethods($source);
+        $todo = array_values(array_intersect(array_unique($names), array_keys($methods)));
+        for ($i = 0; $i < count($todo); $i++) { // with the private helpers they call
+            preg_match_all('~\$this->(\w+)\(~', $methods[$todo[$i]]['body'], $inner);
+            $todo = array_values(array_unique([...$todo, ...array_intersect($inner[1], array_keys($methods))]));
+        }
+        $web = preg_match('~WebHostingProvider|WebToolsProvider|->(shell|transport|toolsFor)\(~', $source) === 1;
+        foreach ($todo as $method) {
+            if (isset($seen["{$class}::{$method}"]) || isset(AaPanelTraces::READ_PATHS["{$class}::{$method}"])) {
+                continue;
+            }
+            $seen["{$class}::{$method}"] = true;
+            if (($found = flbwReaches($methods[$method]['body'], $calls, $web, $source, "{$class}::{$method}", $depth + 1, $seen)) !== null) {
+                return $found;
+            }
+        }
+    }
+
+    return null;
+}
+
+/**
+ * What writes on an aaPanel node, read from the code: the adapter's changes (a ProviderResult) that reach a write — a
+ * site-tree endpoint of the panel, a transport write, a shell run — and every service action, operation kind and
+ * controller that reaches one of them.
+ *
+ * @return array{adapter: list<string>, actions: list<string>, kinds: list<string>, controllers: list<string>}
+ */
+function flbwDerive(): array
+{
+    $write = '/files\?action=(SaveFileBody|CreateFile|CreateDir|DeleteFile|DeleteDir|MvFile|SetFileAccess|Zip|UnZip|upload|ExecShell)\b|/ftp\?action=AddUser\b|/deployment\?action=SetupPackage\b'
+        .'|/site\?action=(SetSiteRunPath|ToBackup)\b|/crontab\?action=(AddCrontab|modify_crond|StartTask)\b|/project/nodejs/create_project\b|/database\?action=InputSql\b'
+        .'|->shell\([^)]*\)->run\(|\$shell->run\(|[Tt]ransport(At)?\([^)]*\)->(write|upload|mkdir|delete|rename|copy|chmod|archive|extract)\(|\$transport->(write|upload|mkdir|delete|rename|copy|chmod|archive|extract)\(';
+    $methods = flbwMethods((string) file_get_contents(base_path('providers/AaPanel/AaPanelWebProvider.php'))) + flbwMethods((string) file_get_contents(base_path('providers/AaPanel/AaPanelTools.php')));
+    $touching = array_filter($methods, fn (array $m) => preg_match("~{$write}~", $m['body']) === 1);
+    do { // a public method that writes through a private helper writes
+        $grew = false;
+        foreach ($methods as $name => $method) {
+            if (! isset($touching[$name]) && array_filter(array_keys($touching), fn (string $t) => str_contains($method['body'], '$this->'.$t.'(')) !== []) {
+                $touching[$name] = $method;
+                $grew = true;
+            }
+        }
+    } while ($grew);
+    $adapter = array_keys(array_filter($touching, fn (array $m, string $name) => $m['public'] && preg_match('~^\w+\([^)]*\): ProviderResult~', $m['body']) === 1
+        && ! isset(AaPanelTraces::NOT_WRITES[$name]), ARRAY_FILTER_USE_BOTH));
+    sort($adapter);
+    $calls = '~->('.implode('|', $adapter).')\(|'.$write.'~';
+
+    $workflow = (string) file_get_contents(base_path('domains/Provisioning/Workflows/ServiceActionWorkflow.php'));
+    $steps = flbwMethods($workflow);
+    $arms = substr($steps['featureStep']['body'], (int) strpos($steps['featureStep']['body'], '$result = match ($this->action) {'));
+    preg_match_all("~^ {20}('[a-z0-9_.]+'(?:, '[a-z0-9_.]+')*) =>~m", $arms, $found, PREG_OFFSET_CAPTURE);
+    $actions = [];
+    foreach ($found[1] as $i => [$names, $at]) {
+        $arm = substr($arms, $at, ($found[0][$i + 1][1] ?? (int) strpos($arms, 'default =>', $at)) - $at);
+        if (preg_match('~WebHostingProvider::class|WebToolsProvider::class~', $arm) === 1 && flbwReaches($arm, $calls, true, $workflow) !== null) {
+            $actions = [...$actions, ...array_map(fn (string $n) => trim($n, "'"), explode(', ', $names))];
+        }
+    }
+    preg_match_all("~^ {12}('[a-z0-9_.]+'(?:, '[a-z0-9_.]+')*) => (.*)$~m", $steps['steps']['body'], $chains);
+    foreach ($chains[1] as $i => $names) {
+        preg_match_all('~\$this->(\w+Step)\(~', $chains[2][$i], $used);
+        foreach (array_diff($used[1], ['featureStep']) as $step) {
+            if (flbwReaches($steps[$step]['body'], $calls, true, $workflow) !== null) {
+                $actions = [...$actions, ...array_map(fn (string $n) => trim($n, "'"), explode(', ', $names))];
+            }
+        }
+    }
+    $kinds = [];
+    foreach (glob(base_path('domains/Provisioning/Workflows/*Workflow.php')) ?: [] as $file) {
+        $source = (string) file_get_contents($file);
+        if (preg_match("~function kind\(\): string\s*\{\s*return '([a-z._]+)'~", $source, $kind) === 1 && $kind[1] !== 'service.action'
+            && flbwReaches($source, $calls, preg_match('~WebHostingProvider|WebToolsProvider|->(shell|transport|toolsFor)\(~', $source) === 1, $source) !== null) {
+            $kinds[] = $kind[1];
+        }
+    }
+    $controllers = [];
+    foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator(base_path('app/Http/Controllers'), FilesystemIterator::SKIP_DOTS)) as $file) {
+        if (preg_match('~[Tt]ransport(At)?\([^)]*\)->(write|upload|mkdir|delete|rename|copy|chmod|archive|extract)\(|\$transport->(write|upload|mkdir|delete|rename|copy|chmod|archive|extract)\(|->shell\([^)]*\)->run\(~', (string) file_get_contents((string) $file)) === 1) {
+            $controllers[] = basename((string) $file, '.php');
+        }
+    }
+    $actions = array_values(array_unique($actions));
+    sort($actions);
+    sort($kinds);
+    sort($controllers);
+
+    return ['adapter' => $adapter, 'actions' => $actions, 'kinds' => $kinds, 'controllers' => $controllers];
+}
+
+it('reads every operation that makes an aaPanel node write, from a list the code pins (PA-02, review round 3)', function () {
+    $derived = flbwDerive();
+
+    // the adapter's writes, the service actions and operation kinds that reach them, and the one controller that writes past the bus
+    expect($derived['adapter'])->toBe(AaPanelTraces::ADAPTER_WRITES)
+        ->and($derived['actions'])->toBe(array_keys(AaPanelTraces::SERVICE_ACTIONS))
+        ->and($derived['kinds'])->toBe(array_keys(AaPanelTraces::OPERATION_KINDS))
+        ->and($derived['controllers'])->toBe(['WebToolsController'])
+        ->and((string) file_get_contents(base_path('app/Http/Controllers/Api/V1/WebToolsController.php')))->toContain("'".array_key_first(AaPanelTraces::AUDIT_ACTIONS)."'");
+    // the paths the round-1 scan read are still read
+    expect(array_keys(AaPanelTraces::SERVICE_ACTIONS))->toContain('file.save', 'file.extract', 'cron.create', 'cron.update', 'command.run', 'restore', 'archive.restore', 'ftp.create', 'app.install');
+});
+
+it('judges the other aaPanel writes: FTP home, directives, deploy, import, and names the restores and deploys it cannot judge (PA-02, review round 3)', function () {
+    [, $org] = $this->customerWithOrganization();
+    $site = featureWebService($org, 'aapanel'); // root /www/wwwroot/shop.cz
+    $at = CarbonImmutable::parse('2026-09-05 12:00:00');
+    $ftp = flbOperation($site, 'service.action', ['action' => 'ftp.create', 'service_id' => $site->id, 'user' => 'oh_x_ftp', 'password' => 'NOPE', 'path' => 'www/wwwroot/other.cz'], [], $at);
+    flbOperation($site, 'service.action', ['action' => 'ftp.create', 'service_id' => $site->id, 'user' => 'oh_x_ftp2', 'password' => 'NOPE', 'path' => 'upload'], [], $at->addMinute()); // relative: where the panel put it is unknown
+    $directives = flbOperation($site, 'service.action', ['action' => 'directives.set', 'service_id' => $site->id, 'kind' => 'rewrite', 'content' => "location /x/ { alias /www/wwwroot/other.cz/; }\nrewrite ^/(.*)$ /index.php?\$1 last;"], [], $at->addMinutes(2));
+    $import = flbOperation($site, 'service.import', ['action' => 'import.run', 'service_id' => $site->id, 'subdir' => '../other.cz', 'files' => true], [], $at->addMinutes(3));
+    $deploy = flbOperation($site, 'service.deploy', ['action' => 'deploy.run', 'service_id' => $site->id, 'deployment_id' => 'dep_flb_1'], [], $at->addMinutes(4));
+    DB::table('deploy_sources')->insert(['id' => 'dsrc_flb_1', 'service_id' => $site->id, 'organization_id' => $org->id, 'provider' => 'generic', 'repository' => 'x/y', 'branch' => 'main', 'clone_url' => 'git@example.test:x/y.git',
+        'build_command' => 'cp -r /www/wwwroot/other.cz/uploads ./stolen', 'deploy_path' => null, 'hooks' => json_encode(['php artisan migrate']), 'created_at' => $at, 'updated_at' => $at]);
+    flbOperation($site, 'service.action', ['action' => 'restore', 'service_id' => $site->id, 'backup_id' => 'bkp_1'], [], $at->addMinutes(5));
+    flbOperation($site, 'service.action', ['action' => 'archive.restore', 'service_id' => $site->id], [], $at->addMinutes(6));
+    flbOperation($site, 'service.action', ['action' => 'php.set', 'service_id' => $site->id, 'version' => '8.3'], [], $at->addMinutes(7)); // writes nothing on the node's files
+
+    [$code, $report] = flbRun(['--source' => ['aapanel_outside_root']]);
+    $source = flbSource($report, 'aapanel_outside_root');
+    $byOperation = collect($source['hits'])->keyBy('operation_id');
+    $unknowns = implode(' ', $source['unknowns']);
+
+    expect($code)->toBe(1)
+        ->and($source['hits'])->toHaveCount(4)
+        ->and($byOperation[$ftp->id])->toMatchArray(['kind' => 'ftp_home_outside_root', 'confidence' => 'possible', 'action' => 'ftp.create'])
+        ->and($byOperation[$directives->id])->toMatchArray(['kind' => 'directive_reaches_outside_root', 'action' => 'directives.set'])
+        ->and($byOperation[$directives->id]['paths'])->toBe(['/www/wwwroot/other.cz/'])
+        ->and($byOperation[$import->id])->toMatchArray(['kind' => 'path_outside_root', 'action' => 'import.run'])
+        ->and($byOperation[$deploy->id])->toMatchArray(['kind' => 'deploy_reaches_outside_root', 'confidence' => 'possible'])
+        ->and($byOperation[$deploy->id]['paths'])->toContain('/www/wwwroot/other.cz/uploads')
+        ->and($source['checked']['operations'])->toBe(7) // php.set is not read
+        ->and($unknowns)->toContain('restore ×1')->toContain('archive.restore ×1')->toContain('service.deploy ×1')
+        ->and($unknowns)->toContain('1 FTP account');
+    expect(json_encode($report))->not->toContain('NOPE');
+});
+
+it('names bearer writes the audit kept under a web session instead of token:<id> (PA-04, review round 3)', function () {
+    [$user, $orgA] = $this->customerWithOrganization();
+    $orgB = app(OrganizationService::class)->create($user, ['name' => 'Treti s.r.o.', 'type' => 'company', 'country' => 'CZ', 'currency' => 'CZK'], CommandContext::system('test'));
+    $at = CarbonImmutable::parse('2026-09-06 07:00:00');
+    DB::table('personal_access_tokens')->insert(['tokenable_type' => User::class, 'tokenable_id' => $user->id, 'name' => 'ci', 'token' => hash('sha256', 'flb-web'), 'abilities' => '["*"]', 'organization_id' => $orgA->id, 'created_at' => $at->subDay(), 'updated_at' => $at->subDay()]);
+    // before TASK-0030 a bearer request with a stateful Origin was audited under the session Sanctum started for it
+    $bearer = flbAudit($at, new CommandContext('user', $user->id, $orgB->id, null, '10.0.0.1', 'Mozilla/5.0', 'Wq3lZkq9JdQwzvT2m1'), 'service.update', [], 'service', 'svc_1');
+    flbAudit($at->addMinute(), new CommandContext('user', $user->id, $orgA->id, null, '10.0.0.1', 'Mozilla/5.0', 'Pz7rYb2n8KcLx0Aa4'), 'service.update', [], 'service', 'svc_2'); // the token's own organization
+
+    [, $report] = flbRun(['--source' => ['token_cross_org']]);
+    $token = flbSource($report, 'token_cross_org');
+
+    expect($token['hits'])->toBe([])
+        ->and($token['verdict'])->toBe('UNKNOWNS')
+        ->and(implode(' ', $token['unknowns']))->toContain('1 audit row')->toContain('TASK-0030')->toContain($bearer)
+        ->and($token['limits'])->toContain('stateful Origin');
+    expect((string) file_get_contents(base_path('docs/runbooks/breach-register.md')))->toContain('stateful Origin');
+});
+
+it('reports every purge that skipped the archive, in any organization (SS-1, review round 3)', function () {
+    $at = CarbonImmutable::parse('2026-09-06 07:00:00');
+    [, $foreign] = $this->customerWithOrganization();
+    $staff = $this->staff(); // a member of no customer organization
+    $theirs = featureWebService($foreign, 'ispconfig');
+    $skipped = flbOperation($theirs, 'service.action', ['action' => 'purge', 'service_id' => $theirs->id, 'force' => true, 'reason' => 'uklid', 'archive_before_delete' => false], ['final_archive_skipped' => 'operator override'], $at->addHour(), actorId: $staff->id);
+    flbOperation($theirs, 'service.action', ['action' => 'purge', 'service_id' => $theirs->id, 'force' => true, 'reason' => 'abuse'], [], $at->addHours(2), actorId: $staff->id); // forced, but archived first
+
+    [$code, $report] = flbRun(['--source' => ['staff_own_org']]);
+    $staffSource = flbSource($report, 'staff_own_org');
+
+    expect($code)->toBe(1)
+        ->and($staffSource['hits'])->toHaveCount(1)
+        ->and($staffSource['hits'][0])->toMatchArray(['kind' => 'purge_without_archive', 'operation_id' => $skipped->id, 'user_id' => $staff->id, 'organization_id' => $foreign->id, 'own_org' => false, 'staff_now' => true]);
 });

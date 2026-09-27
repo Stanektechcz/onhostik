@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
+use App\Console\Commands\Forensics\AaPanelTraces;
 use App\Console\Commands\Forensics\GrantTraces;
 use App\Console\Commands\Forensics\MembershipHistory;
 use App\Console\Commands\Forensics\PayoutChecks;
-use App\Console\Commands\Forensics\SitePaths;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Support\Collection;
@@ -44,11 +44,12 @@ final class ForensicLookback extends Command
             'A panel user\'s external_id lives on the panel; the database knows it only for users the platform recorded creating. Standing state, not limited by the window.'],
         'discord_after_removal' => ['G1', 'Discord /onhost or an action hook was used after the person left the organization',
             'Reads (services, status) leave no row; `ask` leaves its assistant run. last_used_at keeps only the latest use and is written before any authorization (a use or a refused attempt). An action hook URL is a bearer credential: the audit names the hook\'s creator, not whoever held the URL; a refused hook run leaves no audit row.'],
-        'aapanel_outside_root' => ['PA-02', 'An aaPanel file operation, terminal command or scheduled command reached outside the site root',
-            'A symlink planted inside the site root makes an in-root path land elsewhere; symlinks are not in the database, only on the node. SFTP, SSH, the site\'s own code and file reads leave no operation row.'],
+        // review round 3 (HIGH): every operation the code lets write on an aaPanel node, not only files, cron and the terminal (AaPanelTraces)
+        'aapanel_outside_root' => ['PA-02', 'An operation that made an aaPanel node write (file operations, terminal and scheduled commands, FTP homes, directives, restores, imports, deployments …) reached outside the site root',
+            'A symlink planted inside the site root makes an in-root path land elsewhere; symlinks are not in the database, only on the node. A restore, an import or a deployment stores no path of its own: it is counted, not judged. A deploy source keeps only today\'s build command and hooks. SFTP, SSH, the site\'s own code and file reads leave no operation row.'],
         'token_cross_org' => ['PA-04', 'An API token of one organization wrote in another organization',
-            'Only writes are audited; reads with a token leave no row.'],
-        'staff_own_org' => ['SS-1, SS-5 (EXPL-1..3), IF-8', 'A staff user used an is_staff shortcut in an organization they belong to: force purge, hold lift, a grant to themselves, a reinstatement',
+            'Only writes are audited; reads with a token leave no row. Before TASK-0030 a bearer request carrying a stateful Origin or Referer was audited under the web session Sanctum started for it, not token:<id>: such rows name no token. They are looked for by person and organization (rows of a token holder in an organization none of their live tokens was bound to) and listed as unknowns — the person\'s own browser writes look the same.'],
+        'staff_own_org' => ['SS-1, SS-5 (EXPL-1..3), IF-8', 'A staff user used an is_staff shortcut in an organization they belong to (force purge, hold lift, a grant to themselves, a reinstatement), or any purge skipped the final archive',
             'The route (customer or staff API) is not recorded; the reason given is in the audit row. is_staff is read as it is now: a person who was staff then and is not any more is judged as a customer. The role a member held at a moment is not stored, only that they were a member.'],
         'partner_payouts' => ['P1, P2', 'A partner payout above the commissions allocated to it, or to an IBAN no earlier paid payout used',
             'A changed IBAN may be the partner\'s own new account: only the partner\'s confirmation proves it. partners.iban keeps only the latest IBAN: the payouts are its history.'],
@@ -60,12 +61,6 @@ final class ForensicLookback extends Command
      * reference run is the one before them; every report carries the rule (runbook breach-register.md, "The baseline run").
      */
     private const STANDING_STATE = 'Standing state (PA-01 panel users, TD-1 current roles, the G1 open links and hooks) is read as it is now: a Phase 0 repair can change it. The baseline is a run on production before the first Phase 0 deploy, or on a restore of the last backup taken before it; later runs are compared with it, never replace it.';
-
-    private const FILE_ACTIONS = ['file.save', 'file.mkdir', 'file.delete', 'file.rename', 'file.copy', 'file.chmod', 'file.archive', 'file.extract'];
-
-    private const CRON_ACTIONS = ['cron.create', 'cron.update'];
-
-    private const COMMAND_ACTIONS = ['command.run'];
 
     private const LIST_LIMIT = 25;
 
@@ -156,7 +151,7 @@ final class ForensicLookback extends Command
             'project_grant_bypass' => $this->grants->projectGrants(),
             'game_panel_identity' => $this->gamePanelIdentity(),
             'discord_after_removal' => $this->discordAfterRemoval(),
-            'aapanel_outside_root' => $this->aaPanelOutsideRoot(),
+            'aapanel_outside_root' => (new AaPanelTraces($this->window()))->outsideRoot(),
             'token_cross_org' => $this->tokenCrossOrg(),
             'staff_own_org' => $this->staffOwnOrg(),
             default => $this->partnerPayouts(),
@@ -419,78 +414,6 @@ final class ForensicLookback extends Command
         return [$open, $hooks->count()];
     }
 
-    // ── PA-02: aaPanel file operations outside the site root ─────────────────────────────────────────────────
-
-    /** @return array{checked:array<string,int>, hits:list<array<string,mixed>>, unknowns:list<string>} */
-    private function aaPanelOutsideRoot(): array
-    {
-        $instances = DB::table('provider_instances')->where('provider', 'aapanel')->pluck('id')->all();
-        $services = DB::table('services')->whereIn('provider_instance_id', $instances)->pluck('id')->all();
-        $roots = DB::table('provider_bindings')->where('remote_type', 'site')->whereIn('provider_instance_id', $instances)->get(['service_id', 'meta'])
-            ->mapWithKeys(fn ($b) => [(string) $b->service_id => (string) ($this->json($b->meta)['path'] ?? '')])->filter();
-        $operations = DB::table('operations')->where('kind', 'service.action')->whereIn('desired->action', [...self::FILE_ACTIONS, ...self::CRON_ACTIONS, ...self::COMMAND_ACTIONS])
-            ->whereBetween('created_at', $this->window())->where(fn ($q) => $q->whereIn('provider_instance_id', $instances)->orWhereIn('service_id', $services))
-            ->orderBy('created_at')->get(['id', 'organization_id', 'service_id', 'state', 'actor_id', 'desired', 'created_at']);
-        $hits = [];
-        $extractions = 0;
-        $noRoot = 0;
-        foreach ($operations as $operation) {
-            $desired = $this->json($operation->desired);
-            $action = (string) ($desired['action'] ?? '');
-            $root = $roots[$operation->service_id] ?? null;
-            $base = ['operation_id' => $operation->id, 'service_id' => $operation->service_id, 'organization_id' => $operation->organization_id, 'action' => $action,
-                'state' => $operation->state, 'actor_id' => $operation->actor_id, 'at' => $this->iso($operation->created_at)];
-            // review round 1: `command.run` runs a shell as the site agent (ServiceActionWorkflow) — the same `ln -s` and `..` as a cron
-            $isCommand = in_array($action, self::COMMAND_ACTIONS, true);
-            if ($isCommand || in_array($action, self::CRON_ACTIONS, true)) {
-                $command = (string) ($desired['command'] ?? '');
-                if ($root === null && str_contains($command, '/')) {
-                    $noRoot++;
-                }
-                $trace = SitePaths::commandTrace($command, (string) ($desired['cwd'] ?? ''), $root);
-                if ($trace['outside'] !== [] || $trace['climbs'] || $trace['symlink']) { // only the offending paths leave the report: a command may carry keys in a URL
-                    $hits[] = ['kind' => $isCommand ? 'command_reaches_outside_root' : 'cron_reaches_outside_root', 'confidence' => 'possible'] + $base
-                        + ['paths' => array_map(fn ($p) => $this->clean($p), $trace['outside']), 'symlink' => $trace['symlink'], 'climbs' => $trace['climbs']];
-                }
-
-                continue;
-            }
-            if ($action === 'file.extract' && $operation->state === 'SUCCEEDED') {
-                $extractions++;
-            }
-            $outside = array_values(array_filter(SitePaths::filePaths($desired), fn (string $p) => SitePaths::outsideRoot($p, $root)));
-            if ($outside !== []) {
-                $hits[] = ['kind' => 'path_outside_root', 'confidence' => $operation->state === 'SUCCEEDED' ? 'confirmed' : 'attempt'] + $base + ['paths' => array_map(fn ($p) => $this->clean($p), $outside)];
-            }
-        }
-        $uploads = 0;
-        foreach ($services === [] ? [] : $this->auditRows(['service.file.upload']) as $row) {
-            if (! in_array($row->resource_id, $services, true)) {
-                continue;
-            }
-            $uploads++;
-            $path = (string) ($this->json($row->detail)['path'] ?? '');
-            if ($path !== '' && SitePaths::outsideRoot($path, $roots[$row->resource_id] ?? null)) {
-                $hits[] = ['kind' => 'path_outside_root', 'confidence' => 'confirmed', 'audit_event_id' => $row->id, 'service_id' => $row->resource_id, 'organization_id' => $row->organization_id,
-                    'action' => 'file.upload', 'actor_id' => $row->actor_id, 'at' => $this->iso($row->created_at), 'paths' => [$this->clean($path)]];
-            }
-        }
-        $unknowns = [];
-        if ($extractions > 0) {
-            $unknowns[] = "{$extractions} archive extraction".($extractions === 1 ? '' : 's').' ran on aaPanel: what the archive held (a symlink, an absolute or ../ entry) is not stored — only the node shows it.';
-        }
-        if ($noRoot > 0) {
-            $unknowns[] = "{$noRoot} terminal or scheduled command(s) belong to a service whose site root is not stored: their absolute paths cannot be judged.";
-        }
-        if ($services !== []) { // review round 1: never CLEAN while aaPanel sites exist — a symlink made by SFTP, SSH or the site's own code leaves no row
-            $active = $operations->pluck('service_id')->map(fn ($id) => (string) $id)->unique()->values()->all();
-            $unknowns[] = count($services).' aaPanel service(s): a symlink or a path outside the root made through SFTP, SSH, the site\'s own code or an archive leaves no row here, only on the node — the aaPanel tenancy dry-run of TASK-0034 (operator:aapanel:tenancy, read-only) looks there. Those with file operations or commands in the window first: '
-                .$this->ids(array_values(array_unique([...$active, ...array_map('strval', $services)]))).'.';
-        }
-
-        return ['checked' => ['operations' => $operations->count(), 'audit_events' => $uploads, 'provider_bindings' => $roots->count()], 'hits' => $hits, 'unknowns' => $unknowns];
-    }
-
     // ── PA-04: a token of one organization used in another ──────────────────────────────────────────────────
 
     /** @return array{checked:array<string,int>, hits:list<array<string,mixed>>, unknowns:list<string>} */
@@ -532,12 +455,49 @@ final class ForensicLookback extends Command
             }
         }
         $hits = array_values(array_map(fn (array $g) => ['first_at' => $g['first_at']->toIso8601String(), 'last_at' => $g['last_at']->toIso8601String()] + $g, $groups));
+        [$sessionRows, $holders, $sessionRead] = $this->tokenHoldersUnderSession();
         $unknowns = array_values(array_filter([
             $missing > 0 ? "{$missing} audit row".($missing === 1 ? '' : 's').' name a token that no longer exists: its organization cannot be read.' : null,
             $unbound > 0 ? "{$unbound} audit row".($unbound === 1 ? '' : 's').' were written with a token that carries no organization (made before tokens were bound to one).' : null,
+            $sessionRows !== [] ? count($sessionRows).' audit row'.(count($sessionRows) === 1 ? '' : 's')." by {$holders} person(s) holding a live token bound to another organization were written in that other organization under a session, not token:<id>. Before TASK-0030 a bearer request carrying a stateful Origin or Referer was audited under the web session Sanctum started for it, so a token write there cannot be told from the person's own browser — compare the ip, user agent and request id with the token's use: "
+                .$this->ids($sessionRows).'.' : null,
         ]));
 
-        return ['checked' => ['audit_events' => $rows, 'personal_access_tokens' => count($tokens)], 'hits' => $hits, 'unknowns' => $unknowns];
+        return ['checked' => ['audit_events' => $rows + $sessionRead, 'personal_access_tokens' => count($tokens)], 'hits' => $hits, 'unknowns' => $unknowns];
+    }
+
+    /**
+     * Review round 3 (MEDIUM): until TASK-0030 ApiContext::sessionId preferred a started session to the token, and Sanctum
+     * starts one for a bearer request that carries a stateful Origin or Referer — that write was audited under a web session
+     * id and names no token. What remains is the person and the organization: a row of somebody holding a token that was
+     * live at that moment and bound to another organization, in an organization none of their live tokens was bound to.
+     *
+     * @return array{0: list<string>, 1: int, 2: int} [audit ids, people, rows read]
+     */
+    private function tokenHoldersUnderSession(): array
+    {
+        $holders = DB::table('personal_access_tokens')->whereNotNull('organization_id')->get(['tokenable_id', 'organization_id', 'created_at', 'revoked_at', 'expires_at'])->groupBy('tokenable_id');
+        $found = [];
+        $people = [];
+        $read = 0;
+        foreach ($holders->keys()->chunk(500) as $chunk) {
+            $rows = DB::table('audit_events')->where('actor_type', 'user')->whereIn('actor_id', $chunk->map(fn ($id) => (string) $id)->all())->whereNotNull('organization_id')
+                ->whereBetween('created_at', $this->window())
+                ->where(fn ($q) => $q->whereNull('session_id')->orWhere(fn ($s) => $s->where('session_id', 'not like', 'token:%')->where('session_id', 'not like', 'discord:%')->where('session_id', 'not like', 'hook:%')))
+                ->lazyById(1000, 'id');
+            foreach ($rows as $row) {
+                $read++;
+                $at = CarbonImmutable::parse($row->created_at);
+                $live = $holders[$row->actor_id]->filter(fn ($t) => ! $at->lessThan(CarbonImmutable::parse($t->created_at))
+                    && ($t->revoked_at === null || ! $at->greaterThan(CarbonImmutable::parse($t->revoked_at))) && ($t->expires_at === null || ! $at->greaterThan(CarbonImmutable::parse($t->expires_at))));
+                if ($live->isNotEmpty() && ! $live->contains(fn ($t) => (string) $t->organization_id === (string) $row->organization_id)) {
+                    $found[] = (string) $row->id;
+                    $people[(string) $row->actor_id] = true;
+                }
+            }
+        }
+
+        return [$found, count($people), $read];
     }
 
     // ── SS-1 / SS-5: staff acting on their own organization through the is_staff shortcuts ─────────────────
@@ -561,15 +521,22 @@ final class ForensicLookback extends Command
                     'service_id' => $row->resource_id, 'lifted' => $detail['lifted'] ?? null, 'at' => $this->iso($row->created_at)];
             }
         }
-        $purges = DB::table('operations')->where('kind', 'service.action')->whereIn('desired->action', ['purge', 'terminate'])->where('actor_type', 'user')
-            ->whereBetween('created_at', $this->window())->orderBy('created_at')->get(['id', 'organization_id', 'service_id', 'actor_id', 'state', 'desired', 'created_at']);
+        $purges = DB::table('operations')->where('kind', 'service.action')->whereIn('desired->action', ['purge', 'terminate'])
+            ->whereBetween('created_at', $this->window())->orderBy('created_at')->get(['id', 'organization_id', 'service_id', 'actor_type', 'actor_id', 'state', 'desired', 'context', 'created_at']);
         foreach ($purges as $operation) {
             $desired = $this->json($operation->desired);
-            $forced = (($desired['action'] ?? '') === 'purge' && ! empty($desired['force'])) || ($desired['archive_before_delete'] ?? true) === false;
-            if ($forced && $operation->organization_id !== null && $this->memberOrUnknown((string) $operation->organization_id, (string) $operation->actor_id, CarbonImmutable::parse($operation->created_at), $unknown)) {
-                $hits[] = ['kind' => 'staff_force_purge_own_org', 'confidence' => 'confirmed', 'operation_id' => $operation->id, 'user_id' => $operation->actor_id, 'organization_id' => $operation->organization_id,
-                    'service_id' => $operation->service_id, 'action' => $desired['action'] ?? null, 'archive_skipped' => ($desired['archive_before_delete'] ?? true) === false,
-                    'state' => $operation->state, 'staff_now' => $this->history->isStaff((string) $operation->actor_id), 'at' => $this->iso($operation->created_at)];
+            // the step records the skip too (ServiceActionWorkflow::finalArchiveStep): either trace is enough
+            $skipped = ($desired['archive_before_delete'] ?? true) === false || array_key_exists('final_archive_skipped', $this->json($operation->context));
+            $forced = (($desired['action'] ?? '') === 'purge' && ! empty($desired['force'])) || $skipped;
+            $user = $operation->actor_type === 'user';
+            $own = $user && $forced && $operation->organization_id !== null && $this->memberOrUnknown((string) $operation->organization_id, (string) $operation->actor_id, CarbonImmutable::parse($operation->created_at), $unknown);
+            // review round 3 (MEDIUM): a purge that skipped the final archive destroyed a customer's data beyond recovery in ANY
+            // organization — a rogue staff purge of a stranger is the worse case, and it was reported only inside the actor's own
+            if ($own || $skipped) {
+                $hits[] = ['kind' => $own ? 'staff_force_purge_own_org' : 'purge_without_archive', 'confidence' => 'confirmed', 'operation_id' => $operation->id, 'user_id' => $operation->actor_id,
+                    'actor_type' => $operation->actor_type, 'organization_id' => $operation->organization_id, 'service_id' => $operation->service_id, 'action' => $desired['action'] ?? null,
+                    'archive_skipped' => $skipped, 'own_org' => $own, 'state' => $operation->state,
+                    'staff_now' => $user && $this->history->isStaff((string) $operation->actor_id), 'at' => $this->iso($operation->created_at)];
             }
         }
         [$grants, $grantRows] = $this->staffSelfGrants();
@@ -754,12 +721,6 @@ final class ForensicLookback extends Command
     private function ids(array $ids): string
     {
         return implode(', ', array_slice($ids, 0, self::LIST_LIMIT)).(count($ids) > self::LIST_LIMIT ? ' … (+'.(count($ids) - self::LIST_LIMIT).')' : '');
-    }
-
-    /** Customer text in the report loses control and bidi characters and stays short: it cannot drive the operator's terminal. */
-    private function clean(string $text): string
-    {
-        return mb_substr((string) (preg_replace('/[\p{Cc}\p{Cf}]/u', '?', $text) ?? '?'), 0, 200);
     }
 
     /** @param array<string,mixed> $report */

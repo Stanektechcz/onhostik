@@ -14,10 +14,10 @@ final class SitePaths
     /** Absolute paths a site's command may name without reaching another tenant: binaries, PHP builds, null device. */
     private const SYSTEM_PREFIXES = ['/usr/', '/bin/', '/sbin/', '/opt/', '/www/server/php/', '/www/server/onhost/', '/tmp/', '/dev/null', '/dev/stdout', '/dev/stderr'];
 
-    /** @param array<string,mixed> $desired @return list<string> the paths a file operation names */
+    /** @param array<string,mixed> $desired @return list<string> the paths a file operation, a Node.js project or an import names */
     public static function filePaths(array $desired): array
     {
-        $paths = array_merge(array_map(fn ($k) => $desired[$k] ?? null, ['path', 'from', 'to', 'target']), (array) ($desired['paths'] ?? []));
+        $paths = array_merge(array_map(fn ($k) => $desired[$k] ?? null, ['path', 'from', 'to', 'target', 'subdir']), (array) ($desired['paths'] ?? []));
 
         return array_values(array_filter($paths, fn ($p) => is_string($p) && $p !== ''));
     }
