@@ -154,7 +154,7 @@ and a staging freeze would freeze production). Only non-secret keys are printed:
 
 ```bash
 grep -E '^(APP_NAME|APP_ENV|DB_CONNECTION|DB_HOST|DB_PORT|DB_DATABASE|REDIS_HOST|REDIS_PORT|REDIS_DB|REDIS_CACHE_DB|REDIS_PREFIX|CACHE_STORE|CACHE_PREFIX|SESSION_DRIVER|SESSION_DOMAIN|QUEUE_CONNECTION|AWS_BUCKET|AWS_ENDPOINT|ONHOST_PLATFORM_BACKUP_DISK|ONHOST_ARCHIVE_DISK)=' /etc/onhost/app.env
-getent hosts $(grep -E '^(DB_HOST|REDIS_HOST)=' /etc/onhost/app.env | cut -d= -f2 | tr -d '"')   # which machines they are
+getent hosts $(grep -E '^(DB_HOST|REDIS_HOST)=' /etc/onhost/app.env | cut -d= -f2 | awk '{print $1}' | tr -d '"')   # which machines they are
 su - postgres -c "psql -tAc 'show server_version' -c 'show TimeZone' -c \"select datname, datcollate, datctype from pg_database where datname not like 'template%'\""
 ```
 
@@ -176,7 +176,7 @@ $AS_WWW $P artisan tinker --execute="dump(DB::table('users')->whereIn('email',['
 $AS_WWW $P artisan tinker --execute="foreach (Onhost\Domain\Provisioning\Models\ProviderInstance::query()->orderBy('provider')->get() as \$i) { echo \$i->key, ' ', \$i->provider, ' ', \$i->state, ' secret=', app(Onhost\Platform\Secrets\SecretStore::class)->exists(\$i->secretRef()) ? 'stored' : 'none', PHP_EOL; }"
 grep -E '^[A-Z_]*SECRET_REF=' /etc/onhost/app.env | cut -d= -f1,2        # refs only; the secrets are in the database
 # what could move by itself: non-terminal operations, the relay backlog, customer webhooks, queued mail, queue lengths
-$AS_WWW $P artisan tinker --execute="dump(DB::table('operations')->whereNotIn('state',['succeeded','failed','cancelled'])->selectRaw('state, queue, count(*) n')->groupBy('state','queue')->get(), ['outbox_unpublished' => DB::table('outbox_messages')->whereNull('published_at')->count(), 'webhook_endpoints_active' => DB::table('webhook_endpoints')->where('state','active')->count(), 'webhook_deliveries_open' => DB::table('webhook_deliveries')->whereIn('state',['pending','failed'])->count(), 'mail_queued' => DB::table('mail_outbox')->where('state','queued')->count()])"
+$AS_WWW $P artisan tinker --execute="dump(DB::table('operations')->whereIn('state',['PENDING','RUNNING','WAITING'])->selectRaw('state, queue, count(*) n')->groupBy('state','queue')->get(), ['outbox_unpublished' => DB::table('outbox_messages')->whereNull('published_at')->count(), 'webhook_endpoints_active' => DB::table('webhook_endpoints')->where('state','active')->count(), 'webhook_deliveries_open' => DB::table('webhook_deliveries')->whereIn('state',['pending','failed'])->count(), 'mail_queued' => DB::table('mail_outbox')->where('state','queued')->count()])"
 $AS_WWW $P artisan tinker --execute="foreach (array_merge(['default','mails'], array_map(fn (\$q) => 'provider-'.\$q, ['pterodactyl','aapanel','ispconfig','proxmox','powerdns','registrar','kubernetes'])) as \$q) { echo \$q, ' ', Illuminate\Support\Facades\Queue::size(\$q), PHP_EOL; }"
 # the switches that live in the database (default-off rules included): recorded now and again after S7
 $AS_WWW $P artisan tinker --execute="echo json_encode(array_map(fn (\$r) => [\$r['key'] ?? null, \$r['enabled'] ?? null], app(Onhost\Domain\Provisioning\AutomationLedger::class)->overview()));" > /root/staging-automation-s0.json
@@ -187,7 +187,7 @@ calls load its code — as root that is a www → root path (D32.13). If `setpri
 them as root without the owner's written acceptance of that path for S0 (recorded in the release record); the git,
 `stat`, `grep` and `nginx` lines above need no PHP and stay. If www cannot read the environment file yet (artisan fails
 as www), record it — S0 changes nothing — and run the artisan lines right after S1b's `chown root:www … chmod 640` line.
-(The `operations` state names are the model's constants; if a query fails on an older S0 HEAD, record the error, do not
+(The `operations` states are `Operation`'s constants — PENDING, RUNNING, WAITING can still move; if a query fails on an older S0 HEAD, record the error, do not
 adapt it by writing.)
 
 Record: whether S0 ran artisan as www, git version, owner/mode of `.git`, whether `.env` is `/etc/onhost/app.env`, the FPM
@@ -220,10 +220,12 @@ install -d -m 0700 $STATE && touch $STATE/expect-freeze
 ```
 
 The freeze is a cache key: a Redis flush or restart lifts it silently, and it never held in-flight operations or the
-backup scheduler. Root's cron re-asserts it and says so in the journal when it was gone:
+backup scheduler. Root's cron re-asserts it and says so in the journal when it was gone — only with `setpriv` (`AS_WWW`
+set): without it the cron would run www's PHP as root every five minutes (D32.13), so there is no cron and S10 checks
+the freeze by hand:
 
 ```bash
-cat > /etc/cron.d/onhost-staging-freeze <<EOF
+[ -n "$AS_WWW" ] && cat > /etc/cron.d/onhost-staging-freeze <<EOF
 */5 * * * * root [ -f $STATE/expect-freeze ] || exit 0; cd $APP || exit 0; m="\$($AS_WWW $P artisan tinker --execute='echo json_encode(app(\Onhost\Domain\Provisioning\FreezeSwitch::class)->meta());' 2>/dev/null | tail -n 1)"; [ "\$m" != null ] || { logger -p user.err -t onhost-freeze 'staging freeze was missing: re-asserted'; $AS_WWW $P artisan onhost:provisioning:freeze 'staging containment (re-asserted by cron)' >/dev/null 2>&1; }
 EOF
 chmod 0644 /etc/cron.d/onhost-staging-freeze
@@ -461,7 +463,7 @@ Verify:
 | f | `$AS_WWW $P artisan down` by hand, run | rc 0; the site stays down ("left down") | `$AS_WWW $P artisan up` |
 | g | the drain timeout with a synthetic job (below): `DRAIN_TIMEOUT=20` while a 60 s job runs | rc 3 after about 20 s; nothing switched; the site 200; the drill unit comes back **by itself** once its job ends (systemd queued the start behind the pending stop), and the job ran exactly once | below |
 | h | a unit that cannot come back (below) | rc 7 (`did not come back: onhost-queue@deploy-drill.service`); the site stays 503; every expected unit stopped again and listed in `drained-units` | below |
-| i | delete one line from `$STATE/expected-nonok`, run | rc 5, `ROW-FAIL <that row>`; the site stays 503 | put the line back, run the same command → rc 0 (the deployer lifts its own maintenance) |
+| i | delete the line `app|APP_ENV is production` from `$STATE/expected-nonok` (a row that is never OK on staging), run | rc 5, `ROW-FAIL app|APP_ENV is production`; the site stays 503 | put the line back, run the same command → rc 0 (the deployer lifts its own maintenance) |
 | j | `systemctl start onhost-queue@deploy-drill.service` (not listed), run | rc 2 (`runs but is not in … expected-units`), nothing changed | `systemctl stop onhost-queue@deploy-drill.service` |
 | k | `systemctl disable onhost-queue@mails.service`, run | rc 2 (`is 'disabled', not enabled`) | `systemctl enable onhost-queue@mails.service` |
 
