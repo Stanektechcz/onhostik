@@ -150,6 +150,11 @@ final class DemoAccounts extends Command
         $password = $this->option('stdin')
             ? trim((string) stream_get_contents($this->stdin()))
             : (string) $this->secret('Shared demo password (at least 12 characters, letters and numbers)');
+        if (! $this->option('stdin') && $password !== '' && (string) $this->secret('Repeat the shared demo password') !== $password) {
+            $this->error('The two passwords differ; nothing was changed.');
+
+            return null;
+        }
         $validator = Validator::make(['password' => $password], ['password' => ['required', 'string', Password::min(12)->letters()->numbers()->uncompromised()]]);
         if ($validator->fails()) {
             foreach ($validator->errors()->get('password') as $message) {
