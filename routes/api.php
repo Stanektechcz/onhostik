@@ -40,6 +40,7 @@ use App\Http\Controllers\Api\V1\Staff\CustomerController;
 use App\Http\Controllers\Api\V1\Staff\IncidentController as StaffIncidentController;
 use App\Http\Controllers\Api\V1\Staff\MarketplaceController as StaffMarketplaceController;
 use App\Http\Controllers\Api\V1\Staff\OnCallController;
+use App\Http\Controllers\Api\V1\Staff\OwnerRecoveryController;
 use App\Http\Controllers\Api\V1\Staff\PartnerController as StaffPartnerController;
 use App\Http\Controllers\Api\V1\Staff\PaymentsController;
 use App\Http\Controllers\Api\V1\Staff\PricingController;
@@ -202,6 +203,15 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
     Route::post('organizations/{organization}/projects/{project}/members', [ProjectController::class, 'addMember']);
     Route::delete('organizations/{organization}/projects/{project}/members/{user}', [ProjectController::class, 'removeMember']);
     Route::get('organizations/{organization}/audit', [OrganizationController::class, 'audit']);
+    // ── TASK-0042 (permission program S1-02, D21): access given back, ownership in two steps, an owner recovery stopped ──
+    Route::get('organizations/{organization}/access-snapshots', [OrganizationController::class, 'accessSnapshots']);
+    Route::post('organizations/{organization}/access-snapshots/restore', [OrganizationController::class, 'restoreAccess']);
+    Route::post('organizations/{organization}/ownership-transfer', [OrganizationController::class, 'offerOwnership']);
+    Route::post('organizations/{organization}/ownership-transfer/accept', [OrganizationController::class, 'acceptOwnership']);
+    Route::post('organizations/{organization}/ownership-transfer/decline', [OrganizationController::class, 'declineOwnership']);
+    Route::delete('organizations/{organization}/ownership-transfer', [OrganizationController::class, 'cancelOwnership']);
+    Route::post('organizations/{organization}/owner-recovery/cancel', [OrganizationController::class, 'cancelOwnerRecovery']);
+    // ── end TASK-0042 ──
 
     Route::get('orders', [OrderController::class, 'index']);
     Route::post('orders', [OrderController::class, 'store']);
@@ -637,4 +647,12 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
         Route::post('services/{service}/panel-login', [WebToolsController::class, 'panelLogin'])->withoutMiddleware('idempotency');
     });
     // ── end TASK-0039 ──
+    // ── TASK-0042 (permission program D21): a lost customer owner is recovered in the open; anybody else's MFA reset by support ──
+    Route::prefix('staff')->group(function (): void {
+        Route::post('customers/{organization}/owner-recovery', [OwnerRecoveryController::class, 'open']);
+        Route::post('customers/{organization}/owner-recovery/complete', [OwnerRecoveryController::class, 'complete']);
+        Route::delete('customers/{organization}/owner-recovery', [OwnerRecoveryController::class, 'cancel']);
+        Route::post('users/{user}/mfa-reset', [OwnerRecoveryController::class, 'mfaReset']);
+    });
+    // ── end TASK-0042 ──
 });

@@ -1,5 +1,60 @@
 # ONhost Permission & Delegation Program
 
+> **Slice 1 status — 2026-09-27 (recorded by the Slice-1 docs commit on `feat/TASK-0042-grants-follow-one-policy-and-access-can`
+> after `96d7930`; decision record: [ADR-0009](../adr/0009-permission-program.md) → "Slice 1 outcome").**
+>
+> * **Slice 1 is partly built and NOT signed off.** Only S1-01 and S1-02 have code, both in TASK-0042. The chain is TASK-0042
+>   alone (`1b643a6` … `96d7930`), stacked on the Phase-0 chain for PR #25 (on `173b40b`, the Phase-0 docs commit); local, not
+>   pushed, not merged. TASK-0043/TASK-0044 were never created, so S1-03 … S1-06 and S1-08 … S1-10 have no code. Gate
+>   `.\brain.ps1 gate -Task TASK-0042` **PASS** after review round 1 (`903ad07`: Pest 1 930/1 930, 23 430 assertions) and again
+>   after the S1-07 fixes (on `2856e3c`, report `96d7930`; the local suite 1 935/1 935, 23 460 assertions); Larastan 0 errors,
+>   `phpstan-baseline.neon` unchanged; 65 migrations (`000900`, `000910`). `pest-postgres` and E2E have not run on it.
+> * **What Slice 1 changed for everybody:** one `GrantPolicy` decides every grant (I1–I12); an access snapshot precedes every
+>   removal and role change and gives it back exactly for 90 days; ownership moves only when the heir accepts; a lost customer
+>   owner is recovered only by a CRITICAL, seven-day, cancellable owner recovery; a removed member's API tokens of the
+>   organization end for good. Integration and release notes: [grant-policy.md](grant-policy.md).
+> * **Why it is not signed off.** (1) S1-07 is open: its three lenses ran on S1-01/S1-02 only and returned CHANGES_REQUESTED; the
+>   four HIGH are fixed (`2856e3c`), the tokens-and-automation lens had nothing to review (no S1-05/S1-06) and must run again
+>   once they exist; seven MEDIUM findings of S1-07 and one of the re-review of `df1f6d3` have no fix (breach register, "Still
+>   open after Slice 1"). (2) TD-6 — the active grants
+>   of a removed or demoted grantor — is only recorded until the operator turns on `ONHOST_GRANT_CASCADE_ENABLED`. (3) The
+>   S1-07 fix commit `2856e3c` has had no independent review of its own. (4) S1-03 … S1-06, S1-08, S1-09 have not started.
+>
+> | Key | Task | State on the Slice-1 chain (closed = named test; open = why) |
+> | --- | --- | --- |
+> | S1-01 | TASK-0042 (`80322ae`, review round 1 `df1f6d3`) | **Closed in code** (`GrantMatrixTest`: every entry point × I1–I12 a proof or a stated reason, with a completeness test; `GrantPolicyTest`). **Open (LOW):** the I12 cell proves a path that cannot happen — no `svc_*` role carries `organization.members.manage`, so a reshare never passes the bus; a service account as grantor is taken by id with no `isActive()` check. |
+> | S1-02 | TASK-0042 (`7752f41`, `df1f6d3`, S1-07 fixes `2856e3c`) | **Closed in code** (`AccessRestoreTest`, `GrantMatrixTest`): acceptance through the bus with the inviter re-checked (TD-7), remove + restore returns identical access, two-step ownership (TD-9), owner recovery D21 (CRITICAL, 7 days, every reached organization told and held, cancellable), `iam.mfa.reset` of a customer owner refused. **Open:** TD-6 revocation behind `ONHOST_GRANT_CASCADE_ENABLED` (default off; `operator:grants:cascade --dry-run` lists the backlog); the MEDIUMs of S1-07 and the approver-party MEDIUM of the re-review (below). |
+> | S1-03 | — | **Not started** (family × level matrix, `svc_operate`, `svc_data_delete`; PA-05/G3 stay open). |
+> | S1-04 | — | **Not started.** The new endpoints have no portal UI (surfaces unchanged; the `apps/surfaces/api/*` wiring is S1-04). |
+> | S1-05 | — | **Not started** (automation grants, IP allow-list for tokens that never expire, CRITICAL via token refused). |
+> | S1-06 | — | **Not started** (provenance ledger, revocation epoch, credentials-exposed flag). A restore today gives back shares a later security revocation took, and SSH keys / sub-users are not restored. |
+> | S1-07 | red team on `903ad07` | **Open.** Lenses delegation-and-tenancy, tokens-and-automation, recoverability-and-sessions: all CHANGES_REQUESTED. Four HIGH fixed with failing-first tests (5/5 red against `903ad07`): a restore publishes what it takes (`via: access_restore`), a removal ends the person's organization tokens, a restore must cover the remover's role (`taken_by_role`, `snapshot_above_own`), a recovery transfer takes the previous owner out. BLOCKER S7-2: nothing of S1-05/S1-06 to review — the lens runs again after them. |
+> | S1-08 | — | **Not started.** An MFA reset and a removal leave the person's live web sessions (and, for an MFA reset, tokens and step-up grants) in place. |
+> | S1-09 | — | **Not started.** |
+> | S1-10 | — | **Scope note by the delegated default O7** (sharing per service/project, domains organization-wide; ADR-0009 owner table). No resource-level domain grant was added. Not confirmed by the owner in person. |
+>
+> **Red-team findings closed on the Slice-1 chain.** Review round 1 (`df1f6d3`, R1-1 … R1-7): an MFA recovery reaches every
+> organization the owner owns or manages; a staff party neither opens nor completes a recovery; a staff or member-manager MFA
+> reset takes a second person; a restore covers what it takes (I3); one pending recovery/offer per organization; a snapshot is
+> restored once; cascade dedup by query. S1-07 (`2856e3c`, S7-1, S7-3/S7-6, S7-4, S7-5): above.
+>
+> **Findings still open after Slice 1** (MEDIUM in the breach register's "Still open after Slice 1"; LOW in
+> `.ai/PROJECT_STATE.md` → Known issues; each needs its own task):
+> MEDIUM — the second person of an owner recovery may be a party: `OwnerRecoveries::assertNotParty` (open and complete) holds R1-4
+> for the requester and the completer, but `ApprovalService::decide` asks only "not the requester" and "holds `iam.mfa.reset`",
+> so the heir, the owner or a member of a reached organization can approve it (re-review of `df1f6d3`); a transfer-mode recovery
+> makes the heir the owner without the heir's acceptance or step-up, and does not re-check the heir's role at completion; the
+> person being recovered (the possibly hijacked account) can cancel the recovery without limit, with no support override;
+> `MfaResetCommand` asks a second person only for staff and member managers, so a developer holding console or destructive keys
+> on every service is reset on one iam_admin's word; an MFA reset leaves sessions, tokens and step-up grants (S1-08); a restore
+> revives shares a later security revocation took and keeps their original `granted_by` (an unbacked share is never flagged),
+> while restored bindings name the restorer (S1-06); a restore pulls back a member who left on their own for 90 days, without
+> their consent or notice to them; the cascade backlog is never re-examined when the switch goes on, a cascade revocation chains
+> through `removeMember`, and there is no grouped undo.
+> LOW — a service account as grantor is not checked for `isActive()` and disabling one cascades nothing (`dependents()` ignores
+> service-account bindings); I12 depth 2 is unreachable; an ownership offer may go to a guest; a token's `expires_at` is capped by
+> the membership's end, not by the bindings behind its scopes; a restore does not check the account's state (disabled, erased).
+
 > **Status — 2026-09-27, final Phase-0 chain (recorded by the docs commit on `fix/TASK-0039-staff-act-as-staff-and-a-token-only-for`
 > after `650f675`; decision record: [ADR-0009](../adr/0009-permission-program.md)).**
 >
@@ -24,7 +79,7 @@
 >   3. The fix `c4c43e2` has not had an independent read-only review of its own (its failing-first tests were 5/5 red, and the
 >      gate is green).
 >   4. The forensic baseline (P0-01) on production before the first Phase-0 deploy, and the owner's Art. 33 decision (O3).
-> * **Slices 1–5 and P0-15 have not started.**
+> * **Slice 1 has S1-01 and S1-02 (TASK-0042, status block above); the rest of Slice 1, Slices 2–5 and P0-15 have not started.**
 > * This file is the repository copy of the program and the one to change, in a docs commit. The owner's copy
 >   (`PROGRAM-opravneni-2026-09-27.md`, outside the repository) is older: its §9 still calls PA-04, EXPL-1..3, SS-4 and IF-4
 >   wholly open; §9 below and the breach register are current.
@@ -38,7 +93,7 @@
 > | P0-04 | TASK-0035 | **Closed** (`OrphanAccessTest`). Leftover links: `operator:integrations:orphan-links` (dry run, then `--apply`). |
 > | P0-05 | TASK-0035 | **Closed** for customers (`ArchiveRestoreScopeTest`). Staff through a global binding: see P0-08. |
 > | P0-06 | TASK-0035 (+ red-team fix `d6c0958`) | **Closed** (`TeamAccessUiTest`). |
-> | P0-07 | TASK-0036, TASK-0041 (b), (f) | **Closed** (`GrantPolicyTest`, `WaveOneLeftoversTest`); only the owner transfers ownership (`53ea45c`). Legacy project roles are listed by `onhost:projects:role-audit --dry-run`; I5–I7, I10, I12 are S1-01. |
+> | P0-07 | TASK-0036, TASK-0041 (b), (f) | **Closed** (`GrantPolicyTest`, `WaveOneLeftoversTest`); only the owner transfers ownership (`53ea45c`). Legacy project roles are listed by `onhost:projects:role-audit --dry-run`; I5–I7, I10, I12 came with S1-01/S1-02 (TASK-0042, Slice-1 block above). |
 > | P0-08 | TASK-0039 | **IF-8 and IF-9 closed** (`StaffModeTest` incl. the three "P0-16 re-check" cases, `StaffModeRunTest`, `RiskFloorTest` "makes staff reach on a customer CRITICAL key CRITICAL again…", `PayAndRestoreTest` "…only for a staff billing key…"). **IF-4 open behind a switch:** staff reach on customer keys (and `archive.restore` through a global binding) is written to `authz.staff_reach` and still allowed until `ONHOST_STAFF_REACH_ENFORCED=true`, due after seven empty days of `operator:authz:staff-reach`. |
 > | P0-09 | TASK-0039 | **Closed for tokens bound to an organization** (`TokenPrincipalTest`: header, missing header, resource id, queued runs, staff token, web seams). **Open:** tokens stored with no organization until `ONHOST_TOKEN_ORGANIZATION_REQUIRED=true` (list: `operator:tokens:unbound --dry-run`); `GET /v1/me` hands a token its person's other organizations (MEDIUM, re-check, no fix yet). |
 > | P0-10 | TASK-0036, TASK-0041 (c), `888a61e` | **Closed** (`ReplayStoreScopeTest`, `DomainKeyScopeTest`, `GrantPolicyTest`): bus keys per organization + person with a keyed request hash; the HTTP replay store keeps no answer that hands out a secret. LOW left: the HTTP store is keyed `user:<id>` only (below). |
@@ -345,7 +400,7 @@ Legend: **size** S=days, M=~1 week, L=multi-week. **Impact** = effect on existin
 
 ## 9. Audit gaps and exploits (compact)
 
-**Tenancy & delegation (TD-1..TD-11):** owner can be silently demoted via an accepted invitation (TD-1, CRITICAL) → fixed by IF-1/S1-02. Cross-org membership without invitation, leaking PII (TD-2, HIGH) → IF-2. Project-role grants bypass `mayGrant` and self-check (TD-3, HIGH) → IF-3. Partner payout at NORMAL risk with no step-up (TD-4, HIGH) → IF-14. No hierarchy check on remove/demote (TD-5, HIGH) → IF-2. Grants outlive a demoted grantor (TD-6, MEDIUM) → I6/S1-02. Accept-invitation bypasses the bus; no audit of prior state (TD-7, MEDIUM) → S1-02. No custom roles, no re-share limit (TD-8, MEDIUM) → D4/I12. Ownership transfer needs no consent (TD-9, MEDIUM) → I4/S1-02. Support not scoped to service/category (TD-10, MEDIUM) → S2-01/S2-09. UI fails open (TD-11, LOW) → IF-17.
+**Tenancy & delegation (TD-1..TD-11):** owner can be silently demoted via an accepted invitation (TD-1, CRITICAL) → fixed by IF-1/S1-02. Cross-org membership without invitation, leaking PII (TD-2, HIGH) → IF-2. Project-role grants bypass `mayGrant` and self-check (TD-3, HIGH) → IF-3. Partner payout at NORMAL risk with no step-up (TD-4, HIGH) → IF-14. No hierarchy check on remove/demote (TD-5, HIGH) → IF-2. Grants outlive a demoted grantor (TD-6, MEDIUM) → I6/S1-02 (TASK-0042: pending grants cancelled, active ones recorded and listed by `operator:grants:cascade --dry-run`, revoked only with `ONHOST_GRANT_CASCADE_ENABLED=true` — open until then). Accept-invitation bypasses the bus; no audit of prior state (TD-7, MEDIUM) → S1-02 (**closed** by TASK-0042: `AcceptInvitationCommand`, the inviter re-checked at the click; `AccessRestoreTest`). No custom roles, no re-share limit (TD-8, MEDIUM) → D4/I12 (I12 in `GrantPolicy`, `reshare_too_deep`; custom roles deferred by O6). Ownership transfer needs no consent (TD-9, MEDIUM) → I4/S1-02 (**closed** by TASK-0042: the heir accepts with a step-up; `AccessRestoreTest`, `GrantPolicyTest`). Support not scoped to service/category (TD-10, MEDIUM) → S2-01/S2-09. UI fails open (TD-11, LOW) → IF-17.
 
 **Staff & support (SS-1..SS-15):** `is_staff` bypasses customer protections even inside a customer membership (SS-1/SS-2, HIGH) → IF-8, EXPL-1/2/3. Support tiers are global, not family-scoped (SS-2, HIGH) → S2-01. No customer-granted, expiring support access (SS-3, HIGH) → S2-02. Staff panel SSO not ticket-bound despite claiming to be (SS-4, HIGH) → IF-16. Force-purge is not CRITICAL (SS-5, HIGH) → IF-9. Support tiers can't run real customer actions, pushing everything to `platform_owner` (SS-6, HIGH) → S2-01. Dormant impersonation permission with global reach (SS-7, MEDIUM) → removed/renamed in P0-12/P0-15 (critic finding). No real JIT (SS-8, MEDIUM) → S4-01. `platform_owner` is a permanent standing binding (SS-9, MEDIUM) → S4-01 break-glass. Tickets not scoped per category (SS-10, MEDIUM) → S2-09. Staff reads only partly audited; assistant leaks billing to over-broad roles (SS-11, MEDIUM) → S4-02/S1-06. No staff lifecycle/expiry/review (SS-12, MEDIUM) → S4-02. Four-eyes waiver removable by one switch with no minimum-approver check (SS-13, MEDIUM) → D8. `is_staff` counted as membership on console preflight (SS-14, LOW) → IF-8. Mass staff listings not family-filtered (SS-15, MEDIUM) → S2-01.
 
@@ -364,6 +419,14 @@ Legend: **size** S=days, M=~1 week, L=multi-week. **Impact** = effect on existin
 **Items carried from P0-12 (TASK-0037 review round 1) — closed by TASK-0039:** (1) `PermissionCatalog::floor` lowered a customer CRITICAL key to HIGH whoever held it, so staff with global reach (`backup_dr_admin` on `backup.delete`, `platform_owner` filing another organization's erasure) acted with no second person. Now a member keeps the HIGH floor and staff reach on such a key is CRITICAL (second person, or the sole approver's time lock); the nested `backup.delete` of `WebToolsCommandHandler::assertMayThin` refuses with `approval_required` instead of acting. (2) A forced purge is `staff.service.delete`, declared CRITICAL, behind the time lock. Proof: RiskFloorTest "makes staff reach on a customer CRITICAL key CRITICAL again, and a forced purge CRITICAL staff.service.delete behind the time lock" (the former pin).
 
 **After Phase 0 (P0-16 red team: first round on the stacked chain `c59e08a`, TASK-0041; re-check on the final chain `02b5bc5`, fixed in `c4c43e2`; Phase 0 is NOT signed off).** The first round found the holes of P0-08, P0-09 and P0-14 open because TASK-0039 was on neither wave; they were pinned in `tests/Feature/Security/PhaseZeroOpenItemsTest.php`. With TASK-0039 rebased onto the chain all nine pins went red for the right reason and were replaced by its proofs (the file header maps each). **Closed:** **EXPL-1/2/3**, **SS-1** and **SS-14** (IF-8: a member of staff on a customer route is the customer; staff powers only in staff mode on `/v1/staff/*` and, since the re-check, only with a staff key — `staff.service.manage`, `staff.service.delete`, `billing.dunning.manage` — and with a second person in an organization of one's own; the console pre-flight asks the token's issuer or a member), the reinstatement credit gate (`StaffActor::may` with the staff billing key), **SE-3/SS-5** and staff `backup.delete` (IF-9: CRITICAL), **SS-4/PA-06** (IF-16: `PanelLoginCommand` with a real ticket opened by the customer, never `ticket_ref`), and **PA-04** for tokens bound to an organization (IF-5: header, missing header, resource id, queued runs, a staff person's token, the web seams). **Open, written down but still allowed until the operator's switch** (the breach register's open list): IF-4 — a global staff role's customer keys and staff `archive.restore` through a global binding are logged to `authz.staff_reach` until `ONHOST_STAFF_REACH_ENFORCED=true` (then P0-15); PA-04 for tokens stored with no organization until `ONHOST_TOKEN_ORGANIZATION_REQUIRED=true`. **Open, no fix yet (re-check):** `GET /v1/me` returns every current membership of a token's person with the full organization record (MEDIUM, P0-09); the HTTP replay store keyed `user:<id>` without the token or organization, `assertMayRestore` reading the source on the person instead of the token view, runs queued before the release without `desired.token_id`, and the command-line time lock for new staff skipping roles that decide no approvals (LOW each; `.ai/PROJECT_STATE.md` → Known issues).
+
+**After Slice 1 (S1-01/S1-02 in TASK-0042; review round 1 on `7752f41`, re-review on `df1f6d3`, S1-07 red team on `903ad07`
+fixed in `2856e3c`; Slice 1 is NOT signed off).** **Closed:** TD-7 and TD-9 (above); D21 (owner recovery instead of an ad-hoc
+MFA reset of a customer owner); a removed member's API tokens of the organization no longer wake up on a restore or re-invite
+(S7-3/S7-6); an owner's removal can no longer be undone by another admin (S7-4); a restore takes panel keys and sub-users off
+with what it takes away (S7-1); a recovery transfer takes the previous owner out (S7-5). **Open, written down but not yet
+enforced:** TD-6 behind `ONHOST_GRANT_CASCADE_ENABLED`. **Open, no fix yet:** the MEDIUM and LOW findings of the Slice-1 status
+block at the top; S1-07 must run again (with the tokens-and-automation lens) once S1-05 and S1-06 exist.
 
 **Unknowns still requiring live/staging verification (never on production panels):** Pterodactyl `filter[email]` partial-match behaviour; aaPanel `UnZip`/file-API symlink-following and default file modes; ISPConfig `client_login_get` semantics and `mail_user` disable field names; Proxmox storage type mix (ZFS/LVM-thin/qcow2) for snapshot behaviour; whether `ONHOST_FOUR_EYES` is currently set in production; whether any staff account is currently also a customer-org member (decides how exploitable EXPL-1..3 are today).
 

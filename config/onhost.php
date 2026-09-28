@@ -737,4 +737,19 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
     // list them with `operator:tokens:unbound --dry-run`, notify the owners, then switch it on
     'token_organization_required' => (bool) env('ONHOST_TOKEN_ORGANIZATION_REQUIRED', false),
     // ── end TASK-0039 ──
+    // ── TASK-0042 grants follow one policy and access can be restored (permission program S1-01, S1-02, D21) ──
+    'grants' => [
+        // I6: the active grants of somebody who lost the right to give them (removed, demoted) are only RECORDED while this is off
+        // (audit organization.grant.cascade.flag, listed by `operator:grants:cascade --dry-run`); on, they are revoked, each with an
+        // access snapshot first. Pending shares and invitations are cancelled either way. Default off: a surprise revocation of a
+        // whole team is the program's named risk (§6 S1-02); switch on after the dry-run was reviewed and customers were told
+        'cascade_enabled' => (bool) env('ONHOST_GRANT_CASCADE_ENABLED', false),
+        // I10: how long an access snapshot taken before a removal or role change can be restored (then onhost:access:expire prunes it)
+        'snapshot_retention_days' => 90,
+        // D21: a customer owner who lost access is recovered only after this many days of notice, cancellable meanwhile. Never below 7
+        'owner_recovery_days' => max(7, (int) env('ONHOST_OWNER_RECOVERY_DAYS', 7)),
+        // an ownership offer the heir has not accepted lapses after this many days
+        'ownership_offer_days' => 7,
+    ],
+    // ── end TASK-0042 ──
 ];

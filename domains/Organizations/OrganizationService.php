@@ -7,6 +7,7 @@ namespace Onhost\Domain\Organizations;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
 use Onhost\Domain\Identity\Authorization\RoleCatalog;
 use Onhost\Domain\Identity\Models\User;
@@ -17,6 +18,7 @@ use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationInvitation;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Organizations\Models\Project;
+use Onhost\Domain\Organizations\Models\ProjectMembership;
 use Onhost\Domain\Tax\Jobs\CheckVatNumber;
 use Onhost\Domain\Tax\VatNumber;
 use Onhost\Domain\Tax\VatNumberChecks;
@@ -79,7 +81,7 @@ final class OrganizationService
      * permission stops at that second without any job; `AccessExpiry` removes the membership afterwards, which takes the
      * person's panel accounts and SSH keys with it. The owner's access never expires.
      */
-    public function attachMember(Organization $organization, User $user, string $roleKey, CommandContext $context, bool $joinedNow = false, ?CarbonInterface $accessUntil = null): OrganizationMembership
+    public function attachMember(Organization $organization, User $user, string $roleKey, CommandContext $context, bool $joinedNow = false, ?CarbonInterface $accessUntil = null, ?string $grantedBy = null): OrganizationMembership
     {
         $this->assertCustomerRole($roleKey);
         // I4 (permission program, TD-1): the owner binding is written for the owner and for nobody else, and the owner's is never
@@ -94,18 +96,23 @@ final class OrganizationService
             throw new DomainError('access_until_past', 'access_until must be in the future.', 422, ['field' => 'access_until']);
         }
 
-        return DB::transaction(function () use ($organization, $user, $roleKey, $context, $joinedNow, $accessUntil) {
+        // TASK-0042 (I6): the binding names who GAVE the role — the person acted for, or the sender of the link that was accepted
+        // (`$grantedBy`); it used to name whoever clicked, so a membership that came by a link seemed given by its own member
+        $grantor = $grantedBy ?? ($context->onBehalfOfUserId ?? $context->actorId);
+
+        return DB::transaction(function () use ($organization, $user, $roleKey, $context, $joinedNow, $accessUntil, $grantor) {
             $membership = OrganizationMembership::query()->updateOrCreate(
                 ['organization_id' => $organization->id, 'user_id' => $user->id],
-                ['role_key' => $roleKey, 'state' => 'active', 'joined_at' => $joinedNow ? now() : null, 'invited_by' => $context->actorId, 'expires_at' => $accessUntil],
+                ['role_key' => $roleKey, 'state' => 'active', 'joined_at' => $joinedNow ? now() : null, 'invited_by' => $grantor, 'expires_at' => $accessUntil],
             );
             PolicyBinding::query()->where('principal_type', 'user')->where('principal_id', $user->id)
                 ->where('scope_type', 'organization')->where('scope_id', $organization->id)->delete();
             PolicyBinding::query()->create([
                 'principal_type' => 'user', 'principal_id' => $user->id, 'role_key' => $roleKey,
                 'scope_type' => 'organization', 'scope_id' => $organization->id, 'organization_id' => $organization->id,
-                'granted_by' => $context->actorId, 'expires_at' => $accessUntil,
+                'granted_by' => $grantor, 'expires_at' => $accessUntil,
             ]);
+            app(Authorizer::class)->forget($user); // the same request may ask about this person next
             $this->audit->record($context->withScope($organization->id), 'organization.member.attach', 'succeeded', ['user_id' => $user->id, 'role' => $roleKey, 'access_until' => $accessUntil?->toIso8601String()], 'organization', $organization->id);
 
             return $membership;
@@ -123,7 +130,11 @@ final class OrganizationService
         if ($current === null) { // IF-2 (TD-2): a role change made a stranger a member — the way in is an invitation, never an id
             throw DomainError::notFound('member');
         }
-        $membership = $this->attachMember($organization, $user, $roleKey, $context, joinedNow: false, accessUntil: $setAccess ? $accessUntil : $current->expires_at);
+        $until = $setAccess ? $accessUntil : $current->expires_at;
+        if ($current->role_key !== $roleKey || $current->expires_at?->toIso8601String() !== $until?->toIso8601String()) {
+            app(AccessSnapshots::class)->take($organization, $user->id, 'role_changed', $context); // I10 (TASK-0042): restorable for 90 days
+        }
+        $membership = $this->attachMember($organization, $user, $roleKey, $context, joinedNow: false, accessUntil: $until);
         // a smaller role may no longer cover what the old one put on the panels (H332): the listener takes back the person's
         // SSH keys and collaborator accounts on the services they can no longer manage
         if ($current->role_key !== $roleKey) {
@@ -133,24 +144,30 @@ final class OrganizationService
         return $membership;
     }
 
-    public function removeMember(Organization $organization, User $user, CommandContext $context): void
+    /** `$via`: what removed the person when it was not the team page (`access_restore`, `owner_recovery`); listeners read it. */
+    public function removeMember(Organization $organization, User $user, CommandContext $context, ?string $via = null): void
     {
         if ($organization->owner_user_id === $user->id) {
             throw new DomainError('owner_cannot_be_removed', 'Transfer ownership before removing the owner.');
         }
-        $removed = DB::transaction(function () use ($organization, $user, $context) {
+        [$removed, $snapshot] = DB::transaction(function () use ($organization, $user, $context) {
+            // I10 (TASK-0042): what the person could do here is kept 90 days first — one restore gives it back exactly
+            $snapshot = app(AccessSnapshots::class)->take($organization, $user->id, 'member_removed', $context);
             $removed = OrganizationMembership::query()->where('organization_id', $organization->id)->where('user_id', $user->id)->delete();
             PolicyBinding::query()->where('principal_type', 'user')->where('principal_id', $user->id)
                 ->where('organization_id', $organization->id)->delete();
-            $this->audit->record($context->withScope($organization->id), 'organization.member.remove', 'succeeded', ['user_id' => $user->id], 'organization', $organization->id);
+            // the project-role rows mirrored bindings that are gone now; left behind they made a later member look like a project member
+            ProjectMembership::query()->where('user_id', $user->id)->whereIn('project_id', Project::query()->where('organization_id', $organization->id)->select('id'))->delete();
+            app(Authorizer::class)->forget($user);
+            $this->audit->record($context->withScope($organization->id), 'organization.member.remove', 'succeeded', ['user_id' => $user->id, 'snapshot_id' => $snapshot?->id], 'organization', $organization->id);
 
-            return $removed;
+            return [$removed, $snapshot];
         });
         if ($removed === 0) { // TASK-0036: nobody left who was never in — the listeners (TASK-0035) act on this event
             return;
         }
         // panel accounts are keyed by e-mail and would outlive the membership (H333): the listener removes them through audited operations
-        $this->outbox->publish(GenericEvent::of('organization.member.removed', 'organization', $organization->id, ['user_id' => $user->id, 'email' => mb_strtolower((string) $user->email)], $organization->id));
+        $this->outbox->publish(GenericEvent::of('organization.member.removed', 'organization', $organization->id, ['user_id' => $user->id, 'email' => mb_strtolower((string) $user->email), 'snapshot_id' => $snapshot?->id] + ($via !== null ? ['via' => $via] : []), $organization->id));
     }
 
     /**
@@ -254,22 +271,27 @@ final class OrganizationService
         $organization = Organization::query()->findOrFail($invitation->organization_id);
         // I6 (red-team round of the Phase-0 chain): the link counts only while its sender could still send it — a removed or
         // demoted admin's link used to let them (or anybody they mailed it to) back in. Fail closed: the same answer as a dead link.
-        if (! app(GrantPolicy::class)->backs($organization, $invitation)) {
+        $policy = app(GrantPolicy::class);
+        if (! $policy->backs($organization, $invitation)) {
             throw new DomainError('invitation_invalid', 'This invitation is invalid or has expired.', 410);
         }
+        $until = $policy->acceptedEnd($organization, $invitation); // I5 at the click: no later than the sender's own access now
 
-        return DB::transaction(function () use ($invitation, $organization, $user, $context) {
+        return DB::transaction(function () use ($invitation, $organization, $user, $context, $until) {
             $invitation->forceFill(['accepted_at' => now()])->save();
             // A guest invitation comes with a shared service. Somebody who became a real member in the meantime keeps the role they
             // have: attaching `guest` here replaced it — accepting the older link would have cost a developer their access.
             // I9 (TD-1): the same holds for every older link — accepting never lowers a current membership, and the owner's least
             // of all. Only a link that gives strictly more (and no earlier end) changes the role.
             $current = OrganizationMembership::query()->where('organization_id', $organization->id)->where('user_id', $user->id)->current()->first();
-            if ($current !== null && ! GrantPolicy::widens($current, $invitation->role_key, $invitation->access_expires_at)) {
+            if ($current !== null && ! GrantPolicy::widens($current, $invitation->role_key, $until)) {
                 return $current;
             }
+            if ($current !== null) {
+                app(AccessSnapshots::class)->take($organization, $user->id, 'invitation_widened', $context); // I10: a role change like any other
+            }
 
-            return $this->attachMember($organization, $user, $invitation->role_key, $context, joinedNow: true, accessUntil: $invitation->access_expires_at);
+            return $this->attachMember($organization, $user, $invitation->role_key, $context, joinedNow: true, accessUntil: $until, grantedBy: $invitation->invited_by !== null ? (string) $invitation->invited_by : null);
         });
     }
 
@@ -281,6 +303,9 @@ final class OrganizationService
                 return $organization;
             }
             $heirRole = OrganizationMembership::query()->where('organization_id', $organization->id)->where('user_id', $newOwner->id)->value('role_key');
+            foreach ([$previous, $newOwner] as $person) { // I10 (TASK-0042): both people change role
+                app(AccessSnapshots::class)->take($organization, $person->id, 'ownership_transferred', $context);
+            }
             $organization->forceFill(['owner_user_id' => $newOwner->id])->save();
             $this->attachMember($organization, $newOwner, 'owner', $context, joinedNow: true);
             $this->attachMember($organization, $previous, 'org_admin', $context);
@@ -288,7 +313,7 @@ final class OrganizationService
             // TASK-0036: both people changed role — the one who gave the organization away above all (program I6/IF-15: listeners
             // take back what the smaller role no longer covers). Before, the transfer wrote the roles without a word to anybody.
             foreach ([[$previous, 'owner', 'org_admin'], [$newOwner, (string) $heirRole, 'owner']] as [$person, $from, $to]) {
-                $this->outbox->publish(GenericEvent::of('organization.member.role_changed', 'organization', $organization->id, ['user_id' => $person->id, 'email' => mb_strtolower((string) $person->email), 'from' => $from, 'to' => $to], $organization->id));
+                $this->outbox->publish(GenericEvent::of('organization.member.role_changed', 'organization', $organization->id, ['user_id' => $person->id, 'email' => mb_strtolower((string) $person->email), 'from' => $from, 'to' => $to, 'via' => 'ownership_transfer'], $organization->id));
             }
 
             return $organization->refresh();

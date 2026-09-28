@@ -112,7 +112,8 @@ it('every HIGH or CRITICAL authorize() outside the bus is classified', function 
     // authorize() call in those files is checked by hand in review.
     $classified = [
         'Api/V1/MeController.php::api_token.manage' => 'read: GET /v1/tokens (creating one is ApiTokenCommand)',
-        'Api/V1/OrganizationController.php::organization.members.manage' => 'bus: resolve() in front of OrganizationCommand (invite, cancel, role, remove)',
+        'Api/V1/OrganizationController.php::organization.members.manage' => 'bus: resolve() in front of OrganizationCommand (invite, cancel, role, remove, restore_access, cancel_owner_recovery); read: GET access-snapshots',
+        'Api/V1/OrganizationController.php::organization.close' => 'bus: resolve() in front of OwnershipCommand (offer, cancel — TASK-0042)',
         'Api/V1/ServiceController.php::service.delete' => 'bus: resolve() in front of WithdrawalCommand (the withdrawal)',
         'Api/V1/RewardsController.php::staff.customer.manage' => 'read: campaigns, rewards, the forecast POST that stores nothing',
         'Api/V1/ServiceAccessController.php::organization.members.manage' => 'read: index (store/destroy are ServiceAccessCommand)',
