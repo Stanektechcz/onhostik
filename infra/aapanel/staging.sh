@@ -214,9 +214,9 @@ deployer() {
   chmod 0600 "$STATE/expected-units"; sed 's/^/  expected unit: /' "$STATE/expected-units"
   [ -f "$STATE/egress-blocked" ] || install -m 0600 /dev/null "$STATE/egress-blocked"
   [ -f "$STATE/path-b" ] || install -m 0600 /dev/null "$STATE/path-b"
-  [ -f "$STATE/expected-env" ] || write_expected_env
+  grep -qx "*UNLISTED=" "$STATE/expected-env" 2>/dev/null || write_expected_env   # missing, or cut short by an earlier run
   if "$PHP" "$DG" env-assert --file /etc/onhost/app.env --spec "$STATE/expected-env" >/dev/null; then ok "app.env matches expected-env"
-  else die "app.env does not match $STATE/expected-env — see: $PHP $DG env-assert --file /etc/onhost/app.env --spec $STATE/expected-env"; fi
+  else "$PHP" "$DG" env-assert --file /etc/onhost/app.env --spec "$STATE/expected-env" | grep -v "^OK" || true; die "app.env does not match $STATE/expected-env (the lines above name the keys)"; fi
   if [ ! -f "$STATE/expected-nonok" ]; then
     # staging phase 1 runs without panels, so some doctor rows are non-OK by design: the rows non-OK TODAY are accepted
     # once (a snapshot); a row that turns non-OK later still stops a release (docs/runbooks/staging-launch.md O11)
