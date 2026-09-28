@@ -313,13 +313,15 @@ WEDOS_MAIN_*=
 SUBREG_*=
 EOF
   )
-  local k v
-  "$PHP" "$DG" env-assert --file /etc/onhost/app.env --spec "$STATE/expected-env" 2>&1 \
-    | sed -n 's/^UNLISTED \([A-Za-z0-9_]*\):.*/\1/p' | sort -u | while read -r k; do
-      v=$("$PHP" "$DG" parse-env --file /etc/onhost/app.env --key "$k" 2>/dev/null || true)
-      if [ -z "$v" ]; then echo "$k="; else echo "$k"; fi
-    done >> "$STATE/expected-env" || true
+  local k v unlisted
+  # env-assert names the unlisted keys only once the allow-list line is there, so it goes in first
   echo '*UNLISTED=' >> "$STATE/expected-env"
+  unlisted=$("$PHP" "$DG" env-assert --file /etc/onhost/app.env --spec "$STATE/expected-env" 2>&1 \
+    | sed -n 's/^UNLISTED \([A-Za-z0-9_]*\):.*/\1/p' | sort -u || true)
+  for k in $unlisted; do
+    v=$("$PHP" "$DG" parse-env --file /etc/onhost/app.env --key "$k" </dev/null 2>/dev/null || true)
+    if [ -z "$v" ]; then echo "$k="; else echo "$k"; fi
+  done >> "$STATE/expected-env"
   ok "expected-env written ($STATE/expected-env)"
 }
 
