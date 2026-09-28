@@ -59,8 +59,8 @@ node24() { # aaPanel's Node version manager, nvm, or the system node — whichev
 
 npm_build() { # the frontend bundle, as www with Node 24 (the application serves without it; failure is reported only)
   local n; n=$(node24) || { echo "  (no Node 24 — frontend build skipped)"; return 0; }
-  (cd "$APP" && www env PATH="$(dirname "$n"):/usr/bin:/bin" HOME="$WORK/home" npm ci --no-audit --no-fund >/dev/null \
-    && www env PATH="$(dirname "$n"):/usr/bin:/bin" HOME="$WORK/home" npm run build >/dev/null) \
+  (cd "$APP" && www env PATH="$(dirname "$n"):/usr/bin:/bin" HOME="$WORK/home" npm_config_cache="$WORK/npm-cache" npm ci --no-audit --no-fund >/dev/null \
+    && www env PATH="$(dirname "$n"):/usr/bin:/bin" HOME="$WORK/home" npm_config_cache="$WORK/npm-cache" npm run build >/dev/null) \
     && ok "frontend built (Node $("$n" -v))" || echo "  ✖ frontend build failed (not needed to serve)"
 }
 
@@ -102,14 +102,14 @@ contain() {
   for q in $LANES; do systemctl mask "onhost-queue@$q.service" >/dev/null 2>&1 || true; done; ok "provider lanes masked"
   if [ -f "$APP/artisan" ]; then art down || true; art onhost:provisioning:freeze "staging containment" || true; fi
   echo "  ➜ aaPanel → Cron: switch off every task that calls artisan (schedule:run)."
-  if ps -eo cmd | grep -E 'artisan|queue:work' | grep -v grep; then bad "something still runs"; else ok "no artisan process"; fi
+  if ps -eo cmd | grep -E "$APP.*(artisan|queue:work)|onhost-(queue|scheduler)" | grep -v grep; then bad "something still runs"; else ok "no artisan process"; fi
   echo "  ➜ Recommended: revoke the old staging's panel keys at each issuer (aaPanel API key, ISPConfig remote user, Pterodactyl, Proxmox token, WEDOS)."
 }
 
 park() {
   local P; P=/www/onhost-staging-old-$(date +%Y%m%d-%H%M)
   say "Parking the old staging in $P"
-  ps -eo cmd | grep -E 'artisan|queue:work' | grep -qv grep && die "run 'contain' first — something still runs"
+  ps -eo cmd | grep -E "$APP.*(artisan|queue:work)|onhost-(queue|scheduler)" | grep -qv grep && die "run 'contain' first — something still runs"
   install -d -m 0700 "$P"
   [ "$(stat -c %d "$APP")" = "$(stat -c %d "$P")" ] || die "$P is on another disk than $APP — mv would copy"
   chattr -i "$APP/.user.ini" 2>/dev/null || true
@@ -305,7 +305,7 @@ EOF
     | sed -n 's/^UNLISTED \([A-Za-z0-9_]*\):.*/\1/p' | sort -u | while read -r k; do
       v=$("$PHP" "$DG" parse-env --file /etc/onhost/app.env --key "$k" 2>/dev/null || true)
       if [ -z "$v" ]; then echo "$k="; else echo "$k"; fi
-    done >> "$STATE/expected-env"
+    done >> "$STATE/expected-env" || true
   echo '*UNLISTED=' >> "$STATE/expected-env"
   ok "expected-env written ($STATE/expected-env)"
 }
