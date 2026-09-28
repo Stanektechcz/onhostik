@@ -34,6 +34,7 @@ final class NotificationService
         'wallet-topup' => 'wallet', 'payment-received' => 'invoice.issued', 'wallet-runway' => 'wallet',
         'order-approval-required' => 'order', 'order-approval-rejected' => 'order', // TASK-0021
         'withdrawal-accepted' => 'legal.notice', // TASK-0025: the confirmation of a consumer's withdrawal is a mandatory legal notice
+        'ownership-offered' => 'account', 'ownership-transferred' => 'account', 'owner-recovery-opened' => 'security.login', 'member-mfa-reset' => 'security.login', // TASK-0042: the owner recovery notice is a security notice
     ];
 
     public function notify(string $audience, string $kind, string $title, ?string $body = null, ?string $surface = null, ?string $organizationId = null, ?string $userId = null, ?string $refType = null, ?string $refId = null, ?string $event = null, string $severity = 'info', string $locale = 'cs'): ?Notification

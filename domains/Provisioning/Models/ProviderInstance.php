@@ -24,6 +24,20 @@ final class ProviderInstance extends Model
 {
     protected static string $idPrefix = 'pvi';
 
+    // ── TASK-0045: a contained panel stays contained ──
+    /** Every state an instance can be in (the staff state action and the console list them). */
+    public const STATES = ['active', 'draining', 'maintenance', 'disabled', self::CONTAINED];
+
+    /**
+     * The owner's stop for a panel (staging pre-mortem 2026-09-27): nothing — no customer, no staff, not the system — is
+     * given an adapter for it, so no request and no stored credential goes to its host until staff lift it.
+     */
+    public const CONTAINED = 'contained';
+
+    /** States in which the registry refuses every caller (`disabled` used to be a label only). */
+    public const REFUSED_STATES = ['disabled', self::CONTAINED];
+    // ── end TASK-0045 ──
+
     protected $table = 'provider_instances';
 
     protected function casts(): array
@@ -43,6 +57,18 @@ final class ProviderInstance extends Model
     public function scopePlatform(Builder $query): Builder
     {
         return $query->whereNull('organization_id');
+    }
+
+    /** Instances the platform may call at all: not disabled, not contained (TASK-0045). */
+    public function scopeAllowedToCall(Builder $query): Builder
+    {
+        return $query->whereNotIn('state', self::REFUSED_STATES);
+    }
+
+    /** Whether every caller is refused this instance (TASK-0045): `disabled` or `contained`. */
+    public function isRefused(): bool
+    {
+        return in_array($this->state, self::REFUSED_STATES, true);
     }
 
     public function isCustomerOwned(): bool

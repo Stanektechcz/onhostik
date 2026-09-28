@@ -110,11 +110,15 @@ final class ProjectService
         }
 
         return DB::transaction(function () use ($organization, $project, $user, $roleKey, $context, $accessUntil) {
+            $existing = ProjectMembership::query()->where('project_id', $project->id)->where('user_id', $user->id)->first();
+            if ($existing !== null && ($existing->role_key !== $roleKey || $existing->expires_at?->toIso8601String() !== $accessUntil?->toIso8601String())) {
+                app(AccessSnapshots::class)->take($organization, $user->id, 'project_role_changed', $context); // I10 (TASK-0042)
+            }
             $membership = ProjectMembership::query()->updateOrCreate(['project_id' => $project->id, 'user_id' => $user->id], ['role_key' => $roleKey, 'expires_at' => $accessUntil]);
             PolicyBinding::query()->where('principal_type', 'user')->where('principal_id', $user->id)->where('scope_type', 'project')->where('scope_id', $project->id)->delete();
             PolicyBinding::query()->create([
                 'principal_type' => 'user', 'principal_id' => $user->id, 'role_key' => $roleKey,
-                'scope_type' => 'project', 'scope_id' => $project->id, 'organization_id' => $organization->id, 'granted_by' => $context->actorId, 'expires_at' => $accessUntil,
+                'scope_type' => 'project', 'scope_id' => $project->id, 'organization_id' => $organization->id, 'granted_by' => $context->onBehalfOfUserId ?? $context->actorId, 'expires_at' => $accessUntil,
             ]);
             $this->audit->record($context->withScope($organization->id, $project->id), 'project.member.add', 'succeeded', ['user_id' => $user->id, 'role' => $roleKey, 'access_until' => $accessUntil?->toIso8601String()], 'project', $project->id);
 
@@ -126,6 +130,9 @@ final class ProjectService
     {
         $this->assertOwned($organization, $project);
         DB::transaction(function () use ($organization, $project, $user, $context) {
+            if (ProjectMembership::query()->where('project_id', $project->id)->where('user_id', $user->id)->exists()) {
+                app(AccessSnapshots::class)->take($organization, $user->id, 'project_role_removed', $context); // I10 (TASK-0042)
+            }
             ProjectMembership::query()->where('project_id', $project->id)->where('user_id', $user->id)->delete();
             PolicyBinding::query()->where('principal_type', 'user')->where('principal_id', $user->id)->where('scope_type', 'project')->where('scope_id', $project->id)->delete();
             $this->audit->record($context->withScope($organization->id, $project->id), 'project.member.remove', 'succeeded', ['user_id' => $user->id], 'project', $project->id);

@@ -1028,7 +1028,7 @@ Artisan::command('onhost:access:expire', function (AccessExpiry $expiry, Automat
     $stats = $expiry->sweep() + ['shared_services' => $shared->expire()]; // one service shared until a date: the binding stopped at that second, this closes the record and lets a guest go
     $stats['approvals'] = app(ApprovalService::class)->expire(); // a request for a second person nobody decided in time (it stopped being usable at that second by itself)
     $ledger->record('access.expire', $stats);
-    $this->table(['memberships', 'project_roles', 'errors', 'shared_services', 'approvals'], [$stats]);
+    $this->table(['memberships', 'project_roles', 'errors', 'snapshots_pruned', 'shared_services', 'approvals'], [$stats]);
 })->purpose('Remove memberships and project roles whose access ended on its date, with the panel accounts and SSH keys that were theirs');
 
 /*

@@ -208,6 +208,41 @@ issued document changes.
   customer's panel needs an open ticket the customer opened about that service, a reason, and without the customer's consent a
   second person; the customer is told at once (in-app and a mail to the owner).
 
+## 8. Operator steps of Slice 1 of the permission program (TASK-0042)
+
+S1-01 and S1-02 (`docs/security/permission-program-2026-09-27.md`, Slice-1 status block; ADR-0009 "Slice 1 outcome";
+integration notes `docs/security/grant-policy.md`). They ride on the Phase-0 chain, so every step of §7 comes first. Nothing
+in this release revokes anybody's current access: the only switch that would is off, and its dry run comes first. **Slice 1 is
+not signed off:** S1-07 is open and the MEDIUMs of `docs/runbooks/breach-register.md` "Still open after Slice 1" have no fix.
+
+| Step | Read first | Switch / command | Verify | Status |
+| --- | --- | --- | --- | --- |
+| Deploy Slice 1: migrations `000900` (tables `access_snapshots`, `ownership_transfers`, `owner_recoveries`, additive) and `000910` (nullable `access_snapshots.taken_by_role`); `NotificationTemplateSeeder` (mail templates `ownership-offered`, `ownership-transferred`, `owner-recovery-opened`, `member-mfa-reset`) | release notes below | `infra/aapanel/deploy.sh` (migrations; run the notification seeder as usual); no switch | the three tables exist and are empty; `php artisan onhost:access:expire` prints the column `snapshots_pruned`; the four templates are listed | operator |
+| Environment | `.env.example` (block TASK-0042) | `ONHOST_GRANT_CASCADE_ENABLED=false` (default), `ONHOST_OWNER_RECOVERY_DAYS=7` (never below 7; a lower value is raised to 7) | `config('onhost.grants')` shows `cascade_enabled` false and `owner_recovery_days` ≥ 7 | operator |
+| Grants no longer backed by who gave them (TD-6, I6) — the backlog from before the release included | `docs/security/grant-policy.md` §2 | `php artisan operator:grants:cascade --dry-run [--organization=org_…]` (read-only; `--apply` is refused by design) → tell the organizations concerned → decide on `ONHOST_GRANT_CASCADE_ENABLED=true` | the switch acts only on the **next** loss of a grantor, never retroactively: the listed backlog stays active until each organization removes it (or a later loss revokes it); every revocation leaves a snapshot one restore away | owner-decision |
+| Staff procedure: a lost customer owner (D21) | `docs/security/grant-policy.md` §5 | `POST /v1/staff/customers/{organization}/owner-recovery` `{mode: mfa_reset\|transfer, new_owner_user_id?, reason (≥10), ticket_ref}` → a second person approves (`approval_required` first; the sole approver's time lock with `ONHOST_FOUR_EYES=false`) → after the notice period `…/owner-recovery/complete`; support cancels with `DELETE …/owner-recovery` | `iam.mfa.reset` of a customer owner answers 409 `owner_recovery_required`; every member of every reached organization got `owner-recovery-opened`; the organization is on hold (`owner_recovery_hold`) until it completes or is cancelled. **Until the breach-register MEDIUM is fixed:** the approving second person must not be the owner, the heir or a member of a reached organization — check it by hand | operator |
+| Staff procedure: MFA reset of anybody else | `docs/security/grant-policy.md` §5 | `POST /v1/staff/users/{user}/mfa-reset` `{reason}` — CRITICAL (a second person) for a staff account and for a member manager | the person's organizations are told (`member-mfa-reset`). **Until the breach-register MEDIUMs are fixed:** a member without member management (e.g. a developer with console on every service) is reset by one person, and the reset leaves their sessions and tokens — end them by hand when the device was stolen | operator |
+| API tokens of removed members | release notes below | none: from this release a removal revokes the person's tokens bound to the organization (a demotion those the new role cannot carry); removals before the deploy are untouched | a token of a member removed after the deploy carries `revoked_at` and is refused; restoring the member does not bring it back | operator |
+| Slice 1 sign-off | the program's Slice-1 status block; `breach-register.md` "Still open after Slice 1"; audit rows 134–136 | S1-03 … S1-06, S1-08 … S1-10 built or decided; S1-07 run again with no open HIGH; the Slice-1 MEDIUMs fixed with failing-first tests; an independent review of `2856e3c` | the Slice-1 list of the breach register is empty and the review passes | open |
+
+### Release note: Slice 1 of the permission program
+
+From `docs/security/grant-policy.md` §7. No plan, price or issued document changes.
+
+- Nobody's current access changes with this release; no grant is revoked (the cascade switch is off).
+- Handing over ownership needs the new owner to accept it (they get a mail).
+- A member with access until a date can no longer hand out access — invitations, project roles, shares, API tokens — that lasts
+  longer than their own; the end is shortened automatically and shown.
+- Removing a member or changing their role can be undone for 90 days, by somebody whose role covers the one that made the change
+  (the owner's removals by the owner). A removed member's API tokens of the organization stop for good, also when the access is
+  restored; a demoted member's tokens that need the old role stop too.
+- An admin who could not grant the console cannot take it from somebody else by re-sharing or revoking.
+- A lost owner is recovered by support only with a week's notice to everybody in every organization the owner owns or manages,
+  and any of their admins can stop it.
+- Support resetting the second factor of an administrator or of a staff account takes a second person, and the organization's
+  owner and admins are told of any member's reset.
+- There is no screen for these yet: undo, the ownership offer and the recovery notice are API endpoints until the access
+  wizard (S1-04).
 ## One report of how the installation stands
 
 `php artisan onhost:staging:report --check` asks every panel the read-only questions (`SelfProbing`), runs the doctor

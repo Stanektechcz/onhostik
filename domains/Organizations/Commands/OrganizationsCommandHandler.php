@@ -8,12 +8,16 @@ use Illuminate\Support\Carbon;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Incidents\OrganizationStatusService;
 use Onhost\Domain\Notifications\CalendarFeed;
+use Onhost\Domain\Organizations\AccessSnapshots;
 use Onhost\Domain\Organizations\GrantPolicy;
+use Onhost\Domain\Organizations\Models\AccessSnapshot;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationInvitation;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Organizations\Models\Project;
 use Onhost\Domain\Organizations\OrganizationService;
+use Onhost\Domain\Organizations\OwnerRecoveries;
+use Onhost\Domain\Organizations\OwnershipTransfers;
 use Onhost\Domain\Organizations\ProjectService;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Platform\Commands\Command;
@@ -61,9 +65,9 @@ final class OrganizationsCommandHandler implements CommandHandler
             'restore_project' => ['project' => $this->projects->restore($organization, $this->project($organization, $command), $context)],
             'add_project_member' => (function () use ($organization, $command, $context) {
                 [$project, $target, $role] = [$this->project($organization, $command), $this->user($command), (string) $command->get('role', 'viewer')];
-                $this->grants->assertMayGrantProjectRole($organization, $project, $context, $target, $role);
+                $until = $this->grants->assertMayGrantProjectRole($organization, $project, $context, $target, $role, self::until($command)); // I5: no later than the grantor's own end
 
-                return ['membership' => $this->projects->addMember($organization, $project, $target, $role, $context, self::until($command))];
+                return ['membership' => $this->projects->addMember($organization, $project, $target, $role, $context, $until)];
             })(),
             'remove_project_member' => (function () use ($organization, $command, $context) {
                 [$project, $target] = [$this->project($organization, $command), $this->user($command)];
@@ -74,12 +78,16 @@ final class OrganizationsCommandHandler implements CommandHandler
             })(),
             'assign_service_project' => ['service' => $this->projects->assignService($organization, $this->service($organization, $command), $command->get('project_id') ? $this->project($organization, $command) : null, $context)],
             'rotate_calendar_feed' => ['feed' => $this->calendar->rotate($organization, $context)],
-            'transfer_ownership' => (function () use ($organization, $command, $context) {
-                $heir = $this->user($command);
-                $this->grants->assertMayTransferOwnership($organization, $context, $heir);
+            // TASK-0042 (I4, audit TD-9): an offer the heir accepts (OwnershipCommand), never a move made for them
+            'transfer_ownership' => ['transfer' => OwnershipTransfers::present(app(OwnershipTransfers::class)->offer($organization, $this->user($command), $context))],
+            'restore_access' => (function () use ($organization, $command, $context) {
+                OwnerRecoveries::assertNoHold($organization, 'access_restore'); // nobody is let back in while the owner is being recovered
+                $snapshot = AccessSnapshot::query()->where('organization_id', $organization->id)->find((string) $command->get('snapshot_id')) ?? throw DomainError::notFound('access snapshot');
+                $this->grants->assertMayRestore($organization, $context, $snapshot);
 
-                return ['organization' => $this->organizations->transferOwnership($organization, $heir, $context)];
+                return app(AccessSnapshots::class)->restore($organization, $snapshot, $context);
             })(),
+            'cancel_owner_recovery' => ['recovery' => OwnerRecoveries::present(app(OwnerRecoveries::class)->cancel($organization, $context))],
             default => throw new DomainError('organization_op_unknown', "Unknown organization operation {$command->op()}.", 422),
         };
     }
@@ -88,9 +96,9 @@ final class OrganizationsCommandHandler implements CommandHandler
     private function invite(Organization $organization, OrganizationCommand $command, CommandContext $context): array
     {
         $role = (string) $command->get('role', 'viewer');
-        $this->grants->assertMayInvite($organization, $context, $role);
+        $until = $this->grants->assertMayInvite($organization, $context, $role, self::until($command)); // I5: the membership offered ends no later than the inviter's
 
-        return $this->organizations->invite($organization, (string) $command->get('email'), $role, $context, self::until($command));
+        return $this->organizations->invite($organization, (string) $command->get('email'), $role, $context, $until);
     }
 
     /** An absent access_until keeps the end the member has; `null` removes it. @return array{membership: OrganizationMembership} */
@@ -98,9 +106,11 @@ final class OrganizationsCommandHandler implements CommandHandler
     {
         $target = $this->user($command);
         $role = (string) $command->get('role');
-        $this->grants->assertMayChangeRole($organization, $context, $target, $role);
+        $membership = $this->grants->assertMayChangeRole($organization, $context, $target, $role);
+        // I5 (TASK-0042): the end asked for — or, when none is sent, the one the member has — no later than the changer's own
+        $end = $this->grants->membershipEnd($organization, $context, $target, $role, array_key_exists('access_until', $command->payload) ? self::until($command) : $membership->expires_at);
 
-        return ['membership' => $this->organizations->changeRole($organization, $target, $role, $context, array_key_exists('access_until', $command->payload), self::until($command))];
+        return ['membership' => $this->organizations->changeRole($organization, $target, $role, $context, true, $end)];
     }
 
     /** The date an access ends (H343); the controller has validated it as a future date. */

@@ -1,12 +1,14 @@
 # ADR-0009 — The permission and delegation program: one enforcement point, a hard tenant boundary, honest recovery
 
 **Status:** accepted (2026-09-27). Phase 0 built in TASK-0033 … TASK-0041 and integrated in one chain (PR #25 + the local
-commits on top of `45017b7`), **not signed off** (see "Phase 0 outcome"). Slices 1–5 not started. · **Decided by:** the owner
+commits on top of `45017b7`), **not signed off** (see "Phase 0 outcome"). Slice 1: S1-01 and S1-02 built in TASK-0042 on top of that chain, **not signed off**
+(see "Slice 1 outcome"); the rest of Slice 1 and Slices 2–5 not started. · **Decided by:** the owner
 delegated the whole program to Claude ("celé to promysli"); the orchestrator wrote it with independent critics and a judge who
 ruled on 45 objections; the owner's twelve questions (§10) are decided by their stated defaults. · **Recorded by:** the docs
 commits on the Phase-0 chain (first on `fix/TASK-0041-wave-one-leftovers-of-the-permission-pro`, the outcome on
-`fix/TASK-0039-staff-act-as-staff-and-a-token-only-for` after `650f675`) · **Built by:** TASK-0033, TASK-0034, TASK-0035,
-TASK-0036, TASK-0037, TASK-0038, TASK-0040, TASK-0041, TASK-0039
+`fix/TASK-0039-staff-act-as-staff-and-a-token-only-for` after `650f675`; the Slice-1 addendum on
+`feat/TASK-0042-grants-follow-one-policy-and-access-can` after `96d7930`) · **Built by:** TASK-0033, TASK-0034, TASK-0035,
+TASK-0036, TASK-0037, TASK-0038, TASK-0040, TASK-0041, TASK-0039, TASK-0042
 
 The program itself, with every exploit, fix, task and ruling: [`docs/security/permission-program-2026-09-27.md`](../security/permission-program-2026-09-27.md).
 This record keeps the decisions, not the evidence.
@@ -82,11 +84,11 @@ dry-run operator command, issued documents are append-only, published plan versi
 
 ## Decisions
 
-The decisions D1–D21 of the program (§4), as they stand after Phase 0:
+The decisions D1–D21 of the program (§4), as they stand after Phase 0 and S1-01/S1-02:
 
 | # | Decision | State |
 | --- | --- | --- |
-| D1 | One `GrantPolicy` decides every grant, change and removal (I1–I12). | Skeleton + IF-1..IF-3 built (TASK-0036); every grant path compares the person acted for (TASK-0041 (f)). Full invariants: S1-01. |
+| D1 | One `GrantPolicy` decides every grant, change and removal (I1–I12). | Skeleton + IF-1..IF-3 built (TASK-0036); every grant path compares the person acted for (TASK-0041 (f)). Full invariants I1–I12 on every entry point: TASK-0042 (S1-01, `GrantMatrixTest`); the grantor-loss cascade revokes only behind `ONHOST_GRANT_CASCADE_ENABLED`. |
 | D2 | Mode-aware Authorizer; staff roles lose customer-audience keys and gain `staff.*`; shadow log before enforcement. | Built (TASK-0039): `StaffActor` and staff mode on `/v1/staff/*` only, asking staff keys (P0-16 re-check `c4c43e2`); staff reach on customer keys is shadow-logged and still allowed until `ONHOST_STAFF_REACH_ENFORCED=true` (default off); P0-15 not started. |
 | D3 | Tokens, Discord links and hooks are narrowed views bound to one organization. | Discord/hooks re-check the current membership (TASK-0035); a token sees only its organization (TASK-0039). Open: tokens bound to no organization until `ONHOST_TOKEN_ORGANIZATION_REQUIRED=true`, and `GET /v1/me` lists the person's other organizations to a token (re-check MEDIUM). |
 | D4 | Customer granularity = closed family × level matrix + `svc_operate`; free custom roles deferred. | Slice 1 (S1-03), not started. |
@@ -106,7 +108,7 @@ The decisions D1–D21 of the program (§4), as they stand after Phase 0:
 | D18 | Staff ticket/backup/billing read keys before customer keys leave staff roles. | Done (TASK-0037). |
 | D19 | Ticket visibility scoped per queue/category (staff) and per service/project (customers). | S1-09, S2-09, not started. |
 | D20 | Revocation also kills live sessions (console relay, console tickets, panel SSO). | S1-08, not started. |
-| D21 | `OwnerRecoveryCommand` for a genuinely lost owner. | S1-02, not started. |
+| D21 | `OwnerRecoveryCommand` for a genuinely lost owner. | Built (TASK-0042, S1-02; `AccessRestoreTest`). Open (MEDIUM): the approving second person may be a party; a transfer needs no acceptance by the heir; the recovered account can cancel without limit. |
 
 ## The judge's rulings
 
@@ -157,6 +159,51 @@ PA-04 for tokens bound to no organization are logged and still allowed until the
 and `ONHOST_TOKEN_ORGANIZATION_REQUIRED`; (2) the `GET /v1/me` MEDIUM has no fix; (3) `c4c43e2` has had no independent review of
 its own; (4) the forensic baseline and the owner's Art. 33 decision are open. Phase 0 is signed off when the breach register's
 open list is empty, `/v1/me` is fixed with a failing-first test, and a read-only review of the fixes passes.
+
+## Slice 1 outcome (addendum, 2026-09-27)
+
+Recorded by the Slice-1 docs commit on `feat/TASK-0042-grants-follow-one-policy-and-access-can` (after `96d7930`), stacked on
+the Phase-0 chain for PR #25 (`173b40b`); local, not pushed, not merged. Status per S1 key: the program's
+[Slice-1 status block](../security/permission-program-2026-09-27.md). Integration and release notes:
+[grant-policy.md](../security/grant-policy.md).
+
+| Task | Program keys | Outcome |
+| --- | --- | --- |
+| TASK-0042 | S1-01, S1-02 / D1, D21; TD-6, TD-7, TD-9 | `GrantPolicy` decides every entry point against I1–I12, proven cell by cell (`GrantMatrixTest`); acceptance runs through the bus (`AcceptInvitationCommand`); an access snapshot precedes every removal and role change and restores it exactly for 90 days; ownership moves in two steps; a lost owner is recovered by a CRITICAL, seven-day, cancellable `OwnerRecoveryCommand`; the grantor-loss cascade records by default and revokes only behind a switch. |
+
+**Decisions taken in Slice 1** (by the delegation of the program; each is in `docs/security/grant-policy.md`):
+
+- **Wrap first, tighten after.** New refusals only for illegitimate grants (I3 `share_above_own`, I12 `reshare_too_deep`, I11
+  `invalid_role` for a staff account, I8 for a token of a non-member, an ownership offer to oneself). I5 never refuses: the end
+  of a grant is clamped to the grantor's own and the answer carries the effective end.
+- **TD-6 ships as a record, not a revocation.** Pending grants of a grantor who lost the right are cancelled; active ones are
+  written (`organization.grant.cascade.flag`, `organization.grants.unbacked`) and revoked only with
+  `ONHOST_GRANT_CASCADE_ENABLED=true` (default off), each revocation behind its own snapshot. The switch acts on the next loss,
+  never retroactively; `operator:grants:cascade --dry-run` lists the backlog and has no `--apply`. Reason: a surprise revocation
+  of a whole team is the program's named risk for S1-02.
+- **A snapshot is a state.** A restore gives back exactly what was taken (membership, end, bindings, project roles, shares) and
+  takes away what the person holds now and the snapshot lacks; the restorer must cover each of those (I3), and — S1-07 — the
+  role the undone change was made with (`access_snapshots.taken_by_role`). Every loss a restore makes publishes the event of its
+  own command (`via: access_restore`), so panel keys and sub-users follow. Not restored: SSH keys and sub-users the listeners
+  took off the panels, Discord links, hooks and API tokens.
+- **A removal ends the person's API tokens of the organization for good** (S1-07); a demotion ends those whose scopes the new
+  role cannot carry. Tokens bound to no organization stay PA-04's (Phase 0, `ONHOST_TOKEN_ORGANIZATION_REQUIRED`).
+- **Owner recovery (D21).** CRITICAL (a second person, or the sole approver's time lock), at least seven days of notice
+  (`ONHOST_OWNER_RECOVERY_DAYS`, floor 7) to every member of every organization it reaches; an MFA recovery reaches every
+  organization the owner owns or manages; any member manager cancels; tokens, exports, ownership and restores are held
+  meanwhile; a staff party neither opens nor completes it; `iam.mfa.reset` of a customer owner outside it is refused; a
+  transfer-mode recovery takes the previous owner out (the account may be the hijacked one).
+- **An MFA reset of a staff account or a member manager is CRITICAL**, and every organization of the person is told.
+
+**Review and red team.** Review round 1 (security, reviewer, qa on `7752f41`): seven findings, all fixed in `df1f6d3`. The
+re-review of `df1f6d3` left one MEDIUM open: the second person of an owner recovery is not checked for being a party. S1-07
+(three lenses on `903ad07`): CHANGES_REQUESTED in all three; the four HIGH are fixed in `2856e3c` with failing-first tests; the
+tokens-and-automation lens had nothing to review (no S1-05/S1-06), so **S1-07 stays open**; seven MEDIUM and several LOW
+findings have no fix (program status block; breach register "Still open after Slice 1").
+
+**Slice 1 is not signed off.** It is signed off when S1-03 … S1-06 and S1-08 … S1-10 are built or decided, S1-07 has run again
+on all of them with no open HIGH, the MEDIUMs of the breach register's Slice-1 list are fixed with failing-first tests, and
+`2856e3c` has had an independent read-only review.
 
 ## Owner questions: the defaults taken by delegation
 
@@ -209,3 +256,9 @@ default of §10 is the decision:
   unknowns); both decide how exploitable the P0-08 holes were before the Phase-0 deploy (the look-back reads it).
 - When the operator turns on `ONHOST_STAFF_REACH_ENFORCED` (after P0-15) and `ONHOST_TOKEN_ORGANIZATION_REQUIRED` (after the
   token notice); until then those two holes are only logged.
+- When the operator turns on `ONHOST_GRANT_CASCADE_ENABLED` (after `operator:grants:cascade --dry-run` was reviewed and the
+  organizations concerned were told); until then TD-6 is only recorded. What happens to the backlog recorded before the switch
+  (it is never re-examined by the switch itself) is open with it.
+- The Slice-1 MEDIUMs of the breach register (owner-recovery approver as a party, transfer without the heir's acceptance,
+  unlimited cancel by the recovered account, one-person MFA reset of a developer with console reach, a restore reviving
+  security revocations, a restore of a member who left on their own) — each needs its own task.

@@ -7,15 +7,21 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Presenters\Presenters;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
+use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Notifications\DigestService;
+use Onhost\Domain\Organizations\AccessSnapshots;
+use Onhost\Domain\Organizations\Commands\AcceptInvitationCommand;
 use Onhost\Domain\Organizations\Commands\CreateOrganizationCommand;
 use Onhost\Domain\Organizations\Commands\OrganizationCommand;
+use Onhost\Domain\Organizations\Commands\OwnershipCommand;
+use Onhost\Domain\Organizations\Models\AccessSnapshot;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationInvitation;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Organizations\Models\Project;
-use Onhost\Domain\Organizations\OrganizationService;
-use Onhost\Domain\Services\Access\ServiceAccessService;
+use Onhost\Domain\Organizations\OwnerRecoveries;
+use Onhost\Domain\Organizations\OwnershipTransfers;
 use Onhost\Platform\Audit\AuditEvent;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
@@ -50,7 +56,12 @@ final class OrganizationController extends ApiController
         $invitations = OrganizationInvitation::query()->where('organization_id', $org->id)->whereNull('accepted_at')->where('expires_at', '>', now())->orderBy('created_at')->get()
             ->map(fn ($i) => ['id' => $i->id, 'email' => $i->email, 'role' => $i->role_key, 'expires_at' => $i->expires_at?->toIso8601String(), 'access_until' => $i->access_expires_at?->toIso8601String(), 'created_at' => $i->created_at?->toIso8601String()])->all();
 
-        return response()->json(['data' => Presenters::organization($org) + ['members' => $members, 'projects' => $projects, 'invitations' => $invitations]]);
+        // TASK-0042: an ownership offer waiting for its heir and an owner recovery in its notice period are shown to every member
+        $transfer = app(OwnershipTransfers::class)->current($org);
+        $recovery = OwnerRecoveries::pending($org);
+
+        return response()->json(['data' => Presenters::organization($org) + ['members' => $members, 'projects' => $projects, 'invitations' => $invitations,
+            'ownership_transfer' => $transfer === null ? null : OwnershipTransfers::present($transfer), 'owner_recovery' => $recovery === null ? null : OwnerRecoveries::present($recovery)]]);
     }
 
     public function cancelInvitation(Request $request, string $organization, string $invitation): JsonResponse
@@ -84,14 +95,78 @@ final class OrganizationController extends ApiController
         return $this->dispatch(new OrganizationCommand($org->id, $this->idempotencyKey($request, 'org.invite'), ['op' => 'invite'] + $data), $this->api->context($request, $org), 201);
     }
 
-    public function acceptInvitation(Request $request, OrganizationService $organizations, ServiceAccessService $access): JsonResponse
+    /**
+     * TASK-0042 (permission program I8, S1-02; audit TD-7): the link is accepted through the bus — audited as the person who
+     * clicked, the sender re-checked at that moment, the services shared with the address activated as far as their sharer still
+     * backs them. The answer is the one it always was.
+     */
+    public function acceptInvitation(Request $request): JsonResponse
     {
-        $data = $request->validate(['token' => ['required', 'string']]);
-        $user = $this->api->user($request);
-        $membership = $organizations->acceptInvitation($data['token'], $user, $this->api->context($request));
-        $shared = $access->activatePending($user, Organization::query()->findOrFail($membership->organization_id)); // services that were shared with this address while it had no membership
+        $data = $request->validate(['token' => ['required', 'string', 'max:200']]);
+        $this->api->user($request);
+        // a key of its own per click: accepting is idempotent by the link itself (it is spent once), and a replayed "accepted" for a
+        // link that is dead since — the person was removed meanwhile — would say something that is no longer true
+        $result = $this->bus->dispatch(new AcceptInvitationCommand('org.invite.accept:'.Str::ulid(), ['token' => $data['token']]), $this->api->context($request));
 
-        return response()->json(['data' => ['organization_id' => $membership->organization_id, 'role' => $membership->role_key, 'shared_services' => $shared]]);
+        return response()->json(['data' => $result]);
+    }
+
+    /** The access snapshots of the organization's people (I10): what was taken away in the last 90 days and how to give it back. */
+    public function accessSnapshots(Request $request, AccessSnapshots $snapshots, string $organization): JsonResponse
+    {
+        $org = $this->resolve($request, $organization, 'organization.members.manage');
+        $rows = AccessSnapshot::query()->where('organization_id', $org->id)->where('expires_at', '>', now())->orderByDesc('created_at')->limit(200)->get();
+        $users = User::query()->whereIn('id', $rows->pluck('user_id')->unique()->all())->get()->keyBy('id');
+
+        return response()->json(['data' => $rows->map(fn (AccessSnapshot $s) => $snapshots->present($s, $users->get($s->user_id)))->values()->all()]);
+    }
+
+    /** Gives a person back exactly what a snapshot recorded (GrantPolicy::assertMayRestore; HIGH). */
+    public function restoreAccess(Request $request, string $organization): JsonResponse
+    {
+        $org = $this->resolve($request, $organization, 'organization.members.manage');
+        $data = $request->validate(['snapshot_id' => ['required', 'string', 'max:40']]);
+
+        return $this->dispatch(new OrganizationCommand($org->id, $this->idempotencyKey($request, 'org.access.restore:'.$data['snapshot_id']), ['op' => 'restore_access', 'snapshot_id' => $data['snapshot_id']]), $this->api->context($request, $org));
+    }
+
+    /** The owner offers the ownership to a current member (I4, TD-9); nothing moves until the member accepts. */
+    public function offerOwnership(Request $request, string $organization): JsonResponse
+    {
+        $org = $this->resolve($request, $organization, 'organization.close');
+        $data = $request->validate(['user_id' => ['required', 'string', 'max:40']]);
+
+        return $this->dispatch(new OwnershipCommand($org->id, $this->idempotencyKey($request, 'org.ownership.offer'), ['op' => 'offer', 'user_id' => $data['user_id']]), $this->api->context($request, $org), 201);
+    }
+
+    public function acceptOwnership(Request $request, string $organization): JsonResponse
+    {
+        return $this->ownership($request, $organization, 'accept', 'organization.read');
+    }
+
+    public function declineOwnership(Request $request, string $organization): JsonResponse
+    {
+        return $this->ownership($request, $organization, 'decline', 'organization.read');
+    }
+
+    public function cancelOwnership(Request $request, string $organization): JsonResponse
+    {
+        return $this->ownership($request, $organization, 'cancel', 'organization.close');
+    }
+
+    /** Any member manager (an org_admin, the owner) stops an owner recovery during its notice period (D21). */
+    public function cancelOwnerRecovery(Request $request, string $organization): JsonResponse
+    {
+        $org = $this->resolve($request, $organization, 'organization.members.manage');
+
+        return $this->dispatch(new OrganizationCommand($org->id, $this->onceKey($request, 'org.owner_recovery.cancel'), ['op' => 'cancel_owner_recovery']), $this->api->context($request, $org));
+    }
+
+    private function ownership(Request $request, string $organization, string $op, string $permission): JsonResponse
+    {
+        $org = $this->resolve($request, $organization, $permission);
+
+        return $this->dispatch(new OwnershipCommand($org->id, $this->onceKey($request, 'org.ownership.'.$op), ['op' => $op]), $this->api->context($request, $org));
     }
 
     public function changeRole(Request $request, string $organization, string $user): JsonResponse

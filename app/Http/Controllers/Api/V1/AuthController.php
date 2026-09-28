@@ -8,12 +8,14 @@ use App\Http\Middleware\RememberReferral;
 use App\Http\Presenters\Presenters;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
 use Onhost\Domain\Identity\ApiAccessRevocation;
+use Onhost\Domain\Identity\Authorization\TokenScopes;
 use Onhost\Domain\Identity\Models\EmailVerificationToken;
 use Onhost\Domain\Identity\Models\PersonalAccessToken;
 use Onhost\Domain\Identity\Models\User;
@@ -21,6 +23,7 @@ use Onhost\Domain\Identity\Notifications\PasswordResetNotification;
 use Onhost\Domain\Identity\Notifications\VerifyEmailNotification;
 use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Loyalty\ReferralService;
+use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Domain\Partners\PartnerService;
@@ -141,11 +144,45 @@ final class AuthController extends ApiController
 
         return response()->json(['data' => [
             'user' => Presenters::user($user),
-            'organizations' => $memberships->map(fn ($m) => $m->organization ? Presenters::organization($m->organization, $m->role_key) : null)->filter()->values()->all(),
+            'organizations' => $this->organizationsOf($request, $memberships, $current),
             'organization' => $current ? Presenters::organization($current, $memberships->firstWhere('organization_id', $current->id)?->role_key) : null,
             'step_up' => $grant ? ['method' => $grant->method, 'expires_at' => $grant->expires_at?->toIso8601String()] : null,
             'surface' => $user->is_staff ? 'admin' : 'panel',
         ]]);
+    }
+
+    /**
+     * TASK-0046 (permission program P0-09, PA-04; P0-16 re-check MEDIUM): the organizations GET /v1/me names. The route is open to
+     * tokens and answered every current membership of the token's person with the full organization record — billing e-mail,
+     * company and VAT ids, address, settings, the role there — so a token bound to organization A read organization B.
+     *
+     *  · the portal's own session is the person: every membership in full, as before;
+     *  · a token bound to an organization acts for that one only (ApiContext::tokenOrganization): that membership, nothing else;
+     *  · a token bound to none (older rows, until `onhost.token_organization_required` is switched on) still acts for every
+     *    organization of its person, so it keeps the list — the one acted for in full, every other by id and name only, which
+     *    is what a client needs to choose one with `X-Organization`, not their billing identity.
+     *
+     * @param  Collection<int, OrganizationMembership>  $memberships
+     * @return list<array<string, mixed>>
+     */
+    private function organizationsOf(Request $request, Collection $memberships, ?Organization $current): array
+    {
+        $token = TokenScopes::tokenOf($request->user());
+        $own = $token?->organization_id === null ? null : (string) $token->organization_id;
+        $out = [];
+        foreach ($memberships as $membership) {
+            $organization = $membership->organization;
+            if (! $organization instanceof Organization) {
+                continue;
+            }
+            if ($token === null || $organization->id === $current?->id) {
+                $out[] = Presenters::organization($organization, $membership->role_key);
+            } elseif ($own === null) {
+                $out[] = ['id' => $organization->id, 'name' => $organization->name];
+            }
+        }
+
+        return $out;
     }
 
     public function stepUp(Request $request, StepUpService $stepUp, AuditRecorder $audit): JsonResponse

@@ -373,6 +373,9 @@ final class BackupScheduler
         $after = null;
         do {
             $batch = Service::query()->whereIn('family', $families)->whereIn('state', [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED])->whereNotNull('provider_instance_id')
+                // TASK-0045: nothing of a contained (or disabled) panel — no backup started, none pruned or copied off-site through
+                // it, and no missed slot written to the customer: the owner stopped the panel, the schedule did not fail
+                ->whereNotIn('provider_instance_id', ProviderInstance::query()->whereIn('state', ProviderInstance::REFUSED_STATES)->select('id'))
                 ->when($owned, fn ($q) => $q->whereHas('bindings'))
                 ->when($after !== null, fn ($q) => $q->where('id', '>', $after))
                 ->orderBy('id')->limit($chunk)->get();

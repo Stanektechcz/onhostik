@@ -31,7 +31,7 @@ declare(strict_types=1);
  *   override    --value V --sha S             validates "<sha12>:<reason of 10+ chars>", prints the reason [0 · 2]
  *   cookie      --down-file F --out F [--ttl s]  writes a curl config (-K) with the maintenance-bypass cookie (0600) [0 · 2]
  *   hint        --file last-good.json --production 0|1   prints the recovery command [0 · 1]
- *   names                                      prints the HARD, GATED and DRAINED lists as JSON (guard test) [0]
+ *   names                                      prints the HARD, GATED and DRAINED lists (and the drained families) as JSON [0]
  */
 
 final class OnhostDeployGate
@@ -66,6 +66,29 @@ final class OnhostDeployGate
         'automation|queue worker alive',
         'mail|outbox is leaving',
     ];
+
+    /**
+     * Liveness rows named per queue lane (TASK-0045): `automation|queue worker alive (<lane>)`, one per lane that has ever run
+     * on the target. Drained with their units like the aggregate row, so a name of this family is reported, not judged. Only
+     * this exact shape counts (a lane name in parentheses), and a lying target gains nothing: it could as well call a row OK.
+     */
+    public const DRAINED_FAMILIES = [
+        '/^automation\|queue worker alive \([a-z0-9][a-z0-9._-]{0,62}\)\z/', // \z, not $: a name ending in a newline is not this family
+    ];
+
+    public static function drained(string $name): bool
+    {
+        if (in_array($name, self::DRAINED, true)) {
+            return true;
+        }
+        foreach (self::DRAINED_FAMILIES as $pattern) {
+            if (preg_match($pattern, $name) === 1) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     public const REASON_MIN = 10;
 
@@ -108,7 +131,7 @@ final class OnhostDeployGate
             if ($status === 'OK' || in_array($name, self::HARD, true) || in_array($name, self::GATED, true)) {
                 continue;
             }
-            if (in_array($name, self::DRAINED, true)) {
+            if (self::drained($name)) {
                 fwrite(STDOUT, "REPORT {$name} ({$status}) — judged after the units start\n");
             } elseif ($production && $status !== 'FAIL') {
                 fwrite(STDOUT, "REPORT {$name} ({$status})\n"); // WARN is what the doctor itself calls non-blocking
@@ -211,7 +234,7 @@ final class OnhostDeployGate
             return 2;
         }
         foreach (self::rows($report) as $name => $status) {
-            if ($status === 'OK' || in_array($name, self::HARD, true) || in_array($name, self::DRAINED, true)) {
+            if ($status === 'OK' || in_array($name, self::HARD, true) || self::drained($name)) {
                 continue;
             }
             $gated = in_array($name, self::GATED, true);
@@ -733,7 +756,7 @@ final class OnhostDeployGate
             case 'hint':
                 return self::hint((string) ($opt['file'] ?? ''), ($opt['production'] ?? '1') !== '0');
             case 'names':
-                fwrite(STDOUT, (string) json_encode(['hard' => self::HARD, 'gated' => self::GATED, 'drained' => self::DRAINED], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)."\n");
+                fwrite(STDOUT, (string) json_encode(['hard' => self::HARD, 'gated' => self::GATED, 'drained' => self::DRAINED, 'drained_families' => self::DRAINED_FAMILIES], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)."\n");
 
                 return 0;
             default:

@@ -7,6 +7,7 @@ namespace Onhost\Domain\Billing;
 use Onhost\Domain\Billing\Models\DunningAction;
 use Onhost\Domain\Billing\Models\DunningCase;
 use Onhost\Domain\Billing\Models\Subscription;
+use Onhost\Domain\Invoicing\AccountingClock;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Notifications\MailHealth;
 use Onhost\Domain\Organizations\Models\Organization;
@@ -65,7 +66,9 @@ final class DunningService
                     continue;
                 }
             }
-            $days = (int) $case->due_at->copy()->startOfDay()->diffInDays(now()->startOfDay(), false);
+            // days in the calendar the invoice printed its due date in, not UTC days: a case due at 23:30 UTC is due the NEXT day
+            // in Prague, and counted from the UTC day every reminder, the suspension and the termination came a day early (TASK-0047)
+            $days = AccountingClock::daysBetween($case->due_at);
             $sent = array_map('intval', (array) ($case->notices_sent ?? []));
             foreach ($notices as $day) {
                 if ($days >= $day && ! in_array($day, $sent, true)) {

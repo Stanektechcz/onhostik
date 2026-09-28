@@ -8,6 +8,7 @@ use Onhost\Domain\Domains\Models\Domain;
 use Onhost\Domain\Domains\Models\RegistrarConnection;
 use Onhost\Domain\Domains\RegistrarClient;
 use Onhost\Domain\Integrations\DiscordMessage;
+use Onhost\Domain\Invoicing\AccountingClock;
 use Onhost\Domain\Notifications\Models\MailOutbox;
 use Onhost\Domain\Notifications\Models\Notification;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
@@ -30,7 +31,7 @@ it('connects a customer WEDOS account, mirrors domains and zones, warns before e
     $platform = ProviderInstance::query()->create(['key' => 'wedos-main', 'provider' => 'wedos', 'name' => 'WEDOS WAPI', 'base_url' => 'https://api.wedos.com/wapi/json', 'secret_ref' => 'env://WEDOS_MAIN', 'state' => 'active', 'capabilities' => ['registrar' => true], 'options' => []]);
     $state = [
         'domains' => [
-            ['name' => 'eshop.cz', 'status' => 'active', 'expiration' => now()->addDays(10)->toDateString(), 'created' => '2020-01-01'],
+            ['name' => 'eshop.cz', 'status' => 'active', 'expiration' => AccountingClock::now()->addDays(10)->toDateString(), 'created' => '2020-01-01'], // ten days in the calendar the panel counts in (TASK-0047)
             ['name' => 'blog.cz', 'status' => 'active', 'expiration' => now()->addYear()->toDateString(), 'created' => '2021-05-05'],
         ],
         'zones' => ['eshop.cz' => [['ID' => '11', 'name' => '', 'ttl' => 1800, 'rdtype' => 'A', 'rdata' => '203.0.113.5'], ['ID' => '12', 'name' => 'www', 'ttl' => 1800, 'rdtype' => 'CNAME', 'rdata' => 'eshop.cz.'], ['ID' => '13', 'name' => '', 'ttl' => 1800, 'rdtype' => 'MX', 'rdata' => '10 mail.eshop.cz.']]],

@@ -40,7 +40,7 @@ final class ControlPlaneStatus
         if ($instance->state === 'maintenance') {
             return self::row(false, 'maintenance', null, $instance->maintenance_until?->toIso8601String(), 'Na panelu probíhá údržba. Služba běží dál, jen její změny jsou dočasně pozastavené.');
         }
-        if ($instance->state === 'disabled') {
+        if ($instance->isRefused()) { // disabled or contained (TASK-0045): the registry refuses it to everybody
             return self::row(false, 'disabled', null, null, 'Správa služby je dočasně vypnutá. Služba sama tím není dotčena.');
         }
         if ($health !== null && $health->up === false) {

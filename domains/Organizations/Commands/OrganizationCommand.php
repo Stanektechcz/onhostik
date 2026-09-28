@@ -11,10 +11,12 @@ use Onhost\Platform\Commands\OrganizationCommand as BaseOrganizationCommand;
  *  update{…attributes} · invite{email,role} · cancel_invitation{invitation_id} · change_role{user_id,role} · remove_member{user_id} · create_project{name,…} · transfer_ownership{user_id}
  *  update_project{project_id,…} · archive_project/restore_project{project_id} · add_project_member{project_id,user_id,role} · remove_project_member{project_id,user_id}
  *  assign_service_project{service_id,project_id|null} · rotate_calendar_feed{}
+ *  restore_access{snapshot_id} · cancel_owner_recovery{} (TASK-0042, S1-02: an access snapshot given back; an org_admin stops a recovery)
+ * `transfer_ownership` OFFERS the ownership since TASK-0042 (I4, TD-9): the heir accepts with OwnershipCommand.
  */
 final class OrganizationCommand extends BaseOrganizationCommand
 {
-    public const OPS = ['update', 'invite', 'cancel_invitation', 'change_role', 'remove_member', 'create_project', 'update_project', 'archive_project', 'restore_project', 'add_project_member', 'remove_project_member', 'assign_service_project', 'rotate_calendar_feed', 'transfer_ownership'];
+    public const OPS = ['update', 'invite', 'cancel_invitation', 'change_role', 'remove_member', 'create_project', 'update_project', 'archive_project', 'restore_project', 'add_project_member', 'remove_project_member', 'assign_service_project', 'rotate_calendar_feed', 'transfer_ownership', 'restore_access', 'cancel_owner_recovery'];
 
     public function op(): string
     {
@@ -27,6 +29,8 @@ final class OrganizationCommand extends BaseOrganizationCommand
             // IF-3 (TD-3): a project role is a membership grant like any other — HIGH, with a fresh step-up, not the NORMAL
             // `project.manage` under which a project role that deletes VMs used to be handed out
             'invite', 'cancel_invitation', 'change_role', 'remove_member', 'add_project_member', 'remove_project_member' => 'organization.members.manage',
+            // TASK-0042: giving access back is a grant (HIGH, GrantPolicy::assertMayRestore); stopping an owner recovery is any member manager's
+            'restore_access', 'cancel_owner_recovery' => 'organization.members.manage',
             'create_project', 'update_project', 'archive_project', 'restore_project', 'assign_service_project' => 'project.manage',
             'transfer_ownership' => 'organization.close',
             default => 'organization.manage',

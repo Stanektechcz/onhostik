@@ -6,13 +6,15 @@ use Database\Seeders\CatalogSeeder;
 use Onhost\Domain\Domains\DomainStateMachine;
 use Onhost\Domain\Domains\Models\Domain;
 use Onhost\Domain\Domains\Models\RegistrarContact;
+use Onhost\Domain\Invoicing\AccountingClock;
 
 /** Panel domains are API-backed (seam #21): the payload carries the real domain state and TLD prices, the workbench module handles the domain family. */
 it('feeds the panel real domain rows, the TLD price list and a domain workbench', function () {
     $this->seed([CatalogSeeder::class]);
     [$user, $org] = $this->customerWithOrganization();
     $contact = RegistrarContact::query()->create(['organization_id' => $org->id, 'registrar_provider' => 'subreg', 'kind' => 'registrant', 'name' => 'Jana', 'email' => 'jana@example.cz', 'country' => 'CZ', 'state' => 'synced', 'remote_id' => 'G-1']);
-    Domain::query()->create(['organization_id' => $org->id, 'fqdn_ascii' => 'panelova.cz', 'fqdn_unicode' => 'panelova.cz', 'tld' => 'cz', 'state' => DomainStateMachine::ACTIVE, 'registrar_provider' => 'subreg', 'expires_at' => now()->addDays(40), 'dns_provider' => 'external', 'nameservers' => ['ns1.example.net', 'ns2.example.net'], 'registrant_contact_id' => $contact->id, 'admin_contact_id' => $contact->id]);
+    // a registry expiry date (as the adapters store it) 40 days away in the calendar the panel counts in (TASK-0047)
+    Domain::query()->create(['organization_id' => $org->id, 'fqdn_ascii' => 'panelova.cz', 'fqdn_unicode' => 'panelova.cz', 'tld' => 'cz', 'state' => DomainStateMachine::ACTIVE, 'registrar_provider' => 'subreg', 'expires_at' => new DateTimeImmutable(AccountingClock::now()->addDays(40)->toDateString()), 'dns_provider' => 'external', 'nameservers' => ['ns1.example.net', 'ns2.example.net'], 'registrant_contact_id' => $contact->id, 'admin_contact_id' => $contact->id]);
 
     $js = $this->actingAs($user)->get('/surfaces/onhost-panel.js')->assertOk()->getContent();
     preg_match('/window\.ONHOST_PANEL\s*=\s*(\{.*\});/s', $js, $m);

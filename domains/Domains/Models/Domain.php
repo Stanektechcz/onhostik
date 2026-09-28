@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Domains\Models;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 use Onhost\Domain\Domains\DomainStateMachine;
+use Onhost\Domain\Invoicing\AccountingClock;
 use Onhost\Platform\Eloquent\Model;
 use Onhost\Platform\Redaction\Redactor;
 
@@ -91,9 +93,15 @@ final class Domain extends Model
         return $this->state === DomainStateMachine::ACTIVE;
     }
 
+    /**
+     * Days from today to the expiry DATE the registry gave (and the panel prints: `expires_at->toDateString()`), today being
+     * the accounting day. Counted from the UTC day, the panel, the API and the renewal notices said one day more than the
+     * calendar from midnight to 01:00/02:00 in Prague, and the seven-day notice waited until then (TASK-0047). Whether a
+     * domain HAS expired is the registry instant (`expires_at` itself), not this count.
+     */
     public function daysToExpiry(): ?int
     {
-        return $this->expires_at === null ? null : (int) now()->startOfDay()->diffInDays($this->expires_at->startOfDay(), false);
+        return $this->expires_at === null ? null : (int) CarbonImmutable::parse(AccountingClock::date())->diffInDays(CarbonImmutable::parse($this->expires_at->toDateString()), false);
     }
 
     /** Derived renewal bucket for the UI (blueprint §46.4: RENEW_DUE_60/30/7). */
