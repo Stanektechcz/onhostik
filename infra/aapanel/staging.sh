@@ -214,9 +214,10 @@ deployer() {
   chmod 0600 "$STATE/expected-units"; sed 's/^/  expected unit: /' "$STATE/expected-units"
   [ -f "$STATE/egress-blocked" ] || install -m 0600 /dev/null "$STATE/egress-blocked"
   [ -f "$STATE/path-b" ] || install -m 0600 /dev/null "$STATE/path-b"
-  grep -qx "*UNLISTED=" "$STATE/expected-env" 2>/dev/null || write_expected_env   # missing, or cut short by an earlier run
-  if "$PHP" "$DG" env-assert --file /etc/onhost/app.env --spec "$STATE/expected-env" >/dev/null; then ok "app.env matches expected-env"
-  else "$PHP" "$DG" env-assert --file /etc/onhost/app.env --spec "$STATE/expected-env" | grep -v "^OK" || true; die "app.env does not match $STATE/expected-env (the lines above name the keys)"; fi
+  blank_families
+  write_expected_env   # derived from this script's values and app.env on every run
+  if "$PHP" "$DG" env-assert --file /etc/onhost/app.env --spec "$STATE/expected-env" >/dev/null 2>&1; then ok "app.env matches expected-env"
+  else "$PHP" "$DG" env-assert --file /etc/onhost/app.env --spec "$STATE/expected-env" 2>&1 | grep -v "^OK" || true; die "app.env does not match $STATE/expected-env (the lines above name the keys)"; fi
   if [ ! -f "$STATE/expected-nonok" ]; then
     # staging phase 1 runs without panels, so some doctor rows are non-OK by design: the rows non-OK TODAY are accepted
     # once (a snapshot); a row that turns non-OK later still stops a release (docs/runbooks/staging-launch.md O11)
@@ -229,6 +230,18 @@ deployer() {
 # The environment the deployer asserts on every release (staging-launch.md S3), with this script's values. Families
 # (PREFIX_*=) keep every live-credential key empty; every other key of app.env is pinned empty when it is empty now,
 # and named (any value) when it was set — by `env` or by hand (Comgate test merchant, Turnstile, company data).
+# The live-credential families must be empty on staging (the spec's PREFIX_*= lines); .env.example gives some of
+# their keys a value (a model name, a db:// secret reference, an escalation tunable), so they are emptied here.
+blank_families() {
+  local p k
+  for p in AI_ANTHROPIC_ AI_OPENAI_ GOPAY_ STRIPE_ PEPPOL_ OIDC_CLIENT_ DISCORD_BOT_ ONHOST_DISCORD_ ONHOST_ONCALL_ CLOUDFLARE_ OPENBAO_ OTEL_EXPORTER_OTLP_ SLACK_ POSTMARK_ RESEND_ PROXMOX_ PBS_ ISPCONFIG_ AAPANEL_ PTERODACTYL_ POWERDNS_ RKE2_ WEDOS_MAIN_ SUBREG_; do
+    for k in $(grep -oE "^${p}[A-Z0-9_]*=" /etc/onhost/app.env | tr -d '=' || true); do
+      case $k in GOPAY_RECURRING|STRIPE_RECURRING) continue;; esac
+      setkey "$k" ""
+    done
+  done
+}
+
 write_expected_env() {
   (umask 077; cat > "$STATE/expected-env" <<'EOF'
 APP_ENV=staging
@@ -301,7 +314,7 @@ SUBREG_*=
 EOF
   )
   local k v
-  "$PHP" "$DG" env-assert --file /etc/onhost/app.env --spec "$STATE/expected-env" 2>/dev/null \
+  "$PHP" "$DG" env-assert --file /etc/onhost/app.env --spec "$STATE/expected-env" 2>&1 \
     | sed -n 's/^UNLISTED \([A-Za-z0-9_]*\):.*/\1/p' | sort -u | while read -r k; do
       v=$("$PHP" "$DG" parse-env --file /etc/onhost/app.env --key "$k" 2>/dev/null || true)
       if [ -z "$v" ]; then echo "$k="; else echo "$k"; fi
