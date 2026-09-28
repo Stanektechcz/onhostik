@@ -192,3 +192,16 @@ it('disables the demo accounts with --remove: no sign-in, partners suspended, no
     expect(dmoUser('zakaznik')->state)->toBe('active')->and(dmoPartnerOf('reseller')->state)->toBe('active');
     $this->postJson('/v1/auth/login', ['email' => 'zakaznik@demo.onhost.cz', 'password' => DMO_SHARED_PHRASE])->assertOk();
 });
+
+it('lets the customer and partner demo accounts sign in with the shared password; staff are asked to enrol MFA', function () {
+    dmoRun();
+    foreach (['zakaznik', 'reseller', 'affil', 'partner'] as $local) {
+        auth()->forgetGuards();
+        $this->postJson('/v1/auth/login', ['email' => "{$local}@demo.onhost.cz", 'password' => DMO_SHARED_PHRASE])->assertOk();
+        $this->postJson('/v1/auth/logout')->assertOk();
+    }
+    foreach (['podpora', 'admin'] as $local) {
+        auth()->forgetGuards();
+        $this->postJson('/v1/auth/login', ['email' => "{$local}@demo.onhost.cz", 'password' => DMO_SHARED_PHRASE])->assertStatus(403)->assertSee('mfa_enrolment_required');
+    }
+});
