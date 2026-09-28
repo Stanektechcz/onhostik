@@ -19,6 +19,7 @@ use Onhost\Domain\Billing\WithdrawalService;
 use Onhost\Domain\Catalog\CatalogService;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Identity\StepUp\StepUpService;
+use Onhost\Domain\Invoicing\AccountingClock;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Invoicing\Models\InvoiceLine;
 use Onhost\Domain\Notifications\Models\MailOutbox;
@@ -46,6 +47,8 @@ use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Money\Money;
 use Onhost\Platform\Outbox\OutboxMessage;
 use Onhost\Platform\Outbox\OutboxPublisher;
+
+require_once __DIR__.'/../../Support/ClockSweep.php';
 
 /*
  * A consumer's withdrawal from a distance contract within fourteen days (TASK-0025, owner decision 17): the service is
@@ -134,59 +137,67 @@ function withdrawalSettle(): void
     }
 }
 
+/** The scenario of the test below, as a closure the test and its 24-hour sweep bind to themselves (TASK-0047). */
+function withdrawalSwitchOffScenario(): Closure
+{
+    return function (): void {
+        withdrawalSwitchOn();
+        withdrawalPteroFake();
+        [$owner, $org] = $this->customerWithOrganization([], ['type' => 'person', 'name' => 'Jana Nováková']);
+        $service = withdrawalConsumerService($org); // 363 Kč paid for thirty days, today is the fifth: 25 days unused
+        $wallets = app(WalletService::class);
+        $this->actingAs($owner, 'sanctum');
+
+        $info = $this->getJson("/v1/services/{$service->id}/withdrawal")->assertOk()->json('data');
+        expect($info)->toMatchArray(['enabled' => true, 'eligible' => true, 'reason' => null, 'customer_class' => 'b2c'])
+            ->and($info['estimate']['refund']['minor'])->toBe(30250)->and($info['deadline'])->toStartWith(AccountingClock::now()->subDays(4)->addDays(14)->toDateString()); // fourteen days in the seller's calendar: the UTC day is the day before from 22:00 UTC (TASK-0047)
+
+        // the express agreement to a refund to the credit is part of the notice; ending a contract is a fresh step-up
+        $this->withHeader('Idempotency-Key', 'wd-0')->postJson("/v1/services/{$service->id}/withdrawal", [])->assertStatus(422);
+        $this->withHeader('Idempotency-Key', 'wd-1')->postJson("/v1/services/{$service->id}/withdrawal", ['confirm_refund_to_credit' => true])->assertStatus(403)->assertJsonPath('error', 'step_up_required');
+        app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
+        $accepted = $this->withHeader('Idempotency-Key', 'wd-2')->postJson("/v1/services/{$service->id}/withdrawal", ['confirm_refund_to_credit' => true, 'statement' => 'Služba nám nevyhovuje.'])->assertStatus(202)->json();
+        $this->flushHeaders();
+        expect($accepted['state'])->toBe('suspending')->and($accepted['suspend_operation_id'])->not->toBeNull();
+        $withdrawal = Withdrawal::query()->findOrFail($accepted['id']);
+        expect($withdrawal->subject_key)->toStartWith('item:')->and(Consent::query()->whereKey($withdrawal->refund_consent_id)->value('kind'))->toBe('withdrawal_refund_to_credit')
+            ->and(Subscription::query()->where('service_id', $service->id)->value('auto_renew'))->toBeFalse(); // nothing renews while it is being unwound
+
+        withdrawalSettle();
+
+        $withdrawal->refresh();
+        $fresh = Service::query()->findOrFail($service->id);
+        expect($withdrawal->state)->toBe(Withdrawal::COMPLETED)->and($withdrawal->refund_minor)->toBe(30250)->and($withdrawal->to_credit_minor)->toBe(30250)
+            ->and($fresh->state)->toBe(ServiceStateMachine::SUSPENDED)->and($fresh->terminate_at)->not->toBeNull()->and(SuspensionHold::holds($fresh))->toContain(SuspensionHold::WITHDRAWAL);
+        // suspend first, then the credit note, then the cancellation
+        $suspended = Operation::query()->findOrFail($withdrawal->suspend_operation_id);
+        $terminate = Operation::query()->findOrFail($withdrawal->terminate_operation_id);
+        $note = Invoice::query()->where('type', 'credit_note')->sole();
+        expect($suspended->state)->toBe(Operation::SUCCEEDED)->and($fresh->suspended_at->lte($withdrawal->refunded_at))->toBeTrue()->and($withdrawal->refunded_at->lte($terminate->queued_at))->toBeTrue();
+        expect($terminate->idempotency_key)->toBe("withdrawal:{$withdrawal->id}:terminate")->and($terminate->desired['final_backup'] ?? null)->toBeTrue();
+        // a credit note of exactly the unused part of the paid line, VAT split in the line's proportion, back on the credit as money that cannot be paid out
+        expect($note->total_minor)->toBe(-30250)->and($note->tax_minor)->toBe(-5250)->and($wallets->balances($org, 'CZK')['posted']->minor)->toBe(30250)
+            ->and($wallets->refundableBalance($org->id, 'CZK')->minor)->toBe(0)->and(app(LedgerService::class)->verifyInvariant()['balanced'])->toBeTrue();
+
+        // no free way back: the customer's resume is refused with the withdrawal hold
+        $this->withHeader('Idempotency-Key', 'wd-resume')->postJson("/v1/services/{$service->id}/actions", ['action' => 'resume'])->assertStatus(409)->assertJsonPath('error', 'service_suspension_held')->assertJsonPath('hold', 'withdrawal');
+        $this->flushHeaders();
+
+        // the confirmation of receipt is a mandatory legal notice on a durable medium; finance sees the refund
+        expect(NotificationService::TEMPLATE_KINDS['withdrawal-accepted'])->toBe('legal.notice');
+        expect(OutboxMessage::query()->where('name', 'withdrawal.accepted')->count())->toBe(1)
+            ->and(Notification::query()->where('organization_id', $org->id)->where('title', 'like', 'Odstoupení od smlouvy přijato%')->exists())->toBeTrue()
+            ->and(Notification::query()->where('audience', 'internal')->where('title', 'like', 'Odstoupení spotřebitele: vráceno%')->exists())->toBeTrue()
+            ->and(MailOutbox::query()->where('template_key', 'withdrawal-accepted')->exists())->toBeTrue();
+        // it promises what reaches the credit — all of it here, the statement was paid — and nothing about unpaid documents
+        $notice = withdrawalAcceptedNotice();
+        expect($notice['payload'])->toMatchArray(['estimate' => true])->and($notice['payload']['to_credit']['minor'])->toBe(30250)->and($notice['payload']['off_documents']['minor'])->toBe(0)
+            ->and($notice['body'])->toContain('na kredit vrátíme dobropisem odhadem')->not->toContain('neuhrazené')->and($notice['mail']['postup'])->toBe(substr($notice['body'], strpos($notice['body'], 'Službu')));
+    };
+}
+
 it('switches the service off, returns the unused days of what was PAID to the credit, then cancels it — and it cannot be resumed', function () {
-    withdrawalSwitchOn();
-    withdrawalPteroFake();
-    [$owner, $org] = $this->customerWithOrganization([], ['type' => 'person', 'name' => 'Jana Nováková']);
-    $service = withdrawalConsumerService($org); // 363 Kč paid for thirty days, today is the fifth: 25 days unused
-    $wallets = app(WalletService::class);
-    $this->actingAs($owner, 'sanctum');
-
-    $info = $this->getJson("/v1/services/{$service->id}/withdrawal")->assertOk()->json('data');
-    expect($info)->toMatchArray(['enabled' => true, 'eligible' => true, 'reason' => null, 'customer_class' => 'b2c'])
-        ->and($info['estimate']['refund']['minor'])->toBe(30250)->and($info['deadline'])->toStartWith(now()->subDays(4)->addDays(14)->toDateString());
-
-    // the express agreement to a refund to the credit is part of the notice; ending a contract is a fresh step-up
-    $this->withHeader('Idempotency-Key', 'wd-0')->postJson("/v1/services/{$service->id}/withdrawal", [])->assertStatus(422);
-    $this->withHeader('Idempotency-Key', 'wd-1')->postJson("/v1/services/{$service->id}/withdrawal", ['confirm_refund_to_credit' => true])->assertStatus(403)->assertJsonPath('error', 'step_up_required');
-    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
-    $accepted = $this->withHeader('Idempotency-Key', 'wd-2')->postJson("/v1/services/{$service->id}/withdrawal", ['confirm_refund_to_credit' => true, 'statement' => 'Služba nám nevyhovuje.'])->assertStatus(202)->json();
-    $this->flushHeaders();
-    expect($accepted['state'])->toBe('suspending')->and($accepted['suspend_operation_id'])->not->toBeNull();
-    $withdrawal = Withdrawal::query()->findOrFail($accepted['id']);
-    expect($withdrawal->subject_key)->toStartWith('item:')->and(Consent::query()->whereKey($withdrawal->refund_consent_id)->value('kind'))->toBe('withdrawal_refund_to_credit')
-        ->and(Subscription::query()->where('service_id', $service->id)->value('auto_renew'))->toBeFalse(); // nothing renews while it is being unwound
-
-    withdrawalSettle();
-
-    $withdrawal->refresh();
-    $fresh = Service::query()->findOrFail($service->id);
-    expect($withdrawal->state)->toBe(Withdrawal::COMPLETED)->and($withdrawal->refund_minor)->toBe(30250)->and($withdrawal->to_credit_minor)->toBe(30250)
-        ->and($fresh->state)->toBe(ServiceStateMachine::SUSPENDED)->and($fresh->terminate_at)->not->toBeNull()->and(SuspensionHold::holds($fresh))->toContain(SuspensionHold::WITHDRAWAL);
-    // suspend first, then the credit note, then the cancellation
-    $suspended = Operation::query()->findOrFail($withdrawal->suspend_operation_id);
-    $terminate = Operation::query()->findOrFail($withdrawal->terminate_operation_id);
-    $note = Invoice::query()->where('type', 'credit_note')->sole();
-    expect($suspended->state)->toBe(Operation::SUCCEEDED)->and($fresh->suspended_at->lte($withdrawal->refunded_at))->toBeTrue()->and($withdrawal->refunded_at->lte($terminate->queued_at))->toBeTrue();
-    expect($terminate->idempotency_key)->toBe("withdrawal:{$withdrawal->id}:terminate")->and($terminate->desired['final_backup'] ?? null)->toBeTrue();
-    // a credit note of exactly the unused part of the paid line, VAT split in the line's proportion, back on the credit as money that cannot be paid out
-    expect($note->total_minor)->toBe(-30250)->and($note->tax_minor)->toBe(-5250)->and($wallets->balances($org, 'CZK')['posted']->minor)->toBe(30250)
-        ->and($wallets->refundableBalance($org->id, 'CZK')->minor)->toBe(0)->and(app(LedgerService::class)->verifyInvariant()['balanced'])->toBeTrue();
-
-    // no free way back: the customer's resume is refused with the withdrawal hold
-    $this->withHeader('Idempotency-Key', 'wd-resume')->postJson("/v1/services/{$service->id}/actions", ['action' => 'resume'])->assertStatus(409)->assertJsonPath('error', 'service_suspension_held')->assertJsonPath('hold', 'withdrawal');
-    $this->flushHeaders();
-
-    // the confirmation of receipt is a mandatory legal notice on a durable medium; finance sees the refund
-    expect(NotificationService::TEMPLATE_KINDS['withdrawal-accepted'])->toBe('legal.notice');
-    expect(OutboxMessage::query()->where('name', 'withdrawal.accepted')->count())->toBe(1)
-        ->and(Notification::query()->where('organization_id', $org->id)->where('title', 'like', 'Odstoupení od smlouvy přijato%')->exists())->toBeTrue()
-        ->and(Notification::query()->where('audience', 'internal')->where('title', 'like', 'Odstoupení spotřebitele: vráceno%')->exists())->toBeTrue()
-        ->and(MailOutbox::query()->where('template_key', 'withdrawal-accepted')->exists())->toBeTrue();
-    // it promises what reaches the credit — all of it here, the statement was paid — and nothing about unpaid documents
-    $notice = withdrawalAcceptedNotice();
-    expect($notice['payload'])->toMatchArray(['estimate' => true])->and($notice['payload']['to_credit']['minor'])->toBe(30250)->and($notice['payload']['off_documents']['minor'])->toBe(0)
-        ->and($notice['body'])->toContain('na kredit vrátíme dobropisem odhadem')->not->toContain('neuhrazené')->and($notice['mail']['postup'])->toBe(substr($notice['body'], strpos($notice['body'], 'Službu')));
+    withdrawalSwitchOffScenario()->call($this);
 });
 
 /**
@@ -242,39 +253,47 @@ it('returns a share of what a promo-discounted twelve-month prepayment cost, nev
     expect($estimate['refund']['minor'])->toBe((int) round(100000 * 355 / 365))->and($estimate['lines'][0])->toMatchArray(['days' => 365, 'days_left' => 355]);
 });
 
+/** The scenario of the test below, as a closure the test and its 24-hour sweep bind to themselves (TASK-0047). */
+function withdrawalLateLetterScenario(): Closure
+{
+    return function (): void {
+        withdrawalSwitchOn();
+        withdrawalPteroFake();
+        [$owner, $org] = $this->customerWithOrganization([], ['type' => 'person', 'name' => 'Jana Nováková']);
+        $service = withdrawalConsumerService($org, ['days_ago' => 16, 'to' => 13]);
+        $this->actingAs($owner, 'sanctum');
+        app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
+
+        $this->withHeader('Idempotency-Key', 'wd-late')->postJson("/v1/services/{$service->id}/withdrawal", ['confirm_refund_to_credit' => true])->assertStatus(409)->assertJsonPath('error', 'withdrawal_period_over');
+        $this->flushHeaders();
+        expect(Withdrawal::query()->count())->toBe(0);
+
+        // a letter posted on the last day (the order day + 14) arrives two days later: staff record it with the day it was sent
+        $sentAt = AccountingClock::now()->subDays(2)->setTime(12, 0)->toIso8601String(); // the order day + 14 in the seller's calendar, which the refund counts in (TASK-0047)
+        $support = $this->staff('support_l1');
+        $this->actingAs($support, 'sanctum');
+        app(StepUpService::class)->grant($support, 'totp', null, '127.0.0.1');
+        $body = ['organization_id' => $org->id, 'service_id' => $service->id, 'sent_at' => $sentAt, 'refund_to_credit_agreed' => true, 'reason' => 'Dopis ze dne podání, doručen poštou.'];
+        $this->postJson('/v1/staff/withdrawals', $body)->assertForbidden(); // refunds are finance's
+
+        $finance = $this->staff('billing_finance_admin');
+        $this->actingAs($finance, 'sanctum');
+        app(StepUpService::class)->grant($finance, 'totp', null, '127.0.0.1');
+        $approval = $this->postJson('/v1/staff/withdrawals', $body)->assertForbidden()->assertJsonPath('error', 'approval_required')->json('approval_id');
+        $recorded = $this->postJson('/v1/staff/withdrawals', $body + ['approval_ids' => [secondPersonApproves($approval)]])->assertStatus(202)->json();
+        expect($recorded['channel'])->toBe('staff')->and($recorded['sent_at'])->toStartWith(substr($sentAt, 0, 10));
+
+        withdrawalSettle();
+
+        // prorated as of the day the letter was sent: of 30 days (day -16 … day 13) 15 were still ahead then
+        $withdrawal = Withdrawal::query()->findOrFail($recorded['id']);
+        expect($withdrawal->state)->toBe(Withdrawal::COMPLETED)->and($withdrawal->refund_minor)->toBe((int) round(36300 * 15 / 30));
+        expect($this->getJson('/v1/staff/withdrawals')->assertOk()->json('data.rows.0.id'))->toBe($withdrawal->id);
+    };
+}
+
 it('keeps the fourteen days by the date the notice was sent: the panel refuses day 17, staff record a letter sent on day 15 behind four eyes', function () {
-    withdrawalSwitchOn();
-    withdrawalPteroFake();
-    [$owner, $org] = $this->customerWithOrganization([], ['type' => 'person', 'name' => 'Jana Nováková']);
-    $service = withdrawalConsumerService($org, ['days_ago' => 16, 'to' => 13]);
-    $this->actingAs($owner, 'sanctum');
-    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
-
-    $this->withHeader('Idempotency-Key', 'wd-late')->postJson("/v1/services/{$service->id}/withdrawal", ['confirm_refund_to_credit' => true])->assertStatus(409)->assertJsonPath('error', 'withdrawal_period_over');
-    $this->flushHeaders();
-    expect(Withdrawal::query()->count())->toBe(0);
-
-    // a letter posted on the last day (the order day + 14) arrives two days later: staff record it with the day it was sent
-    $sentAt = now()->subDays(2)->setTime(12, 0)->toIso8601String();
-    $support = $this->staff('support_l1');
-    $this->actingAs($support, 'sanctum');
-    app(StepUpService::class)->grant($support, 'totp', null, '127.0.0.1');
-    $body = ['organization_id' => $org->id, 'service_id' => $service->id, 'sent_at' => $sentAt, 'refund_to_credit_agreed' => true, 'reason' => 'Dopis ze dne podání, doručen poštou.'];
-    $this->postJson('/v1/staff/withdrawals', $body)->assertForbidden(); // refunds are finance's
-
-    $finance = $this->staff('billing_finance_admin');
-    $this->actingAs($finance, 'sanctum');
-    app(StepUpService::class)->grant($finance, 'totp', null, '127.0.0.1');
-    $approval = $this->postJson('/v1/staff/withdrawals', $body)->assertForbidden()->assertJsonPath('error', 'approval_required')->json('approval_id');
-    $recorded = $this->postJson('/v1/staff/withdrawals', $body + ['approval_ids' => [secondPersonApproves($approval)]])->assertStatus(202)->json();
-    expect($recorded['channel'])->toBe('staff')->and($recorded['sent_at'])->toStartWith(substr($sentAt, 0, 10));
-
-    withdrawalSettle();
-
-    // prorated as of the day the letter was sent: of 30 days (day -16 … day 13) 15 were still ahead then
-    $withdrawal = Withdrawal::query()->findOrFail($recorded['id']);
-    expect($withdrawal->state)->toBe(Withdrawal::COMPLETED)->and($withdrawal->refund_minor)->toBe((int) round(36300 * 15 / 30));
-    expect($this->getJson('/v1/staff/withdrawals')->assertOk()->json('data.rows.0.id'))->toBe($withdrawal->id);
+    withdrawalLateLetterScenario()->call($this);
 });
 
 it('is for consumers: an order placed as a business is refused, a consumer who adds a company id later keeps the right', function () {
@@ -804,4 +823,30 @@ it('reads the withdrawal hold only from the platform\'s own withdrawal steps, ne
     expect(SuspensionHold::holds($service->refresh()))->toBe([]);
     $service->forceFill(['suspended_reason' => 'withdrawal wdr_01k6abcdefghjkmnpqrstvwxyz'])->save();
     expect(SuspensionHold::holds($service->refresh()))->toBe([SuspensionHold::WITHDRAWAL]);
+});
+
+/*
+ * TASK-0047: this file failed every night from 22:00 to 24:00 UTC. The product counts the fourteen days and the unused days
+ * in the seller's calendar (AccountingClock, Europe/Prague); the two tests built their expected dates from the UTC day,
+ * which is the day before during the first two hours of the Prague day. Both scenarios now run at every hour.
+ */
+it('keeps the deadline and the refund of a withdrawal at every hour of the day', function (string $tz, ?string $day, int $step) {
+    $failures = clockSweep(function () {
+        withdrawalSwitchOffScenario()->call($this);
+        $this->flushHeaders();
+    }, $step, $tz, $day);
+
+    expect($failures)->toBe([], clockSweepWindows($failures, $step));
+})->with([
+    'UTC, tomorrow, hourly' => ['UTC', null, 60],
+    'Prague, winter, every two hours from midnight' => ['Europe/Prague', clockSweepNextDay('01-15', 'Europe/Prague'), 120],
+]);
+
+it('keeps the fourteen days of a letter recorded by staff at every hour of the day', function () {
+    $failures = clockSweep(function () {
+        withdrawalLateLetterScenario()->call($this);
+        $this->flushHeaders();
+    }, 60);
+
+    expect($failures)->toBe([], clockSweepWindows($failures, 60));
 });
