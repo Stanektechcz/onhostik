@@ -95,6 +95,7 @@ final class ProviderInstanceService
             throw new DomainError('instance_region_unknown', 'Unknown region code.', 422, ['field' => 'region_code']);
         }
         $existing = ProviderInstance::query()->where('key', $key)->first();
+        self::guardContainment($input, $existing);
         if ($existing !== null && $existing->provider !== $provider) {
             throw new DomainError('instance_provider_immutable', 'The provider of an existing instance cannot change; create a new instance.', 409, ['field' => 'provider']);
         }
@@ -150,10 +151,11 @@ final class ProviderInstanceService
                 'capabilities' => array_key_exists('capabilities', $input) ? (array) $input['capabilities'] : ($existing?->capabilities ?? self::CAPABILITIES[$provider]),
                 'quotas' => array_key_exists('quotas', $input) ? (array) $input['quotas'] : ($existing?->quotas ?? null),
                 'rate_limits' => array_key_exists('rate_limits', $input) ? (array) $input['rate_limits'] : ($existing?->rate_limits ?? null),
-                'state' => $hostChanged ? 'maintenance' : ($input['state'] ?? $existing?->state ?? 'active'),
+                // a contained instance stays contained whatever the edit (TASK-0045): only the state action lifts it
+                'state' => $existing?->state === ProviderInstance::CONTAINED ? ProviderInstance::CONTAINED : ($hostChanged ? 'maintenance' : ($input['state'] ?? $existing?->state ?? 'active')),
                 'adapter_version' => $existing?->adapter_version ?? '1.0.0',
             ], fn ($v) => $v !== null));
-            if ($hostChanged) {
+            if ($hostChanged && $instance->state !== ProviderInstance::CONTAINED) {
                 $instance->forceFill(['maintenance_until' => null, 'state_reason' => self::ADDRESS_CHANGE_REASON.' '.(string) parse_url($baseUrl, PHP_URL_HOST)])->save();
             }
             $this->providers->forget($instance);
@@ -166,6 +168,26 @@ final class ProviderInstanceService
             return $instance;
         });
     }
+
+    // ── TASK-0045: a contained panel stays contained ──
+    /**
+     * Containment is set and lifted by the instance state action alone (`instance.state`, HIGH, audited with its reason): an
+     * edit of the instance can neither contain one (a quiet way around the tasks-at-the-panel check) nor lift a containment —
+     * not by a state in the edit, and not by a new panel address, which would otherwise have turned it into `maintenance`.
+     *
+     * @param  array<string, mixed>  $input
+     */
+    private static function guardContainment(array $input, ?ProviderInstance $existing): void
+    {
+        $wanted = isset($input['state']) ? (string) $input['state'] : null;
+        if ($wanted === ProviderInstance::CONTAINED && $existing?->state !== ProviderInstance::CONTAINED) {
+            throw new DomainError('instance_state_invalid', 'An instance is contained with the state action (POST /v1/staff/integrations/{instance}/state), not by an edit.', 422, ['field' => 'state']);
+        }
+        if ($existing?->state === ProviderInstance::CONTAINED && $wanted !== null && $wanted !== ProviderInstance::CONTAINED) {
+            throw new DomainError('instance_contained', 'This instance is contained; only the state action lifts that, with a reason.', 409, ['field' => 'state']);
+        }
+    }
+    // ── end TASK-0045 ──
 
     /**
      * `instance.upsert` replaces the options object it is given. An option an operator command owns — `tenancy`, written
@@ -274,20 +296,45 @@ final class ProviderInstanceService
 
     public function setState(ProviderInstance $instance, string $state, CommandContext $context, ?string $reason = null, ?\DateTimeInterface $maintenanceUntil = null, bool $acknowledgeRunning = false): ProviderInstance
     {
-        if (! in_array($state, ['active', 'draining', 'maintenance', 'disabled'], true)) {
-            throw new DomainError('instance_state_invalid', 'State must be active, draining, maintenance or disabled.', 422, ['field' => 'state']);
+        if (! in_array($state, ProviderInstance::STATES, true)) {
+            throw new DomainError('instance_state_invalid', 'State must be '.implode(', ', ProviderInstance::STATES).'.', 422, ['field' => 'state']);
+        }
+        // a containment is set and lifted with a reason on record (TASK-0045 review LOW): it is the owner's stop for a panel
+        if (($state === ProviderInstance::CONTAINED || $instance->state === ProviderInstance::CONTAINED) && $state !== $instance->state && trim((string) $reason) === '') {
+            throw new DomainError('reason_required', 'Containing an instance, or lifting a containment, needs a reason.', 422, ['field' => 'reason']);
         }
         // before a panel is taken down — an upgrade, a restart — the tasks it is carrying out for the platform are named (H519): a clone,
         // a backup, a restore running AT the panel would be cut off by it and followed blind afterwards
-        $running = in_array($state, ['maintenance', 'disabled'], true) && $instance->state !== $state ? $this->tasksAtPanel($instance) : [];
+        $running = in_array($state, ['maintenance', 'disabled', ProviderInstance::CONTAINED], true) && $instance->state !== $state ? $this->tasksAtPanel($instance) : [];
         if ($running !== [] && ! $acknowledgeRunning) {
             throw new DomainError('instance_tasks_running', count($running).' task(s) are running at the panel for the platform right now; let them finish, or confirm with acknowledge_running=true that they are followed up after the maintenance.', 409, ['tasks' => $running]);
         }
+        $previous = (string) $instance->state;
         $instance->forceFill(['state' => $state, 'maintenance_until' => $state === 'maintenance' ? $maintenanceUntil : null, 'state_reason' => $state === 'active' ? null : ($reason !== null ? mb_substr($reason, 0, 250) : null)])->save();
         $this->providers->forget($instance);
-        $this->audit->record($context, 'provider.instance.state', 'succeeded', ['key' => $instance->key, 'state' => $state, 'reason' => $reason, 'maintenance_until' => $maintenanceUntil?->format(DATE_ATOM), 'tasks_left_running' => array_column($running, 'id')], 'provider_instance', $instance->id);
+        $resumed = in_array($previous, ProviderInstance::REFUSED_STATES, true) && ! $instance->isRefused() ? $this->resumeParked($instance) : [];
+        $this->audit->record($context, 'provider.instance.state', 'succeeded', ['key' => $instance->key, 'state' => $state, 'reason' => $reason, 'maintenance_until' => $maintenanceUntil?->format(DATE_ATOM), 'tasks_left_running' => array_column($running, 'id'), 'runs_resumed' => $resumed], 'provider_instance', $instance->id);
 
         return $instance;
+    }
+
+    /**
+     * Staff lifted a containment (review round 2): the runs parked behind this instance are due now, not at their next look
+     * up to OperationRunner::PARK_MAX_MINUTES away. The scheduler's tick dispatches them within the minute.
+     *
+     * @return list<string> the ids of the runs made due
+     */
+    private function resumeParked(ProviderInstance $instance): array
+    {
+        $ids = [];
+        foreach (Operation::query()->whereIn('state', [Operation::PENDING, Operation::WAITING])->whereNotNull('context->_parked->since')->limit(1000)->get() as $operation) {
+            if (data_get($operation->error, 'detail.instance') === $instance->key) {
+                $operation->forceFill(['next_run_at' => now()])->save();
+                $ids[] = (string) $operation->id;
+            }
+        }
+
+        return $ids;
     }
 
     /**

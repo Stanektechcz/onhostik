@@ -31,6 +31,8 @@ use Onhost\Domain\Invoicing\Models\LegalEntity;
 use Onhost\Domain\Notifications\MailHealth;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\OrderStateMachine;
+use Onhost\Domain\Platform\IsolationChecks;
+use Onhost\Domain\Platform\QueueLaneHeartbeat;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Provisioning\Models\IntegrationHealth;
 use Onhost\Domain\Provisioning\Models\Node;
@@ -106,6 +108,11 @@ final class Doctor extends Command
             $this->add($check['area'], $check['check'], $check['ok'], $check['detail'], $check['blocking']);
         }
         // ── end TASK-0031 ──
+        // ── TASK-0045: contained panels, Redis/cache prefixes, Turnstile, who decides approvals (staging isolation as code) ──
+        foreach (app(IsolationChecks::class)->rows() as $check) {
+            $this->addChecked($check);
+        }
+        // ── end TASK-0045 ──
 
         $fails = count(array_filter($this->rows, fn ($r) => $r['status'] === 'FAIL'));
         $warns = count(array_filter($this->rows, fn ($r) => $r['status'] === 'WARN'));
@@ -334,6 +341,22 @@ final class Doctor extends Command
         $this->rows[] = ['area' => $area, 'check' => $check, 'status' => $ok ? 'OK' : ($blocking && $this->production ? 'FAIL' : 'WARN'), 'detail' => $detail];
     }
 
+    /**
+     * A row a domain check computed (TASK-0045). `fail_everywhere`: not OK is FAIL outside production too — a staging whose
+     * Redis keys are production's must stop, not warn.
+     *
+     * @param  array{area:string, check:string, ok:bool, detail:string, blocking:bool, fail_everywhere?:bool}  $row
+     */
+    private function addChecked(array $row): void
+    {
+        if (! $row['ok'] && ($row['fail_everywhere'] ?? false)) {
+            $this->rows[] = ['area' => $row['area'], 'check' => $row['check'], 'status' => 'FAIL', 'detail' => $row['detail']];
+
+            return;
+        }
+        $this->add($row['area'], $row['check'], $row['ok'], $row['detail'], $row['blocking']);
+    }
+
     private function environment(): void
     {
         $this->add('app', 'APP_ENV is production', $this->production, (string) config('app.env'), false);
@@ -370,6 +393,9 @@ final class Doctor extends Command
         $since = fn (?string $at) => $at !== null ? CarbonImmutable::parse($at)->diffForHumans() : null;
         $this->add('automation', 'scheduler running', $live['scheduler']['alive'], $since($live['scheduler']['at']) !== null ? 'last provisioning tick '.$since($live['scheduler']['at']) : 'no tick recorded — is `php artisan schedule:run` in cron every minute?');
         $this->add('automation', 'queue worker alive', $live['worker']['alive'], $live['worker']['driver'] === 'sync' ? 'sync driver (development only)' : ($since($live['worker']['at']) !== null ? 'heartbeat '.$since($live['worker']['at']) : 'no heartbeat — is `php artisan queue:work` running?'));
+        foreach (app(QueueLaneHeartbeat::class)->rows() as $lane) { // TASK-0045: one row per lane that has ever run; the aggregate row above keeps its name (deploy-gate.php)
+            $this->addChecked($lane);
+        }
         $off = $ledger->disabled();
         $this->add('automation', 'no rule switched off', $off === [], $off === [] ? 'every rule on' : 'off: '.implode(', ', $off), false);
         $backlog = $ledger->backlog();
@@ -404,7 +430,7 @@ final class Doctor extends Command
         $this->add('providers', 'active nodes', $roles->isNotEmpty(), $roles->isEmpty() ? 'none — run Discover or register nodes' : $roles->map(fn ($n, $r) => "{$r}: {$n}")->implode(', '));
         // a panel on a version nobody verified takes no new orders (H530): the held ones, the baselines the adapter was never
         // verified on, and the panels whose version cannot be seen at all (an upgrade there would go unnoticed)
-        $versioned = ProviderInstance::query()->platform()->whereIn('provider', PanelVersionGate::SELF_HOSTED)->where('state', '!=', 'disabled')->get();
+        $versioned = ProviderInstance::query()->platform()->whereIn('provider', PanelVersionGate::SELF_HOSTED)->allowedToCall()->get(); // a contained panel is its own row (TASK-0045)
         $named = fn (string $state) => $versioned->filter(fn (ProviderInstance $i) => data_get($i->version_gate, 'state') === $state)->map(fn (ProviderInstance $i) => $i->key.' '.data_get($i->version_gate, 'version'))->values()->all();
         $held = $named('held');
         $this->add('providers', 'no panel is held on an unverified version', $held === [], $held === [] ? 'none held' : implode(', ', $held).' — no new orders go there; php artisan onhost:integrations:versions', false);
@@ -484,7 +510,10 @@ final class Doctor extends Command
         // four eyes need two heads (docs/runbooks/approvals.md): with fewer than two people who may decide approvals, a critical action of the only one can never be approved
         $deciders = ApprovalService::deciders()->count();
         $fourEyes = ApprovalService::enabled();
-        $this->add('identity', 'four eyes in effect', $fourEyes && $deciders >= 2, $fourEyes ? "{$deciders} member(s) of staff may decide approvals".($deciders >= 2 ? '' : ' — grant iam.approval.decide to a second person, or run ONHOST_FOUR_EYES=false deliberately') : 'ONHOST_FOUR_EYES=false: critical actions take one person and a step-up (single-operator mode)', false);
+        // TASK-0045: the text of the Phase-0 waiver (TASK-0037) — the switch spares only the sole approver, and their own critical
+        // actions wait a time lock; who the deciders are is the row `who decides approvals`
+        $this->add('identity', 'four eyes in effect', $fourEyes && $deciders >= 2, $fourEyes ? "{$deciders} member(s) of staff may decide approvals".($deciders >= 2 ? '' : ' — grant iam.approval.decide to a second person, or run ONHOST_FOUR_EYES=false deliberately')
+            : 'ONHOST_FOUR_EYES=false: with one decider, that sole approver\x27s own critical actions and price changes wait a '.ApprovalService::timeLockHours().' h time lock and can be cancelled on the approvals page; everybody else still asks a second person (docs/runbooks/approvals.md)', false);
         // a price or plan change takes a second person who could make it themselves (owner decision 13, domains/Catalog/PriceChangeApprovers.php)
         $prices = app(PriceChangeApprovers::class)->status();
         $this->add('identity', 'price changes have a second person', $prices['ok'], $prices['detail'], false);
@@ -505,7 +534,7 @@ final class Doctor extends Command
         $scanner = app(VirusScanner::class); // §5t-6: uploads are scanned by a clamd with fresh signatures
         $clam = $scanner->version();
         $fresh = $clam !== null && $clam['signatures_at'] !== null && strtotime($clam['signatures_at']) > time() - 2 * 86400;
-        $this->add('files', 'virus scanner (clamd)', $fresh, ! $scanner->enabled() ? 'ONHOST_CLAMAV_HOST not set — uploads are not scanned' : ($clam === null ? 'clamd not reachable' : $clam['engine'].' · db '.$clam['database'].' · signatures '.($clam['signatures_at'] ?? '?').($fresh ? '' : ' (older than 2 days — is freshclam running?)')));
+        $this->add('files', 'virus scanner (clamd)', $fresh, ! $scanner->enabled() ? 'ONHOST_CLAMAV_HOST not set — uploads are not scanned'.($scanner->enforced() ? '; in production every upload and download that needs a scan is refused as unavailable (ONHOST_CLAMAV_ENFORCE)' : '') : ($clam === null ? 'clamd not reachable' : $clam['engine'].' · db '.$clam['database'].' · signatures '.($clam['signatures_at'] ?? '?').($fresh ? '' : ' (older than 2 days — is freshclam running?)')));
         $this->add('observability', 'console relay key', (string) config('onhost.console.relay_key') !== '', 'ONHOST_CONSOLE_RELAY_KEY');
         // game panels (audit §5f): every registered panel needs the client key for the server tools and at least one mapped template to sell
         foreach (ProviderInstance::query()->platform()->where('provider', 'pterodactyl')->whereIn('state', ['active', 'draining', 'maintenance'])->get() as $panel) {

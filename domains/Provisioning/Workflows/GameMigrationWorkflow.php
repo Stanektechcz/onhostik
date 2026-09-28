@@ -405,6 +405,12 @@ final class GameMigrationWorkflow implements Workflow
                 if (($row['state'] ?? '') === 'done') {
                     return StepResult::done(['transfer' => ['bytes' => $row['bytes'] ?? null, 'at' => $row['at'] ?? null]]);
                 }
+                if (($row['state'] ?? '') === 'contained') {
+                    // TASK-0045 review B: a panel of the move is contained and the transfer sent nothing. The runner parks the saga and
+                    // (`rerun_step`) drops this handle, so after the lift the step starts again: run() forgets this record and dispatches
+                    // the transfer anew (the record stays until then — forgetting it here raced the runner's own write of the park)
+                    return StepResult::fail('Data transfer waits: a panel of the move is contained', true, ['contained' => true, 'instance_state' => (string) ($row['instance_state'] ?? 'contained'), 'rerun_step' => true]);
+                }
 
                 return StepResult::fail('Data transfer failed: '.(string) ($row['error'] ?? 'unknown'), false);
             }

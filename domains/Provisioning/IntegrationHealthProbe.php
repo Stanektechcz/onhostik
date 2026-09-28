@@ -21,7 +21,7 @@ final class IntegrationHealthProbe
     public function run(): array
     {
         $stats = ['checked' => 0, 'up' => 0, 'down' => 0];
-        foreach (ProviderInstance::query()->where('state', '!=', 'disabled')->get() as $instance) {
+        foreach (ProviderInstance::query()->allowedToCall()->get() as $instance) { // a contained panel is not asked either (TASK-0045)
             $stats['checked']++;
             $stats[$this->probeInstance($instance)['up'] ? 'up' : 'down']++;
         }
@@ -38,6 +38,13 @@ final class IntegrationHealthProbe
     public function probeInstance(ProviderInstance $instance): array
     {
         $record = IntegrationHealth::query()->firstOrNew(['provider_instance_id' => $instance->id]);
+        // TASK-0045: a contained or disabled panel is not probed — the registry refuses it — and its record is left as it was:
+        // a refusal the owner chose is not an outage, so no `integration.down` and no alert follow from it
+        try {
+            $this->providers->refuseContained($instance);
+        } catch (InstanceContained $e) {
+            return ['up' => false, 'error' => $e->getMessage(), 'latency_ms' => null, 'version' => null, 'detail' => ['contained' => true, 'instance_state' => $e->instanceState], 'circuit_state' => $this->http->breaker($instance->key)->state(), 'checked_at' => ($record->checked_at ?? now())->toIso8601String()];
+        }
         $wasUp = $record->exists ? (bool) $record->up : null;
         $refusedBefore = $this->http->localRefusals();
         try {
@@ -111,7 +118,14 @@ final class IntegrationHealthProbe
         }
         if ($up) {
             $reason = (string) $instance->state_reason;
-            $instance->forceFill(['state' => 'active', 'maintenance_until' => null, 'state_reason' => null, 'health' => array_merge((array) $instance->health, ['maintenance_overdue' => false])])->save();
+            // only while it is still that maintenance lock (TASK-0045 review D): a containment staff set while the probe was in
+            // flight must not be lifted from the model this probe loaded before it
+            $lifted = ProviderInstance::query()->whereKey($instance->id)->where('state', 'maintenance')->where('state_reason', $instance->state_reason)
+                ->update(['state' => 'active', 'maintenance_until' => null, 'state_reason' => null, 'health' => json_encode(array_merge((array) $instance->health, ['maintenance_overdue' => false]), JSON_UNESCAPED_UNICODE)]);
+            $instance->refresh();
+            if ($lifted === 0) {
+                return;
+            }
             $this->providers->forget($instance);
             $this->outbox->publish(GenericEvent::of('integration.maintenance.lifted', 'provider_instance', $instance->id, ['key' => $instance->key, 'provider' => $instance->provider, 'reason' => $reason, 'by' => $awaitingProbe ? 'address_probe' : 'expired_probe']));
 
