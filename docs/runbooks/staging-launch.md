@@ -622,6 +622,39 @@ console and report — do not delete). **Path A: not here — only after S7, in 
 through the bus on the kept database relays the outbox backlog: it must run on the target, whose config S7 cached from
 the asserted `app.env` and whose effective egress line was printed, never on the old code).
 
+#### S5b — Demo accounts for walking through the surfaces (optional, staging only)
+
+`onhost:demo:accounts` makes six sign-ins that share **one** password, under `@demo.onhost.cz` (`--domain=` changes it):
+`zakaznik@` (owner of "Demo zákazník s.r.o.", CZ/CZK, no VAT number, attributed to the reseller), `reseller@` (partner,
+model `share`, white-label scope `full`), `affil@` (partner, model `oneoff`), `partner@` (partner, `share`, default
+terms), `podpora@` (staff, `support_manager`) and `admin@` (staff, `auditor_read_only` — read-only; `--admin-role=`
+takes another global staff role, but never one holding `iam.approval.decide`: a shared password is never the second
+person of four eyes). It makes users, organizations, partner records and role bindings only — no service, subscription,
+provider binding, domain, invoice, wallet movement or ticket — so nothing a panel, provisioning or billing job could act
+on. Unlike `DevAccountSeeder` (never here) it runs with `APP_ENV=production`, but only with the explicit flag. Staff go
+through the command bus like `onhost:staff:create` (audit; MFA is enrolled at first sign-in, `onhost:staff:totp` helps).
+
+```bash
+# hidden prompt (needs the terminal: the WWW_CMD prefix, no </dev/null; end this SSH login afterwards, as above)
+setpriv --reuid=www --regid=www --init-groups -- setsid --wait /www/server/php/85/bin/php /www/wwwroot/staging.onhost.cz/artisan onhost:demo:accounts --i-know-this-is-not-production
+# or from stdin, without a terminal prompt and without the password in the shell history or the process list
+read -rs PW && printf '%s\n' "$PW" | setpriv --reuid=www --regid=www --init-groups -- setsid --wait /www/server/php/85/bin/php /www/wwwroot/staging.onhost.cz/artisan onhost:demo:accounts --i-know-this-is-not-production --stdin; unset PW
+```
+
+(Use the PHP binary the site runs — `$P` above — if it is not `php/85`.) The password must pass the platform policy
+(12+ characters, letters and numbers, not in a breach list). The output is a table of e-mail / role / organization /
+partner / result, never the password. Re-running skips the accounts that exist (and asks no password when none is
+missing); `--reset-password` sets a new shared password on the demo accounts. Only an account with **both** the
+`demo_account` marker (`users.preferences`, `organizations.settings`) and the demo domain is ever changed again — a real
+person holding one of the addresses is reported and left alone.
+
+When the walk-through is over: `… onhost:demo:accounts --i-know-this-is-not-production --remove` disables them — state
+`suspended` (sign-in refused), a random password, sessions, step-ups and personal API tokens ended, the partner records
+suspended. Nothing is deleted (erasure is the owner's path: owner-only, step-up, 14 days); the organizations stay.
+`--reset-password` brings them back. After the outbox relays, the partner approvals also give the demo partner
+organizations the usual loyalty points (200, below the first paid level with the default levels) and in-app notices to
+staff ("Nová partnerská přihláška", the white-label change) — expected, nothing leaves the platform.
+
 ### S7 — First gated deploy
 
 Path B: the units of O12 run (S4), so the drain is exercised. Path A: the first run has none (the list is empty, the
