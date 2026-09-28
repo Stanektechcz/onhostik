@@ -309,11 +309,32 @@ final class ProviderInstanceService
         if ($running !== [] && ! $acknowledgeRunning) {
             throw new DomainError('instance_tasks_running', count($running).' task(s) are running at the panel for the platform right now; let them finish, or confirm with acknowledge_running=true that they are followed up after the maintenance.', 409, ['tasks' => $running]);
         }
+        $previous = (string) $instance->state;
         $instance->forceFill(['state' => $state, 'maintenance_until' => $state === 'maintenance' ? $maintenanceUntil : null, 'state_reason' => $state === 'active' ? null : ($reason !== null ? mb_substr($reason, 0, 250) : null)])->save();
         $this->providers->forget($instance);
-        $this->audit->record($context, 'provider.instance.state', 'succeeded', ['key' => $instance->key, 'state' => $state, 'reason' => $reason, 'maintenance_until' => $maintenanceUntil?->format(DATE_ATOM), 'tasks_left_running' => array_column($running, 'id')], 'provider_instance', $instance->id);
+        $resumed = in_array($previous, ProviderInstance::REFUSED_STATES, true) && ! $instance->isRefused() ? $this->resumeParked($instance) : [];
+        $this->audit->record($context, 'provider.instance.state', 'succeeded', ['key' => $instance->key, 'state' => $state, 'reason' => $reason, 'maintenance_until' => $maintenanceUntil?->format(DATE_ATOM), 'tasks_left_running' => array_column($running, 'id'), 'runs_resumed' => $resumed], 'provider_instance', $instance->id);
 
         return $instance;
+    }
+
+    /**
+     * Staff lifted a containment (review round 2): the runs parked behind this instance are due now, not at their next look
+     * up to OperationRunner::PARK_MAX_MINUTES away. The scheduler's tick dispatches them within the minute.
+     *
+     * @return list<string> the ids of the runs made due
+     */
+    private function resumeParked(ProviderInstance $instance): array
+    {
+        $ids = [];
+        foreach (Operation::query()->whereIn('state', [Operation::PENDING, Operation::WAITING])->whereNotNull('context->_parked->since')->limit(1000)->get() as $operation) {
+            if (data_get($operation->error, 'detail.instance') === $instance->key) {
+                $operation->forceFill(['next_run_at' => now()])->save();
+                $ids[] = (string) $operation->id;
+            }
+        }
+
+        return $ids;
     }
 
     /**

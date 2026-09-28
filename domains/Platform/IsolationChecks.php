@@ -61,7 +61,7 @@ final class IsolationChecks
         $old = Operation::query()->whereIn('state', [Operation::PENDING, Operation::WAITING])->whereNotNull('context->_parked->since')->orderBy('queued_at')->limit(500)->get(['id', 'kind', 'context'])
             ->filter(fn (Operation $o) => CarbonImmutable::parse((string) data_get($o->context, '_parked.since'))->lt($limit))->values();
         $detail = $old->isEmpty() ? 'none' : $old->count().' run(s) waiting for a contained or disabled panel since more than '.self::PARKED_DAYS.' days: '
-            .$old->take(5)->map(fn (Operation $o) => $o->id.' ('.$o->kind.')')->implode(', ').' — lift the containment, or cancel them (provisioning.operation.cancel)';
+            .$old->take(5)->map(fn (Operation $o) => $o->id.' ('.$o->kind.')')->implode(', ').' — lift the containment and they resume; do not cancel them to clear the list: a cancel runs no compensation, so address, VMID and capacity holds stay and a paid line is neither delivered nor refunded (decide each one with the owner)';
 
         return ['area' => 'automation', 'check' => 'no operation parked for more than '.self::PARKED_DAYS.' days', 'ok' => $old->isEmpty(), 'detail' => $detail, 'blocking' => false];
     }

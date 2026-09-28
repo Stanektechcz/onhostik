@@ -93,6 +93,14 @@ final class ReviewSwallowingStep implements Step
         if ($this->mode === 'first-done' && $context->get('first_done') !== true) {
             return StepResult::done(['first_done' => true]);
         }
+        if ($this->mode === 'best-effort') {
+            try {
+                $context->adapter((string) $context->desired('second_instance'))->health(); // a cleanup on the second panel, best effort (CertificateWorkflow)
+            } catch (Throwable) {
+            }
+
+            return StepResult::fail('certificate install failed: the web server refused the certificate');
+        }
         if ($this->mode === 'wait') {
             $context->adapter()->health();
 
@@ -236,7 +244,8 @@ it('lets the game data transfer say the panel is contained, and parks the migrat
         ->and($operation->step)->toBe(6)
         ->and($operation->external_handle)->toBeNull() // the step runs again from its start after the lift: it dispatches the transfer anew
         ->and(data_get($operation->error, 'detail.contained'))->toBeTrue()
-        ->and(app(CacheRepository::class)->get(TransferGameArchive::cacheKey($operation->id)))->toBeNull();
+        // the record stays until the step runs again (run() forgets it before it dispatches): review round 2 LOW
+        ->and(app(CacheRepository::class)->get(TransferGameArchive::cacheKey($operation->id)))->toMatchArray(['state' => 'contained']);
 });
 
 // ── MEDIUM-C: the staff switch of a customer's registrar account ──
@@ -318,7 +327,9 @@ it('names the runs parked for more than a week in the doctor, as a warning', fun
     Artisan::call('onhost:doctor', ['--json' => true]);
     $row = collect(json_decode(trim(Artisan::output()), true, 512, JSON_THROW_ON_ERROR)['checks'])->firstWhere('check', 'no operation parked for more than 7 days');
 
-    expect($row)->not->toBeNull()->and($row['status'])->toBe('WARN')->and($row['detail'])->toContain($operation->id);
+    expect($row)->not->toBeNull()->and($row['status'])->toBe('WARN')->and($row['detail'])->toContain($operation->id)
+        // cancelling runs no compensation (OperationService::cancel): the advice must not send staff there (review round 2)
+        ->and($row['detail'])->not->toContain('provisioning.operation.cancel')->toContain('compensation');
 });
 
 // ── LOWs ──
@@ -345,4 +356,63 @@ it('asks for a reason when a containment is set or lifted', function () {
         ->and($instance->fresh()->state)->toBe('contained');
     $service->setState($instance->fresh(), 'active', $context, 'phase 2 go-ahead');
     expect($instance->fresh()->state)->toBe('active');
+});
+
+// ── review round 2 ──
+
+it('keeps one park record for a run parked behind a contained second panel for days, backs off, and never re-runs its step early', function () {
+    $source = reviewInstance('isp-days-src');
+    $target = reviewInstance('isp-days-dst', 'contained');
+    $operation = reviewOperation($source, ['mode' => 'domain-error', 'second_instance' => $target->id]);
+    $runner = app(OperationRunner::class);
+    $start = now()->copy();
+
+    $runner->tick($operation);
+    $since = data_get($operation->fresh()->context, '_parked.since');
+    $waits = [(int) data_get($operation->fresh()->error, 'detail.next_look_minutes')];
+    $looks = 1;
+    // the queue job re-dispatches a PENDING run every ten minutes at most (RunOperation): simulate eight days of that
+    for ($minute = 10; $minute <= 8 * 24 * 60; $minute += 10) {
+        $this->travelTo($start->copy()->addMinutes($minute));
+        $due = $operation->fresh()->next_run_at->lte(now());
+        $runner->tick($operation);
+        if ($due) {
+            $looks++;
+            $waits[] = (int) data_get($operation->fresh()->error, 'detail.next_look_minutes');
+        }
+    }
+
+    $fresh = $operation->fresh();
+    expect($fresh->state)->toBe(Operation::PENDING)
+        ->and(data_get($fresh->context, '_parked.since'))->toBe($since) // one containment, one record
+        ->and($fresh->attempts()->count())->toBe($looks) // the step ran only when the run was due, not at every re-dispatch
+        ->and($looks)->toBeLessThan(45)
+        ->and(array_slice($waits, 0, 6))->toBe([15, 30, 60, 120, 240, OperationRunner::PARK_MAX_MINUTES])
+        ->and(max($waits))->toBe(OperationRunner::PARK_MAX_MINUTES)
+        ->and(ReviewWorkflow::$compensated)->toBe(0);
+
+    Artisan::call('onhost:doctor', ['--json' => true]);
+    $row = collect(json_decode(trim(Artisan::output()), true, 512, JSON_THROW_ON_ERROR)['checks'])->firstWhere('check', 'no operation parked for more than 7 days');
+    expect($row['status'])->toBe('WARN')->and($row['detail'])->toContain($operation->id);
+
+    // staff lift the containment: the parked run is due at once, not at its next look up to six hours away
+    app(ProviderInstanceService::class)->setState($target->fresh(), 'active', CommandContext::system('review'), 'phase 2 go-ahead');
+    expect($operation->fresh()->next_run_at->lte(now()))->toBeTrue();
+    app(ProviderRegistry::class)->useAdapter($target->id, new ReviewCountingAdapter); // setState() drops the held adapter; the lab has no credentials
+    expect($runner->tick($operation))->toBe(Operation::SUCCEEDED)
+        ->and((int) data_get($operation->fresh()->context, '_parked.seconds'))->toBeGreaterThan(7 * 86400);
+});
+
+it('fails and compensates a step that swallowed a best-effort refusal and then failed for a reason of its own', function () {
+    $source = reviewInstance('isp-cert-src');
+    $target = reviewInstance('isp-cert-dst', 'disabled');
+    $operation = reviewOperation($source, ['mode' => 'best-effort', 'second_instance' => $target->id]);
+
+    app(OperationRunner::class)->tick($operation);
+    $fresh = $operation->fresh();
+
+    expect($fresh->state)->toBe(Operation::FAILED) // not parked for ever behind a panel that has nothing to do with the failure
+        ->and(ReviewWorkflow::$compensated)->toBe(1)
+        ->and(data_get($fresh->error, 'message'))->toContain('the web server refused the certificate')
+        ->and($fresh->attempts()->value('error'))->toContain('a contained panel was refused during this step'); // the refusal is on record in the attempt
 });

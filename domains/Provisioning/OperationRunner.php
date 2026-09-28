@@ -60,6 +60,11 @@ final class OperationRunner
 
             return $operation->state;
         }
+        // a parked run is looked at when its next look is due, not at every re-dispatch of its queue job (RunOperation
+        // re-dispatches a PENDING run within ten minutes whatever next_run_at says) — review round 2, HIGH-1
+        if (self::parkedUntilLater($operation)) {
+            return $operation->state;
+        }
         // TASK-0045: an operation of a contained (or disabled) instance waits, whoever started it; it neither runs nor fails
         if (($contained = $this->containedInstance($operation)) !== null) {
             return $this->parkUnclaimed($operation, $contained);
@@ -67,7 +72,6 @@ final class OperationRunner
         if (! $this->claim($operation)) {
             return $operation->refresh()->state;
         }
-        $this->unpark($operation); // back from a containment: the time it waited is written down, never counted as its own (review MEDIUM-F)
 
         /** @var Workflow $workflow */
         $workflow = $this->container->make($operation->workflow);
@@ -110,6 +114,12 @@ final class OperationRunner
                 $result = StepResult::fail(get_class($e).': '.$e->getMessage(), false, ['trace' => mb_substr($e->getTraceAsString(), 0, 1500)]);
             }
             $context = $this->context($operation->refresh()); // steps may have changed the service/bindings
+            $refusal = $result->outcome === StepResult::FAIL ? $this->containmentCause($result, $refusalMark) : null;
+            if ($refusal === null) {
+                // the step got past the containment (or failed for a reason of its own): the park record closes only now, so a
+                // run parked behind a contained SECOND panel keeps one record and its back-off while its parks repeat (round 2)
+                $this->unpark($operation);
+            }
 
             switch ($result->outcome) {
                 case StepResult::DONE:
@@ -138,15 +148,16 @@ final class OperationRunner
 
                     return Operation::WAITING;
                 default:
-                    // a step that turned the refusal into its own failure — with the refusal's detail (`fail(…, $e->extra)`), or
-                    // swallowed whole (`catch (DomainError|Throwable)` → `fail($e->getMessage())`, the registry saw it): parked all the
-                    // same. A contained panel is a pause the owner chose, never a reason to fail and compensate (TASK-0045, review B)
-                    if (($refusal = InstanceContained::fromDetail($result->detail) ?? $this->providers->refusedSince($refusalMark)) !== null) {
+                    // a step that turned the refusal into its own failure — with the refusal's detail (`fail(…, $e->extra)`), or its
+                    // message (`catch (DomainError|Throwable)` → `fail('…: '.$e->getMessage())`): parked all the same. A contained panel
+                    // is a pause the owner chose, never a reason to fail and compensate (TASK-0045, review B; cause rule: round 2)
+                    if ($refusal !== null) {
                         $this->finishAttempt($attempt, 'parked', $result->error);
 
                         return $this->park($operation, $refusal, $operation->external_handle === null && ! $ranThisTick, (bool) ($result->detail['rerun_step'] ?? false));
                     }
-                    $this->finishAttempt($attempt, $result->retryable ? 'retry' : 'fail', $result->error);
+                    $swallowed = $this->providers->refusedSince($refusalMark); // refused on the way, but not why the step failed
+                    $this->finishAttempt($attempt, $result->retryable ? 'retry' : 'fail', $result->error.($swallowed === null ? '' : ' · a contained panel was refused during this step ('.$swallowed->instanceKey.': '.$swallowed->instanceState.')'));
                     $policy = RetryPolicy::provisioning();
                     // the time the run spent parked behind a containment is not its own (review MEDIUM-F)
                     $elapsed = $operation->queued_at ? max(0, now()->diffInSeconds($operation->queued_at, true) - self::parkedSeconds($operation)) : 0;
@@ -233,6 +244,30 @@ final class OperationRunner
         return $state;
     }
 
+    /**
+     * The refusal a failed step failed BECAUSE of, or null (review round 2, MEDIUM a): the step handed back the refusal's
+     * detail, or its failure carries the refusal's own message (how every swallowing `catch` words it). A refusal the step
+     * swallowed on the way — a best-effort cleanup on another panel — before it failed for a reason of its own is not the
+     * cause: that run fails and compensates as it always did, and the attempt names the refusal.
+     */
+    private function containmentCause(StepResult $result, int $refusalMark): ?InstanceContained
+    {
+        $marked = InstanceContained::fromDetail($result->detail);
+        if ($marked !== null) {
+            return $marked;
+        }
+        $seen = $this->providers->refusedSince($refusalMark);
+
+        return $seen !== null && str_contains((string) $result->error, $seen->getMessage()) ? $seen : null;
+    }
+
+    /** A parked run whose next look is not due yet: nothing is asked, nothing is counted (review round 2, HIGH-1). */
+    private static function parkedUntilLater(Operation $operation): bool
+    {
+        return in_array($operation->state, [Operation::PENDING, Operation::WAITING], true) && ! empty(data_get($operation->context, '_parked.since'))
+            && $operation->next_run_at !== null && $operation->next_run_at->isFuture();
+    }
+
     /** The containment is over for this run: its length goes to `_parked.seconds`, which the timeouts leave out. */
     private function unpark(Operation $operation): void
     {
@@ -262,6 +297,9 @@ final class OperationRunner
                 return false;
             }
             if ($fresh->state === Operation::WAITING && $fresh->next_run_at !== null && $fresh->next_run_at->isFuture()) {
+                return false;
+            }
+            if (self::parkedUntilLater($fresh)) { // parked PENDING runs honour their next look too (round 2, HIGH-1)
                 return false;
             }
             $fresh->forceFill(['state' => Operation::RUNNING, 'started_at' => $fresh->started_at ?? now(), 'attempts' => $fresh->attempts + ($fresh->external_handle === null ? 1 : 0)])->save();
