@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
+use App\Http\Navigation\StaffNavigation;
 use App\Http\Support\SurfaceRenderer;
 use Illuminate\Http\Request;
 use Onhost\Domain\Identity\Authorization\Authorizer;
+use Onhost\Domain\Identity\Authorization\StaffActor;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
@@ -31,7 +33,7 @@ final class SurfaceController extends Controller
     /** Public marketing paths that map 1:1 onto hash routes of Onhost.dc.html (docs-audit-implementace §route table). */
     public const PUBLIC_PATHS = ['sluzby', 'sluzba', 'ceny', 'ceny-a-sla', 'webhosting', 'gamehosting', 'technika', 'jak-fungujeme', 'blog', 'znalostni-baze', 'napoveda', 'dokumentace', 'api', 'stav', 'zmeny', 'lide', 'reseller', 'verejne-zakazky', 'kosik', 'prihlaseni', 'registrace', 'obnova-hesla'];
 
-    public function __construct(private readonly SurfaceRenderer $renderer, private readonly Authorizer $authorizer) {}
+    public function __construct(private readonly SurfaceRenderer $renderer, private readonly Authorizer $authorizer, private readonly StaffNavigation $navigation) {}
 
     public function public(Request $request, ?string $path = null): Response
     {
@@ -174,10 +176,12 @@ final class SurfaceController extends Controller
             'organizations' => $organizations->map(fn (Organization $o) => ['id' => $o->id, 'name' => $o->name])->values()->all(),
             'partner' => $partner === null ? null : ['code' => $partner->code, 'tier' => $partner->tier],
             'mfa' => $user->totp_confirmed_at !== null,
+            // the staff console's navigation (audit 2026-10 B2): the items this person may open, each with the reads it may make
+            'nav' => StaffActor::account($user) ? $this->navigation->for($user) : [],
         ];
     }
 
-    /** Prototype role ids (onhost-shell.js ROLES): admin | klient | partner | noc | fakturace. */
+    /** Prototype role ids (onhost-shell.js ROLES): admin | klient | partner | noc | fakturace, and `none` for staff no persona fits (R10). */
     private function role(User $user, bool $partner): string
     {
         if (! $user->is_staff) {
@@ -194,7 +198,8 @@ final class SurfaceController extends Controller
             return 'fakturace';
         }
 
-        return 'admin';
+        // owner decision R10: a member of staff whose permissions fit no persona is not an admin; the console follows `nav`
+        return 'none';
     }
 
     private function hash(?string $path): ?string

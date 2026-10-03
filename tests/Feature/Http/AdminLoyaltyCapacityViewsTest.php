@@ -24,7 +24,7 @@ it('relabels the two views, ships their tables and runs the capacity pass on dem
     expect($html)->toContain("_('Věrnost a kampaně', 'Loyalty and campaigns')")->toContain("_('Kapacita a nákup uzlů', 'Capacity and node purchases')")
         ->toContain('window.OnhostAdmin.counts(this).coupons')->toContain('window.OnhostAdmin.counts(this).nodecostDot')->toContain("_('Misijní kampaně s odhadem nákladů dřív, než je otevřete.'")->toContain("_('Forecast fondů podle trendu, návrhy nákupu a objednávky uzlů u dodavatele.'");
     $js = (string) file_get_contents(base_path('apps/surfaces/api/onhost-admin.api.js'));
-    expect($js)->toContain("'coupons', 'nodecost']")->toContain('function loyaltyTable(')->toContain('function capacityTable(')->toContain("'/staff/loyalty/campaigns/forecast'")->toContain("'/staff/capacity/forecast/run'")
+    expect($js)->toContain("if (view === 'coupons')")->toContain("if (view === 'nodecost')")->toContain('function loyaltyTable(')->toContain('function capacityTable(')->toContain("'/staff/loyalty/campaigns/forecast'")->toContain("'/staff/capacity/forecast/run'")
         ->toContain("'/staff/capacity/requests?state=all'")->toContain('Založit herní server')->toContain("action: 'command.send'")->toContain("window.open('/sprava/konzole/' + sid")->toContain("'X-Organization': org");
 
     // the pass on demand: the forecast rows come back with the plan (nothing short in a fresh lab)
