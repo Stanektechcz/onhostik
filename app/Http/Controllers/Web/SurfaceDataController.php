@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
 use App\Http\Support\CatalogPresentation;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Carbon;
@@ -18,6 +19,8 @@ use Onhost\Domain\Catalog\PanelNavigation;
 use Onhost\Domain\Catalog\PricingRules;
 use Onhost\Domain\Content\ContentService;
 use Onhost\Domain\Domains\Models\Domain;
+use Onhost\Domain\Identity\Authorization\Authorizer;
+use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Incidents\IncidentService;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Invoicing\Models\LegalEntity;
@@ -46,6 +49,7 @@ use Onhost\Domain\Services\UsageWatch;
 use Onhost\Domain\Support\Models\Ticket;
 use Onhost\Domain\WalletLedger\AutoTopup;
 use Onhost\Domain\WalletLedger\WalletService;
+use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Money\Money;
 
@@ -320,7 +324,7 @@ final class SurfaceDataController extends Controller
                 'catalog' => $this->panelCatalog($locale), 'regions' => Region::query()->where('state', 'active')->orderBy('code')->get()->map(fn ($r) => ['code' => $r->code, 'name' => $r->name, 'datacenter' => $r->datacenter])->all(),
                 'consents' => $this->consentVersions(), 'tlds' => $this->panelTlds(null), 'game_config' => $this->gameConfigurator->offer($locale, 'CZK'), 'generated_at' => now()->toIso8601String()];
         } else {
-            $payload = $this->panelPayload((string) $organizationId, $user->locale ?? 'cs');
+            $payload = $this->panelPayload((string) $organizationId, $user->locale ?? 'cs', $user);
         }
         $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG);
 
@@ -572,18 +576,86 @@ final class SurfaceDataController extends Controller
 
     // ── onhost-panel.js payload ──────────────────────────────────────────────
 
-    private function panelPayload(string $organizationId, string $locale): array
+    /**
+     * TASK-0053 (audit 2026-10 P0-1, Phase B B0): what one member reads of the organization here is what the member's own /v1
+     * endpoint behind each part answers, at the same organization scope — the payload used to check membership alone and handed a
+     * guest, a support contact or a developer every service, every domain, the credit, the open document and the bank details.
+     * Part of the payload => the permission its endpoint asks (ServiceController::index, DomainController::index, WalletController,
+     * InvoiceController, PaymentController, SupportController). The route is the portal session's alone (`token.scope` refuses
+     * every API token), so the person's bindings decide.
+     */
+    private const PANEL_READS = [
+        'service.read', 'domain.read', 'billing.invoice.read', 'billing.wallet.read', 'billing.wallet.topup', 'support.ticket.read',
+        'organization.read', 'audit.read', 'api_token.manage', 'backup.read', 'catalog.order.create',
+    ];
+
+    /**
+     * TASK-0053 (Phase B B7): the customer sidebar by role — every entry names the permissions its view's endpoints ask, and an
+     * entry the member could only open to a refusal is not listed. The optional links (PanelNavigation::LINKS) also keep the staff
+     * switch; the fixed areas (`nav.areas`) only the permission. Read by api/onhost-panel-nav.api.js.
+     */
+    public const NAV_REQUIRES = [
+        // optional links: GET /organizations/{id} (members), /organizations/{id}/projects, /calendar, /registrar-connections, …
+        'kb' => [], 'status' => [], 'privacy' => [],
+        'team' => ['organization.read'], 'projects' => ['organization.read'], 'windows' => ['organization.read'],
+        'api' => ['api_token.manage'], 'registrars' => ['domain.read'], 'audit' => ['audit.read'],
+        'costs' => ['billing.invoice.read', 'billing.wallet.read'], 'monitoring' => ['service.read'], 'backups' => ['backup.read'],
+        // fixed areas: the desk lists only what the member sees (a guest: the services shared with them), settings are the person's own
+        'overview' => [], 'services' => [], 'settings' => [],
+        'order' => ['catalog.order.create'], 'tickets' => ['support.ticket.read'], 'billing' => ['billing.invoice.read'],
+        'topup' => ['billing.wallet.topup'], 'domains' => ['domain.read'], 'calendar' => ['organization.read'],
+    ];
+
+    /** The fixed areas of the sidebar (not switchable by staff). */
+    private const NAV_AREAS = ['overview', 'services', 'settings', 'order', 'tickets', 'billing', 'topup', 'domains', 'calendar'];
+
+    /** @return array<string, bool> permission => held at the organization scope */
+    private function panelPermissions(User $user, string $organizationId): array
+    {
+        $authorizer = app(Authorizer::class);
+        $scope = CommandScope::organization($organizationId);
+        $can = [];
+        foreach (self::PANEL_READS as $permission) {
+            $can[$permission] = $authorizer->can($user, $permission, $scope);
+        }
+
+        return $can;
+    }
+
+    /**
+     * The services the member sees — ServiceController::index: all of them with `service.read` on the organization, otherwise
+     * the projects a project role reads and the single services shared with them (a guest: exactly those), otherwise none.
+     *
+     * @param  array<string, bool>  $can
+     * @return Collection<int, Service>
+     */
+    private function panelServices(User $user, string $organizationId, array $can)
+    {
+        $query = Service::query()->where('organization_id', $organizationId)->whereNotIn('state', [ServiceStateMachine::TERMINATED]);
+        if (! $can['service.read']) {
+            $authorizer = app(Authorizer::class);
+            $projects = $authorizer->projectIdsWhere($user, 'service.read', $organizationId);
+            $shared = $authorizer->resourceIdsWhere($user, 'service.read', $organizationId);
+            $query->where(fn ($q) => $q->whereIn('project_id', $projects)->orWhereIn('id', $shared)); // both empty: nothing
+        }
+
+        return $query->orderBy('created_at')->get();
+    }
+
+    private function panelPayload(string $organizationId, string $locale, User $user): array
     {
         $cs = $locale === 'cs';
         $t = fn (string $a, string $b) => $cs ? $a : $b;
-        $services = Service::query()->where('organization_id', $organizationId)->whereNotIn('state', [ServiceStateMachine::TERMINATED])->orderBy('created_at')->get();
-        $subs = Subscription::query()->where('organization_id', $organizationId)->get()->keyBy('service_id');
+        $can = $this->panelPermissions($user, $organizationId);
+        $services = $this->panelServices($user, $organizationId, $can);
+        $subs = Subscription::query()->where('organization_id', $organizationId)->whereIn('service_id', $services->pluck('id')->all())->get()->keyBy('service_id');
         $planNames = [];
         $groups = array_fill_keys(array_keys(PanelNavigation::CATEGORIES), []);
         $executors = Product::query()->pluck('executor', 'key')->all();
         $servers = [];
+        $domains = $can['domain.read'] ? Domain::query()->where('organization_id', $organizationId)->orderBy('fqdn_ascii')->get() : [];
 
-        foreach (Domain::query()->where('organization_id', $organizationId)->orderBy('fqdn_ascii')->get() as $d) {
+        foreach ($domains as $d) {
             $days = $d->daysToExpiry();
             $groups['domain'][] = [
                 'id' => $d->id, 'type' => 'domain', 'name' => $d->fqdn_unicode ?: $d->fqdn_ascii,
@@ -673,8 +745,8 @@ final class SurfaceDataController extends Controller
         }
 
         return [
-            'services' => $groups + self::stateGroups($groups), 'service_cats' => self::serviceCats($groups), 'servers' => $servers, 'organization' => $organizationId, 'kpis' => $this->kpis($organizationId, $services, $cs), 'billing' => $this->billing($organizationId, $services, $cs),
-            'nav' => self::navWithStateViews(app(PanelNavigation::class)->effective($organizationId), $groups), 'catalog' => $this->panelCatalog($locale), 'regions' => Region::query()->where('state', 'active')->orderBy('code')->get()->map(fn ($r) => ['code' => $r->code, 'name' => $r->name, 'datacenter' => $r->datacenter])->all(),
+            'services' => $groups + self::stateGroups($groups), 'service_cats' => self::serviceCats($groups), 'servers' => $servers, 'organization' => $organizationId, 'kpis' => $this->kpis($organizationId, $services, $cs, $can), 'billing' => $this->billing($organizationId, $services, $cs, $can),
+            'nav' => self::navWithStateViews(self::navFor(app(PanelNavigation::class)->effective($organizationId), $groups, $can), $groups), 'catalog' => $this->panelCatalog($locale), 'regions' => Region::query()->where('state', 'active')->orderBy('code')->get()->map(fn ($r) => ['code' => $r->code, 'name' => $r->name, 'datacenter' => $r->datacenter])->all(),
             'consents' => $this->consentVersions(), 'tlds' => $this->panelTlds($organizationId), 'game_config' => $this->gameConfigurator->offer($locale, 'CZK'), 'generated_at' => now()->toIso8601String(),
         ];
     }
@@ -749,6 +821,37 @@ final class SurfaceDataController extends Controller
                 'enabled' => true, 'offered' => false, 'owned' => count($rows), 'visible' => true, 'orderable' => false,
             ];
         }
+
+        return $nav;
+    }
+
+    /**
+     * The sidebar of THIS member (TASK-0053, B0/B7): a category counts the rows the member sees (PanelNavigation::effective counts
+     * the whole organization — a guest saw how many services the organization runs), an empty category is listed only to somebody
+     * who may order into it, and every link carries what it needs (NAV_REQUIRES): `links` keep their staff switch, `areas` are
+     * the fixed entries, `requires` names the permissions so the seam and a reader can see why an entry is gone.
+     *
+     * @param  array{categories: list<array<string,mixed>>, links: array<string,bool>}  $nav
+     * @param  array<string, list<array<string,mixed>>>  $groups
+     * @param  array<string, bool>  $can
+     * @return array{categories: list<array<string,mixed>>, links: array<string,bool>, areas: array<string,bool>, requires: array<string, list<string>>}
+     */
+    private static function navFor(array $nav, array $groups, array $can): array
+    {
+        $holds = fn (string $key): bool => array_reduce(self::NAV_REQUIRES[$key] ?? [], fn (bool $all, string $permission) => $all && ($can[$permission] ?? false), true);
+        foreach ($nav['categories'] as $i => $category) {
+            $owned = count($groups[$category['key']] ?? []);
+            $orderable = (bool) $category['orderable'] && $can['catalog.order.create'];
+            $nav['categories'][$i] = array_replace($category, ['owned' => $owned, 'visible' => $owned > 0 || $orderable, 'orderable' => $orderable]);
+        }
+        foreach ($nav['links'] as $key => $enabled) {
+            $nav['links'][$key] = $enabled && $holds($key);
+        }
+        $nav['areas'] = [];
+        foreach (self::NAV_AREAS as $key) {
+            $nav['areas'][$key] = $holds($key);
+        }
+        $nav['requires'] = self::NAV_REQUIRES;
 
         return $nav;
     }
@@ -845,11 +948,36 @@ final class SurfaceDataController extends Controller
      * Fakturace tab (api/onhost-panel-billing.api.js): the organization's most relevant document — the open one due first,
      * otherwise the latest settled one — with its lines, the bank details for transfers, the customer identity and the
      * monthly cost breakdown of the active subscriptions. Amounts are decimals; the panel formats money in its own currency/locale.
+     *
+     * TASK-0053 (B0): the documents, the bank details, the customer identity and the cost figures are what GET /invoices and
+     * /subscriptions give (`billing.invoice.read`); the pending transfers and the stored cards what /payments and /payment-methods
+     * give (`billing.wallet.read`). A member holding neither gets no billing block at all; one part alone keeps the other empty.
+     *
+     * @param  array<string, bool>  $can
      */
-    private function billing(string $organizationId, $services, bool $cs): array
+    private function billing(string $organizationId, $services, bool $cs, array $can): ?array
     {
+        if (! $can['billing.invoice.read'] && ! $can['billing.wallet.read']) {
+            return null;
+        }
         $organization = Organization::query()->find($organizationId);
         $fmt = fn ($date) => $date === null ? null : Carbon::parse($date)->format($cs ? 'j. n. Y' : 'j M Y');
+        $documents = $can['billing.invoice.read'] ? $this->billingDocuments($organization, $organizationId, $services, $cs, $fmt) : [
+            'document' => null, 'breakdown' => [], 'monthly' => null, 'average_6m' => null, 'chart' => null, 'bank' => null, 'organization' => null,
+            'terms' => null, 'dunning' => null, 'sla' => [], 'approvals' => [], 'approval_expire_days' => null,
+        ];
+        $wallet = $can['billing.wallet.read'] ? $this->billingWallet($organization, $organizationId, $cs, $fmt) : ['pending' => [], 'wallet' => null];
+
+        return [
+            'document' => $documents['document'], 'breakdown' => $documents['breakdown'], 'monthly' => $documents['monthly'], 'average_6m' => $documents['average_6m'], 'chart' => $documents['chart'],
+            'pending' => $wallet['pending'], 'bank' => $documents['bank'], 'organization' => $documents['organization'], 'terms' => $documents['terms'], 'dunning' => $documents['dunning'],
+            'wallet' => $wallet['wallet'], 'sla' => $documents['sla'], 'approvals' => $documents['approvals'], 'approval_expire_days' => $documents['approval_expire_days'],
+        ];
+    }
+
+    /** The `billing.invoice.read` part of the billing block. @return array<string, mixed> */
+    private function billingDocuments(?Organization $organization, string $organizationId, $services, bool $cs, \Closure $fmt): array
+    {
         $dec = fn (int|float $minor) => round($minor / 100, 2);
         $trim = fn ($n) => rtrim(rtrim(number_format((float) $n, 4, '.', ''), '0'), '.');
         $documents = Invoice::query()->where('organization_id', $organizationId)->whereIn('type', ['invoice', 'proforma'])->whereNotNull('number');
@@ -944,6 +1072,23 @@ final class SurfaceDataController extends Controller
             'legend' => [[$cs ? 'Servery a hry' : 'Servers and games', $share('servers')], [$cs ? 'Web, e-mail a domény' : 'Web, e-mail and domains', $share('hosting')], [$cs ? 'Doplňky a ostatní' : 'Add-ons and other', $share('other')]],
         ];
 
+        return [
+            'document' => $doc, 'breakdown' => $breakdown, 'monthly' => $dec((int) array_sum(array_column($groups, 'amount'))), 'average_6m' => $dec(intdiv($invoiced, 6)), 'chart' => $chart,
+            'bank' => ['account' => $seller['bank_account'] ?? null, 'iban' => $seller['iban'] ?? null, 'bic' => $seller['bic'] ?? null],
+            'organization' => ['name' => $organization?->name, 'ico' => $organization?->ico, 'vat_id' => $organization?->vat_id ?: $organization?->dic, 'billing_email' => $organization?->billing_email, 'billing_mode' => $organization?->billing_mode, 'customer_class' => $organization?->customer_class],
+            'terms' => ['due_days' => (int) config('onhost.billing.invoice_due_days', 14)],
+            'dunning' => (array) config('onhost.billing.dunning'),
+            'sla' => $services->pluck('sla_class')->filter()->unique()->values()->all(),
+            // TASK-0021 (owner decision 20): credit orders waiting for the owner or a billing admin; the server refuses anybody else's decision
+            'approvals' => Order::query()->where('organization_id', $organizationId)->where('state', OrderStateMachine::NEW)->where('meta->approval->state', 'pending')->orderBy('placed_at')->limit(20)->get()
+                ->map(fn (Order $o) => ['id' => $o->id, 'number' => $o->number, 'total' => (float) $o->total()->toDecimal(), 'currency' => $o->currency, 'requester' => CreditOrderApprovals::of($o)['requester_name'] ?? null, 'placed' => $fmt($o->placed_at)])->values()->all(),
+            'approval_expire_days' => (int) config('onhost.orders.credit_approval.expire_days', 7),
+        ];
+    }
+
+    /** The `billing.wallet.read` part of the billing block: transfers still owed, the automatic top-up and the stored cards. @return array{pending: list<array<string,mixed>>, wallet: array<string,mixed>} */
+    private function billingWallet(?Organization $organization, string $organizationId, bool $cs, \Closure $fmt): array
+    {
         // transfers the customer still owes: every pending bank intent with its symbol, so the instructions never depend on a closed toast
         $pending = PaymentIntent::query()->where('organization_id', $organizationId)->where('provider', 'bank')->whereIn('state', [PaymentState::CREATED, PaymentState::PENDING_CUSTOMER])->orderByDesc('created_at')->limit(20)->get()
             ->map(function (PaymentIntent $i) use ($cs, $fmt) {
@@ -959,26 +1104,23 @@ final class SurfaceDataController extends Controller
             })->values()->all();
 
         return [
-            'document' => $doc, 'breakdown' => $breakdown, 'monthly' => $dec((int) array_sum(array_column($groups, 'amount'))), 'average_6m' => $dec(intdiv($invoiced, 6)), 'chart' => $chart, 'pending' => $pending,
-            'bank' => ['account' => $seller['bank_account'] ?? null, 'iban' => $seller['iban'] ?? null, 'bic' => $seller['bic'] ?? null],
-            'organization' => ['name' => $organization?->name, 'ico' => $organization?->ico, 'vat_id' => $organization?->vat_id ?: $organization?->dic, 'billing_email' => $organization?->billing_email, 'billing_mode' => $organization?->billing_mode, 'customer_class' => $organization?->customer_class],
-            'terms' => ['due_days' => (int) config('onhost.billing.invoice_due_days', 14)],
-            'dunning' => (array) config('onhost.billing.dunning'),
+            'pending' => $pending,
             'wallet' => ['auto_topup' => $organization !== null ? app(AutoTopup::class)->settings($organization) : null, 'payment_methods' => $organization !== null ? app(PaymentService::class)->methods($organization) : []], // the automatic top-up policy row (audit §5e-2) and the stored cards (audit §5f-1)
-            'sla' => $services->pluck('sla_class')->filter()->unique()->values()->all(),
-            // TASK-0021 (owner decision 20): credit orders waiting for the owner or a billing admin; the server refuses anybody else's decision
-            'approvals' => Order::query()->where('organization_id', $organizationId)->where('state', OrderStateMachine::NEW)->where('meta->approval->state', 'pending')->orderBy('placed_at')->limit(20)->get()
-                ->map(fn (Order $o) => ['id' => $o->id, 'number' => $o->number, 'total' => (float) $o->total()->toDecimal(), 'currency' => $o->currency, 'requester' => CreditOrderApprovals::of($o)['requester_name'] ?? null, 'placed' => $fmt($o->placed_at)])->values()->all(),
-            'approval_expire_days' => (int) config('onhost.orders.credit_approval.expire_days', 7),
         ];
     }
 
-    /** Account-level numbers the overview shows: wallet credit, 30-day availability of the components the organization uses. */
-    private function kpis(string $organizationId, $services, bool $cs): array
+    /**
+     * Account-level numbers the overview shows: wallet credit, 30-day availability of the components the member's services use.
+     * TASK-0053 (B0): the credit is `billing.wallet.read`, the unpaid sum `billing.invoice.read`, the open tickets
+     * `support.ticket.read` — null for a member whose own endpoint would refuse it.
+     *
+     * @param  array<string, bool>  $can
+     */
+    private function kpis(string $organizationId, $services, bool $cs, array $can): array
     {
         $organization = Organization::query()->find($organizationId);
         $credit = null;
-        if ($organization !== null) {
+        if ($organization !== null && $can['billing.wallet.read']) {
             try {
                 $credit = (float) app(WalletService::class)->spendable($organization, $organization->currency ?? 'CZK')->toDecimal();
             } catch (\Throwable) {
@@ -993,8 +1135,8 @@ final class SurfaceDataController extends Controller
         return [
             'credit' => $credit, 'currency' => $organization?->currency ?? 'CZK',
             'uptime' => $formatted === null ? null : ($cs ? str_replace('.', ',', $formatted).' %' : $formatted.'%'),
-            'open_tickets' => Ticket::query()->where('organization_id', $organizationId)->whereNotIn('state', ['RESOLVED', 'CLOSED'])->count(),
-            'unpaid' => (float) Invoice::query()->where('organization_id', $organizationId)->where('type', 'invoice')->where('state', Invoice::ISSUED)->sum('total_minor') / 100,
+            'open_tickets' => $can['support.ticket.read'] ? Ticket::query()->where('organization_id', $organizationId)->whereNotIn('state', ['RESOLVED', 'CLOSED'])->count() : null,
+            'unpaid' => $can['billing.invoice.read'] ? (float) Invoice::query()->where('organization_id', $organizationId)->where('type', 'invoice')->where('state', Invoice::ISSUED)->sum('total_minor') / 100 : null,
             // public components currently degraded or down: the sidebar's status line points at the status page instead of narrating "nine locations"
             'incidents' => count(array_filter($this->incidents->publicStatus()['components'], fn (array $c) => ($c['state'] ?? 'operational') !== 'operational')),
         ];
