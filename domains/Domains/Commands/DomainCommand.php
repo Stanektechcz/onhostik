@@ -12,11 +12,11 @@ use Onhost\Platform\Commands\OrganizationCommand;
  * One command class for the domain platform, dispatched by `op` (blueprint §46):
  *  renew{fqdn,years} · nameservers{fqdn,nameservers[],dns_provider?} · use_onhost_dns{fqdn,template?,vars?} ·
  *  auto_renew{fqdn,enabled} · transfer_lock{fqdn,locked} · auth_info{fqdn} · transfer_in{fqdn,auth_info,registrant…} ·
- *  publish_ds{fqdn} · contact{…} · register{fqdn,period,registrant…,consent} (staff/manual; customers order through checkout)
+ *  publish_ds{fqdn} · contact{…} · holder{fqdn,holder{email,phone,street,city,postal_code,country}} · register{fqdn,period,registrant…,consent} (staff/manual; customers order through checkout)
  */
 final class DomainCommand extends OrganizationCommand implements RiskAwareCommand
 {
-    public const OPS = ['renew', 'nameservers', 'use_onhost_dns', 'auto_renew', 'transfer_lock', 'auth_info', 'transfer_in', 'publish_ds', 'contact', 'register'];
+    public const OPS = ['renew', 'nameservers', 'use_onhost_dns', 'auto_renew', 'transfer_lock', 'auth_info', 'transfer_in', 'publish_ds', 'contact', 'holder', 'register'];
 
     public function op(): string
     {
@@ -28,7 +28,7 @@ final class DomainCommand extends OrganizationCommand implements RiskAwareComman
         return match ($this->op()) {
             'auth_info' => 'domain.transfer_out.execute',
             'publish_ds' => 'dns.dnssec.manage',
-            'contact' => 'domain.registrant.change',
+            'contact', 'holder' => 'domain.registrant.change',
             default => 'domain.manage',
         };
     }
@@ -56,14 +56,14 @@ final class DomainCommand extends OrganizationCommand implements RiskAwareComman
     public function riskLevel(): string
     {
         return match ($this->op()) {
-            'auth_info', 'transfer_in', 'nameservers', 'transfer_lock' => PermissionCatalog::HIGH,
+            'auth_info', 'transfer_in', 'nameservers', 'transfer_lock', 'holder' => PermissionCatalog::HIGH,
             default => PermissionCatalog::NORMAL,
         };
     }
 
     public function requiresStepUp(): bool
     {
-        return in_array($this->op(), ['auth_info', 'transfer_in'], true) || ($this->op() === 'transfer_lock' && $this->get('locked') === false);
+        return in_array($this->op(), ['auth_info', 'transfer_in', 'holder'], true) || ($this->op() === 'transfer_lock' && $this->get('locked') === false);
     }
 
     public function requiresApproval(): bool

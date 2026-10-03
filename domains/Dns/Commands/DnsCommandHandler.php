@@ -8,6 +8,7 @@ use Onhost\Domain\Dns\DnsService;
 use Onhost\Domain\Dns\Models\DnsRecord;
 use Onhost\Domain\Dns\Models\DnsZone;
 use Onhost\Domain\Dns\Models\DnsZoneVersion;
+use Onhost\Domain\Domains\DomainStateMachine;
 use Onhost\Domain\Domains\Models\Domain;
 use Onhost\Platform\Commands\Command;
 use Onhost\Platform\Commands\CommandContext;
@@ -51,12 +52,26 @@ final class DnsCommandHandler implements CommandHandler
                 return ['enabled' => false, 'ds' => []];
             })(),
             'delete_zone' => (function () use ($zone, $context, $command) {
+                $this->assertNotInUse($zone);
                 $this->dns->deleteZone($zone, $context, (string) $command->get('reason', 'deleted by customer'));
 
                 return ['deleted' => true];
             })(),
             default => throw new DomainError('dns_op_unknown', "Unknown DNS operation {$command->op()}.", 422),
         };
+    }
+
+    /**
+     * A zone a live domain of the organization is delegated to is not deleted from under it: its name servers would answer
+     * for nothing and the domain (and its mail) would stop working. The customer first moves the domain to other name servers.
+     */
+    private function assertNotInUse(DnsZone $zone): void
+    {
+        $domain = Domain::query()->where('organization_id', $zone->organization_id)->where('dns_zone_id', $zone->id)->where('dns_provider', 'powerdns')
+            ->whereNotIn('state', [DomainStateMachine::TRANSFERRED_OUT, DomainStateMachine::DELETED, DomainStateMachine::FAILED])->first();
+        if ($domain !== null) {
+            throw new DomainError('dns_zone_in_use', "Zone {$zone->name} serves the domain {$domain->fqdn_ascii}; switch the domain to other name servers before deleting the zone.", 409, ['domain' => $domain->fqdn_ascii]);
+        }
     }
 
     private function stage(DnsCommand $command, DnsZone $zone, CommandContext $context): array
