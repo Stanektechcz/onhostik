@@ -8,14 +8,14 @@ use Symfony\Component\Process\Process;
 /*
  * The panel's domain and DNS screens (TASK-0056): holder contact, transfer in, DNS versions + rollback + export, standalone zones.
  * The modules are plain browser scripts; tests/js/domains-dns-screens.harness.mjs runs the real files in a vm against a recording
- * OnhostApi and presses the buttons (21 checks). This test runs it, and checks the files are served the way the panel loads them.
+ * OnhostApi and presses the buttons (22 checks). This test runs it, and checks the files are served the way the panel loads them.
  */
 
 it('serves the domains module and the workbench that loads it', function () {
     $served = fn (string $file) => (string) file_get_contents((string) $this->get('/surfaces/api/'.$file)->assertOk()->baseResponse->getFile());
 
     $module = $served('onhost-panel-domains.api.js');
-    expect($module)->toContain('window.OnhostPanelDomains')->toContain("'/holder'")->toContain('/domains/transfer-in')->toContain("'/dns/zones/'")->toContain('/rollback')->toContain('/export');
+    expect($module)->toContain('window.OnhostPanelDomains')->toContain("'/holder'")->toContain('/domains/transfer-in')->toContain("'/dns/zones/'")->toContain('/rollback')->toContain('/export')->toContain('transferIn: false');
     $workbench = $served('onhost-panel-workbench.api.js');
     expect($workbench)->toContain('onhost-panel-domains.api.js')->toContain('OnhostPanelDomains');
 });
@@ -35,5 +35,5 @@ it('runs the browser-side harness of the domain and DNS screens', function () {
     $process->run();
 
     expect($process->getExitCode())->toBe(0, $process->getOutput().$process->getErrorOutput());
-    expect($process->getOutput())->toContain('21/21 passed');
+    expect($process->getOutput())->toContain('22/22 passed');
 });

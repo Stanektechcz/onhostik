@@ -103,7 +103,7 @@ it('shows the DNS tab for every domain, with or without an ONhost zone', async (
 it('adds the holder-contact and transfer chips to the registration tab and switches between them', async () => {
   const { build, cmp, M, sel } = await setup();
   let p = await build('reg');
-  eq(labels(p.chips), ['Registrace', 'Kontakt držitele', 'Převod k nám']);
+  eq(labels(p.chips), ['Registrace', 'Kontakt držitele']);
   assert.ok(p.rows.length >= 6, 'the registration facts stay');
   p.chips[1].on();
   p = await build('reg');
@@ -146,8 +146,9 @@ it('shows the refusal to change the holder himself in Czech, never the English s
   assert.doesNotMatch(body, /Changing the holder/);
 });
 
-it('starts a transfer in with consent, validates the form first and reloads the list afterwards', async () => {
-  const { build, cmp, win } = await setup({ routes: { 'POST /domains/transfer-in': { data: { operation_id: 'op_1', state: 'PENDING' } } } });
+it('starts a transfer in with consent, validates the form first and reloads the list afterwards (flag on)', async () => {
+  const { build, cmp, win, M } = await setup({ routes: { 'POST /domains/transfer-in': { data: { operation_id: 'op_1', state: 'PENDING' } } } });
+  M.flags.transferIn = true;
   let p = await build('reg'); p.chips[2].on(); p = await build('reg');
   eq(p.form.fields.map((f) => f.k), ['a', 'b']);
   cmp.state.wbF = { a: 'neplatne', b: 'AUTH-1234' }; p.form.on(); assert.equal(win.flashes.pop()[0], 'Zadejte celý název domény');
@@ -165,8 +166,18 @@ it('starts a transfer in with consent, validates the form first and reloads the 
   assert.equal(cmp.state.wbF.b, '', 'the transfer code is cleared from the form');
 });
 
-it('does not send a transfer the customer did not confirm', async () => {
-  const { build, cmp, win } = await setup();
+it('does not offer the transfer-in screen while transfer is unbilled: no chip, and a stored mode falls back', async () => {
+  const { build, M, sel } = await setup();
+  assert.equal(M.flags.transferIn, false);
+  M.state.mode[sel.id + ':reg'] = 'transfer';
+  const p = await build('reg');
+  assert.equal(labels(p.chips).some((l) => /Převod|Transfer/.test(l)), false);
+  assert.equal(p.form, undefined, 'no transfer form');
+  assert.ok(p.rows.length >= 6, 'the registration facts are shown instead');
+});
+it('does not send a transfer the customer did not confirm (flag on)', async () => {
+  const { build, cmp, win, M } = await setup();
+  M.flags.transferIn = true;
   win.ctx.confirmAnswer = false;
   let p = await build('reg'); p.chips[2].on(); p = await build('reg');
   cmp.state.wbF = { a: 'firma.cz', b: 'AUTH-1234' }; p.form.on(); await settle();
@@ -320,7 +331,7 @@ it('loads the domains module beside the workbench when the renderer did not inje
   vm.runInContext(read('onhost-panel-domains.api.js'), win.ctx);
   win.appended[0].onload();
   const p1 = await build('reg');
-  assert.equal(p1.chips.length, 3);
+  assert.equal(p1.chips.length, 2);
 });
 
 it('onhost-domains.api.js stages every change with the field names the API takes, then commits; a failure discards what was staged', async () => {

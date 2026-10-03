@@ -3,7 +3,7 @@
  * The domain workbench (onhost-panel-workbench.api.js, domainBuild) shows registration, nameservers, the ONhost zone and DNSSEC.
  * This module adds, through the panels' own `chips`, `form` and `extra` slots (the prototype stays byte-identical):
  *   registration tab  → "Kontakt držitele" (e-mail, phone, address at the registrar; the holder's name/IČO is a transfer, not an edit)
- *                       and "Převod k nám" (a domain held elsewhere, with its AUTH-ID)
+ *                       and, behind FLAGS.transferIn (off: transfer-in is unbilled), "Převod k nám" (a domain held elsewhere, with its AUTH-ID)
  *   DNS tab           → "Verze a návrat" (history of the zone, rollback to a version, zone file export)
  *                       and "Moje zóny" (every zone of the organization: create a standalone zone, open, export, delete)
  * Every write is a POST/DELETE with an Idempotency-Key; the second factor is asked for by OnhostApi itself on a step_up_required answer;
@@ -13,6 +13,8 @@
   if (window.OnhostPanelDomains) return; // the prototype runtime executes helmet scripts twice
   var API = window.OnhostApi;
   var ui = { mode: {}, zone: {}, busy: {} };
+  /* The transfer-in screen is NOT offered: POST /v1/domains/transfer-in charges nothing yet (TASK-0056 follow-up, billing). Switch on only when transfer is billed. */
+  var FLAGS = { transferIn: false };
 
   function cs(cmp) { return !cmp || !cmp.state || cmp.state.lang !== 'en'; }
   function T(cmp) { var c = cs(cmp); return function (a, b) { return c ? a : b; }; }
@@ -153,7 +155,10 @@
   function regTab(cmp, sel, _, panel, X) {
     var info = X.info(), d = info && !info.__error ? info : null;
     var mode = modeOf(sel, 'reg', 'info');
-    var tabs = chips(cmp, sel, 'reg', mode, [['info', _('Registrace', 'Registration')], ['holder', _('Kontakt držitele', 'Holder contact')], ['transfer', _('Převod k nám', 'Transfer to us')]], X);
+    if (mode === 'transfer' && !FLAGS.transferIn) mode = 'info';
+    var list = [['info', _('Registrace', 'Registration')], ['holder', _('Kontakt držitele', 'Holder contact')]];
+    if (FLAGS.transferIn) list.push(['transfer', _('Převod k nám', 'Transfer to us')]);
+    var tabs = chips(cmp, sel, 'reg', mode, list, X);
     var out = mode === 'holder' ? (d ? holderPanel(cmp, sel, _, X, d) : panel) : (mode === 'transfer' ? transferPanel(cmp, sel, _, X) : panel);
     out.chips = tabs;
     return out;
@@ -247,5 +252,5 @@
     return panel;
   }
 
-  window.OnhostPanelDomains = { enhance: enhance, errorText: errorText, activeZone: function (sel) { return ui.zone[sel.id] || null; }, state: ui, count: count };
+  window.OnhostPanelDomains = { enhance: enhance, errorText: errorText, activeZone: function (sel) { return ui.zone[sel.id] || null; }, state: ui, count: count, flags: FLAGS };
 })();
