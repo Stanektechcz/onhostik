@@ -31,6 +31,7 @@ use Onhost\Domain\Invoicing\Models\LegalEntity;
 use Onhost\Domain\Notifications\MailHealth;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\OrderStateMachine;
+use Onhost\Domain\Platform\GoLiveChecks;
 use Onhost\Domain\Platform\IsolationChecks;
 use Onhost\Domain\Platform\QueueLaneHeartbeat;
 use Onhost\Domain\Provisioning\AutomationLedger;
@@ -79,7 +80,12 @@ final class Doctor extends Command
 
     protected $description = 'Production readiness self-check: environment, storage, secrets, TLS, providers, payments, documents, identity, mail, observability';
 
-    /** @var list<array{area:string, check:string, status:string, detail:string}> */
+    /** Rows of other classes that state their problem without a way out; the doctor adds it (presence only, no values). */
+    private const REMEDIES = [
+        'Turnstile protects registration and public forms' => 'create a Cloudflare Turnstile widget and set TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY in the server environment, then php artisan config:cache; or switch enforcement off deliberately with ONHOST_TURNSTILE_ENFORCE_REGISTER=false and ONHOST_TURNSTILE_ENFORCE_FORMS=false',
+    ];
+
+    /** @var list<array{area:string, check:string, status:string, detail:string, remedy:string}> */
     private array $rows = [];
 
     private bool $production = false;
@@ -113,13 +119,18 @@ final class Doctor extends Command
             $this->addChecked($check);
         }
         // ── end TASK-0045 ──
+        // ── E11: what an operator meets on the way to go-live; every row names its remedy ──
+        foreach ((new GoLiveChecks)->rows() as $check) {
+            $this->addChecked($check);
+        }
+        // ── end E11 ──
 
         $fails = count(array_filter($this->rows, fn ($r) => $r['status'] === 'FAIL'));
         $warns = count(array_filter($this->rows, fn ($r) => $r['status'] === 'WARN'));
         if ($this->option('json')) {
             $this->line((string) json_encode(['environment' => app()->environment(), 'fail' => $fails, 'warn' => $warns, 'checks' => $this->rows], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
         } else {
-            $this->table(['Area', 'Check', 'Status', 'Detail'], array_map(fn ($r) => [$r['area'], $r['check'], $r['status'], $r['detail']], $this->rows));
+            $this->table(['Area', 'Check', 'Status', 'Detail', 'Remedy'], array_map(fn ($r) => [$r['area'], $r['check'], $r['status'], $r['detail'], $r['remedy']], $this->rows));
             $this->line(sprintf('%s · %d checks · %d FAIL · %d WARN', app()->environment(), count($this->rows), $fails, $warns));
         }
 
@@ -341,9 +352,23 @@ final class Doctor extends Command
         $this->add('speed', "actions a person waits for finish within {$target} s (p95, 24 h)", $slow === [], $slow === [] ? 'nothing slower' : implode('; ', array_map(fn (array $r) => "{$r['provider']} {$r['action']}: p95 {$r['p95_s']} s (queue {$r['wait_p95_s']} s, {$r['count']}×)", array_slice($slow, 0, 5))), false);
     }
 
-    private function add(string $area, string $check, bool $ok, string $detail = '', bool $blocking = true): void
+    private function add(string $area, string $check, bool $ok, string $detail = '', bool $blocking = true, string $remedy = ''): void
     {
-        $this->rows[] = ['area' => $area, 'check' => $check, 'status' => $ok ? 'OK' : ($blocking && $this->production ? 'FAIL' : 'WARN'), 'detail' => $detail];
+        $this->rows[] = ['area' => $area, 'check' => $check, 'status' => $ok ? 'OK' : ($blocking && $this->production ? 'FAIL' : 'WARN'), 'detail' => $detail, 'remedy' => $ok ? '' : self::remedyOf($check, $detail, $remedy)];
+    }
+
+    /** The explicit remedy, else what follows the last ' — ' of the detail (older rows write the way out there); never invented. */
+    private static function remedyOf(string $check, string $detail, string $remedy): string
+    {
+        if ($remedy !== '') {
+            return $remedy;
+        }
+        if (isset(self::REMEDIES[$check])) {
+            return self::REMEDIES[$check];
+        }
+        $at = mb_strrpos($detail, ' — ');
+
+        return $at === false ? '' : trim(mb_substr($detail, $at + 3));
     }
 
     /**
@@ -355,11 +380,11 @@ final class Doctor extends Command
     private function addChecked(array $row): void
     {
         if (! $row['ok'] && ($row['fail_everywhere'] ?? false)) {
-            $this->rows[] = ['area' => $row['area'], 'check' => $row['check'], 'status' => 'FAIL', 'detail' => $row['detail']];
+            $this->rows[] = ['area' => $row['area'], 'check' => $row['check'], 'status' => 'FAIL', 'detail' => $row['detail'], 'remedy' => (string) ($row['remedy'] ?? '')];
 
             return;
         }
-        $this->add($row['area'], $row['check'], $row['ok'], $row['detail'], $row['blocking']);
+        $this->add($row['area'], $row['check'], $row['ok'], $row['detail'], $row['blocking'], (string) ($row['remedy'] ?? ''));
     }
 
     private function environment(): void
