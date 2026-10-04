@@ -71,6 +71,7 @@ final class PublicApiDocs
         'csrf_token_mismatch' => [419, 'Přihlášená relace panelu poslala neplatný CSRF token (klíče se netýká).'],
         'invalid_transition' => [409, 'Objekt je ve stavu, ze kterého se tímhle krokem nedá pokračovat.'],
         'invalid_idempotency_key' => [422, 'Hlavička `Idempotency-Key` je delší, než je povoleno.'],
+        'idempotency_in_progress' => [409, 'Požadavek se stejným `Idempotency-Key` ještě běží; zopakujte ho se stejným klíčem po době z hlavičky `Retry-After`.'],
         'already_done' => [409, 'Požadavek už proběhl a jeho výsledek obsahoval tajemství, které se ukazuje jednou a neuchovává.'],
     ];
 
@@ -89,6 +90,14 @@ final class PublicApiDocs
         return is_string($configured) && $configured !== '' ? rtrim($configured, '/') : rtrim((string) config('onhost.portal_url', config('app.url')), '/').'/v1';
     }
 
+    /** Whether a source file of the platform contains a literal: a page mentions a header or an error only when the code can produce it. */
+    public static function codeHas(string $path, string $needle): bool
+    {
+        $file = base_path($path);
+
+        return is_file($file) && str_contains((string) file_get_contents($file), $needle);
+    }
+
     /** @return array{default:int,public:int,page:int,max_page:int,key_max:int,ttl_hours:int,version:?string,in_progress:bool,prefix:string} */
     public static function limits(): array
     {
@@ -102,8 +111,8 @@ final class PublicApiDocs
             'key_max' => (int) config('onhost.api.idempotency_key_max_length', 200),
             'ttl_hours' => (int) config('onhost.api.idempotency_ttl_hours', 24),
             // these two exist only once the version policy (D7) and the atomic reservation (D5) are in the code; the page never claims what is not there
-            'version' => is_string($version) && $version !== '' ? $version : null,
-            'in_progress' => array_key_exists('idempotency_in_flight_seconds', (array) config('onhost.api', [])),
+            'version' => self::codeHas('app/Http/Middleware/ApiDeprecation.php', "'X-API-Version'") && is_string($version) && $version !== '' ? $version : null,
+            'in_progress' => self::codeHas('platform/Http/Middleware/IdempotencyKey.php', "'idempotency_in_progress'"),
             'prefix' => (string) config('onhost.api.token_prefix', 'onh_live_'),
         ];
     }
@@ -197,7 +206,21 @@ final class PublicApiDocs
      */
     public static function errorSlugs(): array
     {
-        return Cache::remember('onhost:api-docs:error-slugs:v1', 3600, fn () => self::scanErrorSlugs());
+        return Cache::remember('onhost:api-docs:error-slugs:'.self::buildMarker(), 86400, fn () => self::scanErrorSlugs());
+    }
+
+    /** The newest modification time of what the scan reads, so a deploy that adds an error invalidates the cached index (the marker itself is looked up once a minute). */
+    public static function buildMarker(): string
+    {
+        return (string) Cache::remember('onhost:api-docs:build-marker', 60, function (): int {
+            $dirs = array_values(array_filter(array_map(fn (string $d) => base_path($d), ['app', 'domains', 'platform', 'providers', 'bootstrap']), 'is_dir'));
+            $newest = 0;
+            foreach ((new Finder)->files()->in($dirs)->name('*.php') as $file) {
+                $newest = max($newest, $file->getMTime());
+            }
+
+            return $newest;
+        });
     }
 
     /** @return array<string,array{statuses:list<int>,message:string,framework:bool}> */
@@ -237,7 +260,14 @@ final class PublicApiDocs
                 }
             }
         }
+        $produced = '';
+        foreach (['bootstrap/app.php', 'platform/Http/Middleware/IdempotencyKey.php', 'app/Http/Support/ApiContext.php'] as $source) {
+            $produced .= is_file(base_path($source)) ? (string) file_get_contents(base_path($source)) : '';
+        }
         foreach (self::FRAMEWORK_SLUGS as $slug => [$status, $text]) {
+            if (! str_contains($produced, "'$slug'") && ! isset($found[$slug])) {
+                continue; // described only when the code can answer it
+            }
             $add($slug, $status, $text);
             $found[$slug]['framework'] = true;
         }
@@ -252,7 +282,7 @@ final class PublicApiDocs
         return $found;
     }
 
-    /** @return list<array{date:string,t:string,tag:string,fg:string,bg:string,win:string,d:string}> */
+    /** @return list<array{iso:string,date:string,t:string,tag:string,fg:string,bg:string,win:string,d:string}> */
     public static function changelog(): array
     {
         $file = base_path('docs/api/CHANGELOG.md');
@@ -266,7 +296,7 @@ final class PublicApiDocs
             }
             [$tag, $fg, $bg] = self::COLORS[$head[1]];
             $entries[] = [
-                'date' => date('j. n. Y', (int) strtotime($head[0])), 't' => $head[2], 'tag' => $tag, 'fg' => $fg, 'bg' => $bg,
+                'iso' => $head[0], 'date' => date('j. n. Y', (int) strtotime($head[0])), 't' => $head[2], 'tag' => $tag, 'fg' => $fg, 'bg' => $bg,
                 'win' => $head[3] ?? '—', 'd' => trim(preg_replace('~\s+~', ' ', (string) ($lines[1] ?? '')) ?? ''),
             ];
         }
@@ -442,7 +472,8 @@ final class PublicApiDocs
             ['k' => 'note', 'tone' => 'tip', 'title' => 'Odpovězte rychle', 't' => 'Doručení čeká na odpověď jen několik sekund. Zpracování dejte do fronty a hned odpovězte 2xx; jiná odpověď se počítá jako neúspěch a doručení se opakuje.'],
         ];
 
-        $article = fn (string $id, string $title, string $lead, array $b) => ['id' => $id, 'sec' => 'api', 'read' => '5 min', 'updated' => date('j. n. Y'), 'title' => $title, 'lead' => $lead, 'blocks' => $b];
+        $updated = self::changelog()[0]['date'] ?? date('j. n. Y', (int) filemtime(base_path('docs/api/CHANGELOG.md')));
+        $article = fn (string $id, string $title, string $lead, array $b) => ['id' => $id, 'sec' => 'api', 'read' => '5 min', 'updated' => $updated, 'title' => $title, 'lead' => $lead, 'blocks' => $b];
 
         return [
             'api-start' => [

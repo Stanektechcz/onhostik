@@ -103,17 +103,68 @@ it('carries the real limits, the key length and the page size from the config', 
         ->and($html)->toContain('X-Organization')->toContain('X-Total-Count')->toContain('Retry-After')->toContain('Idempotency-Key');
 });
 
-it('mentions the API version header and the in-progress answer only when the code has them', function () {
-    config(['onhost.api.version' => null]);
-    config(['onhost.api' => array_diff_key(config('onhost.api'), ['idempotency_in_flight_seconds' => 1])]);
-    $this->get('/dokumentace/api')->assertOk();
-    expect(collect(PublicApiDocs::headers())->pluck(0)->implode(' '))->not->toContain('X-API-Version');
-    expect(collect(PublicApiDocs::headers())->pluck(0)->implode(' '))->not->toContain('idempotency_in_progress');
+it('mentions the API version header and the in-progress answer exactly when the code can produce them', function () {
+    $headers = collect(PublicApiDocs::headers())->pluck(0)->implode(' ');
+    $versionInCode = PublicApiDocs::codeHas('app/Http/Middleware/ApiDeprecation.php', "'X-API-Version'");
+    $progressInCode = PublicApiDocs::codeHas('platform/Http/Middleware/IdempotencyKey.php', "'idempotency_in_progress'");
 
-    config(['onhost.api.version' => '1.2.3', 'onhost.api.idempotency_in_flight_seconds' => 600]);
-    $with = $this->get('/dokumentace/api')->assertOk()->getContent();
-    expect($with)->toContain('X-API-Version')->toContain('1.2.3');
-    expect(collect(PublicApiDocs::headers())->pluck(0)->implode(' '))->toContain('idempotency_in_progress');
+    expect(str_contains($headers, 'X-API-Version'))->toBe($versionInCode)
+        ->and(str_contains($headers, 'idempotency_in_progress'))->toBe($progressInCode)
+        ->and(array_key_exists('idempotency_in_progress', PublicApiDocs::errorSlugs()))->toBe($progressInCode);
+});
+
+/*
+ * Every claim of docs/api/CHANGELOG.md has code behind it. The claims whose code lives in a pull request that is not merged yet
+ * are skipped with the reason (never silently dropped): they start running by themselves the moment the code is on the branch.
+ */
+it('has code behind the API version header of the changelog', function () {
+    $this->get('/v1/status')->assertOk()->assertHeader('X-API-Version');
+})->skip(fn () => ! PublicApiDocs::codeHas('app/Http/Middleware/ApiDeprecation.php', "'X-API-Version'"), 'the X-API-Version middleware (D7) is not on this branch yet');
+
+it('has code behind the in-progress answer and the replay header of the changelog', function () {
+    $source = (string) file_get_contents(base_path('platform/Http/Middleware/IdempotencyKey.php'));
+    expect($source)->toContain("'idempotency_in_progress'")->toContain("'Retry-After'")->toContain("'Idempotent-Replayed'")->toContain("'already_done'")->toContain("'invalid_idempotency_key'");
+})->skip(fn () => ! PublicApiDocs::codeHas('platform/Http/Middleware/IdempotencyKey.php', "'idempotency_in_progress'"), 'the atomic idempotency reservation (D5) is not on this branch yet');
+
+it('has code behind the staff guard and the removed panel-login GET of the changelog', function () {
+    $routes = apiDocsRoutes();
+    expect($routes)->not->toContain('GET /v1/staff/services/{service}/panel-login')->toContain('POST /v1/staff/services/{service}/panel-login');
+
+    [$owner] = $this->customerWithOrganization();
+    $this->actingAs($owner, 'sanctum');
+    $this->getJson('/v1/staff/customers')->assertForbidden()->assertJsonPath('error', 'staff_only');
+    $this->getJson('/v1/staff/services/svc_x/panel-login')->assertStatus(405);
+});
+
+it('has code behind the operationId and x-token-scope claims of the changelog', function () {
+    $contract = Yaml::parseFile(base_path('contracts/openapi/onhost-v1.yaml'));
+
+    expect($contract['paths']['/services']['get']['operationId'])->toBe('getServices')
+        ->and($contract['paths']['/domains/{domain}/holder']['post']['operationId'])->toBe('postDomainsByDomainHolder')
+        ->and($contract['paths']['/services']['get']['x-token-scope'])->toBe(['services:read']);
+});
+
+it('gives no two error rows the same anchor', function () {
+    $html = $this->get('/dokumentace/api')->assertOk()->getContent();
+    preg_match_all('~\bid="([^"]+)"~', $html, $m);
+    $duplicates = array_keys(array_filter(array_count_values($m[1]), fn (int $n) => $n > 1));
+    expect($duplicates)->toBe([]);
+
+    // two slugs that differ only in `_` against `-` would share the help anchor
+    $byAnchor = [];
+    foreach (array_keys(PublicApiDocs::errorSlugs()) as $slug) {
+        $byAnchor[PublicApiDocs::anchor($slug)][] = $slug;
+    }
+    expect(array_filter($byAnchor, fn (array $slugs) => count($slugs) > 1))->toBe([]);
+});
+
+it('dates the guides by the newest changelog entry, not by the day they are served', function () {
+    $newest = PublicApiDocs::changelog()[0]['date'];
+    expect(PublicApiDocs::docsArticles()['api-start']['cs']['updated'])->toBe($newest);
+});
+
+it('keeps the error cache key tied to the code that is deployed', function () {
+    expect(PublicApiDocs::buildMarker())->toMatch('~^\d{9,}$~');
 });
 
 it('describes the webhook retry the dispatcher really performs', function () {
@@ -183,9 +234,9 @@ it('names a framework slug only when the code produces it', function () {
     $sources = file_get_contents(base_path('bootstrap/app.php')).file_get_contents(base_path('platform/Http/Middleware/IdempotencyKey.php')).file_get_contents(base_path('app/Http/Support/ApiContext.php'));
     $reflection = new ReflectionClassConstant(PublicApiDocs::class, 'FRAMEWORK_SLUGS');
     foreach (array_keys($reflection->getValue()) as $slug) {
-        $found = str_contains($sources, "'{$slug}'") || in_array($slug, apiDocsSourceSlugs(), true);
-        // `already_done` and `invalid_idempotency_key` are written by the idempotency middleware (its source is one of the files read above)
-        expect($found)->toBeTrue("{$slug} is described but nothing produces it");
+        $produced = str_contains($sources, "'{$slug}'") || in_array($slug, apiDocsSourceSlugs(), true);
+        // a described slug is produced, and a produced one is described
+        expect(array_key_exists($slug, PublicApiDocs::errorSlugs()))->toBe($produced, "{$slug}: described=".($produced ? 'no' : 'yes').' but produced='.($produced ? 'yes' : 'no'));
     }
 });
 
@@ -208,10 +259,12 @@ it('serves the documentation page under its own policy: no eval, no third-party 
     $this->get('/openapi.yaml')->assertOk();
 });
 
-it('keeps the vendored Redoc bundle free of eval except the two lookups that never run under the policy', function () {
+it('keeps the vendored Redoc bundle free of eval and pins its two new Function uses', function () {
     $bundle = (string) file_get_contents(public_path('vendor/redoc/redoc.standalone.js'));
-    // a direct eval() call would need 'unsafe-eval'; the bundle's `new Function` uses are the global-object lookup and the worker shim
-    expect(preg_match('~[^a-zA-Z_.$]eval\(~', $bundle))->toBe(0);
+    // a direct eval() call would need 'unsafe-eval'. The bundle's two `new Function` uses (Ajv's generated validators and a global-object lookup)
+    // did not run in the Playwright smoke (no securitypolicyviolation); pinned, so an update of the bundle that adds one is looked at
+    expect(preg_match('~[^a-zA-Z_.$]eval\(~', $bundle))->toBe(0)
+        ->and(substr_count($bundle, 'new Function'))->toBe(2);
 });
 
 it('keeps the first-call guide of the page and docs/api/FIRST-CALL.md identical line by line', function () {
