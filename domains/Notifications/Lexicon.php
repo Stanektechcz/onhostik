@@ -61,6 +61,8 @@ final class Lexicon
         'Staging přenesen do produkce' => 'Staging pushed to production', 'Staging obnoven z produkce' => 'Staging refreshed from production', 'Staging: operace selhala' => 'Staging: operation failed',
         'Import webu dokončen' => 'Website import finished', 'Import webu selhal' => 'Website import failed', ' souborů, ' => ' files, ', ' souborů · ' => ' files · ', ' databází' => ' databases',
         'Certifikát vystaven' => 'Certificate issued', 'Certifikát se nepodařilo vystavit' => 'Certificate could not be issued', ' · platí do ' => ' · valid until ',
+        // TASK-0077 (D4): a webhook endpoint suspended after repeated failures
+        'Webhook pozastaven: ' => 'Webhook suspended: ', 'Události na něj neposíláme, dokud ho znovu nezapnete v sekci API; nedoručené události tam můžete poslat znovu.' => 'No events are sent to it until you turn it on again in the API section, where you can also send the missed events again.', ' Neúspěšných doručení za sebou: ' => ' Failed deliveries in a row: ',
         'Discord účet propojen' => 'Discord account linked', ' může přes /onhost zobrazit stav služeb a spouštět zálohy, restarty a deploy (po potvrzení)' => ' can show service status and start backups, restarts and deploys via /onhost (after confirmation)',
         'Stránka stavu běží na ' => 'Status page is live at ', 'Doména je ověřená; certifikát vystaví edge při první návštěvě.' => 'The domain is verified; the edge issues the certificate on the first visit.',
         'Záznamy A pro @ a www míří na server; certifikát vystavíme, jakmile se změna rozšíří.' => 'The A records for @ and www point at the server; we issue the certificate once the change propagates.',
