@@ -70,7 +70,7 @@ it('running the capacity pass by hand takes a fresh step-up', function () {
 });
 
 it('without the permission the answer is the permission, not a step-up dialog', function () {
-    $this->actingAs($this->staff('support_agent'), 'sanctum');
+    $this->actingAs($this->staff('support_l1'), 'sanctum'); // a real staff role without either key (`support_agent` is no role: since D2 the staff guard refuses such a person first)
 
     $dunning = $this->postJson('/v1/staff/dunning/run', [], ['Idempotency-Key' => 'staff-trigger-agent-1'])->assertForbidden();
     expect($dunning->json('message'))->toBe('Missing permission billing.dunning.manage')->and($dunning->json('error'))->not->toBe('step_up_required');
@@ -95,10 +95,10 @@ it('staff SSO into a customer panel takes a fresh step-up', function () {
     $this->actingAs($staff, 'sanctum');
     $missing = (string) Str::uuid();
 
-    $this->getJson("/v1/staff/services/{$missing}/panel-login")->assertForbidden()->assertJsonPath('error', 'step_up_required')->assertJsonPath('requirement', 'step_up');
+    $this->postJson("/v1/staff/services/{$missing}/panel-login")->assertForbidden()->assertJsonPath('error', 'step_up_required')->assertJsonPath('requirement', 'step_up');
 
     staffTriggerGrant($staff); // past the step-up the request reaches the service lookup
-    $this->getJson("/v1/staff/services/{$missing}/panel-login")->assertNotFound();
+    $this->postJson("/v1/staff/services/{$missing}/panel-login")->assertNotFound(); // POST only since D2 (P1-10): GET is 405
 });
 
 it('every HIGH or CRITICAL authorize() outside the bus is classified', function () {
