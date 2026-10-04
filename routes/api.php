@@ -666,6 +666,7 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
     Route::prefix('staff')->group(function (): void {
         Route::post('customers/{organization}/owner-recovery', [OwnerRecoveryController::class, 'open']);
         Route::post('customers/{organization}/owner-recovery/complete', [OwnerRecoveryController::class, 'complete']);
+        Route::post('customers/{organization}/owner-recovery/continue', [OwnerRecoveryController::class, 'continue']); // TASK-0044: a contested recovery
         Route::delete('customers/{organization}/owner-recovery', [OwnerRecoveryController::class, 'cancel']);
         Route::post('users/{user}/mfa-reset', [OwnerRecoveryController::class, 'mfaReset']);
     });

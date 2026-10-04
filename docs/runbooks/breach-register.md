@@ -75,23 +75,32 @@ There is no look-back source for these yet; the audit rows named in each entry a
   they are revoked, each after an access snapshot, only once `ONHOST_GRANT_CASCADE_ENABLED=true`, and only on the next loss of a
   grantor — the backlog before the switch is never re-examined, a cascade revocation chains through `removeMember`, and there is
   no grouped undo.
-* `owner-recovery approver` (D21, R1-4, re-review of `df1f6d3`; MEDIUM, no fix): `OwnerRecoveries::assertNotParty` keeps a staff
-  party out of opening and completing a recovery, but `ApprovalService::decide` asks the second person only "not the requester"
-  and "holds `iam.mfa.reset`". The owner, the heir or a member of a reached organization who is also staff can approve it.
-  Audit: `organization.owner_recovery.open` and the approval's `decided_by`.
-* `owner-recovery transfer` (D21, S1-07; MEDIUM, no fix): a transfer-mode recovery makes the heir the owner with no acceptance and
-  no step-up of the heir (the I4 two-step does not apply), and the heir's role is checked only at open (a guest is excluded then,
-  not at completion).
-* `owner-recovery cancel` (D21, S1-07; MEDIUM, no fix): the person being recovered — in the hijack case the account in the
-  attacker's hands — and any org_admin of any reached organization can cancel the recovery without limit; support has no
-  override, so the takeover cannot be undone this way.
-* `iam.mfa.reset` (S1-02, S1-07; MEDIUM, no fix): `MfaResetCommand` asks a second person only for staff accounts and member
-  managers; a developer with console or destructive keys on every service is reset on one iam_admin's word. The reset removes
-  TOTP, security keys and trusted devices, but leaves live sessions, API tokens and step-up grants (S1-08).
-* `access restore` (I10, S1-07; MEDIUM, no fix): a restore turns shares back on from the snapshot even when one was revoked later
-  for a security reason (no revocation epoch, S1-06); a revived share keeps its original `granted_by` (an unbacked share is never
-  flagged), while restored bindings name the restorer instead of the original grantor. A member who left on their own is pulled
-  back for 90 days without their consent and without being told (the notice goes to the organization).
+* ~~`owner-recovery approver` (D21, R1-4, re-review of `df1f6d3`; MEDIUM)~~ — **closed in code by TASK-0044, not deployed:**
+  `ApprovalService::decide` asks `OwnerRecoveries::assertApproverNotParty` for `identity.owner_recovery.open` and `.continue`, and
+  the opening, a continue and the completion ask it again of whoever decided the approvals they carry
+  (`RecoveryHardeningTest` "refuses a second person who is a party…"). Audit: the approval's `decided_by`.
+* ~~`owner-recovery transfer` (D21, S1-07; MEDIUM)~~ — **closed in code by TASK-0044, not deployed:** a transfer recovery ends in
+  an ownership offer (`ownership_transfers.recovery_id`, migration `000920`) that the heir accepts in person with a fresh step-up;
+  the heir must still be a current member, not a guest and an active account when it is offered (`owner_recovery_stale`), and is
+  checked again at acceptance (`RecoveryHardeningTest` "ends a transfer recovery in an ownership offer…", "offers the ownership only
+  to a heir who is still a member…").
+* ~~`owner-recovery cancel` (D21, S1-07; MEDIUM)~~ — **closed in code by TASK-0044, not deployed:** the person recovered no longer
+  stops a transfer: the objection sends it to a staff review (phase `contested`), continued only with written evidence and a second
+  person who is no party (`POST /v1/staff/customers/{organization}/owner-recovery/continue`, CRITICAL); everybody else says why
+  (`cancel_reason`); the second stop within 30 days alerts staff (`organization.owner_recovery.cancels_repeated`); the ticket named
+  must be a ticket of the organization (`RecoveryHardeningTest` "sends the recovered owner's cancel…", "asks everybody else…",
+  "accepts only a ticket of the organization…").
+* ~~`iam.mfa.reset` (S1-02, S1-07; MEDIUM)~~ — **closed in code by TASK-0044, not deployed:** a second person is asked before
+  resetting anybody holding a HIGH or CRITICAL customer key or the console through any live binding in any organization
+  (`MfaResetCommand::holdsKeyWorthASecondPerson`); the reset now ends every web session, the remember token, step-up grants, open
+  consoles (`SessionKill`) and every personal API token (`RecoveryHardeningTest` "asks a second person before resetting the MFA of
+  anybody holding a high customer key…", `SessionsEndWithAccessTest` "ends every web session, step-up, token and console…").
+* `access restore` (I10, S1-07; MEDIUM, **partly closed by TASK-0044**): a restore of somebody who left on their own is refused
+  (`snapshot_self_leave`), as is one of a disabled or closed account (`snapshot_person_inactive`), and the person restored is told
+  in person (mail `access-restored`) — `RecoveryHardeningTest` "restores neither somebody who left on their own…". **Still open
+  (S1-06, no revocation epoch):** a restore turns shares back on from the snapshot even when one was revoked later for a security
+  reason; a revived share keeps its original `granted_by` (an unbacked share is never flagged), while restored bindings name the
+  restorer instead of the original grantor.
 ## What it does, and what it never does
 
 * **Read-only.** It runs SELECTs inside a database transaction that is always rolled back, and it first puts the

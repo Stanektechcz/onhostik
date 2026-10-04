@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Identity\Commands;
 
+use Onhost\Domain\Identity\ApiAccessRevocation;
 use Onhost\Domain\Identity\Models\TrustedDevice;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Identity\Models\WebAuthnCredential;
+use Onhost\Domain\Identity\SessionKill;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Platform\Audit\AuditRecorder;
@@ -60,6 +62,11 @@ final class MfaResetCommandHandler implements CommandHandler
         $user->forceFill(['totp_secret' => null, 'totp_confirmed_at' => null, 'recovery_codes' => null])->save();
         WebAuthnCredential::query()->where('user_id', $user->id)->delete();
         TrustedDevice::query()->where('user_id', $user->id)->delete();
+        // TASK-0044 (D20, S1-08): a reset says somebody else may hold the second factor — and so whatever it opened. Every web
+        // session, the "remember me" cookie, step-up grants, open consoles (SessionKill) and every personal API token end with it;
+        // the person signs in again with the password and enrols a new factor
+        app(SessionKill::class)->end($user, 'mfa_reset', null, $context);
+        app(ApiAccessRevocation::class)->revokePersonalTokens($user);
         $this->audit->record($context, 'identity.mfa.reset', 'succeeded', ['user_id' => $user->id, 'reason' => mb_substr($reason, 0, 250)], 'user', $user->id);
         $this->outbox->publish(GenericEvent::of('security.mfa', 'user', $user->id, ['email' => $user->email, 'change' => 'reset_by_support']));
         $organizations = OrganizationMembership::query()->where('user_id', $user->id)->current()->whereNotIn('organization_id', $told)->pluck('organization_id');

@@ -283,3 +283,20 @@ what the lost console put on the panels. `organization.member.removed` carries `
 | `organization.owner_recovery.cancelled` / `organization.owner_recovery.completed` | organization | `recovery_id`, `mode`, `cancelled_by` / `new_owner_user_id` — an org_admin, the owner or support stopped it (in any organization it reaches: all of its rows go); or, after the notice period, the owner's MFA was reset or the ownership moved to the named member. One event per organization it reached. Organization and staff in-app | OwnerRecoveries |
 | `organization.member.mfa_reset` | organization | `user_id`, `email`, `name`, `via` (`support` — MfaResetCommand; `owner_recovery` — an organization a completed recovery had not reached) — support reset the second factor of a current member (review round 1). The owner and every member manager in person (in-app `security.login`, mail `member-mfa-reset`, mandatory), staff in-app (security) | MfaResetCommandHandler::reset |
 <!-- TASK-0042 grants-and-restore: end -->
+
+<!-- TASK-0044 recovery-sessions-tokens: begin -->
+Producer additions (TASK-0044, S1-07 red-team MEDIUMs, D20/S1-08, owner decision R9). Existing payloads gained keys only:
+`organization.owner_recovery.cancelled` carries `reason` (anybody but the person recovered gives one; `heir_declined` when the heir
+declined the recovery's offer); `organization.ownership.offered` carries `via: owner_recovery` and `recovery_id` when a transfer-mode
+recovery made the offer (only support withdraws it), and `organization.ownership.accepted` carries `via: owner_recovery` when its
+acceptance completed the recovery. `organization.access.restored` now also tells the PERSON restored in person (in-app and the
+mandatory mail `access-restored`). Audit only, no event: `identity.sessions.end` (SessionKill: web sessions, remember token, step-up
+grants, consoles — reason `mfa_reset` or `owner_recovery`), `service.console.relay` with result `denied` (a ticket whose person may
+no longer open it) and `service.console.closed` (the relay's alive check closed an open console).
+
+| Event | Aggregate | Payload / meaning | Source |
+| --- | --- | --- | --- |
+| `organization.owner_recovery.contested` | organization | `recovery_id`, `mode`, `contested_by` — the person being recovered objected to a transfer; it waits for a staff review instead of closing. Staff in-app (hot), the organization in-app | OwnerRecoveries::contest |
+| `organization.owner_recovery.continued` | organization | `recovery_id`, `mode`, `not_before` — support continued a contested recovery with the evidence written down and a second person who is no party. Staff and the organization in-app | OwnerRecoveries::continue |
+| `organization.owner_recovery.cancels_repeated` | organization | `count`, `window_days` — the second stop (cancel or objection) of an owner recovery within `onhost.grants.owner_recovery_cancel_window_days`; whoever stops every attempt may hold the account. Staff in-app (hot) | OwnerRecoveries::alertOnRepeats |
+<!-- TASK-0044 recovery-sessions-tokens: end -->

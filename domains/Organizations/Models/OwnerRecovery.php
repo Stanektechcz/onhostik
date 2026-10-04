@@ -25,6 +25,13 @@ use Onhost\Platform\Eloquent\Model;
  * @property ?string $cancelled_by
  * @property ?Carbon $completed_at
  * @property ?string $completed_by
+ * @property ?string $phase while pending (TASK-0044): null = waiting for its date, contested = the person recovered objected to a transfer (staff review), offered = the heir was offered the ownership
+ * @property ?Carbon $contested_at
+ * @property ?string $contested_by
+ * @property ?string $review_evidence what staff checked before a second person let a contested recovery continue
+ * @property ?string $reviewed_by
+ * @property ?Carbon $reviewed_at
+ * @property ?string $cancel_reason
  * @property ?Carbon $created_at
  */
 final class OwnerRecovery extends Model
@@ -37,12 +44,17 @@ final class OwnerRecovery extends Model
 
     public const MODES = ['mfa_reset', 'transfer'];
 
+    /** Phases of a pending recovery (TASK-0044). */
+    public const CONTESTED = 'contested';
+
+    public const OFFERED = 'offered';
+
     protected static string $idPrefix = 'orc';
 
     protected $table = 'owner_recoveries';
 
     protected function casts(): array
     {
-        return ['approval_ids' => 'array', 'not_before' => 'datetime', 'cancelled_at' => 'datetime', 'completed_at' => 'datetime'];
+        return ['approval_ids' => 'array', 'not_before' => 'datetime', 'cancelled_at' => 'datetime', 'completed_at' => 'datetime', 'contested_at' => 'datetime', 'reviewed_at' => 'datetime'];
     }
 }

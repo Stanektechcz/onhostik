@@ -62,6 +62,7 @@ Route::get('surfaces/{path}', [SurfaceController::class, 'asset'])->where('path'
 
 // console relay hand-off (service-to-service) + browser pre-flight
 Route::get('console/ws/{token}', [ConsoleRelayController::class, 'resolve'])->name('console.relay');
+Route::get('console/ws/{token}/alive', [ConsoleRelayController::class, 'alive'])->name('console.alive'); // TASK-0044 (S1-08): may an open console stay open
 Route::get('console/check/{token}', [ConsoleRelayController::class, 'check'])->middleware(['auth:sanctum', 'token.scope'])->name('console.check');
 
 // the organization's dates as a calendar subscription: the signed link (GET /v1/calendar/feed) is the credential, rotating the feed version revokes it

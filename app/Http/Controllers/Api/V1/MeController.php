@@ -16,6 +16,7 @@ use Onhost\Domain\Identity\Commands\ApiTokenCommand;
 use Onhost\Domain\Identity\Models\PersonalAccessToken;
 use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Identity\StepUp\Totp;
+use Onhost\Domain\Identity\Tokens\TokenLifetime;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
@@ -139,7 +140,7 @@ final class MeController extends ApiController
     public function createToken(Request $request): JsonResponse
     {
         $organization = $this->api->organization($request);
-        $data = $request->validate(['name' => ['required', 'string', 'max:80'], 'scopes' => ['required', 'array', 'min:1'], 'scopes.*' => ['string', 'in:'.implode(',', ApiTokenCommand::SCOPES)], 'expires_in_days' => ['nullable', 'integer', 'min:1', 'max:365']]);
+        $data = $request->validate(['name' => ['required', 'string', 'max:80'], 'scopes' => ['required', 'array', 'min:1'], 'scopes.*' => ['string', 'in:'.implode(',', ApiTokenCommand::SCOPES)], 'expires_in_days' => ['nullable', 'integer', 'min:1', 'max:'.TokenLifetime::maxDays()]]); // R9: the operator's cap (TASK-0044)
 
         return $this->dispatch(new ApiTokenCommand($organization->id, $this->idempotencyKey($request, 'token.create'), ['op' => 'create'] + $data), $this->api->context($request, $organization), 201);
     }

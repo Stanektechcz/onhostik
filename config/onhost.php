@@ -589,6 +589,9 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
         'relay_key' => env('ONHOST_CONSOLE_RELAY_KEY', ''),  // shared secret of the websocket console relay (GET /console/ws/{token})
         'relay_url' => env('ONHOST_CONSOLE_RELAY_URL', ''),  // wss://relay.onhost.cz — added to connect-src of the CSP
         'token_ttl_seconds' => 120,
+        // TASK-0044 (D20, S1-08): how often the relay asks whether an open console may stay open (GET /console/ws/{token}/alive);
+        // a removed or demoted person's socket closes within this many seconds. Never below 5
+        'alive_check_seconds' => max(5, (int) env('ONHOST_CONSOLE_ALIVE_SECONDS', 15)),
     ],
 
     'oncall' => [ // on-call escalation behind the operational events (audit §5q-1)
@@ -739,6 +742,12 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
     // list them with `operator:tokens:unbound --dry-run`, notify the owners, then switch it on
     'token_organization_required' => (bool) env('ONHOST_TOKEN_ORGANIZATION_REQUIRED', false),
     // ── end TASK-0039 ──
+    // TASK-0044 (owner decision R9, audit 2026-10): every new personal API token ends — after default_days unless it asks for
+    // less, never later than max_days (the operator's cap; the default follows a lower cap). Older tokens are not changed
+    'tokens' => [
+        'default_days' => (int) env('ONHOST_TOKEN_DEFAULT_DAYS', 365),
+        'max_days' => (int) env('ONHOST_TOKEN_MAX_DAYS', 365),
+    ],
     // ── TASK-0042 grants follow one policy and access can be restored (permission program S1-01, S1-02, D21) ──
     'grants' => [
         // I6: the active grants of somebody who lost the right to give them (removed, demoted) are only RECORDED while this is off
@@ -752,6 +761,10 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
         'owner_recovery_days' => max(7, (int) env('ONHOST_OWNER_RECOVERY_DAYS', 7)),
         // an ownership offer the heir has not accepted lapses after this many days
         'ownership_offer_days' => 7,
+        // TASK-0044 (D21, S1-07 red team): this many owner recoveries of one organization stopped (cancelled, or objected to by the
+        // person recovered) within the window tell staff at once — somebody may be stopping every attempt to recover the account
+        'owner_recovery_cancel_alert' => 2,
+        'owner_recovery_cancel_window_days' => 30,
     ],
     // ── end TASK-0042 ──
 ];
