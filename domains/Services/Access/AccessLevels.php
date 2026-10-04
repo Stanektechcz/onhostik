@@ -28,6 +28,7 @@ final class AccessLevels
         if ($grant === null || $grant['scope'] !== 'resource') {
             return null;
         }
+
         return array_values(array_filter(array_keys(ServiceAccessService::CAPABILITIES), fn (string $tick) => in_array(ServiceAccessService::CAPABILITIES[$tick], $grant['roles'], true)));
     }
 
