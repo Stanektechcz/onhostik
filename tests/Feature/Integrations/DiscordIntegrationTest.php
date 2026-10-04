@@ -159,7 +159,7 @@ it('delivers platform events to a Discord channel webhook as embeds', function (
         }
         $body = $request->data();
 
-        return ($body['username'] ?? '') === 'ONhost' && str_contains((string) ($body['embeds'][0]['title'] ?? ''), 'Web neodpovídá') && str_contains((string) ($body['embeds'][0]['description'] ?? ''), 'HTTP 503');
+        return ($body['username'] ?? '') === 'ONhost' && str_contains((string) ($body['embeds'][0]['title'] ?? ''), 'Web neodpovídá') && ! str_contains((string) json_encode($body), 'HTTP 503') /* the platform's error text stays inside since the D4 review */;
     });
 });
 

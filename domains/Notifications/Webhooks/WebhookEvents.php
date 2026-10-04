@@ -17,8 +17,9 @@ use Onhost\Platform\Errors\DomainError;
  * out of a nested array (`access.ipv4`).
  *
  * Kept out on purpose: reconciliation and drift events, provider/registry notices, the staff side of an event (escalations,
- * assignments, settlement and fulfilment failures, SLA burn), node moves and leftovers, and every `error` string of
- * the platform's own work (the one `error` kept is an uptime check's answer from the customer's own address).
+ * assignments, settlement and fulfilment failures, SLA burn), node moves and leftovers, every `error` string, and every
+ * free text written by staff or the platform (reasons, notes, titles, subjects, labels of states) — what is sent is ids,
+ * numbers, dates, amounts, codes and the customer's own names (D4 security review).
  */
 final class WebhookEvents
 {
@@ -32,17 +33,17 @@ final class WebhookEvents
 
     private const SERVICE_STATE = ['product_key:code', 'state:code', 'reason:code'];
 
-    private const TICKET_STATE = ['number', 'subject', 'from:code', 'note'];
+    private const TICKET_STATE = ['number', 'from:code'];
 
     private const DUNNING_STATE = ['invoice_id', 'service_id', 'due_at', 'from:code'];
 
-    private const INCIDENT = ['number', 'title', 'severity:code', 'components', 'impact:code', 'state:code', 'state_label', 'note', 'duration'];
+    private const INCIDENT = ['number', 'severity:code', 'components', 'impact:code', 'state:code']; // titles and notes are on the status page
 
     private const ACCESS_GRANT = ['grant_id', 'service', 'email', 'state:code', 'capabilities', 'dropped', 'expires_at'];
 
     private const LIMIT_RAISE = ['label', 'metric:code', 'metric_label', 'delta', 'new_value', 'addon_service_id'];
 
-    private const WORK_OFFER = ['offer_id', 'number', 'subject', 'scope', 'price', 'valid_until', 'invoice_id', 'invoice_number', 'payment:code'];
+    private const WORK_OFFER = ['offer_id', 'number', 'price', 'valid_until', 'invoice_id', 'invoice_number', 'payment:code'];
 
     /** @var array<string, list<string>> */
     private const EVENTS = [
@@ -56,11 +57,11 @@ final class WebhookEvents
         'order.refunded' => ['number', 'amount', 'to:code', 'credit_note', 'items', 'nothing_delivered'],
         'order.approval.required' => ['number', 'total', 'mode:code'],
         'order.approval.approved' => ['number'],
-        'order.approval.rejected' => ['number', 'reason'],
+        'order.approval.rejected' => ['number'],
         'order.approval.expired' => ['number', 'days'],
         'order.review.required' => ['number'], // the score and its reasons are the intake check's, not the customer's
         'order.review.released' => ['number'],
-        'order.review.rejected' => ['number', 'reason'],
+        'order.review.rejected' => ['number'],
         // ── services ──
         'service.created' => ['product_key:code', 'family:code'],
         'service.activated' => ['product_key:code', 'family:code', 'parent_service_id', 'access.domain', 'access.ipv4', 'access.ipv6', 'access.address', 'access.namespace'],
@@ -101,7 +102,7 @@ final class WebhookEvents
         'service.backup.schedule.paused' => ['label', 'frequency:code', 'failures'],
         'service.backup.schedule.stalled' => ['label', 'frequency:code', 'missed'],
         'service.database.import.failed' => ['label', 'database', 'restored'],
-        'service.staff_panel_login' => ['ticket_number', 'reason', 'consented', 'at'], // who of the staff stays inside
+        'service.staff_panel_login' => ['ticket_number', 'consented', 'at'], // who of the staff, and why in their words, stays inside
         // ── invoices and money ──
         'invoice.issued' => ['number', 'type:code', 'total', 'due_at'],
         'invoice.paid' => ['number', 'type:code', 'amount'], // the method can name the payment gateway
@@ -156,8 +157,8 @@ final class WebhookEvents
         'dns.dnssec.enabled' => ['name', 'ds'],
         'dns.dnssec.disabled' => ['name'],
         // ── support, status ──
-        'ticket.created' => ['number', 'subject', 'priority:code', 'category:code', 'channel:code'],
-        'ticket.replied' => ['number', 'subject', 'state:code', 'author_type:code'],
+        'ticket.created' => ['number', 'priority:code', 'category:code', 'channel:code'],
+        'ticket.replied' => ['number', 'state:code', 'author_type:code'],
         'ticket.handoff' => ['number'],
         'ticket.waiting_customer' => self::TICKET_STATE,
         'ticket.resolved' => self::TICKET_STATE,
@@ -170,9 +171,9 @@ final class WebhookEvents
         'incident.opened' => self::INCIDENT,
         'incident.updated' => self::INCIDENT,
         'incident.resolved' => self::INCIDENT,
-        'maintenance.scheduled' => ['number', 'title', 'components', 'starts_at', 'ends_at', 'impact:code'],
+        'maintenance.scheduled' => ['number', 'components', 'starts_at', 'ends_at', 'impact:code'],
         // ── web toolkit ──
-        'monitoring.down' => ['monitor_id', 'url', 'error'], // what the customer's own address answered (HTTP 503, a timeout)
+        'monitoring.down' => ['monitor_id', 'url'],
         'monitoring.up' => ['monitor_id', 'url', 'minutes'],
         'deploy.started' => ['deployment_id', 'ref', 'trigger:code'],
         'deploy.succeeded' => ['deployment_id', 'ref', 'sha', 'release'],

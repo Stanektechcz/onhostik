@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Notifications\Webhooks;
 
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Onhost\Domain\Notifications\Models\WebhookDelivery;
 use Onhost\Domain\Notifications\Models\WebhookEndpoint;
@@ -19,6 +21,12 @@ final class WebhookCommandHandler implements CommandHandler
 {
     /** active endpoints per organization: every event is sent once per endpoint */
     public const MAX_ENDPOINTS = 10;
+
+    /** one test event per endpoint in this many seconds */
+    public const PING_COOLDOWN_SECONDS = 30;
+
+    /** redelivery requests per endpoint and hour (counted per request, whatever became of it) */
+    public const REDELIVERS_PER_HOUR = 20;
 
     public function __construct(private readonly WebhookDispatcher $webhooks, private readonly EgressGuard $egress) {}
 
@@ -46,7 +54,11 @@ final class WebhookCommandHandler implements CommandHandler
         if (! str_starts_with($url, 'https://') || strlen($url) > 500) {
             throw new DomainError('webhook_url_invalid', 'A webhook URL is an https:// address of at most 500 characters.', 422);
         }
-        $this->egress->check($url); // refused now, with the reason, instead of failing quietly at the first delivery
+        $this->egress->check($url); // the address first (an inward one is refused as such), with the reason, not at the first delivery
+        $problem = WebhookDispatcher::destinationProblem($url);
+        if ($problem !== null) {
+            throw new DomainError('webhook_port_not_allowed', ucfirst($problem).'.', 422, ['ports' => WebhookDispatcher::ALLOWED_PORTS]);
+        }
         $events = WebhookEvents::normalize((array) $command->get('events', []));
         $active = WebhookEndpoint::query()->where('organization_id', $command->organizationId)->where('state', '!=', WebhookEndpoint::DISABLED)->count();
         if ($active >= self::MAX_ENDPOINTS) {
@@ -95,9 +107,17 @@ final class WebhookCommandHandler implements CommandHandler
     {
         $endpoint = $this->endpoint($command);
         $this->assertActive($endpoint);
+        $key = 'webhook-redeliver:'.$endpoint->id;
+        if (RateLimiter::tooManyAttempts($key, self::REDELIVERS_PER_HOUR)) {
+            throw new DomainError('webhook_redeliver_rate', 'Too many redeliveries for this endpoint; try again later.', 429, ['retry_after' => RateLimiter::availableIn($key)]);
+        }
+        RateLimiter::hit($key, 3600);
         $delivery = WebhookDelivery::query()->where('endpoint_id', $endpoint->id)->find((string) $command->get('delivery_id'));
         if ($delivery === null) {
             throw DomainError::notFound('webhook delivery');
+        }
+        if ($delivery->attempts >= WebhookDispatcher::MAX_ATTEMPTS) {
+            throw DomainError::conflict('webhook_redeliver_limit', 'This delivery was attempted '.WebhookDispatcher::MAX_ATTEMPTS.' times; it is not sent again.');
         }
 
         return WebhookView::delivery($this->webhooks->redeliver($delivery));
@@ -107,6 +127,11 @@ final class WebhookCommandHandler implements CommandHandler
     private function ping(WebhookEndpoint $endpoint): array
     {
         $this->assertActive($endpoint);
+        $last = WebhookDelivery::query()->where('endpoint_id', $endpoint->id)->where('event', WebhookEvents::PING)->max('created_at');
+        $wait = $last === null ? 0 : self::PING_COOLDOWN_SECONDS - (int) Carbon::parse((string) $last)->diffInSeconds(now(), true);
+        if ($wait > 0) {
+            throw new DomainError('webhook_ping_cooldown', 'One test event per endpoint every '.self::PING_COOLDOWN_SECONDS.' seconds.', 429, ['retry_after' => $wait]);
+        }
 
         return WebhookView::delivery($this->webhooks->ping($endpoint));
     }

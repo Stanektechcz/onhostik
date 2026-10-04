@@ -115,9 +115,9 @@ it('puts only the allow-listed fields of each event family on the wire — no op
         ['dns.zone.committed', 'dns_zone', ['name' => 'shop.cz', 'version' => 4, 'serial' => 2026100401, 'records' => 12, 'provider' => 'powerdns-node-3'], ['name' => 'shop.cz', 'version' => 4, 'serial' => 2026100401]],
         ['subscription.renewal_failed', 'subscription', ['service_id' => 'srv_x', 'required' => $money, 'cause' => 'insufficient_credit', 'period_end' => '2026-10-31', 'attempt' => 2], ['service_id' => 'srv_x', 'required' => $money, 'cause' => 'insufficient_credit', 'period_end' => '2026-10-31', 'attempt' => 2]],
         ['dunning.opened', 'dunning_case', ['invoice_id' => 'inv_x', 'service_id' => 'srv_x', 'due_at' => '2026-10-01'], ['invoice_id' => 'inv_x', 'service_id' => 'srv_x', 'due_at' => '2026-10-01']],
-        ['ticket.replied', 'ticket', ['number' => 'T-1', 'subject' => 'Help', 'email' => 'jana@shop.cz', 'author_type' => 'staff', 'state' => 'WAITING_CUSTOMER', 'excerpt' => 'see node pve-node-3'], ['number' => 'T-1', 'subject' => 'Help', 'state' => 'WAITING_CUSTOMER', 'author_type' => 'staff']],
-        ['incident.updated', 'incident', ['number' => 'INC-7', 'title' => 'Web nodes slow', 'severity' => 'major', 'components' => ['web'], 'note' => 'Investigating', 'state' => 'investigating', 'state_label' => 'Prověřujeme'], ['number' => 'INC-7', 'title' => 'Web nodes slow', 'severity' => 'major', 'components' => ['web'], 'state' => 'investigating', 'state_label' => 'Prověřujeme', 'note' => 'Investigating']],
-        ['maintenance.scheduled', 'maintenance', ['number' => 'M-1', 'title' => 'Kernel', 'components' => ['vps'], 'starts_at' => '2026-10-10T22:00:00+02:00', 'ends_at' => '2026-10-10T23:00:00+02:00', 'impact' => 'reboot'], ['number' => 'M-1', 'title' => 'Kernel', 'components' => ['vps'], 'starts_at' => '2026-10-10T22:00:00+02:00', 'ends_at' => '2026-10-10T23:00:00+02:00', 'impact' => 'reboot']],
+        ['ticket.replied', 'ticket', ['number' => 'T-1', 'subject' => 'Help', 'email' => 'jana@shop.cz', 'author_type' => 'staff', 'state' => 'WAITING_CUSTOMER', 'excerpt' => 'see node pve-node-3'], ['number' => 'T-1', 'state' => 'WAITING_CUSTOMER', 'author_type' => 'staff']], // the subject is free text
+        ['incident.updated', 'incident', ['number' => 'INC-7', 'title' => 'Web nodes slow', 'severity' => 'major', 'components' => ['web'], 'note' => 'Investigating', 'state' => 'investigating', 'state_label' => 'Prověřujeme'], ['number' => 'INC-7', 'severity' => 'major', 'components' => ['web'], 'state' => 'investigating']], // titles and notes are staff free text: the status page has them
+        ['maintenance.scheduled', 'maintenance', ['number' => 'M-1', 'title' => 'Kernel', 'components' => ['vps'], 'starts_at' => '2026-10-10T22:00:00+02:00', 'ends_at' => '2026-10-10T23:00:00+02:00', 'impact' => 'reboot'], ['number' => 'M-1', 'components' => ['vps'], 'starts_at' => '2026-10-10T22:00:00+02:00', 'ends_at' => '2026-10-10T23:00:00+02:00', 'impact' => 'reboot']],
         ['monitoring.up', 'service', ['monitor_id' => 'mon_1', 'incident_id' => 'minc_1', 'url' => 'https://shop.cz/', 'minutes' => 4, 'notify' => true], ['monitor_id' => 'mon_1', 'url' => 'https://shop.cz/', 'minutes' => 4]],
         ['deploy.failed', 'service', ['deployment_id' => 'dep_1', 'ref' => 'main', 'sha' => 'abc1234', 'release' => 'r5', 'error' => 'composer failed in /www/wwwroot/pve-node-3'], ['deployment_id' => 'dep_1', 'ref' => 'main', 'sha' => 'abc1234']],
         ['staging.failed', 'service', ['action' => 'push', 'error' => 'rsync to pve-node-3 failed'], ['action' => 'push']],
@@ -126,6 +126,10 @@ it('puts only the allow-listed fields of each event family on the wire — no op
         ['cdn.disabled', 'service', ['domain' => 'shop.cz', 'nameservers_switched' => false, 'provider' => 'bunny'], ['domain' => 'shop.cz', 'nameservers_switched' => false]],
         ['backup.offsite', 'service', ['backup_id' => 'bkp_1', 'disk' => 's3-wasabi-eu'], ['backup_id' => 'bkp_1']],
         ['sla.credit.issued', 'service', ['amount' => $money, 'incident' => 'INC-7', 'percent' => 10, 'service_id' => 'srv_x', 'credit_note_id' => 'inv_cn'], ['amount' => $money, 'percent' => 10, 'service_id' => 'srv_x', 'credit_note_id' => 'inv_cn']],
+        ['order.approval.rejected', 'order', ['number' => 'O-3', 'reason' => 'Ask Petr from finance first', 'decider' => 'Jana', 'requester_id' => 'usr_internal'], ['number' => 'O-3']],
+        ['service.staff_panel_login', 'service', ['service' => 'eshop', 'ticket_number' => 'T-9', 'ticket_id' => 'tic_internal', 'staff_name' => 'Karel Admin', 'reason' => 'checking the php-fpm pool on pve-node-3', 'consented' => true, 'at' => '2026-10-04T10:00:00+02:00'], ['ticket_number' => 'T-9', 'consented' => true, 'at' => '2026-10-04T10:00:00+02:00']],
+        ['monitoring.down', 'service', ['monitor_id' => 'mon_2', 'incident_id' => 'minc_2', 'url' => 'https://shop.cz/', 'error' => 'cURL error 7: Failed to connect to 10.0.0.5', 'notify' => true], ['monitor_id' => 'mon_2', 'url' => 'https://shop.cz/']],
+        ['deploy.started', 'service', ['deployment_id' => 'dep_2', 'ref' => 'Bearer abcdefghijklmnop', 'trigger' => 'push'], ['deployment_id' => 'dep_2', 'ref' => 'Bearer [redacted]', 'trigger' => 'push']], // a secret pasted into a field is masked like everywhere else
         ['app.deployed', 'service', ['deployment_id' => 'adp_1', 'digest' => 'sha256:abc'], ['deployment_id' => 'adp_1', 'digest' => 'sha256:abc']],
     ];
     foreach ($cases as [$event, $type, $raw, $public]) {
@@ -138,7 +142,7 @@ it('puts only the allow-listed fields of each event family on the wire — no op
     }
     $wire = implode("\n", array_map(fn ($pair) => $pair[0]->body(), d4Sent()));
     expect(d4Sent())->toHaveCount(count($cases));
-    foreach (['operation_id', 'requester_id', 'score', 'reasons', 'from_node', 'to_node', 'registrar', 'connection_id', 'correlation_id', 'excerpt', '"error"', '"provider"', '"disk"', 'pve-node', 'WEDOS', 'wasabi', 'bunny', '10.0.0.5', 'jana@shop.cz'] as $internal) {
+    foreach (['operation_id', 'requester_id', 'score', 'reasons', 'from_node', 'to_node', 'registrar', 'connection_id', 'correlation_id', 'excerpt', '"error"', '"provider"', '"disk"', 'pve-node', 'WEDOS', 'wasabi', 'bunny', '10.0.0.5', 'jana@shop.cz', 'Web nodes slow', 'Investigating', 'Prověřujeme', 'Kernel', 'Petr', 'Karel', 'abcdefghijklmnop'] as $internal) {
         expect($wire)->not->toContain($internal);
     }
 });

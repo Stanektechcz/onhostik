@@ -187,10 +187,12 @@ Message envelope: `id`, `name`, `aggregate_type`, `aggregate_id`, `organization_
   mandatory kinds (`config/onhost.php` → `notifications.mandatory_kinds`).
 * **WebhookDispatcher** — delivers customer-facing events to organization webhook endpoints (D4, TASK-0077). Only
   events listed in `domains/Notifications/Webhooks/WebhookEvents.php` leave, and of those only the listed fields
-  (`WebhookPayload`; a value is a scalar, a list of scalars, a money value or a short code — never a nested object
-  or the platform's own `error` text). The relay only writes the delivery row and queues `DeliverWebhook`; the attempt
+  (`WebhookPayload`; a value is a scalar, a list of scalars, a money value or a short code — never a nested object,
+  an `error` text or free text written by staff or the platform such as reasons, notes and titles; the result passes the
+  `Redactor` before it is stored). The relay only writes the delivery row and queues `DeliverWebhook`; the attempt
   is signed `X-ONhost-Timestamp` + `X-ONhost-Signature: v1=<HMAC-SHA256(secret, timestamp.body)>` (`WebhookSigner`),
-  goes through `EgressGuard`, is retried after [1, 5, 30, 120, 720] minutes by `onhost:webhooks:retry`, and 20
+  goes through `EgressGuard`, is retried after [1, 5, 30, 120, 720] minutes by `onhost:webhooks:retry` (first attempt + one retry per step, the last ≈ 14.6 h
+  later: `WebhookDispatcher::retryScheduleMinutes()`), and 20
   consecutive failures suspend the endpoint (`webhook.endpoint.suspended`). A new event that a customer should
   receive by webhook needs its row in `WebhookEvents` with its public fields — without one it is never sent.
 * **Domain listeners** — `onhost.order.paid` → `FulfillPaidOrder`; `onhost.invoice.paid` →

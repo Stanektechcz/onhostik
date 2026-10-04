@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Notifications;
 
 use Illuminate\Http\Client\Factory as HttpFactory;
+use Illuminate\Support\Facades\RateLimiter;
 use Onhost\Domain\Integrations\ChatMessage;
 use Onhost\Domain\Notifications\Models\WebhookDelivery;
 use Onhost\Domain\Notifications\Models\WebhookEndpoint;
@@ -17,6 +18,7 @@ use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Http\EgressGuard;
 use Onhost\Platform\Outbox\OutboxEventDispatched;
 use Onhost\Platform\Outbox\OutboxPublisher;
+use Onhost\Platform\Redaction\Redactor;
 use Throwable;
 
 /**
@@ -28,10 +30,20 @@ use Throwable;
  */
 final class WebhookDispatcher
 {
+    /** the wait before each retry: the first attempt, then one retry per step; dead only when the last retry fails */
     public const BACKOFF_MINUTES = [1, 5, 30, 120, 720];
 
     /** consecutive failed attempts after which an endpoint is suspended */
     public const SUSPEND_AFTER = 20;
+
+    /** attempts of one delivery in all, redeliveries included; a redelivery is one more attempt, never a fresh start */
+    public const MAX_ATTEMPTS = 10;
+
+    /** attempts per endpoint and minute; what is over waits (not a failure) — a burst of events or redeliveries is spread out */
+    public const OUTBOUND_PER_MINUTE = 60;
+
+    /** where a webhook may be sent: https, on these ports (checked at creation and again at every attempt) */
+    public const ALLOWED_PORTS = [443, 8443];
 
     /** how long a claimed attempt keeps other workers off the row (a worker that died is retried after it) */
     private const CLAIM_MINUTES = 2;
@@ -51,6 +63,7 @@ final class WebhookDispatcher
         if ($data === null) {
             return; // not an event a webhook carries
         }
+        $data = (new Redactor)->redact($data); // a secret pasted into an allowed field is masked like in every other output
         $endpoints = WebhookEndpoint::query()->where('organization_id', $message->organization_id)->where('state', WebhookEndpoint::ACTIVE)->get()->filter(fn (WebhookEndpoint $e) => $e->subscribedTo($message->name));
         foreach ($endpoints as $endpoint) {
             $delivery = WebhookDelivery::query()->firstOrCreate(['endpoint_id' => $endpoint->id, 'outbox_message_id' => $message->id], [
@@ -75,13 +88,16 @@ final class WebhookDispatcher
     }
 
     /**
-     * Sends a delivery again — the same id and the same body, so a receiver that already has it recognises it. A delivery
-     * that is already waiting for its attempt is left alone: asking twice queues it once.
+     * Sends a delivery again — the same id and the same body, so a receiver that already has it recognises it. It is one more
+     * attempt on top of the earlier ones (MAX_ATTEMPTS in all). A delivery that is waiting for its attempt, or that an attempt
+     * holds right now (its next attempt is in the future), is left alone: asking twice queues it once.
      */
     public function redeliver(WebhookDelivery $delivery): WebhookDelivery
     {
         $requeued = WebhookDelivery::query()->whereKey($delivery->id)->whereIn('state', [WebhookDelivery::DELIVERED, WebhookDelivery::DEAD, WebhookDelivery::FAILED])
-            ->update(['state' => WebhookDelivery::PENDING, 'attempts' => 0, 'last_error' => null, 'next_attempt_at' => now()]);
+            ->where('attempts', '<', self::MAX_ATTEMPTS)
+            ->where(fn ($q) => $q->whereNull('next_attempt_at')->orWhere('next_attempt_at', '<=', now()))
+            ->update(['state' => WebhookDelivery::PENDING, 'last_error' => null, 'next_attempt_at' => now()]);
         if ($requeued === 1) {
             $this->queue($delivery);
         }
@@ -130,22 +146,76 @@ final class WebhookDispatcher
 
             return WebhookDelivery::DEAD;
         }
+        $key = self::outboundKey($endpoint->id);
+        if (RateLimiter::tooManyAttempts($key, self::OUTBOUND_PER_MINUTE)) {
+            $delivery->forceFill(['next_attempt_at' => now()->addSeconds(max(1, RateLimiter::availableIn($key)))])->save();
+
+            return null; // over the ceiling: it waits, the retry pass queues it when it is due
+        }
+        RateLimiter::hit($key, 60);
 
         return $this->deliver($delivery, $endpoint);
+    }
+
+    /** attempts the schedule makes on its own: the first one and one retry per backoff step (redeliveries come on top) */
+    public static function scheduledAttempts(): int
+    {
+        return count(self::BACKOFF_MINUTES) + 1;
+    }
+
+    /**
+     * When the retries happen, in minutes after the first attempt (cumulative): [1, 6, 36, 156, 876] — the last retry about
+     * 14.6 hours after the event. The API docs are computed from this (D3).
+     *
+     * @return list<int>
+     */
+    public static function retryScheduleMinutes(): array
+    {
+        $offsets = [];
+        $total = 0;
+        foreach (self::BACKOFF_MINUTES as $minutes) {
+            $offsets[] = $total += $minutes;
+        }
+
+        return $offsets;
+    }
+
+    public static function outboundKey(string $endpointId): string
+    {
+        return 'webhook-outbound:'.$endpointId;
+    }
+
+    /** Why a URL is not a webhook destination (scheme, port), or null. EgressGuard decides the address. */
+    public static function destinationProblem(string $url): ?string
+    {
+        $parts = parse_url($url);
+        if (! is_array($parts) || strtolower((string) ($parts['scheme'] ?? '')) !== 'https') {
+            return 'a webhook endpoint must use https';
+        }
+        $port = (int) ($parts['port'] ?? 443);
+
+        return in_array($port, self::ALLOWED_PORTS, true) ? null : "port {$port} is not allowed for webhooks (".implode(', ', self::ALLOWED_PORTS).')';
     }
 
     /** @return 'delivered'|'failed'|'dead' */
     public function deliver(WebhookDelivery $delivery, WebhookEndpoint $endpoint): string
     {
         $body = (string) json_encode($this->body($delivery, $endpoint), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        $attempt = $delivery->attempts + 1;
+        // counted in the row, not from the copy in hand: two workers with stale copies still count two attempts
+        WebhookDelivery::query()->whereKey($delivery->id)->increment('attempts');
+        $attempt = (int) WebhookDelivery::query()->whereKey($delivery->id)->value('attempts');
+        $delivery->setAttribute('attempts', $attempt)->syncOriginalAttribute('attempts'); // never written back from here
         try {
+            $problem = self::destinationProblem((string) $endpoint->url); // an endpoint saved before the https/port rule
+            if ($problem !== null) {
+                throw new \RuntimeException($problem);
+            }
             $response = $this->http->withOptions($this->egress->options((string) $endpoint->url)) // public destinations only, pinned, no redirects
                 ->withHeaders(WebhookSigner::headers((string) $endpoint->secret, $delivery->event, $delivery->id, $body))
                 ->timeout(8)->connectTimeout(3)->withBody($body, 'application/json')->post((string) $endpoint->url);
             $status = $response->status();
             if ($status >= 200 && $status < 300) {
-                $delivery->forceFill(['state' => WebhookDelivery::DELIVERED, 'attempts' => $attempt, 'response_status' => $status, 'delivered_at' => now(), 'last_error' => null, 'next_attempt_at' => null])->save();
+                $delivery->forceFill(['state' => WebhookDelivery::DELIVERED, 'response_status' => $status, 'delivered_at' => now(), 'last_error' => null, 'next_attempt_at' => null])->save();
                 $endpoint->forceFill(['failures' => 0, 'last_delivered_at' => now()])->save();
 
                 return WebhookDelivery::DELIVERED;
@@ -155,8 +225,9 @@ final class WebhookDispatcher
             $status = null;
             $error = mb_substr(WebhookView::scrubError($e->getMessage()), 0, 250);
         }
-        $dead = $attempt >= count(self::BACKOFF_MINUTES);
-        $delivery->forceFill(['state' => $dead ? WebhookDelivery::DEAD : WebhookDelivery::FAILED, 'attempts' => $attempt, 'response_status' => $status, 'last_error' => $error, 'next_attempt_at' => $dead ? null : now()->addMinutes(self::BACKOFF_MINUTES[$attempt - 1] ?? 720)])->save();
+        // attempt n waits BACKOFF_MINUTES[n-1] for the next one; after the last retry (or a redelivery past it) the delivery is dead
+        $dead = $attempt >= self::scheduledAttempts();
+        $delivery->forceFill(['state' => $dead ? WebhookDelivery::DEAD : WebhookDelivery::FAILED, 'response_status' => $status, 'last_error' => $error, 'next_attempt_at' => $dead ? null : now()->addMinutes(self::BACKOFF_MINUTES[$attempt - 1])])->save();
         $this->countFailure($endpoint, $status);
 
         return $dead ? WebhookDelivery::DEAD : WebhookDelivery::FAILED;
