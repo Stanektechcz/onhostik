@@ -105,7 +105,7 @@
     if (!relay) { say('Relay živé konzole není nastavený (ONHOST_CONSOLE_RELAY_URL).', true); return; }
     if (socket && socket.readyState <= 1) { socket.close(1000, 'reconnect'); }
     api('POST', '/services/' + encodeURIComponent(sid) + '/console-token', {}).then(function (d) {
-      if (d.kind !== 'wings_ws') { say('Tato konzole je ' + (d.kind || 'grafická') + ' (VNC) — otevřete ji v zákaznickém panelu; token: ' + (d.token || '')); return; }
+      if (d.kind !== 'wings' && d.kind !== 'wings_ws') { say('Tato konzole je ' + (d.kind || 'grafická') + ' (VNC) — otevřete ji v zákaznickém panelu; token: ' + (d.token || '')); return; }
       var ws = new WebSocket(relay.replace(/^http/, 'ws') + '/ws/' + encodeURIComponent(d.token));
       socket = ws;
       setLive(false, 'připojuji…');
