@@ -149,6 +149,28 @@ if ($integratedAst) {
     }
 }
 
+# composer (and any native tool) writes progress on stderr: under 'Stop' PowerShell 5.1 made that a terminating
+# NativeCommandError whenever stderr was redirected, and `task start` halted before recording the task.
+Assert-True ($task -match 'Invoke-NativeChecked \$tree \$php \$phar install' -and $task -notmatch '& \$php \$phar install') 'task start runs composer through Invoke-NativeChecked'
+$nativeAst = $taskAst.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Invoke-NativeChecked' }, $true)
+Assert-True ($null -ne $nativeAst) 'task.ps1 defines Invoke-NativeChecked'
+if ($nativeAst) {
+    . ([scriptblock]::Create($nativeAst.Extent.Text))
+    $nativeDir = [IO.Path]::GetTempPath()
+    $before = (Get-Location).Path
+    try {
+        $ErrorActionPreference = 'Stop'
+        $quiet = Invoke-NativeChecked $nativeDir 'cmd.exe' '/c' 'echo progress-on-stderr 1>&2 & exit /b 0' 2>&1
+        Assert-True ($quiet.ok -and $quiet.exit -eq 0 -and ($quiet.output -join "`n") -match 'progress-on-stderr') 'stderr output under Stop is text, not a terminating error'
+        Assert-True (@($quiet.output | Where-Object { $_ -isnot [string] }).Count -eq 0) 'native output is returned as plain strings'
+        $failed = Invoke-NativeChecked $nativeDir 'cmd.exe' '/c' 'echo broken 1>&2 & exit /b 3' 2>&1
+        Assert-True ((-not $failed.ok) -and $failed.exit -eq 3) 'a non-zero exit code is a failure, judged by the exit code alone'
+        Assert-True ((Get-Location).Path -eq $before) 'Invoke-NativeChecked returns to the caller''s directory'
+    } catch {
+        Assert-True $false "Invoke-NativeChecked under Stop: $_"
+    }
+}
+
 # CLAUDE.md points new sessions at the recovery path
 $claude = Read-Text 'CLAUDE.md'
 Assert-True ($claude -match '\.ai/PROJECT_STATE\.md' -and $claude -match 'task board') 'CLAUDE.md contains the session start protocol'

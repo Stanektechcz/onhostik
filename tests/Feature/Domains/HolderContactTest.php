@@ -22,15 +22,14 @@ use Onhost\Platform\Audit\AuditEvent;
  * registrar is asked first (WEDOS/Subreg contact update, faked here) and a refusal leaves the platform's copy as it was; the holder
  * himself (name, company, IČO) cannot be changed this way — that is a transfer of the domain.
  *
- * The route `POST /v1/domains/{domain}/holder` belongs in routes/api.php beside the other domain writes; that file was held by another
- * task while this one was written, so the test registers the same route with the same middleware.
+ * The route `POST /v1/domains/{domain}/holder` lives in routes/api.php beside the other domain writes (TASK-0066), behind the same
+ * middleware as every customer write.
  */
 
 beforeEach(function () {
     $_ENV['WEDOS_MAIN_LOGIN'] = 'onhost@onhost.cz';
     $_ENV['WEDOS_MAIN_WAPI_PASSWORD'] = 'wapi-secret';
     ProviderInstance::query()->firstOrCreate(['key' => 'wedos-main'], ['provider' => 'wedos', 'name' => 'WEDOS WAPI', 'base_url' => 'https://api.wedos.com', 'secret_ref' => 'env://WEDOS_MAIN', 'state' => 'active', 'capabilities' => ['registrar' => true], 'adapter_version' => '1.0.0']);
-    Route::middleware(['api', 'auth:sanctum', 'token.scope', 'throttle:api', 'idempotency'])->prefix('v1')->post('domains/{domain}/holder', [DomainController::class, 'holder']);
     Http::preventStrayRequests();
 });
 
@@ -61,6 +60,13 @@ function postHolder(object $test, $user, $org, Domain $domain, array $body, stri
 
     return $test->withHeaders(['X-Organization' => $org->id, 'Idempotency-Key' => $key])->postJson('/v1/domains/'.$domain->id.'/holder', $body);
 }
+
+it('is registered in routes/api.php behind the customer write middleware', function () {
+    $route = Route::getRoutes()->match(Illuminate\Http\Request::create('/v1/domains/dom_1/holder', 'POST'));
+
+    expect($route->getActionName())->toBe(DomainController::class.'@holder')
+        ->and($route->gatherMiddleware())->toContain('auth:sanctum', 'token.scope', 'throttle:api', 'idempotency');
+});
 
 it('needs a fresh step-up and sends nothing to the registrar without it', function () {
     [$user, $org, $domain, $contact] = holderDomain($this->customerWithOrganization());
