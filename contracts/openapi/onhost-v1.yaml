@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: 'ONhost Cloud Platform API'
-  version: '4.0'
+  version: 1.0.0
   description: |-
     Control-plane API of the ONhost hosting platform (blueprint §17). JSON only. Errors use `{error, message, status, errors?}`.
     Lists accept `?limit=&offset=` (default 40, at most 200) and return `X-Total-Count`. Mutations behind the idempotency middleware honour `Idempotency-Key` (at most 200 characters, replayed for 24 h). Money is `{minor, currency, decimal}`.

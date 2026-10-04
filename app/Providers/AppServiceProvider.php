@@ -53,7 +53,9 @@ final class AppServiceProvider extends ServiceProvider
             return array_values(array_filter([Limit::perMinute(10)->by('ip:'.$request->ip()), $email === '' ? null : Limit::perMinute(5)->by('email:'.$email)]));
         });
         RateLimiter::for('payment-callbacks', fn (Request $request) => Limit::perMinute(120)->by('pay:'.$request->ip()));
-        RateLimiter::for('probes', fn (Request $request) => Limit::perMinute(600)->by('probe:'.substr((string) $request->bearerToken(), 0, 16).':'.$request->ip()));
+        // keyed by ADDRESS only: the callers are unauthenticated, so a key that includes the presented bearer gave every rotated value a fresh bucket (D7)
+        RateLimiter::for('probes', fn (Request $request) => Limit::perMinute((int) config('onhost.api.probes_rate_limit_per_minute', 600))->by('probe:'.$request->ip()));
+        RateLimiter::for('callbacks', fn (Request $request) => Limit::perMinute((int) config('onhost.api.callbacks_rate_limit_per_minute', 120))->by('callback:'.$request->ip())); // signed third-party callbacks (Discord interactions)
         RateLimiter::for('domain-check', fn (Request $request) => Limit::perMinute(30)->by(($request->user() ? 'user:'.$request->user()->getAuthIdentifier() : 'ip:'.$request->ip())));
         // TASK-0067: the relay asks whether a console may stay open every ONHOST_CONSOLE_ALIVE_SECONDS (15, never below 5 = 12 a
         // minute); 30 a minute per console is room for that and nothing for a loop. A 429 counts as one failed check in the relay

@@ -13,6 +13,8 @@ import { WebSocketServer, WebSocket } from 'ws';
 const PORT = parseInt(process.env.PORT || '8090', 10);
 const API = (process.env.ONHOST_API || 'http://localhost:8000').replace(/\/$/, '');
 const KEY = process.env.ONHOST_CONSOLE_RELAY_KEY || '';
+// a hung API must not hold a console open or an alive-check forever (TASK-0076, D7)
+const FETCH_TIMEOUT_MS = Math.max(1000, parseInt(process.env.RELAY_FETCH_TIMEOUT_MS || '8000', 10) || 8000);
 const ALLOW_INSECURE_UPSTREAM = process.env.RELAY_ALLOW_INSECURE_UPSTREAM === '1';
 
 if (!KEY) { console.error('ONHOST_CONSOLE_RELAY_KEY is required'); process.exit(1); }
@@ -23,17 +25,30 @@ const server = http.createServer((req, res) => {
 });
 const wss = new WebSocketServer({ server, path: undefined, maxPayload: 4 * 1024 * 1024 });
 
+// The timer covers the headers AND the body (read inside the try, before clearTimeout): a stalled body is bounded too.
+// Resolves {ok, status, data}; a timeout rejects with AbortError, which both callers treat as a failed check / rejected token.
+async function apiFetch(url, init) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const r = await fetch(url, { ...init, signal: ctl.signal });
+    const data = r.ok ? await r.json().catch((e) => { if (e && e.name === 'AbortError') throw e; return null; }) : null;
+    return { ok: r.ok, status: r.status, data };
+  } finally { clearTimeout(timer); }
+}
+
 async function stillAlive(token) {
-  const r = await fetch(`${API}/console/ws/${encodeURIComponent(token)}/alive`, { headers: { 'X-Relay-Key': KEY, Accept: 'application/json' } });
+  const r = await apiFetch(`${API}/console/ws/${encodeURIComponent(token)}/alive`, { headers: { 'X-Relay-Key': KEY, Accept: 'application/json' } });
   if (r.ok) return true;
   if ([401, 403, 404, 410].includes(r.status)) return false;
   throw new Error(`alive ${r.status}`);
 }
 
 async function resolve(token) {
-  const r = await fetch(`${API}/console/ws/${encodeURIComponent(token)}`, { headers: { 'X-Relay-Key': KEY, Accept: 'application/json' } });
+  const r = await apiFetch(`${API}/console/ws/${encodeURIComponent(token)}`, { headers: { 'X-Relay-Key': KEY, Accept: 'application/json' } });
   if (!r.ok) throw new Error(`descriptor ${r.status}`);
-  return (await r.json()).data;
+  if (!r.data) throw new Error('descriptor body');
+  return r.data.data;
 }
 
 wss.on('connection', async (client, req) => {
