@@ -88,6 +88,8 @@ final class ServiceFeatures
         'vm_access' => ['access.reset'],
         'vm_rdns' => ['rdns.set'],
         'vm_rescue' => ['rescue.start', 'rescue.stop'],
+        // a fresh operating system from a golden template the platform allows (C9, VmReinstall); the game panel's own reinstall is `game_settings`
+        'vm_reinstall' => ['reinstall'],
     ];
 
     public const RESOURCES = [
@@ -228,6 +230,11 @@ final class ServiceFeatures
                     // booting somebody else's system on the customer's own disks: offered where the hypervisor holds rescue images (H233)
                     'vm_rescue' => $on($service->family === 'cloud' && ($adapter === null || $adapter instanceof ComputeProvider), null, ['session' => RescueMode::session($service), 'hours' => RescueMode::hours()]),
                 ];
+                // C9: a reinstall is offered only with at least one image the platform allows for this server (VmReinstall)
+                if ($service->family === 'cloud') { // a managed database (family `data`) has no system of the customer's to reinstall
+                    $images = $adapter instanceof ComputeProvider ? VmReinstall::allowed($service, $adapter->reinstallImages()) : [];
+                    $out['vm_reinstall'] = $on($images !== [], null, ['images' => $images, 'disk_gb' => VmReinstall::diskGb($service)]);
+                }
                 // the backups a server was sold (TASK-0019), offered only once the owner switched the rule on: until then
                 // the feature list of every existing server stays exactly what it was (the rule is asked first, so a switched-off
                 // rule costs no query and nothing in the lookup can break the list)
@@ -335,7 +342,7 @@ final class ServiceFeatures
 
                 return ['versions' => $versions, 'current' => $current !== null ? (string) $current : null];
             })(),
-            'snapshots' => $adapter instanceof ComputeProvider ? $adapter->listSnapshots($ref) : throw new DomainError('feature_unavailable', 'Snapshots are not available for this service.', 422),
+            'snapshots' => $adapter instanceof ComputeProvider ? SnapshotLimit::annotate($service, $adapter->listSnapshots($ref)) : throw new DomainError('feature_unavailable', 'Snapshots are not available for this service.', 422), // which of them count against the plan (C9)
             'firewall' => ['rules' => (array) data_get($service->desired_spec, 'firewall.rules', []), 'enabled' => (bool) data_get($service->desired_spec, 'firewall.enabled', true)],
             'site_settings' => array_replace($this->web($adapter)->siteSettings($ref), ['site_password' => data_get($service->desired_spec, 'site_password.user')]),
             'protected_folders' => (function () use ($adapter, $ref, $service) {

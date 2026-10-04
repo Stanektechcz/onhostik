@@ -582,6 +582,87 @@ final class ProxmoxComputeProvider implements ComputeProvider, ExpiringBackups, 
         return ProviderResult::accepted(new AsyncHandle('pve_task', (string) $upid, $vm->node, ['target_node' => $targetNode, 'online' => $online], 5, 3600), $vm, ['target_node' => $targetNode, 'online' => $online]);
     }
 
+    /** The images with a golden template on this instance (`options.templates`): `{image: vmid, image_node: node}`. */
+    public function reinstallImages(): array
+    {
+        $out = [];
+        foreach ((array) $this->instance->option('templates', []) as $image => $vmid) {
+            if (is_string($image) && ! str_ends_with($image, '_node') && preg_match('/^[a-z0-9][a-z0-9.-]{0,40}$/', $image) && (int) $vmid > 0) {
+                $out[] = $image;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * C9: the system disk is replaced with a full copy of the template's (`import-from`, Proxmox 7.2+). Setting a drive
+     * that already exists makes Proxmox detach the old volume as `unusedN` — it is not deleted, so the pre-reinstall
+     * snapshot on it can still be rolled back to. Three things are checked before anything is written: the image is one
+     * of the instance's templates and that guest really is a template; the VM carries this service's tag or name
+     * (a binding's number alone is no proof — CompensationGuard); and the VM is off and not locked by another task.
+     */
+    public function reinstall(ResourceRef $vm, string $image): ProviderResult
+    {
+        if (! in_array($image, $this->reinstallImages(), true)) {
+            throw new ProviderException('proxmox', ProviderErrorCode::VALIDATION, "No golden template configured for image {$image}");
+        }
+        $templates = (array) $this->instance->option('templates', []);
+        $templateVmid = (int) $templates[$image];
+        $templateNode = (string) ($templates[$image.'_node'] ?? $this->instance->option('template_node', $vm->node));
+        $disk = (string) $this->instance->option('os_disk', 'scsi0');
+        $template = (array) $this->api->get("/nodes/{$templateNode}/qemu/{$templateVmid}/config", [], 'qemu.template.config');
+        $source = self::volumeOf((string) ($template[$disk] ?? ''));
+        if ((int) ($template['template'] ?? 0) !== 1 || $source === null) {
+            throw new ProviderException('proxmox', ProviderErrorCode::VALIDATION, "Guest {$templateVmid} is not a template with a {$disk} disk; nothing was changed");
+        }
+        $config = (array) $this->api->get("/nodes/{$vm->node}/qemu/{$vm->remoteId}/config", [], 'qemu.config.get');
+        if ((int) ($config['template'] ?? 0) === 1 || self::proofOfService($vm, $config) === null) {
+            throw new ProviderException('proxmox', ProviderErrorCode::VALIDATION, "Guest {$vm->remoteId} does not carry this service's tag or name; its disk is not replaced");
+        }
+        if ((string) ($config['lock'] ?? '') !== '') {
+            throw new ProviderException('proxmox', ProviderErrorCode::TRANSIENT, "Guest {$vm->remoteId} is locked ({$config['lock']}) by another task");
+        }
+        $current = self::volumeOf((string) ($config[$disk] ?? ''));
+        if ($current === null) {
+            throw new ProviderException('proxmox', ProviderErrorCode::VALIDATION, "Guest {$vm->remoteId} has no {$disk} system disk to replace");
+        }
+        $status = (array) $this->api->get("/nodes/{$vm->node}/qemu/{$vm->remoteId}/status/current", [], 'qemu.status');
+        if ((string) ($status['status'] ?? '') !== 'stopped') {
+            throw new ProviderException('proxmox', ProviderErrorCode::TRANSIENT, "Guest {$vm->remoteId} is still {$status['status']}; it is switched off before its disk is replaced");
+        }
+        $storage = explode(':', $current, 2)[0];
+        $upid = $this->api->post("/nodes/{$vm->node}/qemu/{$vm->remoteId}/config", [$disk => "{$storage}:0,import-from={$source}"], 'qemu.reinstall.import', true);
+
+        return ProviderResult::accepted(
+            new AsyncHandle('pve_task', (string) $upid, $vm->node, ['image' => $image, 'replaced_volume' => $current], 10, 3600),
+            $vm,
+            ['image' => $image, 'template' => $templateVmid, 'replaced_volume' => $current],
+        );
+    }
+
+    public function growSystemDisk(ResourceRef $vm, int $sizeGb): ProviderResult
+    {
+        $currentGb = (int) $this->getActualState($vm)->get('disk_gb', 0);
+        if ($sizeGb <= $currentGb) {
+            return ProviderResult::completed($vm, ['disk_gb' => $currentGb, 'grown' => false]);
+        }
+        $result = $this->api->put("/nodes/{$vm->node}/qemu/{$vm->remoteId}/resize", ['disk' => (string) $this->instance->option('os_disk', 'scsi0'), 'size' => "{$sizeGb}G"], 'qemu.resize', true);
+        if (is_string($result) && str_starts_with($result, 'UPID')) {
+            return ProviderResult::accepted(new AsyncHandle('pve_task', $result, $vm->node, [], 5, 900), $vm, ['disk_gb' => $sizeGb, 'grown' => true]);
+        }
+
+        return ProviderResult::completed($vm, ['disk_gb' => $sizeGb, 'grown' => true]);
+    }
+
+    /** `local-zfs:vm-1042-disk-0,size=20G` → `local-zfs:vm-1042-disk-0`; an empty or `none` drive has no volume. */
+    private static function volumeOf(string $drive): ?string
+    {
+        $volume = trim(explode(',', $drive, 2)[0]);
+
+        return $volume === '' || $volume === 'none' || ! str_contains($volume, ':') ? null : $volume;
+    }
+
     public function guestAgentPing(ResourceRef $vm): bool
     {
         try {
@@ -822,7 +903,9 @@ final class ProxmoxComputeProvider implements ComputeProvider, ExpiringBackups, 
 
     public function consoleAccess(ResourceRef $vm): array
     {
-        $proxy = $this->api->post("/nodes/{$vm->node}/qemu/{$vm->remoteId}/vncproxy", ['websocket' => 1], 'vncproxy', true);
+        // C9: `generate-password` gives the VNC handshake a random one-time password of its own, so the browser's noVNC never
+        // needs the ticket (which only the relay holds and which opens the vncwebsocket); the password is worth nothing without it
+        $proxy = $this->api->post("/nodes/{$vm->node}/qemu/{$vm->remoteId}/vncproxy", ['websocket' => 1, 'generate-password' => 1], 'vncproxy', true);
         $ttl = (int) config('onhost.provisioning.console_token_ttl_seconds', 120);
         $token = 'con_'.strtolower((string) Str::ulid());
         // The browser never sees the PVE ticket or the API token: the console relay resolves this ONhost token
@@ -832,7 +915,8 @@ final class ProxmoxComputeProvider implements ComputeProvider, ExpiringBackups, 
             'port' => (int) $proxy['port'], 'vncticket' => (string) $proxy['ticket'], 'instance' => $this->instance->id, 'service_id' => $vm->serviceId,
         ], $ttl);
 
-        return ['kind' => 'novnc', 'url' => rtrim((string) config('onhost.portal_url'), '/').'/console/ws/'.$token, 'token' => $token, 'expires_at' => now()->addSeconds($ttl)->toISOString(), 'meta' => ['node' => $vm->node]];
+        return ['kind' => 'novnc', 'url' => rtrim((string) config('onhost.portal_url'), '/').'/console/ws/'.$token, 'token' => $token, 'expires_at' => now()->addSeconds($ttl)->toISOString(), 'meta' => ['node' => $vm->node]]
+            + (isset($proxy['password']) && is_string($proxy['password']) && $proxy['password'] !== '' ? ['password' => $proxy['password']] : []);
     }
 
     public function awaitStatus(AsyncHandle $handle): AsyncStatus

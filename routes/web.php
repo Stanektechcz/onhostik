@@ -13,6 +13,7 @@ use App\Http\Controllers\Web\LegalDocumentController;
 use App\Http\Controllers\Web\MailAutoconfigController;
 use App\Http\Controllers\Web\MailboxPasswordController;
 use App\Http\Controllers\Web\OrganizationStatusController;
+use App\Http\Controllers\Web\ServiceConsoleController;
 use App\Http\Controllers\Web\StaffConsoleController;
 use App\Http\Controllers\Web\SurfaceController;
 use App\Http\Controllers\Web\SurfaceDataController;
@@ -88,6 +89,8 @@ if (app()->environment('local')) {
     })->middleware(['web', 'signed'])->name('dev.login');
 }
 
+// the graphical console of a customer's own server (C9): noVNC through the relay, before the panel's catch-all
+Route::get('panel/konzole/{service}', [ServiceConsoleController::class, 'show'])->middleware(['auth:sanctum', 'token.scope'])->name('service.console.page');
 // product surfaces
 Route::get('panel/{path?}', [SurfaceController::class, 'panel'])->where('path', '.*')->name('surface.panel');
 // public legal documents: the versioned consent documents the checkout, domain registration and panel link to
