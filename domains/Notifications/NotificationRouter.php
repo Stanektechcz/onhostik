@@ -263,6 +263,8 @@ final class NotificationRouter
             'ticket.work_offer.proposed' => $this->customer($m, 'ticket', 'Nabídka placeného zásahu · '.($p['number'] ?? ''), 'Čeká na vaše rozhodnutí: '.$money($p['price'] ?? null).' bez DPH. Bez schválení nic neúčtujeme.', '/panel/tikety', 'warn'),
             'ticket.work_offer.approved' => $this->internal($m, 'ticket', 'Placený zásah schválen · '.($p['number'] ?? ''), $money($p['price'] ?? null).' bez DPH · '.($p['scope'] ?? ''), '/sprava/fronta', 'warn'),
             'ticket.work_offer.declined' => $this->internal($m, 'ticket', 'Placený zásah odmítnut · '.($p['number'] ?? ''), (string) ($p['subject'] ?? ''), '/sprava/fronta'),
+            // TASK-0054: the new owner of a ticket hears it in the console (nobody is told when a ticket is taken from its owner)
+            'ticket.assigned' => ! empty($p['assignee_id']) ? $this->notifications->notify('internal', 'ticket', "Přidělen tiket {$p['number']}", (string) ($p['subject'] ?? ''), '/sprava/fronta', $m->organization_id, (string) $p['assignee_id'], $m->aggregate_type, $m->aggregate_id, $m->name) : null,
             'ticket.escalated' => $this->internal($m, 'ticket', "Eskalace {$p['number']} → L".($p['level'] ?? ''), (string) ($p['reason'] ?? ''), '/sprava/fronta', 'hot'),
             'ticket.sla_breached' => $this->internal($m, 'ticket', "SLA porušeno · {$p['number']}", (string) ($p['kind'] ?? ''), '/sprava/fronta', 'hot'),
             'ticket.resolved' => $this->customer($m, 'ticket', "Tiket {$p['number']} vyřešen", 'Ohodnoťte prosím řešení.', '/panel/tikety'),

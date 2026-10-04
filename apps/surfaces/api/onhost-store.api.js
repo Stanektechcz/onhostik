@@ -56,9 +56,22 @@
   function num(m) { return m && typeof m === 'object' ? parseFloat(m.decimal || 0) : (parseFloat(m) || 0); }
   function money(n) { return new Intl.NumberFormat('cs-CZ').format(Math.round(n)) + ' Kč'; }
   function log(who, text) { db.log.unshift({ at: Date.now(), who: who, text: text }); db.log = db.log.slice(0, 200); }
-  function all(path, limit) {
-    return A.get(path + (path.indexOf('?') >= 0 ? '&' : '?') + 'limit=' + (limit || 100)).then(function (r) { return r.data || []; }).catch(function () { return []; });
+  /* audit 2026-10 B3: a refused read (403) is remembered per kind, so the console says "Nemáte přístup" instead of an empty list */
+  var refused = {};
+  function all(path, limit, kind) {
+    return A.get(path + (path.indexOf('?') >= 0 ? '&' : '?') + 'limit=' + (limit || 100)).then(function (r) { if (kind) delete refused[kind]; return r.data || []; })
+      .catch(function (e) { if (kind && e && e.status === 403) refused[kind] = true; return []; });
   }
+  /* staff hydrate only the reads their navigation lists (ONHOST_BOOT.user.nav, narrowed by the server to what they may call) */
+  var NAV = staff && me && Array.isArray(me.nav) ? me.nav : null;
+  function norm(path) { return String(path || '').split('?')[0].replace(/^\/?(v1\/)?/, '').replace(/\/+$/, ''); }
+  function navAllows(path) {
+    if (!staff) return true;
+    if (!NAV) return false;
+    var p = norm(path);
+    return NAV.some(function (it) { return (it.api || []).some(function (a) { return (a.method || 'GET') === 'GET' && new RegExp('^' + norm(a.path).replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\{[^}]+\}/g, '[^/]+') + '$').test(p); }); });
+  }
+  function skip(kind) { refused[kind] = true; return Promise.resolve([]); }
 
   /* ---------- mapping API → prototype rows ---------- */
   function mapOrder(o) {
@@ -74,7 +87,7 @@
   function mapTicket(t) {
     return { id: t.number || t.id, apiId: t.id, email: t.email || '', name: t.name || '', subject: t.subject, prio: t.prio || 'stredni', state: t.ui || 'otevreny', at: ts(t.created_at), svc: (t.service_id && window.OnhostPanelSupport && window.OnhostPanelSupport.serviceName(t.service_id)) || t.service_id || null,
       csat: t.csat_score || null,
-      msgs: (t.messages || []).map(function (m) { return { from: m.from || (m.author_type === 'customer' ? 'zakaznik' : 'podpora'), at: ts(m.created_at), text: m.text || '', who: m.author_name || '' }; }) };
+      msgs: (t.messages || []).map(function (m) { return { from: m.from || (m.author_type === 'customer' ? 'zakaznik' : 'podpora'), at: ts(m.created_at || m.at), text: m.text || '', who: m.author_name || '', internal: m.visibility === 'internal' }; }) };
   }
   function mapIncident(i) {
     return { id: i.number || i.id, apiId: i.id, title: i.title, svc: (i.components || []).join(', ') || 'Platforma', sev: i.sev || i.severity || 'p3', state: i.ui_state || 'vysetrovani',
@@ -100,14 +113,15 @@
   /* ---------- hydration ---------- */
   var hydrated = null;
   function hydrate() {
+    var read = function (path, kind) { return navAllows(path) ? all(path, 100, kind) : skip(kind); };
     var jobs = [
-      all(staff ? '/staff/orders' : '/orders').then(function (l) { db.orders = l.map(mapOrder); }),
-      all(staff ? '/staff/tickets' : '/tickets').then(function (l) { db.tickets = l.map(mapTicket); }),
-      all(staff ? '/staff/incidents' : '/incidents').then(function (l) { db.incidents = l.map(mapIncident); }),
-      A.get(staff ? '/notifications?audience=internal&limit=60' : '/notifications?limit=60').then(function (r) { db.notifs = (r.data || []).map(mapNotif); }).catch(function () { db.notifs = []; })
+      read(staff ? '/staff/orders' : '/orders', 'orders').then(function (l) { db.orders = l.map(mapOrder); }),
+      read(staff ? '/staff/tickets' : '/tickets', 'tickets').then(function (l) { db.tickets = l.map(mapTicket); }),
+      read(staff ? '/staff/incidents' : '/incidents', 'incidents').then(function (l) { db.incidents = l.map(mapIncident); }),
+      (navAllows('/notifications') ? A.get(staff ? '/notifications?audience=internal&limit=60' : '/notifications?limit=60').then(function (r) { delete refused.notifs; db.notifs = (r.data || []).map(mapNotif); }).catch(function (e) { if (e && e.status === 403) refused.notifs = true; db.notifs = []; }) : skip('notifs').then(function () { db.notifs = []; }))
     ];
-    if (!staff) jobs.push(all('/invoices').then(function (l) { db.invoices = l.map(mapInvoice); overdue(); }));
-    if (staff) jobs.push(all('/staff/outbox').then(function (l) { db.mails = l.map(mapMail); }));
+    if (!staff) jobs.push(all('/invoices', 100, 'invoices').then(function (l) { db.invoices = l.map(mapInvoice); overdue(); }));
+    if (staff) jobs.push(read('/staff/outbox', 'mails').then(function (l) { db.mails = l.map(mapMail); }));
     hydrated = Promise.all(jobs).then(function () { emit(); return API; });
     return hydrated;
   }
@@ -194,13 +208,14 @@
       emit();
       return pending;
     },
-    replyTicket: function (id, from, text) {
+    replyTicket: function (id, from, text, opts) {
       var t = this.ticket(id); if (!t || !String(text || '').trim()) return null;
-      t.msgs.push({ from: from, at: Date.now(), text: String(text).trim() });
-      t.state = from === 'podpora' ? 'ceka' : 'otevreny';
+      var internal = !!(staff && opts && opts.internal); // an internal note: staff only, the customer is not told and the state stays
+      t.msgs.push({ from: from, at: Date.now(), text: String(text).trim(), internal: internal });
+      if (!internal) t.state = from === 'podpora' ? 'ceka' : 'otevreny';
       var path = staff ? '/staff/tickets/' + t.apiId + '/messages' : '/tickets/' + t.apiId + '/messages';
-      A.post(path, { body: String(text).trim(), visibility: 'public' }, A.key()).then(refresh).catch(function (e) { log('system', id + ': ' + e.message); emit(); });
-      log(from === 'podpora' ? 'podpora' : 'panel', id + ' — nová zpráva');
+      A.post(path, staff ? { body: String(text).trim(), visibility: internal ? 'internal' : 'public' } : { body: String(text).trim() }, A.key()).then(refresh).catch(function (e) { log('system', id + ': ' + e.message); emit(); });
+      log(from === 'podpora' ? 'podpora' : 'panel', id + (internal ? ' — interní poznámka' : ' — nová zpráva'));
       emit();
       return t;
     },
@@ -216,7 +231,7 @@
       var t = this.ticket(id); if (!t) return null;
       var f = TICKET_FLOW[t.state];
       if (!f || f.next.indexOf(to) < 0) return null;
-      var req = staff ? A.post('/staff/tickets/' + t.apiId + '/transition', { state: TICKET_API[to] || to }, A.key())
+      var req = staff ? A.post('/staff/tickets/' + t.apiId + '/transition', { to: TICKET_API[to] || to }, A.key()) // the controller validates `to` (audit 2026-10 P1-2)
         : (to === 'vyreseny' ? A.post('/tickets/' + t.apiId + '/close', {}, A.key()) : A.post('/tickets/' + t.apiId + '/messages', { body: 'Znovu otevírám požadavek.' }, A.key()));
       req.then(refresh).catch(function (e) { log('system', id + ': ' + e.message); emit(); });
       t.state = to;
@@ -354,6 +369,8 @@
         return { text: d.reply || d.text || '', handoff: !!d.handoff, actions: d.actions || [] };
       });
     },
+    /* whether the API refused a kind of read (orders, tickets, incidents, notifs, mails, invoices) with 403 or the navigation does not offer it */
+    denied: function (kind) { return !!refused[kind]; },
     ready: function (fn) { var p = hydrated || hydrate(); return fn ? p.then(function () { try { fn(API); } catch (e) {} }) : p; },
     /* the web-order banner asks whether fulfilment of an order waits on a node (GET /v1/orders → provisioning.stalled) */
     orderStalled: function (number) { var o = (db.orders || []).filter(function (x) { return x.id === number || x.apiId === number; })[0]; return !!(o && o.stalled); },
@@ -361,7 +378,7 @@
     flush: function () { return Promise.resolve(); }
   };
 
-  if (staff) {
+  if (staff && navAllows('/staff/tickets/clusters')) {
     A.get('/staff/tickets/clusters').then(function (r) { window.__onhostClusters = (r.data && r.data.clusters) || r.data || []; window.__onhostTopics = (r.data && r.data.topics) || []; }).catch(function () {});
   }
   window.OnhostStore = API;

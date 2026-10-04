@@ -8,6 +8,8 @@ use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Domains\Models\Domain;
+use Onhost\Domain\Identity\Authorization\Authorizer;
+use Onhost\Domain\Identity\Authorization\StaffActor;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Services\Models\Service;
@@ -32,7 +34,13 @@ final class TicketService
 
     public const AUTO_CLOSE_DAYS = 7;
 
-    public function __construct(private readonly AuditRecorder $audit, private readonly OutboxPublisher $outbox) {}
+    /** The permission an assignee must hold: somebody who cannot answer the ticket cannot own it. */
+    public const ASSIGNEE_PERMISSION = 'support.ticket.manage';
+
+    /** The fields of a ticket a staff write may change, each one audited with its old and new value. */
+    private const AUDITED_FIELDS = ['state', 'priority', 'queue_id', 'assignee_id', 'escalation_level', 'first_response_due_at', 'resolution_due_at'];
+
+    public function __construct(private readonly AuditRecorder $audit, private readonly OutboxPublisher $outbox, private readonly Authorizer $authorizer) {}
 
     /**
      * @param  array{subject:string, body:string, category?:?string, priority?:?string, service_id?:?string, domain_id?:?string, channel?:string, email?:?string, name?:?string, tags?:list<string>, incident_id?:?string, attachments?:list<array<string,mixed>>}  $input
@@ -71,7 +79,7 @@ final class TicketService
             'number' => $number, 'organization_id' => $organization?->id, 'user_id' => $user?->id, 'email' => $email, 'name' => $input['name'] ?? $user?->name ?? $organization?->name, 'subject' => mb_substr($subject, 0, 250),
             'category' => $topic, 'priority' => $priority, 'state' => TicketStateMachine::TRIAGED, 'channel' => (string) ($input['channel'] ?? 'portal'), 'queue_id' => $queue?->id, 'service_id' => $service?->id, 'domain_id' => $input['domain_id'] ?? null, 'incident_id' => $input['incident_id'] ?? null,
             'required_skills' => Triage::skillsFor($topic), 'tags' => array_values((array) ($input['tags'] ?? [])), 'sla_policy_id' => $policy?->id,
-            'first_response_due_at' => now()->addMinutes($targets['first']), 'resolution_due_at' => now()->addMinutes($targets['resolve']), 'last_customer_message_at' => now(),
+            'first_response_due_at' => SlaClock::due(now(), $targets['first'], $policy), 'resolution_due_at' => SlaClock::due(now(), $targets['resolve'], $policy), 'last_customer_message_at' => now(),
             'meta' => ['triage' => $triage, 'requested_priority' => $input['priority'] ?? null, 'targets' => $targets],
         ]));
         TicketMessage::query()->create(['ticket_id' => $ticket->id, 'author_type' => $staff ? 'staff' : 'customer', 'author_id' => $user?->id, 'author_name' => $ticket->name, 'visibility' => 'public', 'body' => $body, 'attachments' => $this->attachments($input['attachments'] ?? [])]);
@@ -103,9 +111,10 @@ final class TicketService
         if ($authorType === 'customer') {
             $this->resumeClocks($ticket);
             $targets = (array) data_get($ticket->meta, 'targets', []);
-            $patch = ['last_customer_message_at' => now(), 'next_response_due_at' => now()->addMinutes((int) ($targets['next'] ?? 480))];
+            $policy = $this->policyOf($ticket);
+            $patch = ['last_customer_message_at' => now(), 'next_response_due_at' => SlaClock::due(now(), (int) ($targets['next'] ?? 480), $policy)];
             if (! $ticket->isOpen()) {
-                $patch += ['state' => TicketStateMachine::OPEN, 'reopen_count' => $ticket->reopen_count + 1, 'resolved_at' => null, 'closed_at' => null, 'resolution_due_at' => now()->addMinutes((int) ($targets['resolve'] ?? 4320))];
+                $patch += ['state' => TicketStateMachine::OPEN, 'reopen_count' => $ticket->reopen_count + 1, 'resolved_at' => null, 'closed_at' => null, 'resolution_due_at' => SlaClock::due(now(), (int) ($targets['resolve'] ?? 4320), $policy)];
             } elseif (in_array($ticket->state, [TicketStateMachine::WAITING_CUSTOMER, TicketStateMachine::TRIAGED, TicketStateMachine::NEW], true)) {
                 $patch['state'] = TicketStateMachine::OPEN;
             }
@@ -130,9 +139,18 @@ final class TicketService
         return $message;
     }
 
-    public function transition(Ticket $ticket, string $to, CommandContext $context, ?string $note = null): Ticket
+    /**
+     * A note given with a transition is internal unless asked otherwise: the console's "why" of a state change ("waiting
+     * for the hoster's answer", "customer is difficult") is for colleagues; it went to the customer as a public message and
+     * into the customer's notification. Only a public note travels with the event.
+     *
+     * @param  'internal'|'public'  $noteVisibility
+     */
+    public function transition(Ticket $ticket, string $to, CommandContext $context, ?string $note = null, string $noteVisibility = 'internal'): Ticket
     {
         TicketStateMachine::machine()->assertTransition($ticket->state, $to);
+        $noteVisibility = $noteVisibility === 'public' ? 'public' : 'internal';
+        $before = $this->snapshot($ticket);
         $from = $ticket->state;
         $patch = ['state' => $to];
         if ($to === TicketStateMachine::WAITING_CUSTOMER) {
@@ -154,25 +172,70 @@ final class TicketService
             $patch['closed_at'] = null;
         }
         $ticket->forceFill($patch)->save();
-        if ($note !== null && trim($note) !== '') {
-            TicketMessage::query()->create(['ticket_id' => $ticket->id, 'author_type' => 'system', 'author_name' => 'ONhost', 'visibility' => 'public', 'body' => $note]);
+        $hasNote = $note !== null && trim($note) !== '';
+        if ($hasNote) {
+            TicketMessage::query()->create(['ticket_id' => $ticket->id, 'author_type' => 'system', 'author_name' => 'ONhost', 'visibility' => $noteVisibility, 'body' => $note]);
         }
-        $this->audit->record($context->withScope($ticket->organization_id), 'ticket.transition', 'succeeded', ['number' => $ticket->number, 'from' => $from, 'to' => $to, 'note' => $note], 'ticket', $ticket->id);
-        $this->outbox->publish(GenericEvent::of('ticket.'.strtolower($to), 'ticket', $ticket->id, ['number' => $ticket->number, 'subject' => $ticket->subject, 'email' => $ticket->email, 'from' => $from, 'note' => $note], $ticket->organization_id));
+        $this->recordChange($ticket, $context, 'ticket.transition', $before, ['from' => $from, 'to' => $to, 'note' => $note, 'note_visibility' => $hasNote ? $noteVisibility : null]);
+        $publicNote = $hasNote && $noteVisibility === 'public' ? $note : null;
+        $this->outbox->publish(GenericEvent::of('ticket.'.strtolower($to), 'ticket', $ticket->id, ['number' => $ticket->number, 'subject' => $ticket->subject, 'email' => $ticket->email, 'from' => $from, 'note' => $publicNote], $ticket->organization_id));
 
         return $ticket;
     }
 
+    /**
+     * Give the ticket to a member of staff who can work on it, or to nobody. The assignee is checked here, not by the console:
+     * an id of a customer, of a disabled account or of a colleague without the support keys made a ticket nobody would ever
+     * answer (readiness audit 2026-10, P1-3). A change of owner is told to the desk (`ticket.assigned`).
+     */
     public function assign(Ticket $ticket, ?string $assigneeId, CommandContext $context): Ticket
     {
-        $ticket->forceFill(['assignee_id' => $assigneeId, 'state' => $ticket->state === TicketStateMachine::TRIAGED || $ticket->state === TicketStateMachine::NEW ? TicketStateMachine::OPEN : $ticket->state])->save();
-        $this->audit->record($context->withScope($ticket->organization_id), 'ticket.assign', 'succeeded', ['number' => $ticket->number, 'assignee' => $assigneeId], 'ticket', $ticket->id);
+        $assignee = $assigneeId === null || $assigneeId === '' ? null : $this->assignable($assigneeId);
+        $before = $this->snapshot($ticket);
+        $previous = $ticket->assignee_id;
+        $ticket->forceFill(['assignee_id' => $assignee?->id, 'state' => $ticket->state === TicketStateMachine::TRIAGED || $ticket->state === TicketStateMachine::NEW ? TicketStateMachine::OPEN : $ticket->state])->save();
+        $this->recordChange($ticket, $context, 'ticket.assign', $before, ['assignee' => $assignee?->id]);
+        if ($previous !== $ticket->assignee_id) {
+            $queue = $ticket->queue_id ? SupportQueue::query()->whereKey($ticket->queue_id)->value('key') : null;
+            $this->outbox->publish(GenericEvent::of('ticket.assigned', 'ticket', $ticket->id, ['number' => $ticket->number, 'subject' => $ticket->subject, 'assignee_id' => $assignee?->id, 'assignee_name' => $assignee?->name, 'previous_assignee_id' => $previous, 'priority' => $ticket->priority, 'queue' => $queue, 'by' => $context->actorId], $ticket->organization_id));
+        }
+
+        return $ticket;
+    }
+
+    /**
+     * Re-route a ticket: another priority, another queue. A new priority moves the clocks that have not been met yet — the
+     * targets are the new priority's, counted from the ticket's start (plus the time it waited for the customer).
+     */
+    public function route(Ticket $ticket, ?string $priority, ?string $queueKey, CommandContext $context): Ticket
+    {
+        $patch = [];
+        if ($queueKey !== null && $queueKey !== '') {
+            $queue = SupportQueue::query()->where('key', $queueKey)->first();
+            if ($queue === null || $queue->state !== 'active') {
+                throw new DomainError('queue_unknown', 'Taková aktivní fronta neexistuje.', 422, ['field' => 'queue']);
+            }
+            $patch['queue_id'] = $queue->id;
+        }
+        if ($priority !== null && $priority !== '' && $priority !== $ticket->priority) {
+            if (! in_array($priority, ['p1', 'p2', 'p3', 'p4'], true)) {
+                throw new DomainError('priority_invalid', 'Priorita je p1–p4.', 422, ['field' => 'priority']);
+            }
+            $patch += ['priority' => $priority] + $this->retarget($ticket, $priority);
+        }
+        if ($patch === []) {
+            return $ticket;
+        }
+        $before = $this->snapshot($ticket);
+        $ticket->forceFill($patch)->save();
+        $this->recordChange($ticket, $context, 'ticket.route', $before, []);
 
         return $ticket;
     }
 
     public function escalate(Ticket $ticket, CommandContext $context, string $reason): Ticket
     {
+        $before = $this->snapshot($ticket);
         $queue = $ticket->queue_id ? SupportQueue::query()->find($ticket->queue_id) : null;
         $next = $queue?->escalates_to ? SupportQueue::query()->where('key', $queue->escalates_to)->first() : null;
         $ticket->forceFill(['escalation_level' => $ticket->escalation_level + 1, 'queue_id' => $next?->id ?? $ticket->queue_id, 'assignee_id' => null])->save();
@@ -180,7 +243,7 @@ final class TicketService
             $ticket->forceFill(['state' => TicketStateMachine::ESCALATED])->save();
         }
         TicketMessage::query()->create(['ticket_id' => $ticket->id, 'author_type' => 'system', 'author_name' => 'ONhost', 'visibility' => 'internal', 'body' => "Eskalace na úroveň {$ticket->escalation_level}".($next ? " ({$next->name})" : '').": {$reason}"]);
-        $this->audit->record($context->withScope($ticket->organization_id), 'ticket.escalate', 'succeeded', ['number' => $ticket->number, 'level' => $ticket->escalation_level, 'reason' => $reason], 'ticket', $ticket->id);
+        $this->recordChange($ticket, $context, 'ticket.escalate', $before, ['level' => $ticket->escalation_level, 'reason' => $reason]);
         $this->outbox->publish(GenericEvent::of('ticket.escalated', 'ticket', $ticket->id, ['number' => $ticket->number, 'level' => $ticket->escalation_level, 'reason' => $reason, 'queue' => $next?->key], $ticket->organization_id));
 
         return $ticket;
@@ -224,7 +287,7 @@ final class TicketService
         }
         $closed = 0;
         foreach (Ticket::query()->where('state', TicketStateMachine::RESOLVED)->where('resolved_at', '<', now()->subDays(self::AUTO_CLOSE_DAYS))->get() as $ticket) {
-            $this->transition($ticket, TicketStateMachine::CLOSED, $context, 'Tiket byl automaticky uzavřen 7 dní po vyřešení.');
+            $this->transition($ticket, TicketStateMachine::CLOSED, $context, 'Tiket byl automaticky uzavřen 7 dní po vyřešení.', 'public');
             $closed++;
         }
 
@@ -250,6 +313,74 @@ final class TicketService
         usort($out, fn ($a, $b) => $b['open'] <=> $a['open'] ?: $b['count'] <=> $a['count']);
 
         return $out;
+    }
+
+    /** The SLA policy the ticket was opened under (its clocks keep that policy's hours). */
+    private function policyOf(Ticket $ticket): ?SlaPolicy
+    {
+        return $ticket->sla_policy_id !== null ? SlaPolicy::query()->find($ticket->sla_policy_id) : null;
+    }
+
+    /** An active member of staff who holds the support keys, or a 422 naming the field. */
+    private function assignable(string $assigneeId): User
+    {
+        $user = User::query()->find($assigneeId);
+        if ($user === null || ! StaffActor::account($user) || ! $user->isActive() || ! StaffActor::holds($user, self::ASSIGNEE_PERMISSION, $this->authorizer)) {
+            throw new DomainError('assignee_invalid', 'Tiket lze přidělit jen aktivnímu pracovníkovi podpory.', 422, ['field' => 'assignee_id']);
+        }
+
+        return $user;
+    }
+
+    /** The clocks under a new priority: targets of the ticket's policy, counted from its start plus the time it waited. @return array<string,mixed> */
+    private function retarget(Ticket $ticket, string $priority): array
+    {
+        $policy = $this->policyOf($ticket);
+        if ($policy === null) {
+            return [];
+        }
+        $targets = $policy->targetsFor($priority);
+        $start = $ticket->created_at ?? now();
+        $patch = ['meta' => array_merge((array) $ticket->meta, ['targets' => $targets])];
+        if ($ticket->first_responded_at === null) {
+            $patch['first_response_due_at'] = SlaClock::due($start, $targets['first'], $policy)->addMinutes($ticket->paused_minutes);
+        }
+        if ($ticket->isOpen()) {
+            $patch['resolution_due_at'] = SlaClock::due($start, $targets['resolve'], $policy)->addMinutes($ticket->paused_minutes);
+        }
+
+        return $patch;
+    }
+
+    /** @return array<string, mixed> the audited fields as they are now */
+    private function snapshot(Ticket $ticket): array
+    {
+        $out = [];
+        foreach (self::AUDITED_FIELDS as $field) {
+            $value = $ticket->getAttribute($field);
+            $out[$field] = $value instanceof \DateTimeInterface ? Carbon::instance($value)->toIso8601String() : $value;
+        }
+
+        return $out;
+    }
+
+    /**
+     * One audit row per staff write, with every field it changed as {from, to} and the before/after hashes of the audited
+     * fields: a priority or a queue changed without a trace (readiness audit 2026-10, P1-3).
+     *
+     * @param  array<string, mixed>  $before
+     * @param  array<string, mixed>  $detail
+     */
+    private function recordChange(Ticket $ticket, CommandContext $context, string $action, array $before, array $detail): void
+    {
+        $after = $this->snapshot($ticket);
+        $changes = [];
+        foreach ($after as $field => $value) {
+            if (($before[$field] ?? null) !== $value) {
+                $changes[$field] = ['from' => $before[$field] ?? null, 'to' => $value];
+            }
+        }
+        $this->audit->record($context->withScope($ticket->organization_id), $action, 'succeeded', ['number' => $ticket->number, 'changes' => $changes] + $detail, 'ticket', $ticket->id, before: $before, after: $after);
     }
 
     private function policyFor(?Organization $organization): ?SlaPolicy

@@ -200,3 +200,33 @@ it('has no test flag: test-mode registrations need a demoreg sandbox instance', 
     $demo->register('x.cz', ['period' => 1, 'registrant' => 'G-1'], 'cl', true);
     Http::assertSent(fn (Request $r) => str_starts_with($r->url(), 'https://demoreg.net/soap/cmd.php'));
 });
+
+// ── TASK-0056: updateContact — what a customer's change of the holder's contact ends in (DomainService::updateHolderContact) ──
+
+it('sends Subreg Update_Contact with the contact id, the changed fields and a dotted E.164 phone', function () {
+    subregFake(fn (string $fn, array $p) => match ($fn) {
+        'Login' => ['data' => ['ssid' => 'sess-1']],
+        'Update_Contact' => ['data' => []],
+        default => ['error' => ['unexpected', 505, 1003]],
+    });
+    $result = subregAdapter()->updateContact('G-000042', ['email' => 'nova@example.cz', 'phone' => '777 123 456', 'street' => 'Nová 5', 'city' => 'Brno', 'postal_code' => '602 00', 'country' => 'cz'], 'cl-contact');
+
+    expect($result->completed)->toBeTrue()->and($result->ref?->remoteId)->toBe('G-000042');
+    expect(subregCalls())->toBe(['Login', 'Update_Contact']);
+    $contact = subregParams('Update_Contact')[0]['contact'];
+    expect($contact)->toBe(['id' => 'G-000042', 'street' => 'Nová 5', 'city' => 'Brno', 'pc' => '602 00', 'cc' => 'CZ', 'phone' => '+420.777123456', 'email' => 'nova@example.cz']);
+    Http::assertSent(fn (Request $r) => str_contains($r->body(), 'Update_Contact'));
+});
+
+it('maps a Subreg fault on Update_Contact to a provider exception', function () {
+    subregFake(fn (string $fn) => match ($fn) {
+        'Login' => ['data' => ['ssid' => 'sess-1']],
+        default => ['error' => ['Contact does not exist', 500, 1008]],
+    });
+    try {
+        subregAdapter()->updateContact('G-404', ['email' => 'nova@example.cz'], 'cl-contact-2');
+        $this->fail('expected a provider exception');
+    } catch (ProviderException $e) {
+        expect($e->errorCode)->not->toBe(ProviderErrorCode::TRANSIENT);
+    }
+});

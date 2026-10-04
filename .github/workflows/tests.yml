@@ -82,3 +82,30 @@ jobs:
 
       - name: Pest on PostgreSQL
         run: php artisan test --compact
+
+  # The gated deployer (TASK-0032): syntax, ShellCheck, and a real release A → B → A of this tree through the installed
+  # deployer (maintenance mode, composer --no-dev, migrations, config/route/event caches, openapi, backup + verify,
+  # doctor gate, HTTP checks through the bypass); only systemctl, chown and the PHP-FPM reload are stubbed.
+  deploy-scripts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, intl, sqlite3, pdo_sqlite, gd, bcmath, sodium
+          coverage: none
+          tools: composer
+
+      - name: Shell syntax
+        run: for f in infra/aapanel/*.sh infra/aapanel/ci/*.sh; do bash -n "$f" || exit 1; done
+
+      - name: ShellCheck (warnings and errors)
+        run: |
+          command -v shellcheck >/dev/null || { sudo apt-get update -q && sudo apt-get install -y -q shellcheck; }
+          shellcheck -S warning infra/aapanel/*.sh infra/aapanel/ci/*.sh
+
+      - name: Deployer end to end (A → B → A)
+        run: PHP_BIN="$(command -v php)" COMPOSER_BIN="$(command -v composer)" bash infra/aapanel/ci/deploy-e2e.sh "$RUNNER_TEMP/deploy-e2e"

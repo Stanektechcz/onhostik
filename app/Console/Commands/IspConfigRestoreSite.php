@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
+use Onhost\Domain\Provisioning\InstanceContained;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
+use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Platform\Secrets\SecretStore;
 use Onhost\Providers\IspConfig\IspConfigConnector;
 use Throwable;
@@ -43,13 +45,20 @@ final class IspConfigRestoreSite extends Command
 
     protected $description = 'Recreate a deleted ISPConfig web site from its old record and restore its backup (API only)';
 
-    public function handle(SecretStore $secrets): int
+    public function handle(SecretStore $secrets, ProviderRegistry $registry): int
     {
         $domain = strtolower(trim((string) $this->argument('domain'), " .\t"));
         $instance = ProviderInstance::query()->where('provider', 'ispconfig')
             ->when($this->option('instance'), fn ($q) => $q->where('key', (string) $this->option('instance')))->first();
         if ($instance === null) {
             $this->error('no ISPConfig instance found'.($this->option('instance') ? ': '.$this->option('instance') : '; pass --instance'));
+
+            return 1;
+        }
+        try {
+            $registry->refuseContained($instance); // TASK-0045 review A: this command builds its connector itself — it asks first
+        } catch (InstanceContained $e) {
+            $this->error("{$instance->key} is {$e->instanceState}: nothing is sent to it until staff lift that state");
 
             return 1;
         }

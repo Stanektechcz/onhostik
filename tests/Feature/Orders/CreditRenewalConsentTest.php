@@ -15,11 +15,15 @@ use Onhost\Domain\Domains\Models\Domain;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Orders\CheckoutService;
 use Onhost\Domain\Orders\Models\Order;
+use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\Orders\QuoteService;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
+use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Commands\CommandContext;
+use Onhost\Platform\Money\Money;
+use Onhost\Platform\Outbox\OutboxPublisher;
 use Tests\TestCase;
 
 /*
@@ -142,13 +146,20 @@ it('ignores an explicit auto_renew=true of a member without the right to spend t
 it('brings a domain a member without the right transfers in under the organization default', function () {
     $state = ['registered' => false, 'nsset' => false, 'expiration' => '2027-09-06'];
     registryFake($state);
-    [, $org] = $this->customerWithOrganization();
+    [$owner, $org] = $this->customerWithOrganization([], ['street' => 'Dlouhá 1', 'city' => 'Praha', 'postal_code' => '11000']);
     $org->forceFill(['auto_renew_default' => false])->save();
     $manager = renewalConsentMember($org, 'domain_manager');
     $registrant = ['name' => 'Jana Nováková', 'email' => 'jana@example.cz', 'street' => 'Dlouhá 1', 'city' => 'Praha', 'postal_code' => '11000', 'country' => 'CZ'];
+    // TASK-0058: a transfer is bought first (the holder pays it from credit); the member hands over the code with the paid line
+    app(WalletService::class)->topup($org, Money::decimal('1000', 'CZK'), 'card', 'renewal-consent-transfer', new CommandContext('user', $owner->id, $org->id), bankProvider: 'comgate');
+    $quote = app(QuoteService::class)->quote([['product_key' => 'domain', 'config' => ['fqdn' => 'prevod.cz', 'period_years' => 1, 'action' => 'transfer', 'registrant' => $registrant]]], 'CZK', ['country' => 'CZ'], 1, null, $org);
+    $consents = ['terms' => ['version' => '2026-09'], 'privacy' => [], 'dpa' => [], 'withdrawal_waiver' => [], 'registrar_terms' => ['person' => 'Jana Nováková'], 'registry_terms_cz' => ['person' => 'Jana Nováková'], 'sla' => []];
+    $order = app(CheckoutService::class)->placeOrder($quote, $org, $owner, $consents, ['mode' => 'wallet'], 'renewal-consent-transfer', new CommandContext('user', $owner->id, $org->id))['order'];
+    app(OutboxPublisher::class)->relayPending();
+    $line = OrderItem::query()->where('order_id', $order->id)->firstOrFail();
 
     try {
-        app(DomainService::class)->transferIn($org, 'prevod.cz', 'AUTH-123', ['registrant' => $registrant, 'consent' => ['person' => 'Jana Nováková']], $this->contextFor($manager, $org, 'totp'), 'transfer-prevod-1');
+        app(DomainService::class)->transferIn($org, 'prevod.cz', 'AUTH-123', ['order_item_id' => $line->id, 'consent' => ['person' => 'Jana Nováková']], $this->contextFor($manager, $org, 'totp'), 'transfer-prevod-1');
     } catch (Throwable) {
         // the registry double does not know transfers; only the domain row the service wrote before the saga matters here
     }

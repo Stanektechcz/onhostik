@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Platform\Outbox;
 
 use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Foundation\Testing\DatabaseTransactionsManager;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -60,8 +61,7 @@ final class OutboxPublisher
     public function relayPending(int $limit = 100): int
     {
         // Never relay from inside an open application transaction: the message is not durable yet.
-        // The test runner wraps every test in one transaction (RefreshDatabase); that outer level is the baseline there.
-        if (DB::transactionLevel() > (app()->runningUnitTests() ? 1 : 0)) {
+        if ($this->insideApplicationTransaction()) {
             return 0;
         }
         // one relay at a time: the eager job, the scheduler and a request-cycle relay must not deliver the same message twice
@@ -78,6 +78,26 @@ final class OutboxPublisher
         } finally {
             $lock->release();
         }
+    }
+
+    /**
+     * Outside tests: any open transaction. The test runner wraps every test in transactions of its own (RefreshDatabase,
+     * and a 24-hour clock sweep one more savepoint per run, TASK-0047); those are the baseline there, and the testing
+     * transaction manager knows how many — the same "open" Laravel's own after-commit callbacks go by.
+     */
+    private function insideApplicationTransaction(): bool
+    {
+        if (! app()->runningUnitTests()) {
+            return DB::transactionLevel() > 0;
+        }
+        $manager = app()->bound('db.transactions') ? app('db.transactions') : null;
+        if ($manager instanceof DatabaseTransactionsManager) {
+            $connection = DB::connection()->getName();
+
+            return $manager->callbackApplicableTransactions()->contains(fn ($transaction) => $transaction->connection === $connection);
+        }
+
+        return DB::transactionLevel() > 1;
     }
 
     private function relayLocked(int $limit): int

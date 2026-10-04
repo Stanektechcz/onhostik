@@ -16,6 +16,7 @@ use Onhost\Platform\StateMachine\StateMachine;
  * @property ?Carbon $queued_at
  * @property ?Carbon $started_at
  * @property ?Carbon $finished_at
+ * @property ?Carbon $next_run_at when the run is looked at next (a parked run honours it: TASK-0045)
  * @property ?Carbon $secrets_scrubbed_at when the row forgot the secrets it carried (OperationSecrets); null = it may still hold some
  */
 final class Operation extends Model

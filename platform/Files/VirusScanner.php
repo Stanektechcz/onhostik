@@ -11,7 +11,8 @@ use Throwable;
  * `ONHOST_CLAMAV_PORT`) — the file goes in 64 kB chunks, clamd answers `stream: OK` or `stream: <signature> FOUND`.
  * An infected file never reaches the customer or a server; while clamd is unreachable the file is kept as
  * `unavailable` and, with `ONHOST_CLAMAV_ENFORCE`, cannot be downloaded until the retry pass (`onhost:files:scan`)
- * finds it clean. Without a host the scanner is off and every file counts as unscanned-but-allowed.
+ * finds it clean. Without a host the scanner is off and every file counts as unscanned-but-allowed — except in production
+ * with enforcement on, where no host means UNAVAILABLE (TASK-0045, audit C7b).
  */
 class VirusScanner
 {
@@ -30,9 +31,20 @@ class VirusScanner
         return (string) config('onhost.storage.clamav.host', '') !== '';
     }
 
+    /**
+     * Whether a file must have a clean scan to be handed out. Outside production a scanner without a host is simply off; in
+     * production `ONHOST_CLAMAV_ENFORCE=true` with an empty host is a scanner that is UNAVAILABLE, not a silent pass (audit
+     * C7b, TASK-0045): nothing that needs a scan leaves until clamd is configured, or enforcement is switched off on purpose.
+     */
     public function enforced(): bool
     {
-        return $this->enabled() && (bool) config('onhost.storage.clamav.enforce', true);
+        return (bool) config('onhost.storage.clamav.enforce', true) && ($this->enabled() || app()->environment('production'));
+    }
+
+    /** The result for a file no clamd can look at: OFF where scanning is optional, UNAVAILABLE where it is enforced. */
+    private function withoutScanner(): string
+    {
+        return $this->enforced() ? self::UNAVAILABLE : self::OFF;
     }
 
     /** Whether a file with this scan result may be handed out. */
@@ -92,7 +104,7 @@ class VirusScanner
     public function scanPath(string $path): array
     {
         if (! $this->enabled()) {
-            return self::outcome(self::OFF);
+            return self::outcome($this->withoutScanner());
         }
         try {
             $stream = app(FileStore::class)->disk()->readStream($path);
@@ -116,7 +128,7 @@ class VirusScanner
     public function scanStream($stream): array
     {
         if (! $this->enabled()) {
-            return self::outcome(self::OFF);
+            return self::outcome($this->withoutScanner());
         }
         try {
             $reply = $this->instream($stream);

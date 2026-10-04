@@ -38,9 +38,11 @@ use Onhost\Domain\Services\ServiceBackups;
 use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Domain\Services\ServiceIdentityCheck;
 use Onhost\Domain\Services\ServiceService;
+use Onhost\Domain\Services\SnapshotLimit;
 use Onhost\Domain\Services\SshKeyLedger;
 use Onhost\Domain\Services\SuspensionDepth;
 use Onhost\Domain\Services\SuspensionHold;
+use Onhost\Domain\Services\VmReinstall;
 use Onhost\Domain\Services\Web\ClientAllowance;
 use Onhost\Domain\Services\Web\CommandRunner;
 use Onhost\Domain\Services\Web\DatabaseCredentials;
@@ -169,7 +171,9 @@ final class ServiceActionWorkflow implements Workflow
             'archive.restore' => [$this->safetyCopyStep('pre_restore'), $this->archiveRestoreStep()], // the archive goes OVER a live site: a copy first, nothing written without it (TASK-0035, IF-11 / audit SE-2)
             'snapshot' => [$this->snapshotStep()],
             'rollback_snapshot' => [$this->safetyCopyStep('pre_rollback'), $this->rollbackSnapshotStep()],
-            'reinstall' => [$this->safetyCopyStep('pre_reinstall'), $this->featureStep('reinstall')], // rewrites the server files
+            'reinstall' => Service::query()->whereKey($operation->service_id)->value('family') === 'cloud'
+                ? [$this->safetyCopyStep('pre_reinstall'), ...$this->vmReinstallSteps()] // C9: a fresh system disk from a golden template, the old one kept detached
+                : [$this->safetyCopyStep('pre_reinstall'), $this->featureStep('reinstall')], // rewrites the server files
             // a dump is written OVER a live database: room first, then a copy of exactly that database, then the import
             'database.import' => [$this->importRoomStep(), $this->safetyCopyStep('pre_import', onlyTargetDatabase: true), $this->featureStep('database.import')],
             // a web hosting plan sells mailboxes; the panel puts one inside a mail domain, and the site saga never made one
@@ -199,8 +203,29 @@ final class ServiceActionWorkflow implements Workflow
             'restore' => RestoreJob::query()->where('operation_id', $context->operation->id)->update(['state' => 'failed', 'finished_at' => now(), 'result' => ['error' => $reason]]),
             'backup' => Backup::query()->where('operation_id', $context->operation->id)->update(['state' => 'failed', 'finished_at' => now()]),
             'database.import' => $this->afterFailedImport($context, $service, $reason),
+            'reinstall' => $service->family === 'cloud' ? $this->afterFailedVmReinstall($context, $service) : null,
             default => null,
         };
+    }
+
+    /**
+     * A server reinstall that stopped half way (C9) destroys nothing more: the safety snapshot and the replaced disk stay where
+     * they are (nothing here deletes or rolls back — a compensation never touches data, CompensationGuard). The one thing put
+     * back is power: a server that was running when the customer asked is started again, on whichever disk it now has.
+     */
+    private function afterFailedVmReinstall(StepContext $context, Service $service): void
+    {
+        if ($context->get('vm_was_running') !== true) {
+            return;
+        }
+        try {
+            $adapter = $context->adapter();
+            if ($adapter instanceof ComputeProvider) {
+                $adapter->power($service->primaryBinding()?->ref() ?? throw new \RuntimeException('the service has no binding'), 'start');
+            }
+        } catch (Throwable $e) {
+            report($e); // the operation already failed and says why; an operator starts the server by hand
+        }
     }
 
     /**
@@ -2045,6 +2070,90 @@ final class ServiceActionWorkflow implements Workflow
         };
     }
 
+    /**
+     * C9 OS reinstall of a server, after its safety snapshot: switch it off, put a fresh copy of the golden template's system
+     * disk in place of its own (the old one stays detached — the snapshot lives on it), grow the new disk to what the plan
+     * sells, and start it again when it was running before. Every step asks the hypervisor and waits for its task; a retry
+     * of a step that already happened does nothing twice (an off server is not stopped again, a grown disk not grown).
+     *
+     * @return list<ServiceStep>
+     */
+    private function vmReinstallSteps(): array
+    {
+        $stop = new class extends ServiceStep
+        {
+            public function label(): string
+            {
+                return 'Vypnutí serveru před reinstalací';
+            }
+
+            public function run(StepContext $context): StepResult
+            {
+                $compute = $this->capability($context, ComputeProvider::class);
+                $ref = $this->ref($context);
+                $status = $compute->getActualState($ref)->status;
+                $context->container->make(AvailabilityWatch::class)->intend($this->service($context), 'stopped'); // an ordered stop is not an outage (H14)
+                if ($status === 'stopped') {
+                    return StepResult::done(['vm_was_running' => $context->get('vm_was_running') === true]);
+                }
+
+                return $this->settle($compute->power($ref, 'stop'), ['vm_was_running' => true]);
+            }
+        };
+        $replace = new class extends ServiceStep
+        {
+            public function label(): string
+            {
+                return 'Nový systém ze šablony';
+            }
+
+            public function run(StepContext $context): StepResult
+            {
+                $result = $this->capability($context, ComputeProvider::class)->reinstall($this->ref($context), (string) $context->desired('image'));
+
+                return $this->settle($result, ['image' => (string) $context->desired('image'), 'replaced_volume' => $result->data['replaced_volume'] ?? null]);
+            }
+        };
+        $grow = new class extends ServiceStep
+        {
+            public function label(): string
+            {
+                return 'Velikost disku podle tarifu';
+            }
+
+            public function run(StepContext $context): StepResult
+            {
+                $size = VmReinstall::diskGb($this->service($context));
+                if ($size <= 0) {
+                    return StepResult::done(['disk_grown' => false]);
+                }
+
+                return $this->settle($this->capability($context, ComputeProvider::class)->growSystemDisk($this->ref($context), $size), ['disk_gb' => $size]);
+            }
+        };
+        $start = new class extends ServiceStep
+        {
+            public function label(): string
+            {
+                return 'Spuštění serveru';
+            }
+
+            public function run(StepContext $context): StepResult
+            {
+                $service = $this->service($context);
+                $context->container->make(ServiceFeatures::class)->forget($service);
+                if ($context->get('vm_was_running') !== true) {
+                    return StepResult::done(['started' => false]); // the owner had it off: it stays off, with its new system
+                }
+                $context->container->make(AvailabilityWatch::class)->intend($service, 'running');
+
+                return $this->settle($this->capability($context, ComputeProvider::class)->power($this->ref($context), 'start'), ['started' => true]);
+            }
+        };
+
+        return [$stop, $replace, $grow, $start];
+    }
+
     private function snapshotStep(): ServiceStep
     {
         return new class extends ServiceStep
@@ -2058,6 +2167,19 @@ final class ServiceActionWorkflow implements Workflow
             {
                 $compute = $this->capability($context, ComputeProvider::class);
                 $name = (string) $context->desired('name', 'onhost-'.now()->format('Ymd-His'));
+                // the plan's number, counted once more right before the snapshot is taken (C9): the request counted too, but two
+                // requests in a row both passed it, and a hypervisor that was away at the request was not asked at all
+                $service = $this->service($context);
+                $limit = SnapshotLimit::limit($service);
+                if ($limit !== null) {
+                    try {
+                        SnapshotLimit::refuseWhenFull($service, $compute->listSnapshots($this->ref($context)), $limit, $name);
+                    } catch (ProviderException $e) {
+                        return self::fromProviderException($e);
+                    } catch (DomainError $e) {
+                        return StepResult::fail($e->getMessage(), false, ['feature_limit_reached' => true] + $e->extra);
+                    }
+                }
 
                 return $this->settle($compute->snapshot($this->ref($context), $name, (string) $context->desired('description', '')), ['snapshot' => $name]);
             }

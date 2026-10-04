@@ -241,7 +241,10 @@ HTML;
     private static function adminSeams(string $html): string
     {
         $pairs = [
-            // sidebar and role: only backed views, one real role (rights are enforced by the API)
+            // sidebar and role: the views of the person's navigation items (audit 2026-10 B2, StaffNavigation → ONHOST_BOOT.user.nav)
+            // a repurposed prototype view carries the navigation item's label in the sidebar and its own page header
+            '        label: x[1], count: x[2],' => '        label: (window.OnhostAdmin && window.OnhostAdmin.label ? window.OnhostAdmin.label(this, x[0]) : \'\') || x[1], count: x[2],',
+            '    const view = views[s.view] || views.queue;' => '    const view = (window.OnhostAdmin && window.OnhostAdmin.head ? window.OnhostAdmin.head(this, s.view) : null) || views[s.view] || views.queue;',
             "    const allowed = s.mobile ? role[3].filter(v => ['queue', 'incidents', 'chat', 'teamchat', 'access'].indexOf(v) >= 0) : role[3];" => "    const allowed = (s.mobile ? role[3].filter(v => ['queue', 'incidents', 'chat', 'teamchat', 'access'].indexOf(v) >= 0) : role[3]).filter(v => !window.OnhostAdmin || window.OnhostAdmin.allows(v));",
             "    role: 'l2', chatSel: 'c1'," => "    role: window.OnhostAdmin ? window.OnhostAdmin.role() : 'l2', chatSel: 'c1',",
             "      roleLabel: _('Role a rozsah', 'Role and scope'),\n      roles: ROLES.map(r => ({" => "      roleLabel: window.OnhostAdmin ? '' : _('Role a rozsah', 'Role and scope'),\n      roles: (window.OnhostAdmin ? [] : ROLES).map(r => ({",
@@ -291,7 +294,7 @@ HTML;
             "        { label: _('Incidenty', 'Incidents'), value: '1', dot: dot('warn') }" => "        { label: _('Incidenty', 'Incidents'), value: window.OnhostAdmin ? String(window.OnhostAdmin.openIncidents()) : '1', dot: dot(window.OnhostAdmin && !window.OnhostAdmin.openIncidents() ? 'ok' : 'warn') }",
             "        [_('Nový incident', 'New incident'), true, () => { this.pushLog('incident.open'," => "        [_('Nový incident', 'New incident'), true, () => { if (window.OnhostAdmin) { window.OnhostAdmin.newIncident(this, _); return; } this.pushLog('incident.open',",
             "        [_('Předat směnu', 'Hand over the shift'), false, () => this.setState({ view: 'shift' })]," => "        [window.OnhostAdmin ? _('Fronta tiketů', 'Ticket queue') : _('Předat směnu', 'Hand over the shift'), false, () => this.setState({ view: window.OnhostAdmin ? 'queue' : 'shift' })],",
-            "        [_('Kompenzace incidentu', 'Incident compensation'), false, () => { this.setState({ view: allowed.indexOf('money') >= 0 ? 'money' : allowed[0] });" => "        [window.OnhostAdmin ? _('Doklady', 'Documents') : _('Kompenzace incidentu', 'Incident compensation'), false, () => { if (window.OnhostAdmin) { this.setState({ view: 'invoices' }); return; } this.setState({ view: allowed.indexOf('money') >= 0 ? 'money' : allowed[0] });",
+            "        [_('Kompenzace incidentu', 'Incident compensation'), false, () => { this.setState({ view: allowed.indexOf('money') >= 0 ? 'money' : allowed[0] });" => "        [window.OnhostAdmin ? _('Doklady', 'Documents') : _('Kompenzace incidentu', 'Incident compensation'), false, () => { if (window.OnhostAdmin) { window.OnhostAdmin.documents(this, _); return; } this.setState({ view: allowed.indexOf('money') >= 0 ? 'money' : allowed[0] });",
             "        ['dash', _('Přehled', 'Overview'), '4', 'warn']," => "        ['dash', _('Přehled', 'Overview'), window.OnhostAdmin ? '' : '4', window.OnhostAdmin ? 'ok' : 'warn'],",
             "        ['incidents', _('Incidenty', 'Incidents'), '1', 'warn']," => "        ['incidents', _('Incidenty', 'Incidents'), window.OnhostAdmin ? window.OnhostAdmin.counts(this).incidents : '1', window.OnhostAdmin && !window.OnhostAdmin.openIncidents() ? 'ok' : 'warn'],",
             "        ['maintenance', _('Kalendář odstávek', 'Maintenance calendar'), '4', 'warn']," => "        ['maintenance', _('Kalendář odstávek', 'Maintenance calendar'), window.OnhostAdmin ? window.OnhostAdmin.counts(this).maintenance : '4', window.OnhostAdmin ? 'ok' : 'warn'],",

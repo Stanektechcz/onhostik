@@ -48,6 +48,7 @@ use App\Http\Controllers\Api\V1\Staff\ProvisioningController;
 use App\Http\Controllers\Api\V1\Staff\RegistrarController;
 use App\Http\Controllers\Api\V1\Staff\ReportController;
 use App\Http\Controllers\Api\V1\Staff\SupportController as StaffSupportController;
+use App\Http\Controllers\Api\V1\Staff\SupportSettingsController;
 use App\Http\Controllers\Api\V1\Staff\WithdrawalController as StaffWithdrawalController;
 use App\Http\Controllers\Api\V1\StatusController;
 use App\Http\Controllers\Api\V1\SupportController;
@@ -552,6 +553,7 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
         Route::post('tickets/sla-tick', [StaffSupportController::class, 'sla']);
         Route::get('tickets/{ticket}', [StaffSupportController::class, 'show']);
         Route::post('tickets/{ticket}/messages', [StaffSupportController::class, 'reply']);
+        Route::post('tickets/{ticket}/notes', [StaffSupportController::class, 'note']); // an internal note: never shown to the customer, no clock, no event
         Route::post('tickets/{ticket}/draft', [StaffSupportController::class, 'draft']); // a reply drafted for the agent (account facts + the service's health check); nothing is sent
         Route::post('tickets/{ticket}/transition', [StaffSupportController::class, 'transition']);
         Route::post('tickets/{ticket}/assign', [StaffSupportController::class, 'assign']);
@@ -560,6 +562,19 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
         Route::post('tickets/{ticket}/work-offers', [StaffSupportController::class, 'proposeWork']);
         Route::post('tickets/{ticket}/work-offers/{offer}/withdraw', [StaffSupportController::class, 'withdrawWork']);
         Route::post('tickets/{ticket}/work-offers/{offer}/complete', [StaffSupportController::class, 'completeWork']);
+        // the desk's own settings: macros, queues, SLA policies (support.queue.manage, readiness audit 2026-10 P1-3)
+        Route::get('support/macros', [SupportSettingsController::class, 'index'])->defaults('kind', 'macro');
+        Route::post('support/macros', [SupportSettingsController::class, 'store'])->defaults('kind', 'macro');
+        Route::patch('support/macros/{id}', [SupportSettingsController::class, 'update'])->defaults('kind', 'macro');
+        Route::delete('support/macros/{id}', [SupportSettingsController::class, 'destroy'])->defaults('kind', 'macro');
+        Route::get('support/queues', [SupportSettingsController::class, 'index'])->defaults('kind', 'queue');
+        Route::post('support/queues', [SupportSettingsController::class, 'store'])->defaults('kind', 'queue');
+        Route::patch('support/queues/{id}', [SupportSettingsController::class, 'update'])->defaults('kind', 'queue');
+        Route::delete('support/queues/{id}', [SupportSettingsController::class, 'destroy'])->defaults('kind', 'queue');
+        Route::get('support/sla-policies', [SupportSettingsController::class, 'index'])->defaults('kind', 'sla_policy');
+        Route::post('support/sla-policies', [SupportSettingsController::class, 'store'])->defaults('kind', 'sla_policy');
+        Route::patch('support/sla-policies/{id}', [SupportSettingsController::class, 'update'])->defaults('kind', 'sla_policy');
+        Route::delete('support/sla-policies/{id}', [SupportSettingsController::class, 'destroy'])->defaults('kind', 'sla_policy');
         Route::get('outbox', [NotificationController::class, 'outbox']);
         Route::post('outbox/{mail}/send', [NotificationController::class, 'sendMail']);
         Route::get('templates', [NotificationController::class, 'templates']);

@@ -45,6 +45,7 @@ final class DomainsCommandHandler implements CommandHandler
 
                 return ['domain_id' => $domain->id, 'delivery' => $result['delivery'], 'auth_info' => $result['delivery'] === 'inline' ? $result['auth_info'] : 'sent_to_registrant', 'expires_at' => $result['expires_at'] ?? null];
             })(),
+            'holder' => $this->domains->updateHolderContact($domain, (array) $command->get('holder', []), $context),
             'publish_ds' => (function () use ($domain, $context) {
                 $this->domains->publishDs($domain, $context);
 
