@@ -32,6 +32,10 @@ jobs:
       - name: Pest
         run: php artisan test --compact
 
+      # the committed contract must be what the routes generate (php artisan onhost:openapi); a deploy never rewrites it
+      - name: OpenAPI contract drift
+        run: php artisan onhost:openapi --check
+
       - name: Static analysis (Larastan level 5, baseline = typing debt; new code must pass)
         run: vendor/bin/phpstan analyse --no-progress --memory-limit=2G
 

@@ -71,6 +71,9 @@ it('answers every v1 endpoint without a server error for visitors, customers and
                     $problems[] = "{$method} {$uri} as {$who} → {$status} without a JSON error body";
                 } elseif ($status >= 400 && $isJson && $status !== 401 && $status !== 419 && ! isset(json_decode($body, true)['error'])) {
                     $problems[] = "{$method} {$uri} as {$who} → {$status} JSON without the `error` slug";
+                } elseif ($status >= 400 && $status < 500 && $isJson && (json_decode($body, true)['status'] ?? null) !== $status) {
+                    // phase D5: every 4xx JSON error names its own status, the one the client sees on the wire
+                    $problems[] = "{$method} {$uri} as {$who} → {$status} JSON without a matching `status`";
                 }
                 app('auth')->forgetGuards();
             }

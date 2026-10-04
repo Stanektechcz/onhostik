@@ -4,10 +4,18 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
+use App\Http\Middleware\TokenRouteScope;
 use Illuminate\Console\Command;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Route;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Str;
+use Onhost\Domain\Identity\Authorization\TokenScopes;
+use Onhost\Domain\Identity\Models\PersonalAccessToken;
+use Onhost\Domain\Provisioning\Workflows\ServiceActionWorkflow;
+use Onhost\Platform\Errors\DomainError;
+use Onhost\Platform\Http\Middleware\IdempotencyKey;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\Yaml\Yaml;
 
 /**
@@ -18,7 +26,7 @@ use Symfony\Component\Yaml\Yaml;
  */
 final class GenerateOpenApi extends Command
 {
-    protected $signature = 'onhost:openapi {--out=contracts/openapi/onhost-v1.yaml}';
+    protected $signature = 'onhost:openapi {--out=contracts/openapi/onhost-v1.yaml} {--check : Write nothing; exit 1 when the file differs from what the routes generate}';
 
     protected $description = 'Write the OpenAPI 3.1 contract for /v1 from the registered routes';
 
@@ -54,10 +62,11 @@ final class GenerateOpenApi extends Command
     public function handle(Router $router): int
     {
         $paths = [];
+        $operationIds = [];
         foreach ($router->getRoutes() as $route) {
             /** @var Route $route */
             $uri = $route->uri();
-            if (! str_starts_with($uri, 'v1')) {
+            if ($uri !== 'v1' && ! str_starts_with($uri, 'v1/')) {
                 continue;
             }
             $methods = array_values(array_diff($route->methods(), ['HEAD', 'OPTIONS']));
@@ -65,41 +74,75 @@ final class GenerateOpenApi extends Command
             $path = $path === '/' ? '/' : '/'.ltrim($path, '/');
             $middleware = $route->gatherMiddleware();
             $auth = in_array('auth:sanctum', $middleware, true);
-            $staff = str_starts_with($uri, 'v1/staff');
+            $resolved = $router->gatherRouteMiddleware($route);
+            $idempotent = in_array(IdempotencyKey::class, $resolved, true);
+            $tokenScoped = in_array(TokenRouteScope::class, $resolved, true);
+            $paging = $this->paging($route);
             $tag = $this->tag($uri);
             foreach ($methods as $method) {
                 $operation = [
-                    'operationId' => $this->operationId($route, $method),
+                    'operationId' => $this->operationId($path, $method),
                     'tags' => [$tag],
                     'summary' => $this->summary($route, $method),
-                    'parameters' => $this->parameters($route, $method),
+                    'parameters' => $this->parameters($route, $method, $paging),
                     'responses' => $this->responses($method, $auth),
                 ];
+                // what a token may do here is asked of TokenRouteScope itself (the one map), not copied: null = not for tokens
+                $scopes = $auth && $tokenScoped ? $this->tokenScopes($route, $method) : [];
+                $operation['security'] = []; // public unless a sign-in is required: stated, not left to a default
                 if ($auth) {
-                    $operation['security'] = [['session' => []], ['bearer' => $staff ? ['staff'] : []]];
+                    $operation['security'] = [['session' => []]];
+                    if ($scopes !== null) {
+                        $operation['security'][] = ['bearer' => []];
+                    }
                 }
+                $operation['x-token-scope'] = $scopes;
                 if (in_array($method, ['POST', 'PUT', 'PATCH'], true)) {
                     $operation['requestBody'] = ['required' => false, 'content' => ['application/json' => ['schema' => ['type' => 'object', 'additionalProperties' => true]]]];
+                }
+                if ($idempotent && in_array($method, ['POST', 'PUT', 'PATCH', 'DELETE'], true)) { // the writes IdempotencyKey covers (phase D5 added DELETE)
                     $operation['parameters'][] = ['$ref' => '#/components/parameters/IdempotencyKey'];
                 }
                 if ($auth) {
                     $operation['parameters'][] = ['$ref' => '#/components/parameters/Organization'];
                 }
-                $paths[$path][strtolower($method)] = $this->detailed($operation, self::DETAILS["{$method} {$path}"] ?? []);
+                $key = strtolower($method);
+                if (isset($paths[$path][$key])) {
+                    $this->error("Two routes answer {$method} {$path}; the contract holds one operation per method and path");
+
+                    return self::FAILURE;
+                }
+                if (isset($operationIds[$operation['operationId']])) {
+                    $this->error("operationId {$operation['operationId']} is produced by both {$operationIds[$operation['operationId']]} and {$method} {$path}");
+
+                    return self::FAILURE;
+                }
+                $operationIds[$operation['operationId']] = "{$method} {$path}";
+                $paths[$path][$key] = $this->detailed($operation, self::DETAILS["{$method} {$path}"] ?? []);
             }
         }
+        $paths = array_map(function (array $operations): array {
+            ksort($operations);
+
+            return $operations;
+        }, $paths);
         ksort($paths);
+
+        $pageSize = (int) config('onhost.api.page_size', 40);
+        $maxPage = (int) config('onhost.api.max_page_size', 200);
+        $keyMax = (int) config('onhost.api.idempotency_key_max_length', 200);
+        $ttl = (int) config('onhost.api.idempotency_ttl_hours', 24);
 
         $document = [
             'openapi' => '3.1.0',
             'info' => [
                 'title' => 'ONhost Cloud Platform API',
-                'version' => (string) config('onhost.version', '4.0'),
-                'description' => "Control-plane API of the ONhost hosting platform (blueprint §17). JSON only. Errors use `{error, message, status, errors?}`.\nLists accept `?limit=&offset=` and return `X-Total-Count`. Mutations honour `Idempotency-Key`. Money is `{minor, currency, decimal}`.\nGenerated from routes by `php artisan onhost:openapi` — do not edit by hand.",
-                'contact' => ['name' => 'ONhost API', 'url' => (string) config('onhost.portal_url')],
+                'version' => (string) config('onhost.api.version', '1.0.0'),
+                'description' => "Control-plane API of the ONhost hosting platform (blueprint §17). JSON only. Errors use `{error, message, status, errors?}`.\nLists accept `?limit=&offset=` (default {$pageSize}, at most {$maxPage}) and return `X-Total-Count`. Mutations behind the idempotency middleware honour `Idempotency-Key` (at most {$keyMax} characters, replayed for {$ttl} h). Money is `{minor, currency, decimal}`.\nGenerated from routes by `php artisan onhost:openapi` — do not edit by hand.",
+                'contact' => ['name' => 'ONhost API'],
             ],
-            'servers' => [['url' => rtrim((string) config('onhost.portal_url'), '/').'/v1']],
-            'tags' => array_map(fn (string $t) => ['name' => $t], array_values(array_unique(array_map(fn ($ops) => $ops[array_key_first($ops)]['tags'][0], $paths)))),
+            'servers' => [['url' => '/v1', 'description' => 'Relative to the host that serves this contract; the file does not depend on the environment that generated it, so a deploy can compare it with the committed one.']],
+            'tags' => array_map(fn (string $t) => ['name' => $t, 'description' => "Operations of the {$t} area."], array_values(array_unique(array_map(fn ($ops) => $ops[array_key_first($ops)]['tags'][0], $paths)))),
             'paths' => $paths,
             'components' => [
                 'securitySchemes' => [
@@ -107,9 +150,10 @@ final class GenerateOpenApi extends Command
                     'bearer' => ['type' => 'http', 'scheme' => 'bearer', 'description' => 'Personal/service API token `onh_live_…` with documented scopes (POST /tokens).'],
                 ],
                 'parameters' => [
-                    'IdempotencyKey' => ['name' => 'Idempotency-Key', 'in' => 'header', 'required' => false, 'schema' => ['type' => 'string', 'maxLength' => 120], 'description' => 'Replay-safe key; the same key returns the stored result within the TTL.'],
+                    'IdempotencyKey' => ['name' => 'Idempotency-Key', 'in' => 'header', 'required' => false, 'schema' => ['type' => 'string', 'maxLength' => $keyMax], 'description' => 'Replay-safe key; the same key returns the stored result within the TTL.'],
                     'Organization' => ['name' => 'X-Organization', 'in' => 'header', 'required' => false, 'schema' => ['type' => 'string'], 'description' => 'Organization context for users that belong to several organizations.'],
-                    'Limit' => ['name' => 'limit', 'in' => 'query', 'schema' => ['type' => 'integer', 'minimum' => 1, 'maximum' => 200, 'default' => 25]],
+                    'Limit' => ['name' => 'limit', 'in' => 'query', 'schema' => ['type' => 'integer', 'minimum' => 1, 'maximum' => $maxPage, 'default' => $pageSize]],
+                    'LimitOnly' => ['name' => 'limit', 'in' => 'query', 'schema' => ['type' => 'integer', 'minimum' => 1, 'maximum' => $maxPage], 'description' => 'Page size; this list has its own default and takes no offset.'],
                     'Offset' => ['name' => 'offset', 'in' => 'query', 'schema' => ['type' => 'integer', 'minimum' => 0, 'default' => 0]],
                 ],
                 'schemas' => [
@@ -123,11 +167,31 @@ final class GenerateOpenApi extends Command
         ];
 
         $out = base_path((string) $this->option('out'));
-        if (! is_dir(dirname($out))) {
-            mkdir(dirname($out), 0777, true);
+        $yaml = Yaml::dump($document, 12, 2, Yaml::DUMP_MULTI_LINE_LITERAL_BLOCK | Yaml::DUMP_EMPTY_ARRAY_AS_SEQUENCE);
+        $summary = sprintf('%s: %d paths, %d operations', $out, count($paths), array_sum(array_map('count', $paths)));
+
+        if ($this->option('check')) {
+            $current = is_file($out) ? file_get_contents($out) : false;
+            if ($current === $yaml) {
+                $this->info("{$summary} - up to date");
+
+                return self::SUCCESS;
+            }
+            $this->error(($current === false ? "{$out} is missing" : "{$out} differs from the routes").' - run `php artisan onhost:openapi` and commit the result');
+
+            return self::FAILURE;
         }
-        file_put_contents($out, Yaml::dump($document, 12, 2, Yaml::DUMP_MULTI_LINE_LITERAL_BLOCK | Yaml::DUMP_EMPTY_ARRAY_AS_SEQUENCE));
-        $this->info(sprintf('%s: %d paths, %d operations', $out, count($paths), array_sum(array_map('count', $paths))));
+        if (! is_dir(dirname($out)) && ! mkdir(dirname($out), 0777, true) && ! is_dir(dirname($out))) {
+            $this->error("Cannot create the directory of {$out}");
+
+            return self::FAILURE;
+        }
+        if (file_put_contents($out, $yaml) === false) {
+            $this->error("Cannot write {$out}");
+
+            return self::FAILURE;
+        }
+        $this->info($summary);
 
         return self::SUCCESS;
     }
@@ -171,18 +235,18 @@ final class GenerateOpenApi extends Command
         };
     }
 
-    private function operationId(Route $route, string $method): string
+    /** Unique by construction: the method and the path are what an operation is (`POST /domains/{domain}/holder` becomes postDomainsByDomainHolder). */
+    private function operationId(string $path, string $method): string
     {
-        $action = $route->getActionName();
-        if (str_contains($action, '@')) {
-            [$class, $fn] = explode('@', $action);
-            $short = Str::of(class_basename($class))->replace('Controller', '')->lower();
-            $prefix = str_contains($class, '\\Staff\\') ? 'staff' : '';
-
-            return Str::camel(trim($prefix.'_'.$short.'_'.$fn, '_'));
+        $words = [];
+        foreach (explode('/', trim($path, '/')) as $segment) {
+            if ($segment === '') {
+                continue;
+            }
+            $words[] = preg_match('/^\{(.+)\}$/', $segment, $m) === 1 ? 'by_'.$m[1] : $segment;
         }
 
-        return Str::camel(strtolower($method).'_'.str_replace(['/', '{', '}'], ['_', '', ''], $route->uri()));
+        return Str::camel(preg_replace('/[^A-Za-z0-9]+/', '_', strtolower($method).'_'.implode('_', $words === [] ? ['root'] : $words)));
     }
 
     private function summary(Route $route, string $method): string
@@ -192,18 +256,110 @@ final class GenerateOpenApi extends Command
         return strtoupper($method).' '.$uri;
     }
 
-    private function parameters(Route $route, string $method): array
+    /**
+     * How the list is paged, read from the controller method itself: `ApiContext::paginate` (limit + offset + X-Total-Count),
+     * its own `query('limit')` (limit only), or not at all.
+     *
+     * @return 'full'|'limit'|null
+     */
+    private function paging(Route $route): ?string
+    {
+        if (! in_array('GET', $route->methods(), true) || ! str_contains($route->getActionName(), '@')) {
+            return null;
+        }
+        [$class, $name] = explode('@', $route->getActionName());
+        try {
+            $method = new \ReflectionMethod($class, $name);
+            $file = $method->getFileName();
+            $source = $file === false ? [] : array_slice(file($file) ?: [], $method->getStartLine() - 1, $method->getEndLine() - $method->getStartLine() + 1);
+        } catch (\ReflectionException) {
+            return null;
+        }
+        $body = implode('', $source);
+
+        return match (true) {
+            str_contains($body, '->paginate($request') => 'full',
+            str_contains($body, "query('limit'") => 'limit',
+            default => null,
+        };
+    }
+
+    /** @param 'full'|'limit'|null $paging */
+    private function parameters(Route $route, string $method, ?string $paging): array
     {
         $params = [];
         foreach ($route->parameterNames() as $name) {
             $params[] = ['name' => $name, 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string']];
         }
-        if ($method === 'GET' && ! str_contains($route->uri(), '{')) {
+        if ($method === 'GET' && $paging === 'full') {
             $params[] = ['$ref' => '#/components/parameters/Limit'];
             $params[] = ['$ref' => '#/components/parameters/Offset'];
+        } elseif ($method === 'GET' && $paging === 'limit') {
+            $params[] = ['$ref' => '#/components/parameters/LimitOnly'];
         }
 
         return $params;
+    }
+
+    /**
+     * The scopes a bearer token needs on this operation, found by running TokenRouteScope itself: a token with no scope, then one
+     * token per known scope. null = the middleware refuses every token here, [] = it asks for no scope, otherwise the scopes that
+     * get a token in (a generic action endpoint is decided by the action, so every action is tried).
+     *
+     * @return list<string>|null
+     */
+    private function tokenScopes(Route $route, string $method): ?array
+    {
+        $uri = '/'.preg_replace('/\{[^}]+\}/', 'x', $route->uri());
+        $inputs = [[]];
+        if ($method === 'POST' && str_ends_with($route->uri(), '/{service}/actions')) {
+            $inputs = array_map(fn (string $action) => ['action' => $action], ServiceActionWorkflow::ACTIONS);
+            $inputs[] = ['action' => '?'];
+        }
+        $scopes = [];
+        $open = false;
+        foreach ($inputs as $input) {
+            if ($this->tokenPasses($uri, $method, $input, [])) {
+                $open = true;
+
+                continue;
+            }
+            foreach (TokenScopes::ALL as $scope) {
+                if ($this->tokenPasses($uri, $method, $input, [$scope])) {
+                    $scopes[] = $scope;
+                }
+            }
+        }
+        $scopes = array_values(array_unique($scopes));
+        sort($scopes);
+
+        return $scopes !== [] ? $scopes : ($open ? [] : null);
+    }
+
+    /** @param array<string, mixed> $input @param list<string> $abilities */
+    private function tokenPasses(string $uri, string $method, array $input, array $abilities): bool
+    {
+        $token = new PersonalAccessToken;
+        $token->organization_id = 'probe'; // bound to an organization: the unbound refusal is a deployment switch, not a route property
+        $token->abilities = $abilities;
+        $user = new class($token)
+        {
+            public function __construct(private readonly PersonalAccessToken $token) {}
+
+            public function currentAccessToken(): PersonalAccessToken
+            {
+                return $this->token;
+            }
+        };
+        $request = Request::create($uri, $method, $input);
+        $request->setUserResolver(fn () => $user);
+        try {
+            (new TokenRouteScope)->handle($request, fn () => response(''));
+
+            return true;
+        } catch (DomainError|AccessDeniedHttpException) { // the refusals TokenRouteScope throws; anything else is a bug and must show
+            return false;
+        }
     }
 
     private function responses(string $method, bool $auth): array

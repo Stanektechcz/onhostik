@@ -56,6 +56,7 @@ use App\Http\Controllers\Api\V1\WalletController;
 use App\Http\Controllers\Api\V1\WebhookController;
 use App\Http\Controllers\Api\V1\WebSessionController;
 use App\Http\Controllers\Api\V1\WebToolsController;
+use App\Http\Middleware\ThrottleFailedAuth;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -93,7 +94,7 @@ Route::middleware('throttle:public')->group(function (): void {
     Route::post('webhooks/oncall/{provider}', [OnCallController::class, 'inbound'])->withoutMiddleware('throttle:public')->middleware('throttle:probes'); // the pager acknowledged / resolved on its side (audit §5q-1)
     Route::post('hooks/deploy/{source}', [WebToolsController::class, 'hook'])->middleware('throttle:auth'); // git push notifications (HMAC-signed)
     Route::post('hooks/run/{token}', [IntegrationController::class, 'runHook'])->middleware('throttle:auth'); // action hooks (token in the URL)
-    Route::post('integrations/discord/interactions', [IntegrationController::class, 'discordInteractions'])->withoutMiddleware('throttle:public'); // Discord slash commands and buttons (Ed25519-signed)
+    Route::post('integrations/discord/interactions', [IntegrationController::class, 'discordInteractions'])->withoutMiddleware('throttle:public')->middleware('throttle:callbacks'); // Discord slash commands and buttons (Ed25519-signed)
 
     // status page (`/stav`), DSA abuse notice form, external probe ingest
     Route::get('status', [StatusController::class, 'status']);
@@ -126,7 +127,7 @@ Route::middleware('throttle:public')->group(function (): void {
 });
 
 // ── signed in (cookie session or bearer token) ───────────────────────────────
-Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency'])->group(function (): void { // token.scope: a bearer token reaches only the route families its scopes name
+Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'throttle:api', 'idempotency'])->group(function (): void { // token.scope: a bearer token reaches only the route families its scopes name
     Route::get('me', [AuthController::class, 'me']);
     Route::get('my/incidents', [StatusController::class, 'mine']);
     Route::get('sla-credits', [StatusController::class, 'credits']);

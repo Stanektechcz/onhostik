@@ -821,3 +821,18 @@ Tests: `tests/Feature/Organizations/GrantMatrixTest.php`, `tests/Feature/Organiz
 * Slice 1 (§36–§37): migrations `000900` and `000910` add three tables and one nullable column, nothing existing changes;
   `NotificationTemplateSeeder` brings the four new templates; `operator:grants:cascade --dry-run` is read before anybody
   considers `ONHOST_GRANT_CASCADE_ENABLED` (`docs/runbooks/go-live-checklist.md` §8).
+
+## API limiters behind a proxy (TASK-0076, D7)
+
+Every API limiter that matters for abuse (`probes`, `callbacks`, `public`, `auth`, the failed-authentication throttle) is keyed by the
+client **address**. Operator note:
+
+* Behind a reverse proxy, load balancer or CDN set `TRUSTED_PROXIES` in `.env` to the **exact** proxy addresses (comma-separated).
+  Without it Laravel sees the proxy's address for every request, so **every client shares one bucket** — one noisy caller (or a
+  burst of bearer guesses) then answers 429 for everybody.
+* Never `TRUSTED_PROXIES=*` while the origin can be reached directly: any caller could send a forged `X-Forwarded-For` and pick
+  a fresh bucket per request, which defeats all of the limiters above.
+* The failed-authentication throttle (`onhost.api.failed_auth_per_minute`, 60) counts only 401 answers to requests that presented a
+  bearer token; a logged-out browser polling without credentials is never counted.
+* `onhost.api.deprecations` (`path` pattern, `deprecated_at`, `sunset_at`, `link`) adds `Deprecation`/`Sunset`/`Link` headers; an invalid
+  date is skipped with a `api.deprecation_rule_invalid` warning in the log.
