@@ -100,7 +100,7 @@ final class GenerateOpenApi extends Command
                 if (in_array($method, ['POST', 'PUT', 'PATCH'], true)) {
                     $operation['requestBody'] = ['required' => false, 'content' => ['application/json' => ['schema' => ['type' => 'object', 'additionalProperties' => true]]]];
                 }
-                if ($idempotent && in_array($method, ['POST', 'PUT', 'PATCH'], true)) {
+                if ($idempotent && in_array($method, ['POST', 'PUT', 'PATCH', 'DELETE'], true)) { // the writes IdempotencyKey covers (phase D5 added DELETE)
                     $operation['parameters'][] = ['$ref' => '#/components/parameters/IdempotencyKey'];
                 }
                 if ($auth) {
