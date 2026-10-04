@@ -13,9 +13,10 @@ use Illuminate\Support\Str;
 use Onhost\Domain\Identity\Authorization\TokenScopes;
 use Onhost\Domain\Identity\Models\PersonalAccessToken;
 use Onhost\Domain\Provisioning\Workflows\ServiceActionWorkflow;
+use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Http\Middleware\IdempotencyKey;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\Yaml\Yaml;
-use Throwable;
 
 /**
  * Generates `contracts/openapi/onhost-v1.yaml` from the registered routes so the contract never drifts from
@@ -61,10 +62,11 @@ final class GenerateOpenApi extends Command
     public function handle(Router $router): int
     {
         $paths = [];
+        $operationIds = [];
         foreach ($router->getRoutes() as $route) {
             /** @var Route $route */
             $uri = $route->uri();
-            if (! str_starts_with($uri, 'v1')) {
+            if ($uri !== 'v1' && ! str_starts_with($uri, 'v1/')) {
                 continue;
             }
             $methods = array_values(array_diff($route->methods(), ['HEAD', 'OPTIONS']));
@@ -104,9 +106,26 @@ final class GenerateOpenApi extends Command
                 if ($auth) {
                     $operation['parameters'][] = ['$ref' => '#/components/parameters/Organization'];
                 }
-                $paths[$path][strtolower($method)] = $this->detailed($operation, self::DETAILS["{$method} {$path}"] ?? []);
+                $key = strtolower($method);
+                if (isset($paths[$path][$key])) {
+                    $this->error("Two routes answer {$method} {$path}; the contract holds one operation per method and path");
+
+                    return self::FAILURE;
+                }
+                if (isset($operationIds[$operation['operationId']])) {
+                    $this->error("operationId {$operation['operationId']} is produced by both {$operationIds[$operation['operationId']]} and {$method} {$path}");
+
+                    return self::FAILURE;
+                }
+                $operationIds[$operation['operationId']] = "{$method} {$path}";
+                $paths[$path][$key] = $this->detailed($operation, self::DETAILS["{$method} {$path}"] ?? []);
             }
         }
+        $paths = array_map(function (array $operations): array {
+            ksort($operations);
+
+            return $operations;
+        }, $paths);
         ksort($paths);
 
         $pageSize = (int) config('onhost.api.page_size', 40);
@@ -253,7 +272,7 @@ final class GenerateOpenApi extends Command
             $method = new \ReflectionMethod($class, $name);
             $file = $method->getFileName();
             $source = $file === false ? [] : array_slice(file($file) ?: [], $method->getStartLine() - 1, $method->getEndLine() - $method->getStartLine() + 1);
-        } catch (Throwable) {
+        } catch (\ReflectionException) {
             return null;
         }
         $body = implode('', $source);
@@ -338,7 +357,7 @@ final class GenerateOpenApi extends Command
             (new TokenRouteScope)->handle($request, fn () => response(''));
 
             return true;
-        } catch (Throwable) {
+        } catch (DomainError|AccessDeniedHttpException) { // the refusals TokenRouteScope throws; anything else is a bug and must show
             return false;
         }
     }

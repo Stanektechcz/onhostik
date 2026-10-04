@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Route;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Route as RouteFacade;
 use Onhost\Platform\Http\Middleware\IdempotencyKey;
 use Symfony\Component\Yaml\Yaml;
 
@@ -34,7 +35,7 @@ function openApiRouteSet(): array
 {
     $set = [];
     foreach (app(Router::class)->getRoutes() as $route) {
-        if (! str_starts_with($route->uri(), 'v1')) {
+        if ($route->uri() !== 'v1' && ! str_starts_with($route->uri(), 'v1/')) {
             continue;
         }
         $path = '/'.ltrim(preg_replace('/\{([a-zA-Z_]+)\??\}/', '{$1}', substr($route->uri(), 3)) ?? '', '/');
@@ -177,4 +178,23 @@ it('checks the committed contract and fails on drift', function () {
 
 it('is the committed contract', function () {
     expect(Artisan::call('onhost:openapi', ['--check' => true]))->toBe(0);
+});
+
+it('fails instead of writing when two routes would share an operationId', function () {
+    RouteFacade::get('v1/zz-twin', fn () => 'a');
+    RouteFacade::get('v1/zz_twin', fn () => 'b');
+    $relative = 'storage/framework/testing/openapi-dup-'.uniqid().'.yaml';
+
+    expect(Artisan::call('onhost:openapi', ['--out' => $relative]))->toBe(1)
+        ->and(file_exists(base_path($relative)))->toBeFalse()
+        ->and(Artisan::output())->toContain('operationId getZzTwin');
+});
+
+it('lists the methods of a path in a fixed order', function () {
+    foreach (openApiFreshDocument()['paths'] as $item) {
+        $methods = array_keys($item);
+        $sorted = $methods;
+        sort($sorted);
+        expect($methods)->toBe($sorted);
+    }
 });
