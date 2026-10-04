@@ -87,7 +87,7 @@ final class OrganizationsCommandHandler implements CommandHandler
 
                 return app(AccessSnapshots::class)->restore($organization, $snapshot, $context);
             })(),
-            'cancel_owner_recovery' => ['recovery' => OwnerRecoveries::present(app(OwnerRecoveries::class)->cancel($organization, $context))],
+            'cancel_owner_recovery' => ['recovery' => OwnerRecoveries::present(app(OwnerRecoveries::class)->cancel($organization, $context, (string) $command->get('reason', '')))],
             default => throw new DomainError('organization_op_unknown', "Unknown organization operation {$command->op()}.", 422),
         };
     }

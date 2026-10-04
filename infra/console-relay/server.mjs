@@ -4,6 +4,9 @@
 //   pve_vnc  → wss://<pve>/api2/json/nodes/{node}/qemu/{vmid}/vncwebsocket?port=…&vncticket=…  (noVNC binary)
 //   wings_ws → wss://<wings>/api/servers/{uuid}/ws  (Pterodactyl console: {event:"auth", args:[token]} first)
 // No state, no logging of tickets; one upstream per client socket; closes when either side closes.
+// TASK-0044 (D20, S1-08): every `alive_every` seconds (from the descriptor, default 15) the relay asks
+// GET {ONHOST_API}/console/ws/<token>/alive whether the console may stay open; 410/401/403/404 closes it at once
+// (4001 'access ended'), and three failed checks in a row close it too — a console nobody can vouch for does not stay open.
 import http from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 
@@ -19,6 +22,13 @@ const server = http.createServer((req, res) => {
   res.writeHead(404); res.end();
 });
 const wss = new WebSocketServer({ server, path: undefined, maxPayload: 4 * 1024 * 1024 });
+
+async function stillAlive(token) {
+  const r = await fetch(`${API}/console/ws/${encodeURIComponent(token)}/alive`, { headers: { 'X-Relay-Key': KEY, Accept: 'application/json' } });
+  if (r.ok) return true;
+  if ([401, 403, 404, 410].includes(r.status)) return false;
+  throw new Error(`alive ${r.status}`);
+}
 
 async function resolve(token) {
   const r = await fetch(`${API}/console/ws/${encodeURIComponent(token)}`, { headers: { 'X-Relay-Key': KEY, Accept: 'application/json' } });
@@ -54,6 +64,21 @@ wss.on('connection', async (client, req) => {
   client.on('error', () => closeBoth(1011, 'client error'));
   // provider sessions are short-lived; hard cap a relay session at 2 hours
   setTimeout(() => closeBoth(1000, 'session cap'), 2 * 60 * 60 * 1000).unref();
+  // TASK-0044 (S1-08): the person it is for may lose the console while it is open — ask again every few seconds
+  const every = Math.max(5, parseInt(d.alive_every || '15', 10)) * 1000;
+  let failures = 0;
+  const alive = setInterval(async () => {
+    try {
+      if (await stillAlive(m[1])) { failures = 0; return; }
+      console.log(JSON.stringify({ at: new Date().toISOString(), msg: 'relay.access_ended', service: d.service_id }));
+      closeBoth(4001, 'access ended');
+    } catch (e) {
+      failures += 1;
+      if (failures >= 3) closeBoth(4002, 'access unverifiable');
+    }
+  }, every);
+  alive.unref();
+  client.on('close', () => clearInterval(alive));
 });
 
 server.listen(PORT, () => console.log(JSON.stringify({ at: new Date().toISOString(), msg: 'relay.listening', port: PORT, api: API })));

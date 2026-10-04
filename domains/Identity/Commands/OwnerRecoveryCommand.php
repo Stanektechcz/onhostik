@@ -12,12 +12,14 @@ use Onhost\Platform\Commands\GlobalCommand;
  * A lost customer owner recovered by support (permission program D21, TASK-0042), dispatched by `op`:
  *  open{organization_id, mode: mfa_reset|transfer, new_owner_user_id?, reason, ticket_ref} — CRITICAL: a second person approves
  *    it (the sole approver waits the time lock), and it still runs only after OwnerRecoveries::delayDays() of notice;
- *  complete{organization_id} — after the notice period (HIGH); cancel{organization_id} — support withdraws it (HIGH).
+ *  complete{organization_id} — after the notice period (HIGH); cancel{organization_id, reason} — support withdraws it (HIGH);
+ *  continue{organization_id, evidence} — TASK-0044: a recovery the person being recovered objected to goes on only after staff
+ *    reviewed it — CRITICAL, a second person, neither of them a party (OwnerRecoveries::continue).
  * The organization's own admins cancel it with the OrganizationCommand op `cancel_owner_recovery`.
  */
 final class OwnerRecoveryCommand extends GlobalCommand implements RiskAwareCommand
 {
-    public const OPS = ['open', 'complete', 'cancel'];
+    public const OPS = ['open', 'complete', 'cancel', 'continue'];
 
     public function op(): string
     {
@@ -36,7 +38,7 @@ final class OwnerRecoveryCommand extends GlobalCommand implements RiskAwareComma
 
     public function riskLevel(): string
     {
-        return $this->op() === 'open' ? PermissionCatalog::CRITICAL : PermissionCatalog::HIGH;
+        return in_array($this->op(), ['open', 'continue'], true) ? PermissionCatalog::CRITICAL : PermissionCatalog::HIGH;
     }
 
     public function requiresStepUp(): bool
@@ -46,6 +48,6 @@ final class OwnerRecoveryCommand extends GlobalCommand implements RiskAwareComma
 
     public function requiresApproval(): bool
     {
-        return $this->op() === 'open';
+        return in_array($this->op(), ['open', 'continue'], true);
     }
 }

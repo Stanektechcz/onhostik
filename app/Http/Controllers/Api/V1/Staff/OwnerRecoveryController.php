@@ -15,7 +15,8 @@ use Onhost\Platform\Errors\DomainError;
 /**
  * Support recovering a customer owner who lost access, and resetting anybody else's second factor (TASK-0042, permission program
  * D21). Everything is decided by the bus: `iam.mfa.reset` in staff mode, the owner recovery CRITICAL (a second person) with its
- * own notice period, the MFA reset HIGH (CRITICAL for a staff account or an organization admin, review round 1) and refused for a customer owner.
+ * own notice period, the MFA reset HIGH (CRITICAL for a staff account or anybody holding a HIGH customer key or a console, review
+ * round 1 and TASK-0044) and refused for a customer owner. TASK-0044: a cancel says why; a contested recovery is continued.
  * The controller only validates and dispatches.
  */
 final class OwnerRecoveryController extends ApiController
@@ -43,8 +44,21 @@ final class OwnerRecoveryController extends ApiController
     public function cancel(Request $request, string $organization): JsonResponse
     {
         $org = $this->organization($organization);
+        $data = $request->validate(['reason' => ['required', 'string', 'min:10', 'max:1000']]); // TASK-0044: support says why too
 
-        return $this->dispatch(new OwnerRecoveryCommand($this->onceKey($request, 'owner-recovery.cancel:'.$org->id), ['op' => 'cancel', 'organization_id' => $org->id]), $this->api->context($request));
+        return $this->dispatch(new OwnerRecoveryCommand($this->onceKey($request, 'owner-recovery.cancel:'.$org->id), ['op' => 'cancel', 'organization_id' => $org->id, 'reason' => $data['reason']]), $this->api->context($request));
+    }
+
+    /**
+     * TASK-0044: a recovery the person being recovered objected to goes on only with what staff checked written down — CRITICAL,
+     * a second person who is no party of it (OwnerRecoveries::continue).
+     */
+    public function continue(Request $request, string $organization): JsonResponse
+    {
+        $org = $this->organization($organization);
+        $data = $request->validate(['evidence' => ['required', 'string', 'min:10', 'max:2000']]);
+
+        return $this->dispatch(new OwnerRecoveryCommand($this->idempotencyKey($request, 'owner-recovery.continue:'.$org->id), ['op' => 'continue', 'organization_id' => $org->id, 'evidence' => $data['evidence']]), $this->api->context($request));
     }
 
     public function mfaReset(Request $request, string $user): JsonResponse

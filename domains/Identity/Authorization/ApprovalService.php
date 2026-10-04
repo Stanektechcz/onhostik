@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Identity\Authorization\Models\Approval;
 use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
 use Onhost\Domain\Identity\Models\User;
+use Onhost\Domain\Organizations\OwnerRecoveries;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Audit\HashChain;
 use Onhost\Platform\Commands\Command;
@@ -223,6 +224,11 @@ final class ApprovalService
         $permission = (string) data_get($approval->payload, 'permission', '');
         if ($decision === 'approved' && $permission !== '' && ! $this->authorizer->can($decider, $permission, self::scopeOf($approval))) {
             throw new DomainError('approver_lacks_permission', "Approving this takes {$permission}, which you do not hold.", 403, ['permission' => $permission]);
+        }
+        // TASK-0044 (D21, re-review of `df1f6d3`): the second person of an owner recovery is no party of it either — the heir, the
+        // owner, or a member of an organization it reaches who is also staff approved an account into their own hands
+        if ($decision === 'approved' && in_array($approval->action, ['identity.owner_recovery.open', 'identity.owner_recovery.continue'], true)) {
+            OwnerRecoveries::assertApproverNotParty($approval, $decider);
         }
         if (in_array($decision, ['rejected', 'cancelled'], true) && trim((string) $note) === '') {
             throw new DomainError('note_required', 'Say why the request is rejected.', 422, ['field' => 'note']);

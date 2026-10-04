@@ -11,7 +11,7 @@ use Onhost\Platform\Commands\OrganizationCommand as BaseOrganizationCommand;
  *  update{…attributes} · invite{email,role} · cancel_invitation{invitation_id} · change_role{user_id,role} · remove_member{user_id} · create_project{name,…} · transfer_ownership{user_id}
  *  update_project{project_id,…} · archive_project/restore_project{project_id} · add_project_member{project_id,user_id,role} · remove_project_member{project_id,user_id}
  *  assign_service_project{service_id,project_id|null} · rotate_calendar_feed{}
- *  restore_access{snapshot_id} · cancel_owner_recovery{} (TASK-0042, S1-02: an access snapshot given back; an org_admin stops a recovery)
+ *  restore_access{snapshot_id} · cancel_owner_recovery{reason?} (TASK-0042, S1-02: an access snapshot given back; an org_admin stops a recovery)
  * `transfer_ownership` OFFERS the ownership since TASK-0042 (I4, TD-9): the heir accepts with OwnershipCommand.
  */
 final class OrganizationCommand extends BaseOrganizationCommand

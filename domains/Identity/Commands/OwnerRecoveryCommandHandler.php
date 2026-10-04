@@ -27,7 +27,8 @@ final class OwnerRecoveryCommandHandler implements CommandHandler
         return ['recovery' => OwnerRecoveries::present(match ($command->op()) {
             'open' => $this->recoveries->open($organization, (string) $command->get('mode'), is_string($newOwner) && $newOwner !== '' ? $newOwner : null, (string) $command->get('reason', ''), (string) $command->get('ticket_ref', ''), $context),
             'complete' => $this->recoveries->complete($organization, $context),
-            'cancel' => $this->recoveries->cancel($organization, $context),
+            'cancel' => $this->recoveries->cancel($organization, $context, (string) $command->get('reason', '')),
+            'continue' => $this->recoveries->continue($organization, (string) $command->get('evidence', ''), $context),
             default => throw new DomainError('owner_recovery_op_unknown', "Unknown owner recovery operation {$command->op()}.", 422),
         }, staff: true)];
     }

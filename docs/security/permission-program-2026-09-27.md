@@ -26,10 +26,10 @@
 > | S1-02 | TASK-0042 (`7752f41`, `df1f6d3`, S1-07 fixes `2856e3c`) | **Closed in code** (`AccessRestoreTest`, `GrantMatrixTest`): acceptance through the bus with the inviter re-checked (TD-7), remove + restore returns identical access, two-step ownership (TD-9), owner recovery D21 (CRITICAL, 7 days, every reached organization told and held, cancellable), `iam.mfa.reset` of a customer owner refused. **Open:** TD-6 revocation behind `ONHOST_GRANT_CASCADE_ENABLED` (default off; `operator:grants:cascade --dry-run` lists the backlog); the MEDIUMs of S1-07 and the approver-party MEDIUM of the re-review (below). |
 > | S1-03 | — | **Not started** (family × level matrix, `svc_operate`, `svc_data_delete`; PA-05/G3 stay open). |
 > | S1-04 | — | **Not started.** The new endpoints have no portal UI (surfaces unchanged; the `apps/surfaces/api/*` wiring is S1-04). |
-> | S1-05 | — | **Not started** (automation grants, IP allow-list for tokens that never expire, CRITICAL via token refused). |
-> | S1-06 | — | **Not started** (provenance ledger, revocation epoch, credentials-exposed flag). A restore today gives back shares a later security revocation took, and SSH keys / sub-users are not restored. |
+> | S1-05 | TASK-0044 | **Partly closed in code.** Every new token ends (owner decision R9: `onhost.tokens.default_days` 365, cap `onhost.tokens.max_days`; `TokenLifetimeTest`), so no token that never expires can be made and the IP allow-list for such tokens has nothing to guard; older endless tokens are listed by `operator:tokens:unbound --past-cap` (no forced retrofit). A token ends no later than the bindings behind its scopes. HIGH and CRITICAL through a token stay refused always (a token session never holds a step-up — `TokenLifetimeTest`). **Open:** automation grants (a HIGH action through a token with a matching grant) are not built — they would loosen today's blanket refusal and need an owner decision. |
+> | S1-06 | — | **Not started** (provenance ledger, revocation epoch, credentials-exposed flag; needs the panel adapters and its own task). A restore today gives back shares a later security revocation took, and SSH keys / sub-users are not restored. |
 > | S1-07 | red team on `903ad07` | **Open.** Lenses delegation-and-tenancy, tokens-and-automation, recoverability-and-sessions: all CHANGES_REQUESTED. Four HIGH fixed with failing-first tests (5/5 red against `903ad07`): a restore publishes what it takes (`via: access_restore`), a removal ends the person's organization tokens, a restore must cover the remover's role (`taken_by_role`, `snapshot_above_own`), a recovery transfer takes the previous owner out. BLOCKER S7-2: nothing of S1-05/S1-06 to review — the lens runs again after them. |
-> | S1-08 | — | **Not started.** An MFA reset and a removal leave the person's live web sessions (and, for an MFA reset, tokens and step-up grants) in place. |
+> | S1-08 | TASK-0044 | **Closed in code for consoles and web sessions** (`SessionsEndWithAccessTest`): a console ticket is resolved only while its person may still open it, and the relay asks `GET /console/ws/{token}/alive` every `ONHOST_CONSOLE_ALIVE_SECONDS` (15) — a removed member's open console closes within that window; an MFA reset and an owner taken out by a recovery end every web session, the remember token, step-up grants and consoles (`SessionKill`), an MFA reset also every personal token. **Open:** panel sign-on sessions and established SSH sessions cannot be ended by the platform — residual window per panel in `docs/runbooks/console-relay.md`. |
 > | S1-09 | — | **Not started.** |
 > | S1-10 | — | **Scope note by the delegated default O7** (sharing per service/project, domains organization-wide; ADR-0009 owner table). No resource-level domain grant was added. Not confirmed by the owner in person. |
 >
@@ -37,6 +37,10 @@
 > organization the owner owns or manages; a staff party neither opens nor completes a recovery; a staff or member-manager MFA
 > reset takes a second person; a restore covers what it takes (I3); one pending recovery/offer per organization; a snapshot is
 > restored once; cascade dedup by query. S1-07 (`2856e3c`, S7-1, S7-3/S7-6, S7-4, S7-5): above.
+>
+> **TASK-0044 (2026-10-04)** closed in code the MEDIUMs on the owner recovery (approver party, transfer acceptance, the recovered
+> owner's cancel, the ticket), the `iam.mfa.reset` second person and session end, and the self-leave / disabled-account restore —
+> details and tests in `docs/runbooks/breach-register.md` → "Still open after Slice 1". The list below is the state before it.
 >
 > **Findings still open after Slice 1** (MEDIUM in the breach register's "Still open after Slice 1"; LOW in
 > `.ai/PROJECT_STATE.md` → Known issues; each needs its own task):

@@ -158,8 +158,10 @@ final class OrganizationController extends ApiController
     public function cancelOwnerRecovery(Request $request, string $organization): JsonResponse
     {
         $org = $this->resolve($request, $organization, 'organization.members.manage');
+        // TASK-0044: anybody but the person recovered says why (OwnerRecoveries::cancel decides who must)
+        $data = $request->validate(['reason' => ['nullable', 'string', 'max:1000']]);
 
-        return $this->dispatch(new OrganizationCommand($org->id, $this->onceKey($request, 'org.owner_recovery.cancel'), ['op' => 'cancel_owner_recovery']), $this->api->context($request, $org));
+        return $this->dispatch(new OrganizationCommand($org->id, $this->onceKey($request, 'org.owner_recovery.cancel'), ['op' => 'cancel_owner_recovery', 'reason' => (string) ($data['reason'] ?? '')]), $this->api->context($request, $org));
     }
 
     private function ownership(Request $request, string $organization, string $op, string $permission): JsonResponse

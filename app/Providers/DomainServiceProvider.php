@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use Illuminate\Auth\Events\Authenticated;
+use Illuminate\Auth\Events\Login;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Onhost\Domain\Billing\Commands\ChargebackCommand;
@@ -35,6 +37,7 @@ use Onhost\Domain\Identity\Commands\ApiTokenCommand;
 use Onhost\Domain\Identity\Commands\ApprovalDecisionCommand;
 use Onhost\Domain\Identity\Commands\ApprovalDecisionCommandHandler;
 use Onhost\Domain\Identity\Commands\IdentityCommandHandler;
+use Onhost\Domain\Identity\WebSessionGate;
 use Onhost\Domain\Incidents\Commands\IncidentCommand;
 use Onhost\Domain\Incidents\Commands\IncidentsCommandHandler;
 use Onhost\Domain\Incidents\Commands\OnCallCommand;
@@ -184,6 +187,9 @@ final class DomainServiceProvider extends ServiceProvider
         Event::listen('onhost.wallet.topup.completed', SettleBillingAfterPayment::class);
         Event::listen(OutboxEventDispatched::class, NotificationRouter::class);
         Event::listen(OutboxEventDispatched::class, WebhookDispatcher::class);
+        // TASK-0044 (D20, S1-08): a web session signed in before SessionKill ended the person's sessions is logged out (any store)
+        Event::listen(Login::class, [WebSessionGate::class, 'signedIn']);
+        Event::listen(Authenticated::class, [WebSessionGate::class, 'authenticated']);
         Event::listen(OutboxEventDispatched::class, OnCallService::class); // operational events page the on-call (audit §5q-1)
         Event::listen(OutboxEventDispatched::class, ChargebackSettlement::class); // credit back once the service is gone
         Event::listen('onhost.service.deletion.cancelled', RestartBillingAfterRestore::class); // TASK-0025: an undone cancellation is billed again (rule services.reinstate)

@@ -248,13 +248,18 @@ final class NotificationRouter
             'organization.ownership.accepted' => $this->ownershipAccepted($m, $p, $org, $portal),
             'organization.ownership.declined' => $this->customer($m, 'account', 'Nabídka vlastnictví odmítnuta', 'Člen, kterému bylo nabídnuto vlastnictví organizace, ji odmítl. Vlastník se nemění.', '/panel/tym'),
             'organization.ownership.cancelled' => $this->customer($m, 'account', 'Nabídka vlastnictví zrušena', 'Nabídka převodu vlastnictví organizace byla stažena; nic se nezměnilo.', '/panel/tym'),
-            'organization.access.restored' => $this->customer($m, 'account', 'Přístup obnoven: '.(string) ($p['name'] ?? $p['email'] ?? ''), 'Přístup této osoby byl obnoven ze zálohy oprávnění do stavu před odebráním nebo změnou role. SSH klíče a účty spolupracovníka na panelech si osoba přidá znovu.', '/panel/tym'),
+            'organization.access.restored' => $this->accessRestored($m, $p, $org, $portal),
             'organization.grants.unbacked' => $this->customer($m, 'account', 'Přístupy od člena, který už je nemůže udělit', ((bool) ($p['revoked'] ?? false) ? 'Odebrali jsme ' : 'Evidujeme ').(int) ($p['count'] ?? 0).' přístupů, které udělil člen, jenž je už udělit nemůže (odešel nebo má nižší roli). '.((bool) ($p['revoked'] ?? false) ? 'Každý lze v Týmu obnovit ze zálohy oprávnění.' : 'Zatím zůstávají platné; zkontrolujte je v Týmu.'), '/panel/tym', 'warn'),
             'organization.owner_recovery.opened' => $this->ownerRecoveryOpened($m, $p, $org, $portal),
             'organization.member.mfa_reset' => $this->memberMfaReset($m, $p, $org, $portal),
             'organization.owner_recovery.cancelled' => $this->both($m, 'security', 'Obnova vlastníka zrušena', ($org->name ?? '').' · '.(string) ($p['recovery_id'] ?? ''), 'Obnova přístupu vlastníka zrušena', 'Obnova přístupu vlastníka organizace byla zrušena; nic se nezměnilo.', '/sprava/zakaznici', '/panel/tym'),
             'organization.owner_recovery.completed' => $this->both($m, 'security', 'Obnova vlastníka dokončena', ($org->name ?? '').' · '.(string) ($p['mode'] ?? ''), 'Obnova přístupu vlastníka dokončena', (($p['mode'] ?? '') === 'transfer' ? 'Vlastnictví organizace přešlo na určeného člena.' : 'Dvoufázové ověření vlastníka bylo zrušeno; při příštím přihlášení si ho nastaví znovu.'), '/sprava/zakaznici', '/panel/tym', 'warn'),
             // ── end TASK-0042 ──
+            // ── TASK-0044 (D21, S1-07 red team): a contested transfer, its review, and an organization that keeps stopping recoveries ──
+            'organization.owner_recovery.contested' => $this->both($m, 'security', 'Obnova vlastníka rozporována: '.($org->name ?? ''), 'Vlastník se ohradil proti převodu · '.(string) ($p['recovery_id'] ?? '').' · posuďte a pokračujte jen s druhou osobou', 'Vlastník se ohradil proti obnově přístupu', 'Převod vlastnictví čeká na posouzení podporou; do té doby se nic nemění.', '/sprava/zakaznici', '/panel/tym', 'hot'),
+            'organization.owner_recovery.continued' => $this->both($m, 'security', 'Obnova vlastníka pokračuje po posouzení: '.($org->name ?? ''), (string) ($p['recovery_id'] ?? ''), 'Obnova přístupu vlastníka pokračuje', 'Podpora námitku posoudila spolu s druhou osobou; obnova pokračuje od '.substr((string) ($p['not_before'] ?? ''), 0, 10).'.', '/sprava/zakaznici', '/panel/tym', 'warn'),
+            'organization.owner_recovery.cancels_repeated' => $this->internal($m, 'security', 'Obnovy vlastníka opakovaně zastaveny: '.($org->name ?? ''), (int) ($p['count'] ?? 0).' zastavení za '.(int) ($p['window_days'] ?? 0).' dní · kdo je zastavuje, může držet účet vlastníka', '/sprava/zakaznici', 'hot'),
+            // ── end TASK-0044 ──
             'ticket.created' => $this->both($m, 'ticket', "Nový tiket {$p['number']}", ($p['name'] ?? $p['email'] ?? '').' · '.($p['subject'] ?? ''), "Přijali jsme váš požadavek {$p['number']}", (string) ($p['subject'] ?? ''), '/sprava/fronta', '/panel/tikety', ($p['priority'] ?? 'p3') === 'p1' ? 'hot' : 'info', (string) ($p['email'] ?? $email), 'ticket-ack', ['cislo' => $p['number'], 'predmet' => $p['subject'] ?? '', 'sla' => $p['first_response_minutes'] ?? '', 'url' => "{$portal}/panel/tikety"]),
             'ticket.replied' => (($p['author_type'] ?? '') === 'staff' || ($p['author_type'] ?? '') === 'ai')
                 ? $this->customer($m, 'ticket', "Odpověď podpory · {$p['number']}", (string) ($p['subject'] ?? ''), '/panel/tikety', 'info', (string) ($p['email'] ?? $email), 'ticket-reply', ['cislo' => $p['number'], 'predmet' => $p['subject'] ?? '', 'uryvek' => mb_substr((string) ($p['excerpt'] ?? ''), 0, 300), 'url' => "{$portal}/panel/tikety"])
@@ -673,6 +678,23 @@ final class NotificationRouter
     }
 
     // ── end TASK-0042 ──
+
+    /**
+     * TASK-0044 (S1-07 red team): access given back from a snapshot — the organization keeps the line, and the PERSON restored is
+     * told in person (in-app and the mandatory mail `access-restored`): access came back without them asking, and they are the one
+     * who knows whether they want it. @param array<string,mixed> $p
+     */
+    private function accessRestored(OutboxMessage $m, array $p, ?Organization $org, string $portal): void
+    {
+        $this->customer($m, 'account', 'Přístup obnoven: '.(string) ($p['name'] ?? $p['email'] ?? ''), 'Přístup této osoby byl obnoven ze zálohy oprávnění do stavu před odebráním nebo změnou role. SSH klíče a účty spolupracovníka na panelech si osoba přidá znovu.', '/panel/tym');
+        $person = User::query()->find((string) ($p['user_id'] ?? ''));
+        if ($person === null) {
+            return;
+        }
+        $this->notifications->notify('customer', 'account', 'Váš přístup do organizace '.($org->name ?? '').' byl obnoven', 'Pokud ho nechcete, organizaci opusťte v Týmu.', '/panel/tym', $m->organization_id, $person->id, $m->aggregate_type, $m->aggregate_id, $m->name, 'warn', $person->locale ?? 'cs');
+        $this->notifications->queueMail('access-restored', $person->email, ['organizace' => (string) ($org->name ?? ''), 'url' => "{$portal}/panel/tym"], $m->aggregate_type, $m->aggregate_id, $m->organization_id, $person->locale ?? 'cs', $person->id);
+    }
+
     // ── TASK-0021 (owner decision 20) ──
     /** Every owner and billing admin of the organization, each in person: in-app and by mail. @param array<string,string> $vars */
     private function creditApprovers(OutboxMessage $m, string $title, string $body, array $vars): void

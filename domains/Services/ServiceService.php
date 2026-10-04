@@ -1463,7 +1463,7 @@ final class ServiceService
             return;
         }
         $ttl = max(1, (int) config('onhost.provisioning.console_token_ttl_seconds', 120));
-        Cache::put($key, $descriptor + ['organization_id' => $service->organization_id, 'issued_to' => $context->actorType === 'user' ? ($context->onBehalfOfUserId ?? $context->actorId) : null], $ttl);
+        Cache::put($key, $descriptor + ['organization_id' => $service->organization_id, 'issued_to' => $context->actorType === 'user' ? ($context->onBehalfOfUserId ?? $context->actorId) : null, 'issued_at' => now()->toIso8601String()], $ttl); // issued_at: TASK-0044, a kill since refuses it (ConsoleSessions)
     }
 
     public function usage(Service $service): Usage

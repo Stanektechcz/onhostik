@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Organizations;
 
+use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\Project;
@@ -96,6 +97,14 @@ final class GrantCascade
     private function revoke(Organization $organization, array $dependent, string $grantorId, string $reason, CommandContext $context): bool
     {
         try {
+            if ($dependent['kind'] === 'service_account_role') {
+                // TASK-0044: a service account has no membership and no access snapshot — its binding goes, and the audit row below
+                // keeps the role and the scope it had, which is what re-creates it
+                PolicyBinding::query()->whereKey($dependent['ref'])->where('principal_type', 'service_account')->where('organization_id', $organization->id)->delete();
+                $this->audit->record($context->withScope($organization->id), 'organization.grant.cascade.revoke', 'succeeded', $dependent + ['grantor_id' => $grantorId, 'reason' => $reason], 'organization', $organization->id);
+
+                return true;
+            }
             $user = User::query()->find($dependent['user_id']);
             if ($user === null) {
                 return false;
