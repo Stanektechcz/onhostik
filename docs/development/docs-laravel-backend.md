@@ -161,12 +161,19 @@ Seznamy: `?limit=40&offset=` + hlavička `X-Total-Count` (UI kreslí okno 40 ř�
 | Leady | `POST /v1/leads`, `POST /v1/reseller/apply`, `POST /v1/tender/request` |
 
 Veřejné API pro zákazníky (dokumentované na `Onhost.dc.html#/api`) je podmnožina se scope tokeny:
-`services:read`, `services:power`, `services:console`, `invoices:read`, `tickets:write`, `dns:write`, `domains:read`,
-`wallet:read`. Který scope pokrývá které oprávnění, říká jediná explicitní mapa `domains/Identity/Authorization/TokenScopes.php`;
+`services:read`, `services:power`, `services:console`, `invoices:read`, `tickets:write`, `dns:read`, `dns:write`, `domains:read`,
+`wallet:read`. `dns:write` zahrnuje `dns:read` (`TokenScopes::IMPLIED_BY`); aliasy `/v1/domains/{zone}/zone[/changes|/commit]` chtějí
+stejný scope jako kanonické `/v1/dns/zones/{zone}…` (TASK-0079). Který scope pokrývá které oprávnění, říká jediná explicitní mapa `domains/Identity/Authorization/TokenScopes.php`;
 oprávnění, které v ní nemá rozhodnutí, tokenům dostupné není. `services:console` (konzole, terminál, příkazy, SSH klíče) není
 v žádné předvolbě formuláře — zákazník ho zaškrtává zvlášť. Token nikdy nemá step-up, takže akce s rizikem HIGH/CRITICAL
 přes token neprojdou.
 Limit 120 req/min na token, `429` s `Retry-After`.
+
+Service accounty organizace (TASK-0079): `GET|POST /v1/service-accounts`, `GET|PATCH|DELETE /v1/service-accounts/{account}`,
+`POST /v1/service-accounts/{account}/tokens`, `DELETE /v1/service-accounts/{account}/tokens/{token}`. Spravuje je jen vlastník
+organizace, každý zápis je `ServiceAccountCommand` (HIGH, čerstvý step-up); tajný token je jen v odpovědi, která ho vytvořila.
+Account dostane organizační roli pod vlastníkem (`ServiceAccountRules::roles()`) a jeho token jedná jako `service_account`
+jen za svou organizaci; endpointy pro osobu (`/v1/me`) odpovídají `403 person_required`. Tokeny tyto routy nevidí.
 
 ## 6. Fronty a plánovač
 

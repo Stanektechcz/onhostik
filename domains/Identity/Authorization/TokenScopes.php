@@ -28,12 +28,23 @@ final class TokenScopes
 
     public const DNS_WRITE = 'dns:write';
 
+    /** TASK-0079 (D6): reading zones without writing them — a monitoring or a DNS export pipeline. */
+    public const DNS_READ = 'dns:read';
+
     public const DOMAINS_READ = 'domains:read';
 
     public const WALLET_READ = 'wallet:read';
 
-    /** Every scope a token can be issued with — the seven documented ones in their old order, then the console. */
-    public const ALL = [self::SERVICES_READ, self::SERVICES_POWER, self::INVOICES_READ, self::TICKETS_WRITE, self::DNS_WRITE, self::DOMAINS_READ, self::WALLET_READ, self::SERVICES_CONSOLE];
+    /** Every scope a token can be issued with — the seven documented ones in their old order, then the console, then `dns:read` (D6). */
+    public const ALL = [self::SERVICES_READ, self::SERVICES_POWER, self::INVOICES_READ, self::TICKETS_WRITE, self::DNS_WRITE, self::DOMAINS_READ, self::WALLET_READ, self::SERVICES_CONSOLE, self::DNS_READ];
+
+    /**
+     * A wider scope that carries a narrower one: `scope => the scopes that also grant it`. `dns:write` reads the zones it writes —
+     * every token issued with it before `dns:read` existed (the panel's "operate services" preset among them) keeps reading them,
+     * and staging a change, which reads the zone first, needs no second scope. Read by PersonalAccessToken::can(), so the route
+     * gate, the permission check and the OpenAPI scopes agree.
+     */
+    public const IMPLIED_BY = [self::DNS_READ => [self::DNS_WRITE]];
 
     /** Scopes no preset of the token form carries: a customer ticks them on purpose, with the warning next to them. */
     public const EXPLICIT_ONLY = [self::SERVICES_CONSOLE];
@@ -87,7 +98,7 @@ final class TokenScopes
         'domain.manage' => null,
         'domain.transfer_out.execute' => null,
         'domain.registrant.change' => null,
-        'dns.zone.read' => self::DNS_WRITE,
+        'dns.zone.read' => self::DNS_READ, // TASK-0079 (D6): its own scope; dns:write still carries it (IMPLIED_BY)
         'dns.zone.write' => self::DNS_WRITE,
         'dns.dnssec.manage' => self::DNS_WRITE, // HIGH: refused through a token by the step-up rule
 
@@ -190,6 +201,12 @@ final class TokenScopes
     public static function for(?string $permission): ?string
     {
         return $permission === null ? null : (self::DECISIONS[$permission] ?? null);
+    }
+
+    /** The scopes that also grant `$scope` (IMPLIED_BY); empty for most. @return list<string> */
+    public static function impliedBy(string $scope): array
+    {
+        return self::IMPLIED_BY[$scope] ?? [];
     }
 
     /** @return array<string, ?string> */

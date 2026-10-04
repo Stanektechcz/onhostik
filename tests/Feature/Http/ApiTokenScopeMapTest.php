@@ -12,11 +12,13 @@ use Illuminate\Http\Client\Request as HttpClientRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Onhost\Domain\Dns\Models\DnsZone;
 use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
 use Onhost\Domain\Identity\Authorization\PermissionCatalog;
 use Onhost\Domain\Identity\Authorization\TokenScopes;
 use Onhost\Domain\Identity\Commands\ApiTokenCommand;
+use Onhost\Domain\Identity\Models\PersonalAccessToken;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Organizations\Models\Organization;
@@ -39,6 +41,7 @@ use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Money\Money;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 
 /*
  * C13-H2c (TASK-0030): the permission → token-scope decision was a chain of prefixes, so every `service.*` permission that
@@ -624,3 +627,109 @@ it('gives a svc_console guest with a services:console token the console, and a s
         ->and($refused->json('message'))->not->toBe('The API token lacks the services:console scope.');
     Http::assertSentCount(1); // one vncproxy call: the guest's; the manager never reached Proxmox
 });
+
+// ── TASK-0079 (D6): `dns:read`, and the /domains/{zone}/zone aliases are the DNS family ──
+
+/**
+ * The scopes TokenRouteScope lets in for `$method $uri`, found the way `onhost:openapi` finds them: one token per known scope.
+ *
+ * @return list<string>
+ */
+function tokenScopeRouteScopes(string $method, string $uri): array
+{
+    $passing = [];
+    foreach (TokenScopes::ALL as $scope) {
+        $token = new PersonalAccessToken;
+        $token->organization_id = 'probe';
+        $token->abilities = [$scope];
+        $holder = new class($token)
+        {
+            public function __construct(private readonly PersonalAccessToken $token) {}
+
+            public function currentAccessToken(): PersonalAccessToken
+            {
+                return $this->token;
+            }
+        };
+        $request = Request::create($uri, $method);
+        $request->setUserResolver(fn () => $holder);
+        try {
+            (new TokenRouteScope)->handle($request, fn () => response(''));
+            $passing[] = $scope;
+        } catch (DomainError|AccessDeniedHttpException) {
+            // refused for this scope
+        }
+    }
+    sort($passing);
+
+    return $passing;
+}
+
+/** A zone of `$org` that needs no provider to be read or staged on. */
+function tokenScopeZone(Organization $org, string $name = 'scope-dns.cz'): DnsZone
+{
+    return DnsZone::query()->create(['organization_id' => $org->id, 'name' => $name, 'provider' => 'powerdns', 'provider_instance_id' => pdnsLab()->id,
+        'serial' => 1, 'version' => 1, 'state' => 'active', 'kind' => 'primary', 'nameservers' => ['ns1.onhost.cz', 'ns2.onhost.cz']]);
+}
+
+it('reads a zone with dns:read, which dns:write still covers, and dns:read writes nothing', function () {
+    expect(TokenScopes::ALL)->toContain('dns:read')
+        ->and(TokenScopes::for('dns.zone.read'))->toBe('dns:read')
+        ->and(TokenScopes::for('dns.zone.write'))->toBe('dns:write')
+        ->and(TokenScopes::for('dns.dnssec.manage'))->toBe('dns:write')
+        ->and(TokenScopes::EXPLICIT_ONLY)->not->toContain('dns:read');
+
+    $writer = new PersonalAccessToken(['abilities' => ['dns:write']]);
+    $reader = new PersonalAccessToken(['abilities' => ['dns:read']]);
+    // every token issued before dns:read existed with dns:write kept reading its zones (the panel's "operate services" preset)
+    expect($writer->can('dns:read'))->toBeTrue()->and($writer->can('dns:write'))->toBeTrue()
+        ->and($reader->can('dns:read'))->toBeTrue()->and($reader->can('dns:write'))->toBeFalse()
+        ->and($reader->can('domains:read'))->toBeFalse();
+});
+
+it('asks the same scope on every /domains/{zone}/zone alias as on its canonical DNS route', function () {
+    $aliases = collect(app('router')->getRoutes()->getRoutes())
+        ->filter(fn ($route) => preg_match('#^v1/domains/\{zone\}/zone(/.*)?$#', $route->uri()) === 1);
+    expect($aliases)->not->toBeEmpty();
+
+    foreach ($aliases as $alias) {
+        $canonical = preg_replace('#^v1/domains/\{zone\}/zone#', 'v1/dns/zones/{zone}', $alias->uri());
+        foreach (array_diff($alias->methods(), ['HEAD']) as $method) {
+            expect(app('router')->getRoutes()->match(Request::create('/'.str_replace('{zone}', 'x.cz', $canonical), $method))->uri())->toBe($canonical);
+            $aliasScopes = tokenScopeRouteScopes($method, '/'.str_replace('{zone}', 'x.cz', $alias->uri()));
+            $canonicalScopes = tokenScopeRouteScopes($method, '/'.str_replace('{zone}', 'x.cz', $canonical));
+            expect($aliasScopes)->toBe($canonicalScopes, "{$method} {$alias->uri()} asks ".json_encode($aliasScopes).", {$canonical} asks ".json_encode($canonicalScopes))
+                ->and($aliasScopes)->not->toBeEmpty();
+        }
+    }
+    // reading asks dns:read (or the wider dns:write), writing dns:write — and domains:read opens no zone
+    expect(tokenScopeRouteScopes('GET', '/v1/domains/x.cz/zone'))->toBe(['dns:read', 'dns:write'])
+        ->and(tokenScopeRouteScopes('GET', '/v1/dns/zones/x.cz'))->toBe(['dns:read', 'dns:write'])
+        ->and(tokenScopeRouteScopes('POST', '/v1/domains/x.cz/zone/changes'))->toBe(['dns:write'])
+        ->and(tokenScopeRouteScopes('GET', '/v1/domains/x.cz'))->toBe(['domains:read']);
+});
+
+it('opens a zone to a dns:read token through the alias and the canonical route alike, and a domains:read token through neither', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $zone = tokenScopeZone($org);
+    $headers = ['X-Organization' => $org->id];
+
+    $reader = tokenScopeBearer($owner, $org, ['dns:read']);
+    $this->withToken($reader)->getJson("/v1/dns/zones/{$zone->id}", $headers)->assertOk()->assertJsonPath('data.name', 'scope-dns.cz');
+    $this->withToken($reader)->getJson('/v1/domains/scope-dns.cz/zone', $headers)->assertOk()->assertJsonPath('data.name', 'scope-dns.cz');
+    $this->withToken($reader)->postJson('/v1/domains/scope-dns.cz/zone/changes', ['change' => 'add', 'record' => ['name' => 'api', 'type' => 'A', 'content' => '192.0.2.11']], $headers + ['Idempotency-Key' => 'd6-read-stage'])
+        ->assertForbidden()->assertJsonPath('message', 'The API token lacks the dns:write scope.');
+
+    app('auth')->forgetGuards();
+    $domains = tokenScopeBearer($owner, $org, ['domains:read']);
+    $this->withToken($domains)->getJson("/v1/dns/zones/{$zone->id}", $headers)->assertForbidden()->assertJsonPath('message', 'The API token lacks the dns:read scope.');
+    $this->withToken($domains)->getJson('/v1/domains/scope-dns.cz/zone', $headers)->assertForbidden()->assertJsonPath('message', 'The API token lacks the dns:read scope.');
+
+    // a dns:write token stages through the alias as it does through the canonical route (the alias was closed to every token)
+    app('auth')->forgetGuards();
+    $writer = tokenScopeBearer($owner, $org, ['dns:write']);
+    $this->withToken($writer)->postJson('/v1/domains/scope-dns.cz/zone/changes', ['change' => 'add', 'record' => ['name' => 'api', 'type' => 'A', 'content' => '192.0.2.11', 'ttl' => 300]], $headers + ['Idempotency-Key' => 'd6-write-stage'])
+        ->assertCreated();
+    $this->withToken($writer)->getJson('/v1/domains/scope-dns.cz/zone', $headers)->assertOk()->assertJsonPath('data.pending_changes', 1);
+});
+// ── end TASK-0079 ──

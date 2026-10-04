@@ -12,6 +12,7 @@ use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Dns\Models\DnsZone;
 use Onhost\Domain\Domains\DomainStateMachine;
 use Onhost\Domain\Domains\Models\Domain;
+use Onhost\Domain\Identity\Models\ServiceAccount;
 use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Orders\CheckoutService;
 use Onhost\Domain\Orders\QuoteService;
@@ -49,11 +50,16 @@ it('refuses every customer route addressed with another organization\'s identifi
     // Standard, not Profi: this lab has only an aaPanel web node, and a plan with dedicated PHP workers is sold out there (decision 7, TASK-0023)
     $quote = app(QuoteService::class)->quote([['product_key' => 'web-hosting', 'plan_key' => 'standard']], 'CZK', ['country' => 'CZ', 'customer_class' => 'b2c'], 12, null, $org);
     $order = app(CheckoutService::class)->placeOrder($quote, $org, $owner, $consents, ['mode' => 'bank'], 'iso:q1', $ctx)['order'];
+    // TASK-0079 (D6): the organization's service account and its token
+    $account = ServiceAccount::query()->create(['organization_id' => $org->id, 'name' => 'CI', 'state' => 'active', 'created_by' => $owner->id]);
+    $accountToken = $account->createToken('ci', ['services:read', 'org:'.$org->id], now()->addDays(30))->accessToken;
+    $accountToken->forceFill(['organization_id' => $org->id])->save();
     $subscription = Subscription::query()->create(['organization_id' => $org->id, 'service_id' => $service->id, 'currency' => 'CZK', 'period' => 'month', 'amount_minor' => 10000, 'state' => 'active', 'auto_renew' => true, 'current_period_start' => now()->subDays(3), 'current_period_end' => now()->addDays(27), 'next_renewal_at' => now()->addDays(27)]);
 
     $ids = [
         'service' => $service->id, 'organization' => $org->id, 'zone' => $zone->id, 'domain' => $domain->id, 'order' => $order->id, 'invoice' => $order->invoice_id,
         'project' => $project->id, 'ticket' => $ticket->id, 'user' => $owner->id, 'backup' => $backup->id, 'intent' => $order->payment_intent_id, 'subscription' => $subscription->id,
+        'account' => $account->id, // TASK-0079
     ];
     expect(array_filter($ids, fn ($v) => $v === null || $v === ''))->toBe([]); // every identifier is a real row of organization A
 
@@ -128,11 +134,12 @@ it('refuses every customer route addressed with another organization\'s identifi
         app('auth')->forgetGuards();
     }
     expect($answered)->toBeGreaterThan(20);
-    foreach (['service', 'organization', 'domain', 'zone', 'order', 'invoice', 'project', 'ticket'] as $kind) {
+    foreach (['service', 'organization', 'domain', 'zone', 'order', 'invoice', 'project', 'ticket', 'account'] as $kind) {
         expect(in_array($kind, $kinds, true))->toBeTrue("no route addressed by {$kind} answered its own organization: the sweep proves nothing about it");
     }
 
     // and nothing of organization A changed under the attempts
     expect($service->fresh()->state)->toBe($service->state)->and($domain->fresh()->state)->toBe(DomainStateMachine::ACTIVE)
-        ->and(DnsZone::query()->whereKey($zone->id)->exists())->toBeTrue()->and($ticket->fresh()->state)->toBe($ticket->state);
+        ->and(DnsZone::query()->whereKey($zone->id)->exists())->toBeTrue()->and($ticket->fresh()->state)->toBe($ticket->state)
+        ->and($account->fresh()?->name)->toBe('CI')->and($accountToken->fresh()->revoked_at)->toBeNull();
 });

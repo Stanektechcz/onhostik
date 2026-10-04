@@ -8,6 +8,7 @@ use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Onhost\Domain\Catalog\WafLevels;
 use Onhost\Domain\Dns\DnsService;
 use Onhost\Domain\Identity\Authorization\Authorizer;
+use Onhost\Domain\Identity\Models\ServiceAccount;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Provisioning\GameTemplates;
@@ -134,11 +135,12 @@ final class ServiceFeatures
      * What the service can do. With `$actor` the answer is what **that person** can do with it: a collaborator who was
      * given read-only access used to be shown every button and learnt the truth only as a 403 when they pressed one
      * (audit §5ah). The gate is the same permission the command bus will ask for, so the panel and the server cannot
-     * disagree. Without `$actor` nothing changes: the internal gates ask what the SERVICE offers, not who is asking.
+     * disagree. Without `$actor` nothing changes: the internal gates ask what the SERVICE offers, not who is asking. An organization’s
+     * service account (TASK-0079) is asked the same way, on its own bindings — it was handed in typed as a person, a 500.
      *
      * @return array<string, array{enabled:bool, limit?:int|null, options?:mixed, reason?:string}>
      */
-    public function features(Service $service, ?User $actor = null): array
+    public function features(Service $service, User|ServiceAccount|null $actor = null): array
     {
         $out = $this->offered($service);
         if ($actor === null) {
@@ -295,7 +297,7 @@ final class ServiceFeatures
     }
 
     /** Actions the customer may request right now (features → actions); with an actor, what THAT person may request. @return list<string> */
-    public function actions(Service $service, ?User $actor = null): array
+    public function actions(Service $service, User|ServiceAccount|null $actor = null): array
     {
         $features = $this->features($service, $actor);
         $out = [];

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Identity\Models;
 
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Laravel\Sanctum\HasApiTokens;
 use Onhost\Platform\Eloquent\Model;
@@ -18,6 +19,12 @@ final class ServiceAccount extends Model
 
     protected $table = 'service_accounts';
 
+    /**
+     * TASK-0079 review L1: today an account is only ever `active` or removed (soft-deleted, every token revoked), and a removed one
+     * cannot authenticate. If a "disable" op is ever added, Sanctum still accepts the token of a disabled account: the state must
+     * then be checked at authentication (e.g. Sanctum::authenticateAccessTokensUsing) — not only in ApiContext and the Authorizer,
+     * which a route that never asks them would bypass.
+     */
     public function isActive(): bool
     {
         return $this->state === 'active';
@@ -30,5 +37,15 @@ final class ServiceAccount extends Model
     public function getAuthIdentifier(): string
     {
         return (string) $this->getKey();
+    }
+
+    /**
+     * TASK-0079: the account's tokens as ONhost tokens (organization, revocation) — Sanctum's `tokens()` is typed with its own model.
+     *
+     * @return MorphMany<PersonalAccessToken, $this>
+     */
+    public function accessTokens(): MorphMany
+    {
+        return $this->morphMany(PersonalAccessToken::class, 'tokenable');
     }
 }
