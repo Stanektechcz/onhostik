@@ -79,3 +79,17 @@ it('never lets a token session ride on a step-up, so a high or critical action t
     expect(app(StepUpService::class)->activeGrant($owner, 'token:1'))->toBeNull()
         ->and(app(StepUpService::class)->activeGrant($owner, 'portal-session'))->not->toBeNull();
 });
+
+it('lists the tokens made before every token ended for the owners\' notice, and shortens none of them', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $endless = $owner->createToken('legacy', ['services:read'])->accessToken; // an older row: no end
+    $endless->forceFill(['organization_id' => $org->id])->save();
+    $current = tltIssue($owner, $org);
+
+    Illuminate\Support\Facades\Artisan::call('operator:tokens:unbound', ['--dry-run' => true, '--past-cap' => true]);
+    $out = Illuminate\Support\Facades\Artisan::output();
+
+    expect($out)->toContain('Tokens with no end or ending after the cap of 365 days')->toContain('legacy')->toContain('1 tokens past the cap')->not->toContain('Tokens bound to no organization')
+        ->and($endless->fresh()->expires_at)->toBeNull()
+        ->and(PersonalAccessToken::query()->find($current['id'])?->expires_at)->not->toBeNull();
+});

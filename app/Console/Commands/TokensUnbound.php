@@ -8,6 +8,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Identity\Models\PersonalAccessToken;
 use Onhost\Domain\Identity\Models\User;
+use Onhost\Domain\Identity\Tokens\TokenLifetime;
 
 /**
  * TASK-0039 (permission program P0-09, IF-5): the API tokens whose behaviour the token principal view changes, for the notice
@@ -18,16 +19,22 @@ use Onhost\Domain\Identity\Models\User;
  *  2. tokens bound to one organization that were USED on another in the last `--days` (audit rows carry `token:<id>` as the
  *     session): from this release on such a request is refused (`token_organization_mismatch`) — the people to tell.
  *
+ *  3. with `--past-cap` (TASK-0044, owner decision R9) instead: live tokens with no end, or ending after today's cap
+ *     (`onhost.tokens.max_days`) — made before every new token ended; their owners are told to rotate them.
+ *
  * Read-only in every mode: it prints, it never revokes. `--dry-run` is accepted for the runbook's uniform syntax.
  */
 final class TokensUnbound extends Command
 {
-    protected $signature = 'operator:tokens:unbound {--dry-run : list only (the only mode: the refusal is the switch ONHOST_TOKEN_ORGANIZATION_REQUIRED)} {--days=90 : how far back to look for tokens used on another organization}';
+    protected $signature = 'operator:tokens:unbound {--dry-run : list only (the only mode: the refusal is the switch ONHOST_TOKEN_ORGANIZATION_REQUIRED)} {--days=90 : how far back to look for tokens used on another organization} {--past-cap : TASK-0044 (R9): list only the live tokens with no end or ending after the cap}';
 
     protected $description = 'List API tokens bound to no organization, and tokens used on another organization than their own (read-only)';
 
     public function handle(): int
     {
+        if ((bool) $this->option('past-cap')) {
+            return $this->pastCap();
+        }
         $unbound = PersonalAccessToken::query()->whereNull('organization_id')->whereNull('revoked_at')
             ->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))->orderBy('id')->get();
         $people = User::query()->whereIn('id', $unbound->pluck('tokenable_id')->all())->pluck('email', 'id');
@@ -42,6 +49,26 @@ final class TokensUnbound extends Command
         $this->table(['token', 'own organization', 'used on', 'requests', 'last', 'e-mail'], $crossed);
 
         $this->line(sprintf('Read-only: %d unbound tokens, %d tokens used across organizations. Nothing was changed.', $unbound->count(), count($crossed)));
+
+        return self::SUCCESS;
+    }
+
+    /**
+     * TASK-0044 (owner decision R9): tokens issued before every token ended — no end, or one past today's cap — are listed for the
+     * same notice; nothing shortens them (S1-05: no forced retrofit), the owners rotate them.
+     */
+    private function pastCap(): int
+    {
+        $cap = now()->addDays(TokenLifetime::maxDays());
+        $endless = PersonalAccessToken::query()->whereNull('revoked_at')->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', $cap))->orderBy('id')->get();
+        $holders = User::query()->whereIn('id', $endless->pluck('tokenable_id')->all())->pluck('email', 'id');
+        $this->line(sprintf('Tokens with no end or ending after the cap of %d days (issued before R9; rotate them)', TokenLifetime::maxDays()));
+        $this->table(['token', 'name', 'organization', 'e-mail', 'last used', 'expires'], $endless->map(fn (PersonalAccessToken $t) => [
+            (string) $t->getKey(), (string) $t->name, (string) ($t->organization_id ?? '—'), (string) ($holders[(string) $t->tokenable_id] ?? '—'),
+            $t->last_used_at?->toDateTimeString() ?? '—', $t->expires_at?->toDateString() ?? 'never',
+        ])->all());
+
+        $this->line(sprintf('Read-only: %d tokens past the cap. Nothing was changed.', $endless->count()));
 
         return self::SUCCESS;
     }

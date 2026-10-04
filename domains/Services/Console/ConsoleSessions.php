@@ -30,8 +30,8 @@ use Onhost\Platform\Commands\CommandScope;
  *    it — in that organization, or everywhere — is refused from now on, even though the person may still hold the permission
  *    (an MFA reset: the account is the one in doubt).
  *
- * A descriptor with no person (a system-issued ticket, a descriptor older than TASK-0039) is judged by the kill-free rules only:
- * its service must still exist. Panel sessions the platform cannot close (a panel's own SSO login) are the residual window,
+ * A descriptor with no person (a system-issued ticket, a descriptor older than TASK-0039) is not judged by a person; an open
+ * console of a service deleted since closes either way. Panel sessions the platform cannot close (a panel's own SSO login) are the residual window,
  * stated in docs/runbooks/console-relay.md.
  */
 final class ConsoleSessions
@@ -54,12 +54,12 @@ final class ConsoleSessions
      *
      * @param  array<string,mixed>  $descriptor
      */
-    public function refusal(array $descriptor, ?CarbonInterface $since = null): ?string
+    public function refusal(array $descriptor, ?CarbonInterface $since = null, bool $open = false): ?string
     {
         $serviceId = $descriptor['service_id'] ?? null;
         $service = is_string($serviceId) && $serviceId !== '' ? Service::query()->find($serviceId) : null;
-        if (is_string($serviceId) && $serviceId !== '' && $service === null) {
-            return 'service_gone';
+        if ($open && $service === null) {
+            return 'service_gone'; // an open console of a service deleted since closes; a ticket is judged by its person below
         }
         $issuedTo = $descriptor['issued_to'] ?? null;
         if (! is_string($issuedTo) || $issuedTo === '') {
@@ -100,7 +100,7 @@ final class ConsoleSessions
         if (! is_array($live)) {
             return 'session_unknown';
         }
-        $refusal = $this->refusal($live, self::issuedAt($live));
+        $refusal = $this->refusal($live, self::issuedAt($live), open: true);
         if ($refusal !== null) {
             Cache::forget(self::liveKey($token));
         }
