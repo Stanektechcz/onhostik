@@ -104,6 +104,8 @@ final class StaffNavigation
             new N('queue', 'support', 10, 'inbox', ['cs' => 'Fronta tiketů', 'en' => 'Ticket queue'], N::SCREEN_VIEW, 'queue', [
                 N::get('staff/tickets', $tickets), N::get('staff/tickets/clusters', 'support.queue.manage'), N::get('staff/tickets/macros', 'support.ticket.manage'),
                 N::write('post', 'staff/tickets/sla-tick', 'support.queue.manage'),
+                // the desk's own settings (TASK-0054): macros, queues and SLA policies, read and changed with support.queue.manage
+                ...self::deskSettings(),
             ], all: [$tickets]),
             new N('ticket', 'support', 20, 'message', ['cs' => 'Detail tiketu', 'en' => 'Ticket'], N::SCREEN_VIEW, 'ticket', [
                 N::get('staff/tickets/{ticket}', $tickets), N::get('staff/tickets/{ticket}/work-offers', 'support.ticket.manage'),
@@ -251,6 +253,24 @@ final class StaffNavigation
                 N::get('staff/data-requests', 'compliance.case.manage'),
             ], all: ['compliance.case.manage']),
         ];
+    }
+
+    /**
+     * `/v1/staff/support/{macros|queues|sla-policies}` (SupportSettingsController): every read and write with support.queue.manage.
+     *
+     * @return list<array{method:string, path:string, permission:string}>
+     */
+    private static function deskSettings(): array
+    {
+        $entries = [];
+        foreach (['support/macros', 'support/queues', 'support/sla-policies'] as $path) {
+            $entries = [...$entries,
+                N::get("staff/{$path}", 'support.queue.manage'), N::write('post', "staff/{$path}", 'support.queue.manage'),
+                N::write('patch', "staff/{$path}/{id}", 'support.queue.manage'), N::write('delete', "staff/{$path}/{id}", 'support.queue.manage'),
+            ];
+        }
+
+        return $entries;
     }
 
     /**

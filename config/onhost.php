@@ -439,6 +439,8 @@ return [
         'search_max' => 20,
         'search_cache_seconds' => 60,
         'transfer_secret_ttl_days' => 7,
+        // a paid transfer whose code never came fails after this many days, so its money is released (DomainService::expireAwaitingTransfers)
+        'transfer_code_wait_days' => 30,
         'critical' => array_values(array_filter(array_map('trim', explode(',', (string) env('ONHOST_CRITICAL_DOMAINS', 'onhost.cz'))))),
         'poll_batch' => 50,
         'poll_max_attempts' => 5,
