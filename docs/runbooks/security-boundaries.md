@@ -822,6 +822,27 @@ Tests: `tests/Feature/Organizations/GrantMatrixTest.php`, `tests/Feature/Organiz
   `NotificationTemplateSeeder` brings the four new templates; `operator:grants:cascade --dry-run` is read before anybody
   considers `ONHOST_GRANT_CASCADE_ENABLED` (`docs/runbooks/go-live-checklist.md` §8).
 
+## Organization service accounts and `dns:read` (TASK-0079, D6)
+
+* **A service account is the organization's, managed by its owner alone** (`ServiceAccountController::owned`,
+  `ServiceAccountRules::assertOwner`, again in `ServiceAccountCommandHandler`). An organization admin holds `api_token.manage` for
+  their own personal tokens and still gets 403 here. Every write is a `ServiceAccountCommand` (HIGH, fresh step-up in the bus); the
+  routes have no token family, so no token manages tokens. The account gets one organization role below the owner (never `owner`,
+  `guest`, an `svc_*` capability or a staff role), recorded as a `service_account` binding with `granted_by` = the owner.
+* **Its token acts as the account** (`ApiContext::serviceAccountOrganization`, `context()` → actor `service_account`): its own
+  organization only (`token_organization_mismatch` otherwise), its own bindings, its token's scopes; a person-only endpoint answers
+  403 `person_required`; a HIGH or CRITICAL command is refused (an account never holds a step-up). The secret is in the create
+  answer only (the replay store and the audit mask it). Revoking a token or removing the account stops it at the next request
+  (`PersonalAccessToken::findToken`; removal revokes every token, drops the bindings and soft-deletes the account).
+* **`dns:read`** reads zones; `dns:write` still carries it (`TokenScopes::IMPLIED_BY`, read by `PersonalAccessToken::can`), so no
+  existing token lost a read. `/v1/domains/{zone}/zone[/changes|/commit]` ask what `/v1/dns/zones/{zone}…` ask (they asked
+  `domains:read` for a read and refused every write) — `ApiTokenScopeMapTest` compares every alias with its canonical route.
+* Not built: automation grants (a HIGH action through a token with a matching grant, permission program S1-05) — an open owner
+  question; until it is decided, HIGH and CRITICAL through any token stay refused.
+
+Tests: `tests/Feature/Identity/ServiceAccountApiTest.php`, `tests/Feature/Http/ApiTokenScopeMapTest.php`,
+`tests/Feature/Http/TenantIsolationSweepTest.php` (the `{account}` routes).
+
 ## API limiters behind a proxy (TASK-0076, D7)
 
 Every API limiter that matters for abuse (`probes`, `callbacks`, `public`, `auth`, the failed-authentication throttle) is keyed by the
