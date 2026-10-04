@@ -68,4 +68,24 @@ interface ComputeProvider extends BackupCapable, ConsoleCapable, InfrastructureP
 
     /** Moves the VM to another node of the same cluster (live when it runs, offline otherwise); the async handle is the migration task. */
     public function migrate(ResourceRef $vm, string $targetNode, bool $online = true): ProviderResult;
+
+    /**
+     * The operating systems a reinstall may put on this VM: the golden templates the operator configured on the
+     * instance, never an image the caller names (C9). Keys are the image names the catalogue sells (`debian-13` …).
+     *
+     * @return list<string>
+     */
+    public function reinstallImages(): array;
+
+    /**
+     * Puts a fresh copy of a golden template's system disk in place of the VM's own one (C9 OS reinstall). The VM must
+     * be switched off and must carry the proof that it is this service's (its service tag or its name): a guest that
+     * does not is refused before anything changes. The replaced disk is DETACHED, never deleted — the safety snapshot
+     * taken before the reinstall lives on it — and is named in the result (`replaced_volume`). The async handle is the
+     * import task; nothing is reported done before the hypervisor says so.
+     */
+    public function reinstall(ResourceRef $vm, string $image): ProviderResult;
+
+    /** Grows the system disk to `$sizeGb` (a fresh template disk is small); never shrinks, and does nothing when it is already that big. */
+    public function growSystemDisk(ResourceRef $vm, int $sizeGb): ProviderResult;
 }

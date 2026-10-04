@@ -25,6 +25,7 @@ final class GenerateOssInventory extends Command
         ['name' => '@babel/standalone', 'version' => '7.x', 'license' => 'MIT', 'scope' => 'surfaces (in-browser compile, backlog UI-02)'],
         ['name' => 'Archivo (Google Fonts)', 'version' => 'variable', 'license' => 'OFL-1.1', 'scope' => 'design system'],
         ['name' => 'Modernist design system (_ds bundle)', 'version' => '31154b91', 'license' => 'proprietary — ONhost', 'scope' => 'surfaces'],
+        ['name' => 'noVNC', 'version' => '1.5.0 (ES modules via cdn.jsdelivr.net, pinned tag)', 'license' => 'MPL-2.0', 'scope' => 'server console page (/panel/konzole, C9)'],
     ];
 
     public function handle(): int

@@ -42,6 +42,12 @@ use Onhost\Platform\Support\Hostname;
  */
 final class QuoteService
 {
+    /** What a domain cart line may do (TASK-0058): DomainService::createFromOrderItem registers or waits for a transfer code. */
+    public const DOMAIN_ACTIONS = ['register', 'transfer'];
+
+    /** Keys a client might put a transfer code under; never kept in a quote or an order line (TASK-0058). */
+    private const TRANSFER_SECRET_KEYS = ['auth_info', 'authinfo', 'authid', 'auth_code', 'auth_id', 'transfer_code', 'epp_code'];
+
     public function __construct(
         private readonly CatalogService $catalog,
         private readonly TaxEngine $tax,
@@ -192,7 +198,15 @@ final class QuoteService
                 }
                 $price = $this->catalog->domainPrice($tld, $currency);
                 $action = (string) ($config['action'] ?? 'register');
-                $unit = $action === 'transfer' ? $price->transfer() : $price->register();
+                if (! in_array($action, self::DOMAIN_ACTIONS, true)) { // fulfilment registers or transfers; anything else was priced as a registration and delivered as one
+                    throw new DomainError('domain_action_invalid', "A domain line either registers or transfers a name, not '{$action}'.", 422, ['field' => 'action', 'actions' => self::DOMAIN_ACTIONS]);
+                }
+                // TASK-0058: the transfer code is handed over after payment, with the paid line (DomainService::transferIn) — a code
+                // sent with the cart would be kept in the quote and the order line for good, so it is dropped here
+                $config = array_diff_key($config, array_flip(self::TRANSFER_SECRET_KEYS));
+                // a transfer renews the name at the registrar for the years it brings: it is sold at the list RENEWAL price (owner
+                // rule: whole years at the list price; the catalogue's transfer price — 0 Kč for .cz — paid the registrar nothing)
+                $unit = $action === 'transfer' ? $price->renew() : $price->register();
                 $net = $unit->multiply($years);
                 $renewal = $price->renew()->multiply($years);
                 // domains never get a commitment discount: a TLD discount exists only when staff configured one, a promo code only when it names the domain family

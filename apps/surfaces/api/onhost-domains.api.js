@@ -1,7 +1,9 @@
 /* onhost-domains.api.js — window.OnhostDomains backed by /v1/domains and the two-phase DNS API.
  * Same interface as the prototype: domains, domain, zone, zoneMeta, pending, addRow, updateRow, deleteRow,
- * commit, discard, credit, kpis, nssets, on. Zone changes are staged locally exactly like WAPI/PowerDNS
- * staging in the control plane and published with commit() → POST /domains/{zone}/zone/commit.
+ * commit, discard, rollback, credit, kpis, nssets, on. Zone changes are collected locally and published with commit():
+ * one POST /dns/zones/{zone}/changes per change ({change: add|update|delete, record_id?, record{name,type,content,ttl,prio}}),
+ * then POST /dns/zones/{zone}/commit {reason}; rollback(name, version) is POST /dns/zones/{zone}/rollback {version}.
+ * (It used to send a batch `changes[]` the API does not take and a rollback route that does not exist — TASK-0056.)
  */
 (function () {
   'use strict';
@@ -24,7 +26,7 @@
   function loadZone(name) {
     return A.get('/domains/' + encodeURIComponent(name) + '/zone').then(function (r) {
       var d = r.data || r; var Z = z(name);
-      Z.rows = (d.records || d.rows || []).map(function (x) { return { id: x.id, type: x.type, host: x.name === '@' ? '' : x.name, data: x.content, ttl: x.ttl, prio: x.priority }; });
+      Z.rows = (d.records || d.rows || []).map(function (x) { return { id: x.id, type: x.type, host: x.name === '@' ? '' : x.name, data: x.content, ttl: x.ttl, prio: x.prio }; });
       Z.serial = d.serial || (d.version && d.version.serial) || null; Z.committedAt = d.committed_at || null; Z.loaded = true; Z.dnssec = d.dnssec || null;
       emit(); return Z;
     }).catch(function () { return z(name); });
@@ -38,6 +40,19 @@
     return hydrated;
   }
 
+  /* one locally collected change as the staging endpoint takes it */
+  function stageBody(p, why) {
+    var r = p.row || {}, rec = {};
+    if (r.host !== undefined) rec.name = r.host || '@';
+    if (r.type) rec.type = r.type;
+    if (r.data !== undefined) rec.content = r.data;
+    if (r.ttl) rec.ttl = parseInt(r.ttl, 10);
+    if (r.prio !== undefined && r.prio !== null && r.prio !== '') rec.prio = parseInt(r.prio, 10);
+    var body = { change: p.op, reason: p.why || why || '' };
+    if (p.op !== 'add' && p.id) body.record_id = p.id;
+    if (p.op !== 'delete') body.record = rec;
+    return body;
+  }
   var API = {
     domains: function (f) {
       f = f || {};
@@ -57,17 +72,20 @@
     updateRow: function (name, id, row, who, why) { z(name).pending.push({ op: 'update', id: id, row: row, who: who || 'panel', why: why || '' }); emit(); return true; },
     deleteRow: function (name, id, who, why) { z(name).pending.push({ op: 'delete', id: id, who: who || 'panel', why: why || '' }); emit(); return true; },
     commit: function (name, who, why) {
-      var Z = z(name);
-      var changes = Z.pending.map(function (p) {
-        var r = p.row || {};
-        return { op: p.op, id: p.id || null, name: r.host === undefined ? undefined : (r.host || '@'), type: r.type, content: r.data, ttl: r.ttl ? parseInt(r.ttl, 10) : undefined, priority: r.prio };
-      });
-      return A.post('/domains/' + encodeURIComponent(name) + '/zone/changes', { changes: changes, reason: why || '' }, A.key())
-        .then(function () { return A.post('/domains/' + encodeURIComponent(name) + '/zone/commit', { reason: why || '' }, A.key()); })
-        .then(function () { Z.pending = []; return loadZone(name); });
+      var Z = z(name), base = '/dns/zones/' + encodeURIComponent(name), sent = 0;
+      var staged = Z.pending.reduce(function (chain, p) {
+        return chain.then(function () { return A.post(base + '/changes', stageBody(p, why), A.key()).then(function () { sent++; }); });
+      }, Promise.resolve());
+      return staged
+        .then(function () { return A.post(base + '/commit', { reason: why || '' }, A.key()); })
+        .then(function () { Z.pending = []; return loadZone(name); })
+        .catch(function (e) { // changes this call already staged would be staged again by a retry: clear them (only when it staged any), keep the local list
+          if (!sent) throw e;
+          return A.post(base + '/discard', {}, A.key()).catch(function () {}).then(function () { throw e; });
+        });
     },
     discard: function (name) { z(name).pending = []; emit(); return true; },
-    rollback: function (name, version) { return A.post('/domains/' + encodeURIComponent(name) + '/zone/rollback', { version: version }, A.key()).then(function () { return loadZone(name); }); },
+    rollback: function (name, version) { return A.post('/dns/zones/' + encodeURIComponent(name) + '/rollback', { version: parseInt(version, 10) }, A.key()).then(function () { return loadZone(name); }); },
     credit: function () { return credit; },
     kpis: function () {
       return { total: DOMAINS.length, expiring: DOMAINS.filter(function (d) { return d.expDays <= 30; }).length, transfers: DOMAINS.filter(function (d) { return d.status === 'transfer'; }).length,

@@ -7,19 +7,15 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
-use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Organizations\Models\Organization;
-use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Organizations\Models\Project;
 use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderBinding;
-use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\OperationService;
 use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Provisioning\Workflows\ServiceActionWorkflow;
-use Onhost\Domain\Services\FinalArchive;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
@@ -35,6 +31,8 @@ use Onhost\Providers\Contracts\ResourceRef;
 use Onhost\Providers\Contracts\WebHostingProvider;
 use Onhost\Providers\Contracts\WebToolsProvider;
 
+require_once __DIR__.'/../../Support/ArchiveRestoreHelpers.php';
+
 /*
  * TASK-0035 (permission program IF-11 / P0-05, audit SE-2 + SE-14): the archive of a cancelled service goes back only for
  * somebody who may restore for the whole organization or project AND may read the service the archive came from. The generic
@@ -47,53 +45,6 @@ beforeEach(function () {
     Http::preventStrayRequests();
     Storage::fake('local');
 });
-
-/** A finished final archive on the backup disk of a cancelled web service. */
-function arsArchive(Service $source): Backup
-{
-    $set = FinalArchive::PREFIX.'/'.$source->organization_id.'/'.$source->id.'-20260901-120000';
-    Storage::disk('local')->put($set.'/service.json', json_encode(['service' => ['id' => $source->id]]));
-    Storage::disk('local')->put($set.'/site-files.tar.gz', str_repeat('files', 200));
-    Storage::disk('local')->put($set.'/manifest.json', json_encode(['service_id' => $source->id]));
-
-    return Backup::query()->create([
-        'service_id' => $source->id, 'organization_id' => $source->organization_id, 'kind' => 'final', 'state' => 'completed', 'protected' => true,
-        'started_at' => now()->subDay(), 'finished_at' => now()->subDay(), 'verified_at' => now()->subDay(), 'verify_status' => 'ok', 'size_bytes' => 1024,
-        'retention_until' => now()->addDays(60), 'immutable_until' => now()->addDays(60), 'meta' => ['set' => $set, 'family' => 'web', 'parts' => ['service.json', 'site-files.tar.gz'], 'gaps' => []],
-    ]);
-}
-
-function arsWebService(Organization $org, string $domain, ?string $projectId = null): Service
-{
-    $instance = ProviderInstance::query()->firstOrCreate(['key' => 'ispconfig-ars'], ['provider' => 'ispconfig', 'name' => 'ISPConfig ars', 'base_url' => 'https://ars.test:8080', 'secret_ref' => 'env://ISPCONFIG_ARS', 'state' => 'active', 'options' => []]);
-    $service = Service::query()->create(['organization_id' => $org->id, 'project_id' => $projectId, 'product_key' => 'web-hosting', 'family' => 'web', 'name' => 'Web '.$domain, 'hostname' => $domain, 'state' => ServiceStateMachine::ACTIVE,
-        'region_code' => 'cz1', 'entitlements' => ['nvme_gb' => 50], 'desired_spec' => ['domain' => $domain, 'executor' => 'ispconfig'], 'sla_class' => 'standard', 'provider_instance_id' => $instance->id]);
-    ProviderBinding::query()->create(['service_id' => $service->id, 'provider_instance_id' => $instance->id, 'remote_type' => 'web_domain', 'remote_id' => (string) random_int(100, 999), 'remote_node' => '1',
-        'meta' => ['domain' => $domain, 'system_user' => 'web41'], 'idempotency_key' => 'ars-'.$service->id]);
-
-    return $service->refresh();
-}
-
-function arsCancelled(Service $service): void
-{
-    $service->forceFill(['state' => ServiceStateMachine::TERMINATED, 'terminated_at' => now()])->save();
-    $service->delete();
-}
-
-/** A person with one binding, the shape an invitation (organization/project) or a share (resource) writes. */
-function arsPerson(Organization $org, string $role, string $scopeType, ?string $scopeId): User
-{
-    $user = User::query()->create(['email' => Str::lower(Str::random(8)).'@ars.test', 'name' => $role, 'password' => 'Correct-Horse-Battery-9', 'state' => 'active']);
-    $member = $scopeType === 'organization' ? $role : 'guest';
-    OrganizationMembership::query()->create(['organization_id' => $org->id, 'user_id' => $user->id, 'state' => 'active', 'role_key' => $member, 'joined_at' => now()]);
-    PolicyBinding::query()->create(['principal_type' => 'user', 'principal_id' => $user->id, 'role_key' => $member, 'scope_type' => 'organization', 'scope_id' => $org->id, 'organization_id' => $org->id]);
-    if ($scopeType !== 'organization') {
-        PolicyBinding::query()->create(['principal_type' => 'user', 'principal_id' => $user->id, 'role_key' => $role, 'scope_type' => $scopeType, 'scope_id' => $scopeId, 'organization_id' => $org->id]);
-    }
-    app(StepUpService::class)->grant($user, 'totp', null, '127.0.0.1'); // a restore asks for a fresh step-up; the question here is the scope
-
-    return $user;
-}
 
 /** The panel of the target service, controlled by the test; `copy_fails` makes the safety copy of the live site impossible. */
 function arsPanel(Service $service, array &$log, bool $copyFails = false): void

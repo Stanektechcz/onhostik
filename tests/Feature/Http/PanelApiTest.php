@@ -109,6 +109,8 @@ it('manages a DNS zone in two phases: stage, preview, commit, versions, rollback
     $this->getJson("/v1/dns/zones/{$zoneId}/preview")->assertOk()->assertJsonCount(1, 'data.changes');
     $this->postJson("/v1/dns/zones/{$zoneId}/commit", ['reason' => 'api host'])->assertOk()->assertJsonPath('version', 2);
     $this->getJson("/v1/dns/zones/{$zoneId}/versions")->assertOk()->assertHeader('X-Total-Count', '2');
+    $this->postJson("/v1/dns/zones/{$zoneId}/rollback", ['version' => 1])->assertStatus(403)->assertJsonPath('error', 'step_up_required'); // a rollback replaces the live set: HIGH (TASK-0056)
+    app(StepUpService::class)->grant($user, 'password', null, '127.0.0.1');
     $this->postJson("/v1/dns/zones/{$zoneId}/rollback", ['version' => 1])->assertOk()->assertJsonPath('version', 3);
     $this->getJson('/v1/domains/panel.cz/zone')->assertOk()->assertJsonPath('data.version', 3);
     $export = $this->get("/v1/dns/zones/{$zoneId}/export")->assertOk();

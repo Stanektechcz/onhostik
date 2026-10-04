@@ -549,6 +549,9 @@ final class ServiceService
             $service = $this->liftHolds($service, $context, $params);
         }
         self::assertCoreActionOffered($service, $action);
+        if ($action === 'snapshot') {
+            app(SnapshotLimit::class)->assertRoom($service); // the number the plan sells (C9); the step counts once more before it takes one
+        }
         UsageGuard::assertRoomFor($service, $action); // a service with no room left does not grow: ISPConfig stops it, aaPanel does not, the platform always does
         if ($action === 'restore' || $action === 'restore.test') {
             // a backup is restored onto the service it was taken from, and nowhere else (H21): somebody else's backup — or a
@@ -1340,7 +1343,9 @@ final class ServiceService
             })(),
             'image.set' => ['image' => $need('image', '~^[a-z0-9][a-z0-9._/:@-]{2,200}$~i', 'image must be a container image reference')],
             'rename' => ['name' => $need('name', '/^[^\r\n<>]{1,60}$/u', 'name is required (max 60 characters)')],
-            'reinstall' => ['confirm' => filter_var($params['confirm'] ?? false, FILTER_VALIDATE_BOOLEAN) ?: throw new DomainError('action_param_invalid', "{$action}: confirm=true is required; a reinstall rewrites the server files.", 422, ['field' => 'confirm'])],
+            'reinstall' => ['confirm' => filter_var($params['confirm'] ?? false, FILTER_VALIDATE_BOOLEAN) ?: throw new DomainError('action_param_invalid', "{$action}: confirm=true is required; a reinstall rewrites the server files.", 422, ['field' => 'confirm'])]
+                // C9: a server gets only a system the platform allows for it — a golden template of its instance the product sells
+                + ($service->family === 'cloud' ? ['image' => app(VmReinstall::class)->assertImage($service, $params['image'] ?? null)] : []),
             'schedule.delete', 'schedule.run', 'gamedb.rotate', 'gamedb.delete', 'subuser.delete', 'allocation.primary', 'allocation.remove' => ['remote_id' => $remote()],
             'gbackup.delete' => (function () use ($service, $remote, $unprotected) {
                 $id = $remote();
@@ -1435,6 +1440,10 @@ final class ServiceService
             throw new DomainError('console_unsupported', 'This service type has no console.', 422);
         }
         $access = $adapter->consoleAccess($binding->ref());
+        // C9/C10: where the browser opens the console — the websocket relay, never the panel or the node itself (the relay resolves
+        // the single-use token server-side). Without a relay configured there is no live console, and the answer says so.
+        $relay = rtrim((string) config('onhost.console.relay_url', ''), '/');
+        $access['socket'] = $relay === '' || ! is_string($access['token'] ?? null) ? null : preg_replace('~^http~', 'ws', $relay).'/ws/'.$access['token'];
         $this->recordConsoleIssuer((string) ($access['token'] ?? ''), $service, $context);
         $this->audit->record($context->withScope($service->organization_id), 'service.console', 'succeeded', ['kind' => $access['kind'], 'expires_at' => $access['expires_at']], 'service', $service->id);
 

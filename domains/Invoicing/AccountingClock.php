@@ -41,4 +41,24 @@ final class AccountingClock
     {
         return (int) substr(self::date($instant), 0, 4);
     }
+
+    /**
+     * Whole accounting days from the day of `$from` to the day of `$to` (now when none is given); negative when `$to` is the
+     * earlier day. An invoice due at 23:30 UTC prints the NEXT day as its due date: counted in UTC days it was one day more
+     * overdue than the customer could read on it, and every reminder, the suspension and the overdue mark came a day early
+     * for whatever fell due in the last hours of the UTC day (TASK-0047).
+     */
+    public static function daysBetween(DateTimeInterface $from, ?DateTimeInterface $to = null): int
+    {
+        return (int) CarbonImmutable::parse(self::date($from))->diffInDays(CarbonImmutable::parse(self::date($to)), false);
+    }
+
+    /**
+     * The instant the current accounting day began, in the application's zone (the zone instants are stored in), so it can
+     * be compared with a stored instant: "due before today" is `due_at < AccountingClock::startOfToday()`.
+     */
+    public static function startOfToday(): CarbonImmutable
+    {
+        return self::now()->startOfDay()->setTimezone(date_default_timezone_get());
+    }
 }

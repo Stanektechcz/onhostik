@@ -79,7 +79,7 @@ it('gates the panel and admin surfaces, injects the real session and swaps the d
         ->toContain('window.OnhostAdmin.customers(this, _)')->toContain('window.OnhostAdmin.cards(this, _)')->toContain('window.OnhostAdmin.dashPanels(this, _)')
         ->toContain("onCallTitle: window.OnhostAdmin ? '' : _('Na směně', 'On call')")->toContain('log: window.OnhostAdmin ? [] : [');
     $this->get('/surfaces/api/onhost-admin.api.js')->assertOk();
-    expect((string) file_get_contents(base_path('apps/surfaces/api/onhost-admin.api.js')))->toContain('window.OnhostAdmin = {')->toContain("var ALLOWED = ['dash', 'queue', 'ticket', 'customers', 'incidents', 'maintenance', 'gnodes', 'geggs', 'galloc', 'gprov', 'fleet', 'jobsadm', 'automation', 'renewals', 'money', 'coupons', 'nodecost']")->toContain('table: table,');
+    expect((string) file_get_contents(base_path('apps/surfaces/api/onhost-admin.api.js')))->toContain('window.OnhostAdmin = {')->toContain('function allows(view) { return !!navItem(view); }')->toContain('table: table,'); // TASK-0052: the views come from the boot navigation (StaffNavigation), not a fixed list
     // table views (audit §5f-2): the game panels, the fleet, the jobs, the automation rules and the renewals read their rows from the module and their counts into the sidebar
     expect($console)->toContain('const t = (window.OnhostAdmin && window.OnhostAdmin.table(this, _, s.view)) || T[s.view];')->toContain('window.OnhostAdmin.counts(this).gnodes')->toContain('window.OnhostAdmin.counts(this).renewals')->toContain('window.OnhostAdmin.counts(this).fleetDot');
 });

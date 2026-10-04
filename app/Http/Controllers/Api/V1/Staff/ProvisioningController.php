@@ -393,7 +393,8 @@ final class ProvisioningController extends ApiController
 
     public function instanceState(Request $request, string $instance): JsonResponse
     {
-        $data = $request->validate(['state' => ['required', 'in:active,draining,maintenance,disabled'], 'reason' => ['nullable', 'string', 'max:250'], 'maintenance_until' => ['nullable', 'date'], 'acknowledge_running' => ['nullable', 'boolean']]);
+        // TASK-0045: `contained` is set and lifted here alone (an instance edit cannot), HIGH like every state change
+        $data = $request->validate(['state' => ['required', 'in:'.implode(',', ProviderInstance::STATES)], 'reason' => ['nullable', 'string', 'max:250'], 'maintenance_until' => ['nullable', 'date'], 'acknowledge_running' => ['nullable', 'boolean']]);
 
         return $this->dispatch(new ProvisioningCommand($this->idempotencyKey($request, "instance.state:{$instance}"), ['op' => 'instance.state', 'instance_key' => $instance] + $data), $this->api->context($request, null, $data['reason'] ?? null));
     }

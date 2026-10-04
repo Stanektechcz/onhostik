@@ -6,12 +6,14 @@
  * prototype literal when this module is absent, so the demo mode is untouched. */
 (function () {
   if (window.OnhostAdmin) return;
-  var B = window.ONHOST_BOOT || {};
+  var B = window.ONHOST_BOOT || window.ONHOST || {}; // the boot object is injected as window.ONHOST (SurfaceRenderer); ONHOST_BOOT was never set
   var cmps = [];
   var data = { customers: null, maintenance: null, game: null, board: null, automation: null, renewals: null, jobs: null, chargebacks: null, loyalty: null, capacity: null, capreq: null, forecasts: {} }; // §5o: loyalty campaigns (view `coupons`) and capacity requests (view `nodecost`)
   var loading = {};
-  // the API-backed views: support and customers, plus (audit §5f-2) the game panels, the fleet, the jobs, the automation rules and the renewals ahead
-  var ALLOWED = ['dash', 'queue', 'ticket', 'customers', 'incidents', 'maintenance', 'gnodes', 'geggs', 'galloc', 'gprov', 'fleet', 'jobsadm', 'automation', 'renewals', 'money', 'coupons', 'nodecost']; // `coupons` = loyalty campaigns, `nodecost` = capacity requests (§5o: two prototype table views repurposed) // documents stay per organization (customer detail), the console has no cross-tenant invoice list yet
+  var denied = {}; // data keys whose read the API refused (403): the view says "Nemáte přístup" instead of showing an empty list
+  /* audit 2026-10 B2: the navigation is the server's (StaffNavigation → ONHOST_BOOT.user.nav) — the items this person may open,
+   * each with the reads it may make. Nothing here decides rights: a view the person cannot use is simply not offered. */
+  var NAV = (B.user && Array.isArray(B.user.nav)) ? B.user.nav : [];
   var PRIO = { kriticka: 'P1', vysoka: 'P2', stredni: 'P3', nizka: 'P4', critical: 'P1', urgent: 'P1', high: 'P2', normal: 'P3', medium: 'P3', low: 'P4' };
   var TARGET = { P1: 15, P2: 60, P3: 240, P4: 480 };
 
@@ -21,11 +23,29 @@
   function tr(cmp, a, b) { return en(cmp) ? b : a; }
   function track(cmp) { if (cmp && cmps.indexOf(cmp) < 0) cmps.push(cmp); }
   function bump() { cmps.forEach(function (c) { try { c.forceUpdate(); } catch (e) {} }); }
-  function load(key, path) {
+  /* a read the navigation does not list for this person is never made; a refused one (403) is remembered as denied */
+  function load(key, path, whole) {
     if (data[key] !== null || loading[key] || !A()) return;
+    if (!apiAllowed(path)) { data[key] = whole ? {} : []; denied[key] = true; return; }
     loading[key] = true;
-    A().get(path).then(function (r) { data[key] = r.data || []; }).catch(function () { data[key] = []; }).then(function () { loading[key] = false; bump(); });
+    A().get(path).then(function (r) { data[key] = whole ? (r || {}) : (r.data || []); delete denied[key]; })
+      .catch(function (e) { data[key] = whole ? {} : []; if (e && e.status === 403) denied[key] = true; })
+      .then(function () { loading[key] = false; bump(); });
   }
+  function isDenied(key) { return !!denied[key]; }
+  /* --- the navigation from the boot object --- */
+  function norm(path) { return String(path || '').split('?')[0].replace(/^\/?(v1\/)?/, '').replace(/\/+$/, ''); }
+  function matches(pattern, path) {
+    var re = new RegExp('^' + norm(pattern).replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\{[^}]+\}/g, '[^/]+') + '$');
+    return re.test(norm(path));
+  }
+  /* whether a visible item lists this read for the person (the server already narrowed each item's api to what they may call) */
+  function apiAllowed(path, method) {
+    var m = (method || 'GET').toUpperCase();
+    return NAV.some(function (it) { return (it.api || []).some(function (a) { return (a.method || 'GET') === m && matches(a.path, path); }); });
+  }
+  function navItem(view) { return NAV.filter(function (it) { return it.screen && it.screen.type === 'view' && it.screen.target === view; })[0] || null; }
+  function navLabel(cmp, view) { var it = navItem(view); return it && it.label ? (en(cmp) ? it.label.en : it.label.cs) : ''; }
   function fmt(ts) {
     if (!ts) return '—';
     var d = new Date(ts);
@@ -43,9 +63,24 @@
   function openTickets(s) { return s.tickets().filter(function (t) { return t.state !== 'vyreseny'; }); }
   function openIncidentList(s) { return s.incidents().filter(function (i) { return i.state !== 'vyreseno'; }); }
 
-  /* --- sidebar: only API-backed areas, every real staff member sees the same console (rights are checked by the API) --- */
-  function allows(view) { return ALLOWED.indexOf(view) >= 0; }
-  function role() { return 'lead'; }
+  /* --- sidebar: the views of the person's navigation items. The console's persona is the prototype's `lead` (whose list holds
+   * every view) filtered by allows(); a member of staff with nothing but the overview is `none` (R10), which the prototype
+   * resolves to its default persona, filtered the same way. --- */
+  function allows(view) { return !!navItem(view); }
+  function role() { return NAV.some(function (it) { return it.screen && it.screen.type === 'view' && it.screen.target !== 'dash'; }) ? 'lead' : 'none'; }
+  /* the sidebar label of a view: the navigation item's (a repurposed prototype view keeps its own label otherwise) */
+  function label(cmp, view) { return navLabel(cmp, view); }
+  /* server pages of the navigation (system settings), for the console's own links */
+  function pages() { return NAV.filter(function (it) { return it.screen && it.screen.type === 'page'; }); }
+  function deniedTable(cmp, title) {
+    return { title: title || tr(cmp, 'Nemáte přístup', 'No access'), note: tr(cmp, 'Nemáte přístup — server tento přehled pro vaši roli odmítl (403). O oprávnění požádejte správce přístupů.', 'No access — the server refused this overview for your role (403). Ask an access administrator for the permission.'),
+      head: [tr(cmp, 'Nemáte přístup', 'No access'), '', ['', ''], '', ''], actions: [], rows: [[tr(cmp, 'Nemáte přístup', 'No access'), tr(cmp, 'chybí oprávnění pro tento přehled', 'a permission for this overview is missing'), ['', ''], 'off', '403', []]], foot: '' };
+  }
+  /* the "Doklady" quick action of the overview: the receivables view when it is the person's, otherwise a plain answer */
+  function documents(cmp) {
+    if (allows('invoices')) { cmp.setState({ view: 'invoices' }); return; }
+    if (cmp.flash) cmp.flash(tr(cmp, 'Nemáte přístup', 'No access'), tr(cmp, 'Doklady a pohledávky vidí fakturace (oprávnění billing.dunning.manage).', 'Documents and receivables are for billing (permission billing.dunning.manage).'));
+  }
 
   /* --- ticket queue rows in the prototype's shape (id, priority, subject, customer, service, sla minutes left, …) --- */
   function tickets() {
@@ -62,21 +97,25 @@
     }).sort(function (a, b) { return a.sla - b.sla; });
   }
   /* the console assumes a selected ticket exists; before the store answers (or with an empty queue) this stands in */
-  function emptyTicket(cmp) { return { id: '—', apiId: null, priority: 'P4', subject: tr(cmp, 'Žádný tiket ve frontě', 'No ticket in the queue'), customer: '', service: '', sla: 999, mine: false, opened: '', replies: 0, plan: '' }; }
+  function storeDenied(kind) { var s = S(); return !!(s && typeof s.denied === 'function' && s.denied(kind)); }
+  function emptyTicket(cmp) { return { id: '—', apiId: null, priority: 'P4', subject: storeDenied('tickets') ? tr(cmp, 'Nemáte přístup k frontě tiketů', 'No access to the ticket queue') : tr(cmp, 'Žádný tiket ve frontě', 'No ticket in the queue'), customer: '', service: '', sla: 999, mine: false, opened: '', replies: 0, plan: '' }; }
   function thread(sel) {
     var s = S();
     var t = s && sel ? s.ticket(sel.id) : null;
     if (!t) return null;
-    var msgs = (t.msgs || []).map(function (m) { return [m.from === 'zakaznik' ? 'user' : 'op', m.text || '', fmt(m.at)]; });
+    var msgs = (t.msgs || []).map(function (m) { return [m.from === 'zakaznik' ? 'user' : 'op', (m.internal ? '[interní poznámka] ' : '') + (m.text || ''), fmt(m.at)]; });
     return msgs.length ? msgs : [['user', t.subject || '', fmt(t.at)]];
   }
   function reply(cmp, sel, text) {
     var s = S();
     if (!s || !sel || !text) return false;
-    s.replyTicket(sel.id, 'podpora', text);
+    s.replyTicket(sel.id, 'podpora', text, { internal: internalNote });
+    if (internalNote && cmp && cmp.flash) cmp.flash(tr(cmp, 'Interní poznámka uložena', 'Internal note saved'), tr(cmp, 'zákazník ji neuvidí', 'the customer does not see it'));
     return true;
   }
-  /* ticket actions [label, primary, handler]: state changes go through the store (PATCH /v1/staff/tickets/{id}/transition) */
+  /* the reply box sends a public answer, or with this switch an internal note (visibility internal: staff only, no e-mail) */
+  var internalNote = false;
+  /* ticket actions [label, primary, handler]: state changes go through the store (POST /v1/staff/tickets/{id}/transition, body `to`) */
   function ticketActions(cmp, sel) {
     var s = S(), t = s && sel ? s.ticket(sel.id) : null;
     if (!t) return [];
@@ -90,6 +129,11 @@
         cmp.setState({ replyDraft: d.draft || '' });
         if (cmp.flash) cmp.flash(tr(cmp, 'Návrh odpovědi je v poli odpovědi', 'The draft is in the reply box'), (d.source === 'llm' ? tr(cmp, 'napsal model', 'written by the model') : tr(cmp, 'sestaveno pravidly', 'written by rules')) + ((d.warnings || []).length ? ' · ' + d.warnings.join(' ') : '') + ' · ' + tr(cmp, 'přečtěte a upravte před odesláním', 'read and edit before sending'));
       }).catch(function (e) { if (cmp.flash) cmp.flash(tr(cmp, 'Návrh se nepodařil', 'The draft failed'), e.message || ''); });
+    }]);
+    out.push([internalNote ? tr(cmp, 'Interní poznámka: zapnuto', 'Internal note: on') : tr(cmp, 'Interní poznámka: vypnuto', 'Internal note: off'), internalNote, function () {
+      internalNote = !internalNote;
+      if (cmp.flash) cmp.flash(internalNote ? tr(cmp, 'Píšete interní poznámku', 'Writing an internal note') : tr(cmp, 'Píšete odpověď zákazníkovi', 'Writing a reply to the customer'), internalNote ? tr(cmp, 'odeslaný text uvidí jen podpora', 'only staff see the text you send') : tr(cmp, 'odeslaný text dostane zákazník', 'the customer receives the text you send'));
+      cmp.forceUpdate();
     }]);
     if (t.state !== 'ceka') out.push([tr(cmp, 'Čeká na zákazníka', 'Waiting for the customer'), false, go('ceka', tr(cmp, 'Označit tiket jako čekající na zákazníka', 'Mark the ticket as waiting for the customer'))]);
     if (t.state === 'ceka') out.push([tr(cmp, 'Znovu otevřít', 'Reopen'), false, go('otevreny', tr(cmp, 'Vrátit tiket do fronty', 'Return the ticket to the queue'))]);
@@ -125,6 +169,7 @@
     track(cmp);
     load('customers', '/staff/customers?limit=200');
     if (data.customers === null) return [];
+    if (isDenied('customers')) return [[tr(cmp, 'Nemáte přístup', 'No access'), '403', tr(cmp, 'seznam zákazníků vám server nevydal', 'the server refused the customer list'), '—', 'off', '—', function () {}, function () {}]];
     var s = S();
     return data.customers.map(function (o) {
       var open = s ? openTickets(s).filter(function (t) { return t.name === o.name || (o.billing && t.email && t.email === o.billing.email); }).length : 0;
@@ -156,6 +201,7 @@
     if (v === 'maintenance') {
       load('maintenance', '/staff/maintenance?limit=100');
       if (data.maintenance === null) return [];
+      if (isDenied('maintenance')) return [{ title: tr(cmp, 'Nemáte přístup', 'No access'), body: tr(cmp, 'Kalendář odstávek vám server nevydal (403).', 'The server refused the maintenance calendar (403).'), facts: [], age: '403', kind: 'off', actions: [] }];
       return data.maintenance.map(function (m) {
         var upcoming = !m.ends_at || new Date(m.ends_at) > new Date();
         return { title: (m.title || m.id), body: (m.description || m.note || m.impact || ''),
@@ -291,7 +337,7 @@
     load('maintenance', '/staff/maintenance?limit=100');
     var s = S();
     var upcoming = (data.maintenance || []).filter(function (m) { return m.state !== 'cancelled' && (!m.ends_at || new Date(m.ends_at) > new Date()); }).length;
-    var g = data.game, b = data.board, r = data.renewals, a = data.automation, j = data.jobs;
+    var g = data.game && data.game.instances ? data.game : null, b = data.board && data.board.nodes ? data.board : null, r = Array.isArray(data.renewals) ? data.renewals : null, a = Array.isArray(data.automation) ? data.automation : null, j = data.jobs && data.jobs.scheduler ? data.jobs : null;
     var gameNodes = g ? g.instances.reduce(function (n, i) { return n + (i.nodes || []).length; }, 0) : null;
     var gameEggs = g ? g.instances.reduce(function (n, i) { return n + Object.keys(i.eggs_mapped || {}).length; }, 0) : null;
     var gameFree = g ? g.instances.reduce(function (n, i) { return n + (i.allocations || []).reduce(function (m, x) { return m + (x.free || 0); }, 0); }, 0) : null;
@@ -318,15 +364,118 @@
   function pctTone(p) { return p >= 90 ? 'hot' : (p >= 75 ? 'warn' : 'ok'); }
   function table(cmp, _, view) {
     track(cmp);
-    if (['gnodes', 'geggs', 'galloc', 'gprov'].indexOf(view) >= 0) { load('game', '/staff/game'); return gameTable(cmp, _, view); }
-    if (view === 'fleet') { load('board', '/staff/provisioning/board'); var ft = fleetTable(cmp, _); if (ft && ft.actions) ft.actions = ft.actions.concat(rebalanceActions(cmp)); return ft; }
-    if (view === 'money') { load('chargebacks', '/staff/chargebacks'); return chargebacksTable(cmp, _); }
-    if (view === 'jobsadm') { load('jobs', '/staff/jobs'); return jobsTable(cmp, _); }
-    if (view === 'automation') { load('automation', '/staff/automation'); return automationTable(cmp, _); }
-    if (view === 'renewals') { load('renewals', '/staff/renewals?days=30'); return renewalsTable(cmp, _); }
-    if (view === 'coupons') { load('loyalty', '/staff/loyalty/campaigns'); return loyaltyTable(cmp, _); }
-    if (view === 'nodecost') { load('capacity', '/staff/capacity'); load('capreq', '/staff/capacity/requests?state=all'); return capacityTable(cmp, _); }
+    var gate = function (keys, render) { return keys.some(isDenied) ? deniedTable(cmp, navLabel(cmp, view)) : render(); };
+    if (['gnodes', 'geggs', 'galloc', 'gprov'].indexOf(view) >= 0) { load('game', '/staff/game'); return gate(['game'], function () { return gameTable(cmp, _, view); }); }
+    if (view === 'fleet') { load('board', '/staff/provisioning/board'); return gate(['board'], function () { var ft = fleetTable(cmp, _); if (ft && ft.actions) ft.actions = ft.actions.concat(rebalanceActions(cmp)).concat(freezeActions(cmp)); return ft; }); }
+    if (view === 'money') { load('chargebacks', '/staff/chargebacks'); return gate(['chargebacks'], function () { return chargebacksTable(cmp, _); }); }
+    if (view === 'jobsadm') { load('jobs', '/staff/jobs'); return gate(['jobs'], function () { return jobsTable(cmp, _); }); }
+    if (view === 'automation') { load('automation', '/staff/automation'); return gate(['automation'], function () { return automationTable(cmp, _); }); }
+    if (view === 'renewals') { load('renewals', '/staff/renewals?days=30'); return gate(['renewals'], function () { return renewalsTable(cmp, _); }); }
+    if (view === 'coupons') { load('loyalty', '/staff/loyalty/campaigns'); return gate(['loyalty'], function () { return loyaltyTable(cmp, _); }); }
+    if (view === 'nodecost') { load('capacity', '/staff/capacity'); load('capreq', '/staff/capacity/requests?state=all'); return gate(['capacity'], function () { return capacityTable(cmp, _); }); }
+    if (GENERIC[view] && allows(view)) return genericTable(cmp, view);
     return null;
+  }
+  /* --- provisioning freeze (incident brake): offered with the fleet to whoever holds provisioning.freeze --- */
+  function freezeActions(cmp) {
+    var out = [];
+    if (apiAllowed('/staff/provisioning/freeze', 'POST')) out.push([tr(cmp, 'Zmrazit provisioning', 'Freeze provisioning'), tr(cmp, 'Nové operace počkají, běžící doběhnou.', 'New operations wait, running ones finish.'), 0, function () {
+      var reason = window.prompt(tr(cmp, 'Důvod zmrazení (zapíše se do auditu):', 'Reason for the freeze (goes to the audit log):'), 'incident'); if (!reason) return;
+      post('/staff/provisioning/freeze', { reason: reason }, null, function () { reloadView('board'); });
+    }]);
+    if (apiAllowed('/staff/provisioning/thaw', 'POST')) out.push([tr(cmp, 'Rozmrazit provisioning', 'Thaw provisioning'), '', 0, function () {
+      if (!window.confirm(tr(cmp, 'Rozmrazit provisioning?', 'Thaw provisioning?'))) return;
+      post('/staff/provisioning/thaw', {}, null, function () { reloadView('board'); });
+    }]);
+    return out;
+  }
+
+  /* --- audit 2026-10 B2: read-only overviews for the staff reads that had no screen. Each reuses a prototype table view (its
+   * sidebar label and page header come from the navigation item); every source is one GET the item lists. --- */
+  var GENERIC = {
+    onboardcust: { note: ['Poptávky z webu a formulářů.', 'Leads from the website and its forms.'], sources: [['/staff/leads?limit=100', ['Poptávky', 'Leads']]] },
+    skills: { note: ['Upozornění pohotovosti a rota na 14 dní.', 'On-call alerts and the rota for 14 days.'], sources: [['/staff/oncall/alerts', ['Upozornění', 'Alerts']], ['/staff/oncall/shifts?days=14', ['Směny', 'Shifts']]] },
+    statuspg: { note: ['Sondy dostupnosti a komponenty stavové stránky.', 'Availability probes and status page components.'], sources: [['/staff/probes', ['Sondy', 'Probes']], ['/staff/incidents/components', ['Komponenty', 'Components']]] },
+    quality: { note: ['Plnění SLO a metriky incidentů.', 'SLO attainment and incident metrics.'], sources: [['/staff/reports/slo', ['SLO', 'SLO']], ['/staff/incidents/metrics', ['Metriky incidentů', 'Incident metrics']]] },
+    infralog: { note: ['Odchylky mapování zdrojů, mazání služeb a SSH klíče, které mohou otevřít relaci.', 'Resource mapping drifts, service deletions and SSH keys that may still open a session.'], sources: [['/staff/resource-mappings', ['Odchylky', 'Drifts']], ['/staff/provisioning/deletions', ['Mazání služeb', 'Deletions']], ['/staff/provisioning/ssh-key-revocations', ['Odvolání SSH klíčů', 'SSH key revocations']]] },
+    shopadm: { note: ['Nabídky partnerů a zakázky marketplace.', 'Partner listings and marketplace orders.'], sources: [['/staff/marketplace/listings', ['Nabídky', 'Listings']], ['/staff/marketplace/orders', ['Zakázky', 'Orders']]] },
+    invoices: { note: ['Doklady po splatnosti a upomínky.', 'Overdue documents and reminders.'], sources: [['/staff/dunning', ['Upomínky', 'Dunning']]], actions: function (cmp) {
+      return apiAllowed('/staff/dunning/run', 'POST') ? [[tr(cmp, 'Spustit upomínkový běh', 'Run dunning'), tr(cmp, 'Upomínky podle pravidel hned.', 'Reminders by the rules now.'), 1, function () { if (window.confirm(tr(cmp, 'Spustit upomínkový běh?', 'Run dunning now?'))) post('/staff/dunning/run', {}, null, function () { reloadGeneric('invoices'); }); }]] : [];
+    } },
+    contracts: { note: ['Odstoupení spotřebitelů od smlouvy.', 'Consumer withdrawals from the contract.'], sources: [['/staff/withdrawals', ['Odstoupení', 'Withdrawals']]] },
+    slapol: { note: ['Kredity za nesplněné SLA ke schválení a vydání.', 'Credits for missed SLAs to approve and issue.'], sources: [['/staff/sla-credits', ['SLA kredity', 'SLA credits']]] },
+    resadm: { note: ['Partneři a jejich žádosti o změnu smlouvy.', 'Partners and their contract change requests.'], sources: [['/staff/partners', ['Partneři', 'Partners']], ['/staff/partners/requests', ['Žádosti', 'Requests']]] },
+    kudos: { note: ['Výplaty provizí partnerům.', 'Commission payouts to partners.'], sources: [['/staff/partners/payouts', ['Výplaty', 'Payouts']]] },
+    finance: { note: ['MRR, inkaso, odchody a tržby.', 'MRR, collections, churn and revenue.'], sources: [['/staff/reports/mrr', ['MRR', 'MRR']], ['/staff/reports/collections', ['Inkaso', 'Collections']], ['/staff/reports/churn', ['Odchody', 'Churn']], ['/staff/reports/revenue', ['Tržby', 'Revenue']]] },
+    users: { note: ['Reset druhého faktoru jiné osoby: s důvodem, auditem a krokem navíc.', 'Resetting somebody else’s second factor: with a reason, an audit row and a step-up.'], sources: [], actions: function (cmp) {
+      return apiAllowed('/staff/users/x/mfa-reset', 'POST') ? [[tr(cmp, 'Resetovat MFA', 'Reset MFA'), tr(cmp, 'ID uživatele a důvod (nejméně 10 znaků).', 'User id and a reason (at least 10 characters).'), 1, function () {
+        var id = window.prompt(tr(cmp, 'ID uživatele:', 'User id:'), ''); if (!id) return;
+        var reason = window.prompt(tr(cmp, 'Důvod (zapíše se do auditu, nejméně 10 znaků):', 'Reason (goes to the audit log, at least 10 characters):'), ''); if (!reason) return;
+        post('/staff/users/' + encodeURIComponent(id.trim()) + '/mfa-reset', { reason: reason.trim() }, function () { window.alert(tr(cmp, 'MFA resetováno.', 'MFA reset.')); });
+      }]] : [];
+    } },
+    mailtpl: { note: ['Šablony zpráv a odchozí pošta.', 'Message templates and the outbox.'], sources: [['/staff/templates', ['Šablony', 'Templates']], ['/staff/outbox?limit=50', ['Odchozí pošta', 'Outbox']]] },
+    content: { note: ['Články, znalostní báze a změnový log, jak je vidí web; úpravy jdou přes /v1/staff/content.', 'Posts, knowledge base and changelog as the website shows them; edits go through /v1/staff/content.'], sources: [['/posts', ['Články', 'Posts']], ['/kb', ['Znalostní báze', 'Knowledge base']], ['/changelog', ['Změnový log', 'Changelog']]] },
+    opsaudit: { note: ['Kybernetické incidenty a regulatorní lhůty.', 'Cyber incidents and regulatory deadlines.'], sources: [['/staff/security/incidents', ['Incidenty', 'Incidents']], ['/staff/compliance/timers', ['Lhůty', 'Deadlines']]] },
+    segments: { note: ['Případy zneužití podle DSA.', 'Abuse cases under the DSA.'], sources: [['/staff/abuse-cases', ['Případy', 'Cases']]] },
+    gdpr: { note: ['Žádosti subjektů údajů.', 'Data subject requests.'], sources: [['/staff/data-requests', ['Žádosti', 'Requests']]] }
+  };
+  function genericKey(path) { return 'g:' + path; }
+  function reloadGeneric(view) { (GENERIC[view].sources || []).forEach(function (src) { data[genericKey(src[0])] = null; delete denied[genericKey(src[0])]; }); bump(); }
+  function genericRows(r) {
+    if (Array.isArray(r)) return r;
+    if (r && Array.isArray(r.data)) return r.data;
+    var body = r && r.data && typeof r.data === 'object' ? r.data : (r || {});
+    return Object.keys(body).filter(function (k) { return k !== 'meta'; }).map(function (k) { return { key: k, value: body[k] }; });
+  }
+  function scalar(v) {
+    if (v === null || v === undefined || v === '') return '';
+    if (typeof v === 'object') {
+      if (v.minor != null) return fmtMoney(v);
+      if (v.decimal != null) return String(v.decimal) + ' ' + (v.currency || '');
+      if (Array.isArray(v)) return v.length + '×';
+      return Object.keys(v).slice(0, 3).map(function (k) { return k + ' ' + (v[k] !== null && typeof v[k] === 'object' ? '…' : v[k]); }).join(' · ');
+    }
+    return String(v);
+  }
+  var TITLE_KEYS = ['title', 'name', 'subject', 'label', 'number', 'template_key', 'key', 'code', 'slug', 'email', 'id'];
+  var STATE_KEYS = ['state', 'status', 'kind', 'type', 'role'];
+  function firstOf(o, keys, used) {
+    var out = '';
+    keys.some(function (k) { if (o[k] !== undefined && o[k] !== null && o[k] !== '') { out = scalar(o[k]); used[k] = 1; return true; } return false; });
+    return out;
+  }
+  function genericRow(o, source) {
+    var used = {}, title = firstOf(o, TITLE_KEYS, used), sub = firstOf(o, STATE_KEYS, used);
+    var cells = Object.keys(o).filter(function (k) { return !used[k] && k !== 'id' && scalar(o[k]) !== ''; }).slice(0, 2).map(function (k) { return k + ': ' + scalar(o[k]); });
+    while (cells.length < 2) cells.push('');
+    var st = String(sub).toLowerCase();
+    var tone = /fail|error|breach|overdue|expired|rejected/.test(st) ? 'hot' : (/open|pending|proposed|waiting|new|queued|frozen/.test(st) ? 'warn' : 'ok');
+    return [title || '—', source, cells, tone, sub, []];
+  }
+  function genericTable(cmp, view) {
+    var g = GENERIC[view], rows = [], waiting = false, refused = 0;
+    g.sources.forEach(function (src) {
+      var key = genericKey(src[0]), label = tr(cmp, src[1][0], src[1][1]);
+      if (data[key] === undefined) data[key] = null;
+      load(key, src[0], true);
+      if (isDenied(key)) { refused++; rows.push([label, tr(cmp, 'Nemáte přístup', 'No access'), [tr(cmp, 'server tento přehled odmítl (403)', 'the server refused this overview (403)'), ''], 'off', '403', []]); return; }
+      if (data[key] === null) { waiting = true; return; }
+      var list = genericRows(data[key]);
+      if (!list.length) rows.push([label, tr(cmp, 'nic tu není', 'nothing here'), ['', ''], 'off', '0', []]);
+      list.slice(0, 50).forEach(function (o) { rows.push(genericRow(o && typeof o === 'object' ? o : { value: o }, label)); });
+    });
+    var title = navLabel(cmp, view), note = tr(cmp, g.note[0], g.note[1]);
+    if (g.sources.length && refused === g.sources.length) return deniedTable(cmp, title);
+    if (waiting && !rows.length) return loadingTable(cmp, title, note);
+    var actions = (g.actions ? g.actions(cmp) : []).concat(g.sources.length ? [[tr(cmp, 'Obnovit', 'Refresh'), '', 0, function () { reloadGeneric(view); }]] : []);
+    return { title: title, note: note, head: [tr(cmp, 'Položka', 'Item'), tr(cmp, 'Přehled', 'Overview'), [tr(cmp, 'Údaj', 'Fact'), tr(cmp, 'Údaj', 'Fact')], tr(cmp, 'Stav', 'State'), ''], actions: actions, rows: rows,
+      foot: g.sources.length ? tr(cmp, 'jen pro čtení · zdroj: ', 'read only · source: ') + g.sources.map(function (x) { return '/v1' + x[0].split('?')[0]; }).join(', ') : '' };
+  }
+  /* the page header of a repurposed view: the navigation item's label and the overview's note */
+  function head(cmp, view) {
+    if (!GENERIC[view] || !allows(view)) return null;
+    return [navLabel(cmp, view), tr(cmp, GENERIC[view].note[0], GENERIC[view].note[1])];
   }
   /* --- §5o-5: loyalty campaigns with the cost forecast before they open --- */
   function fmtMoney(m) { return m && m.minor != null ? (Math.round(m.minor) / 100).toLocaleString('cs-CZ', { maximumFractionDigits: 0 }) + ' ' + (m.currency || 'CZK') : '—'; }
@@ -687,6 +836,6 @@
     cmp.setState({ view: 'incidents' });
   }
 
-  window.OnhostAdmin = { allows: allows, role: role, tickets: tickets, emptyTicket: emptyTicket, thread: thread, reply: reply, ticketActions: ticketActions, quick: quick, context: context, customers: customers, cards: cards, alert: alert, alertTake: alertTake,
+  window.OnhostAdmin = { allows: allows, role: role, label: label, head: head, documents: documents, pages: pages, apiAllowed: apiAllowed, denied: isDenied, tickets: tickets, emptyTicket: emptyTicket, thread: thread, reply: reply, ticketActions: ticketActions, quick: quick, context: context, customers: customers, cards: cards, alert: alert, alertTake: alertTake,
     capacity: capacity, log: log, notifs: notifs, unread: unread, kpis: kpis, openIncidents: openIncidents, counts: counts, newIncident: newIncident, dashPanels: dashPanels, timeline: timeline, table: table, boot: B };
 })();

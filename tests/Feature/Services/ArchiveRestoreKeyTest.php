@@ -12,6 +12,8 @@ use Onhost\Domain\Services\ServiceArchiveService;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
 
+require_once __DIR__.'/../../Support/ArchiveRestoreHelpers.php';
+
 /*
  * Red-team round on the integrated Phase-0 chain (TASK-0035, IF-11 / IF-12):
  *  · the two doors to one archive restore kept three different keys — the archive endpoint `archive.restore:<backup>:<header>`

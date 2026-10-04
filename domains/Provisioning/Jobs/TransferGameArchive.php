@@ -9,6 +9,7 @@ use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
+use Onhost\Domain\Provisioning\InstanceContained;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\ProviderRegistry;
@@ -66,6 +67,9 @@ final class TransferGameArchive implements ShouldQueue
             }
             $result = $destination->importArchive($target->ref(), $url, 'onhost-migration.tar.gz');
             $cache->put(self::cacheKey($operation->id), ['state' => 'done', 'bytes' => $result['bytes'], 'at' => now()->toIso8601String()], 86400);
+        } catch (InstanceContained $e) {
+            // a panel of the move is contained (TASK-0045 review B): nothing was sent — the saga parks and starts the transfer again after the lift
+            $cache->put(self::cacheKey($operation->id), ['state' => 'contained', 'instance_state' => $e->instanceState, 'at' => now()->toIso8601String()], 86400);
         } catch (Throwable $e) {
             $cache->put(self::cacheKey($operation->id), ['state' => 'failed', 'error' => mb_substr($e->getMessage(), 0, 300), 'at' => now()->toIso8601String()], 86400);
         }
