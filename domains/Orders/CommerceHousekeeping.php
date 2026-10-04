@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Orders;
 
 use Illuminate\Support\Facades\DB;
+use Onhost\Domain\Domains\DomainService;
 use Onhost\Domain\Orders\Models\Cart;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\Models\Quote;
@@ -41,7 +42,8 @@ final class CommerceHousekeeping
         }
 
         // TASK-0021: a credit order nobody approved is unpaid as well; it expires after its own deadline (credit_approval.expire_days)
-        return $expired + app(CreditOrderApprovals::class)->expirePending();
+        // TASK-0058: a paid transfer line whose code never came fails after its waiting period, so its money goes back
+        return $expired + app(CreditOrderApprovals::class)->expirePending() + app(DomainService::class)->expireAwaitingTransfers();
     }
 
     /** @return array{quotes:int, carts:int} */
