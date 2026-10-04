@@ -11,6 +11,7 @@ use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
 use Onhost\Domain\Identity\Authorization\PermissionCatalog;
 use Onhost\Domain\Identity\Authorization\RoleCatalog;
 use Onhost\Domain\Identity\Authorization\RoleResolver;
+use Onhost\Domain\Identity\Authorization\TokenScopes;
 use Onhost\Domain\Identity\Models\ServiceAccount;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Organizations\Models\AccessSnapshot;
@@ -148,7 +149,7 @@ final class GrantPolicy
         if ($scope->organizationId === null || $permissions === []) {
             return null;
         }
-        $rows = PolicyBinding::query()->where('principal_type', $actor instanceof ServiceAccount ? 'service_account' : 'user')->where('principal_id', (string) $actor->getAuthIdentifier())
+        $rows = PolicyBinding::query()->where('principal_type', $actor instanceof ServiceAccount ? 'service_account' : 'user')->where('principal_id', (string) $actor->getKey())
             ->where('organization_id', $scope->organizationId)->whereIn('scope_type', ['organization', 'project', 'resource'])
             ->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))->get();
         $ends = []; // permission => ?Carbon, null = for ever; a permission not listed is not held
@@ -228,6 +229,7 @@ final class GrantPolicy
     public function assertMayTransferOwnership(Organization $organization, CommandContext $context, User $target): OrganizationMembership
     {
         $membership = self::currentMembership($organization, $target);
+        self::assertNotGuest($membership);
         if ($context->actorType === 'system') {
             return $membership;
         }
@@ -336,16 +338,58 @@ final class GrantPolicy
     /**
      * An API token for `$user` in the organization (I5, I8): only a current member's, ending no later than their membership. A
      * token of somebody on access until the 10th stayed valid for the 365 days asked — the membership's end took the bindings,
-     * the token outlived them as a credential with an owner who was gone.
+     * the token outlived them as a credential with an owner who was gone. TASK-0044: and no later than the bindings behind the
+     * scopes it asks for (scopesEnd).
+     *
+     * @param  list<string>  $scopes
      */
-    public function assertMayIssueToken(Organization $organization, User $user, CarbonInterface $expires): CarbonInterface
+    public function assertMayIssueToken(Organization $organization, User $user, CarbonInterface $expires, array $scopes = []): CarbonInterface
     {
         $membership = OrganizationMembership::query()->where('organization_id', $organization->id)->where('user_id', $user->id)->current()->first();
         if ($membership === null) {
             throw DomainError::notFound('member');
         }
+        $end = self::clamp($expires, $membership->expires_at) ?? $expires;
 
-        return self::clamp($expires, $membership->expires_at) ?? $expires;
+        return self::clamp($end, $this->scopesEnd($organization, $user, $scopes)) ?? $end;
+    }
+
+    /**
+     * TASK-0044 (S1-07 red team, I5): until when the bindings behind `$scopes` last — per scope the latest end among the person's live
+     * bindings in the organization that carry a permission the scope stands for (TokenScopes), then the earliest of those; null = no
+     * end. The membership's end was the only cap: a member for good holding the console through a share until the 10th made a
+     * `services:console` token for a year, and the token outlived the share as a credential for a console its owner no longer had.
+     * A scope nothing carries sets no end (it grants nothing — the person's own rights are asked at every use).
+     *
+     * @param  list<string>  $scopes
+     */
+    public function scopesEnd(Organization $organization, User $user, array $scopes): ?CarbonInterface
+    {
+        if ($scopes === []) {
+            return null;
+        }
+        $rows = PolicyBinding::query()->where('principal_type', 'user')->where('principal_id', $user->id)->where('organization_id', $organization->id)
+            ->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))->get();
+        $until = null;
+        foreach (array_unique($scopes) as $scope) {
+            $behind = array_keys(array_filter(TokenScopes::decisions(), fn (?string $for) => $for === $scope));
+            $carried = false;
+            $latest = null; // with $carried: null = for ever
+            foreach ($rows as $row) {
+                if (array_intersect(self::permissionsOf((string) $row->getAttribute('role_key')) ?? [], $behind) === []) {
+                    continue;
+                }
+                $end = $row->getAttribute('expires_at');
+                $end = $end instanceof CarbonInterface ? $end : null;
+                $latest = ! $carried ? $end : ($latest === null || $end === null ? null : ($end->greaterThan($latest) ? $end : $latest));
+                $carried = true;
+            }
+            if ($carried) {
+                $until = self::clamp($until, $latest);
+            }
+        }
+
+        return $until;
     }
 
     /**
@@ -378,6 +422,14 @@ final class GrantPolicy
             throw new DomainError('snapshot_expired', 'This snapshot is older than its retention and can no longer be restored; invite the person again.', 410);
         }
         $target = User::query()->find($snapshot->user_id) ?? throw DomainError::notFound('user');
+        // TASK-0044 (I10, S1-07 red team): somebody who left on their own was pulled back for 90 days without being asked — they come
+        // back by an invitation they accept. An account that is disabled or erased is given nothing back either.
+        if ($snapshot->taken_by !== null && $snapshot->taken_by === $target->id) {
+            throw DomainError::conflict('snapshot_self_leave', 'This person left the organization on their own; invite them again and they accept it.');
+        }
+        if (! $target->isActive()) {
+            throw DomainError::conflict('snapshot_person_inactive', 'This account is disabled or closed; its access is not given back.');
+        }
         $access = (array) $snapshot->access;
         $role = $access['membership']['role'] ?? null;
         if ($role === 'owner' || $organization->owner_user_id === $target->id) {
@@ -455,7 +507,7 @@ final class GrantPolicy
             throw new DomainError('ownership_offer_invalid', 'This ownership offer is no longer valid: the organization has another owner now.', 409);
         }
         $heir = User::query()->find($transfer->to_user_id) ?? throw DomainError::notFound('user');
-        self::currentMembership($organization, $heir);
+        self::assertNotGuest(self::currentMembership($organization, $heir)); // TASK-0044: made a guest since the offer
 
         return $heir;
     }
@@ -467,13 +519,16 @@ final class GrantPolicy
      * binding: the accepted link they sent for that role), and a single-service share they made. The owner's grants, and the
      * platform's, are never here. GrantCascade records these, or revokes them behind `onhost.grants.cascade_enabled`.
      *
-     * @return list<array{kind: 'membership'|'project_role'|'service_share', user_id: string, role: string, ref: string, scope_id: ?string}>
+     * TASK-0044 (S1-01 LOW): a service account's organization or project binding the grantor gave is one of their grants too (kind
+     * `service_account_role`, `user_id` = the account) — a pipeline an admin set up kept the admin's rights after the admin left.
+     *
+     * @return list<array{kind: 'membership'|'project_role'|'service_share'|'service_account_role', user_id: string, role: string, ref: string, scope_id: ?string}>
      */
     public function dependents(Organization $organization, string $grantorId): array
     {
         $found = [];
         $orgScope = CommandScope::organization($organization->id);
-        $bindings = PolicyBinding::query()->where('principal_type', 'user')->where('organization_id', $organization->id)
+        $bindings = PolicyBinding::query()->whereIn('principal_type', ['user', 'service_account'])->where('organization_id', $organization->id)
             ->whereIn('scope_type', ['organization', 'project'])->where('principal_id', '!=', $grantorId)->where('role_key', '!=', 'owner')
             ->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))->get();
         foreach ($bindings as $binding) {
@@ -481,6 +536,15 @@ final class GrantPolicy
             $role = (string) $binding->getAttribute('role_key');
             $grantedBy = (string) ($binding->getAttribute('granted_by') ?? '');
             if ($grantedBy !== $grantorId && ! ($grantedBy === $principal && $binding->getAttribute('scope_type') === 'organization' && $this->legacyLinkFrom($organization, $principal, $role, $grantorId))) {
+                continue;
+            }
+            if ($binding->getAttribute('principal_type') === 'service_account') {
+                $scope = $binding->getAttribute('scope_type') === 'organization' ? $orgScope : CommandScope::project((string) $binding->getAttribute('scope_id'), $organization->id);
+                if ($this->grantorBacks($organization, $grantorId, $scope, self::permissionsOf($role) ?? [])) {
+                    continue;
+                }
+                $found[] = ['kind' => 'service_account_role', 'user_id' => $principal, 'role' => $role, 'ref' => (string) $binding->getKey(), 'scope_id' => $binding->getAttribute('scope_id') !== null ? (string) $binding->getAttribute('scope_id') : null];
+
                 continue;
             }
             if ($binding->getAttribute('scope_type') === 'organization') {
@@ -567,7 +631,7 @@ final class GrantPolicy
         }
         $account = ServiceAccount::query()->find($id);
 
-        return $account !== null && $account->organization_id === $organization->id ? $account : null;
+        return $account !== null && $account->organization_id === $organization->id && $account->isActive() ? $account : null; // TASK-0044: only while active
     }
 
     /**
@@ -631,7 +695,7 @@ final class GrantPolicy
         $grantor = $user !== null
             ? (OrganizationMembership::query()->where('organization_id', $organization->id)->where('user_id', $user->id)->current()->exists() ? $user : null)
             : ServiceAccount::query()->where('organization_id', $organization->id)->find($grantorId);
-        if ($grantor === null) {
+        if ($grantor === null || ($grantor instanceof ServiceAccount && ! $grantor->isActive())) { // TASK-0044: a disabled account backs nothing
             return false;
         }
         $this->authorizer->forget($grantor); // asked right after the change that may have taken it
@@ -728,6 +792,14 @@ final class GrantPolicy
         }
     }
 
+    /** TASK-0044 (S1-01 LOW, D21): a guest holds single shared services only — the organization is never offered to one. */
+    private static function assertNotGuest(OrganizationMembership $membership): void
+    {
+        if ($membership->role_key === 'guest') {
+            throw new DomainError('owner_transfer_guest', 'A guest holds shared services only; the ownership goes to a member of the organization.', 422, ['field' => 'user_id']);
+        }
+    }
+
     private static function currentMembership(Organization $organization, User $target): OrganizationMembership
     {
         $membership = OrganizationMembership::query()->where('organization_id', $organization->id)->where('user_id', $target->id)->current()->first();
@@ -777,7 +849,12 @@ final class GrantPolicy
             return null;
         }
         if ($context->actorType === 'service_account') {
-            return ServiceAccount::query()->find((string) $context->actorId) ?? throw DomainError::forbidden('Unknown actor.');
+            $account = ServiceAccount::query()->find((string) $context->actorId) ?? throw DomainError::forbidden('Unknown actor.');
+            if (! $account->isActive()) { // TASK-0044 (S1-01 LOW): a disabled pipeline was still compared as a grantor with every right it once had
+                throw new DomainError('grantor_inactive', 'This service account is disabled; it grants and changes nothing.', 403);
+            }
+
+            return $account;
         }
 
         return User::query()->find((string) ($context->onBehalfOfUserId ?? $context->actorId)) ?? throw DomainError::forbidden('Unknown actor.');

@@ -49,7 +49,7 @@ final class IdentityCommandHandler implements CommandHandler
         // member gets one, and it ends no later than their membership does (a member on access until the 10th got a year)
         $organization = Organization::query()->find($command->organizationId) ?? throw DomainError::notFound('organization');
         OwnerRecoveries::assertNoHold($organization, 'api_token'); // D21: no credential leaves an organization whose owner is being recovered
-        $expires = app(GrantPolicy::class)->assertMayIssueToken($organization, $user, now()->addDays(max(1, min(365, $days))));
+        $expires = app(GrantPolicy::class)->assertMayIssueToken($organization, $user, now()->addDays(max(1, min(365, $days))), $scopes); // TASK-0044: and the bindings behind its scopes
         $name = trim((string) $command->get('name', ''));
         if ($name === '') {
             throw new DomainError('api_token_name_required', 'Name the token so it can be recognised in the audit log.', 422, ['field' => 'name']);

@@ -17,6 +17,7 @@ use Onhost\Platform\Eloquent\Model;
  * @property Carbon $expires_at
  * @property ?Carbon $decided_at
  * @property ?string $decided_by
+ * @property ?string $recovery_id the owner recovery (transfer mode) that made this offer; only support withdraws it (TASK-0044)
  * @property ?Carbon $created_at
  */
 final class OwnershipTransfer extends Model
