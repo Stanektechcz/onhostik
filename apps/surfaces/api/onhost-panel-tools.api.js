@@ -541,7 +541,7 @@
   /* Add-ons hub: staging, git deploy, WordPress, monitoring, CDN, import, Node.js, security, quotas. */
   WEB.addons = function (ctx) {
     var _ = ctx._;
-    var avail = HUB.filter(function (k) { return k === 'hooks' ? (ctx.f.actions || []).some(function (a) { return HOOK_LABELS[a]; }) : ctx.on(k); });
+    var avail = HUB.filter(function (k) { return k === 'hooks' ? (ctx.f.actions || []).some(function (a) { return HOOK_LABELS[a]; }) : (ctx.on(k) || (k === 'node_projects' && ctx.on('node_projects_exit'))); });
     if (!avail.length) return null;
     var current = avail.indexOf(ctx.s.wbTool) >= 0 ? ctx.s.wbTool : avail[0];
     var panel = SECTION[current](ctx) || info(ctx, 'real:hub', ctx.sel.name, '', []);
@@ -762,16 +762,39 @@
     return panel;
   };
 
+  /* Node.js projects. On a closed shared node (feature node_projects_exit, reason shared_node) the projects that already run
+   * there can be stopped or deleted and nothing else: no create form, no start, no restart (TASK-0071 / TASK-0072). */
   SECTION.node_projects = function (ctx) {
-    var _ = ctx._, sel = ctx.sel;
+    var _ = ctx._, sel = ctx.sel, X = ctx.X;
+    var full = ctx.on('node_projects');
+    var ops = full ? ['start', 'stop', 'restart', 'delete'] : ['stop', 'delete'];
     var list = res(ctx, 'node_projects');
-    var panel = table(ctx, 'real:node', _('Node.js projekty · ', 'Node.js projects · ') + sel.name, _('aplikace běžící na portu pod správcem procesů; doménu na ni nasměrujeme reverzní proxy', 'apps running on a port under the process manager; a domain is pointed at it through a reverse proxy'),
+    var label = { start: _('Start', 'Start'), stop: _('Stop', 'Stop'), restart: _('Restart', 'Restart'), delete: _('Smazat', 'Delete') };
+    var run = function (x, op) {
+      return act(ctx, 'node.action', { remote_id: x.remote_id, op: op }, ['node_projects'], _('Projekt: ', 'Project: ') + label[op], '');
+    };
+    var ask = function (x, op) {
+      if (op !== 'delete' && op !== 'stop') { run(x, op); return; }
+      var del = op === 'delete';
+      X.dialog(ctx.cmp, {
+        title: del ? _('Smazat projekt ' + x.name + '?', 'Delete project ' + x.name + '?') : _('Zastavit projekt ' + x.name + '?', 'Stop project ' + x.name + '?'),
+        lead: sel.name,
+        lines: del ? [_('Projekt se odebere ze správce procesů a přestane běžet.', 'The project is removed from the process manager and stops running.'), _('Soubory aplikace ve složce webu zůstávají.', 'The application files in the site folder stay.')]
+          : [_('Aplikace přestane odpovídat, dokud ji nespustíte znovu.', 'The application stops answering until it is started again.')].concat(full ? [] : [_('Na tomto sdíleném serveru ji už znovu spustit nepůjde.', 'On this shared server it can no longer be started again.')]),
+        confirm: del ? _('Smazat projekt', 'Delete project') : _('Zastavit projekt', 'Stop project'), danger: true
+      }).then(function (yes) { if (yes) run(x, op); });
+    };
+    var note = full ? _('aplikace běžící na portu pod správcem procesů; doménu na ni nasměrujeme reverzní proxy', 'apps running on a port under the process manager; a domain is pointed at it through a reverse proxy')
+      : _('Na tomto sdíleném serveru se nové projekty nezakládají a stávající nejdou spustit ani restartovat. Zastavit a smazat je můžete.', 'No new projects are created on this shared server and existing ones cannot be started or restarted. You can still stop and delete them.');
+    var form = !full ? null : { title: _('Nový projekt', 'New project'), fields: [ctx.F('a', _('název', 'name'), '0 0 160px'), ctx.F('b', _('složka v kořeni webu (např. app) a start skript (např. app.js), oddělte mezerou', 'folder in the site root (e.g. app) and start script (e.g. app.js), space separated'), '1 1 320px'), ctx.F('c', _('port (1024–65535)', 'port (1024–65535)'), '0 0 140px')], submit: _('Vytvořit', 'Create'), on: function () {
+      var parts = v(ctx, 'b').split(/\s+/);
+      act(ctx, 'node.create', { name: v(ctx, 'a'), path: parts[0] || '', script: parts[1] || 'index.js', port: parseInt(v(ctx, 'c'), 10) || 0, domains: [sel.name] }, ['node_projects'], _('Projekt se zakládá', 'Creating the project'), '');
+    } };
+    var panel = table(ctx, 'real:node', _('Node.js projekty · ', 'Node.js projects · ') + sel.name, note,
       list, [ctx.cell(_('Projekt', 'Project'), '1 1 200px'), ctx.cell(_('Port · verze', 'Port · version'), '0 0 140px'), ctx.cell(_('Stav', 'State'), '0 0 100px')],
-      function (x) { return { cells: [ctx.cell(x.name + (x.domains && x.domains.length ? ' · ' + x.domains.join(', ') : ''), '1 1 200px', 1), ctx.cell((x.port || '—') + ' · ' + (x.version || '—'), '0 0 140px', 1), ctx.cell(x.state || '—', '0 0 100px')], note: x.path || '', actions: ['start', 'stop', 'restart', 'delete'].map(function (op) { return ctx.A({ start: _('Start', 'Start'), stop: _('Stop', 'Stop'), restart: _('Restart', 'Restart'), delete: _('Smazat', 'Delete') }[op], function () { if (op !== 'delete' || window.confirm(_('Smazat projekt ' + x.name + '?', 'Delete project ' + x.name + '?'))) act(ctx, 'node.action', { remote_id: x.remote_id, op: op }, ['node_projects'], _('Projekt: ', 'Project: ') + op, ''); }); }) }; },
-      { title: _('Nový projekt', 'New project'), fields: [ctx.F('a', _('název', 'name'), '0 0 160px'), ctx.F('b', _('složka v kořeni webu (např. app) a start skript (např. app.js), oddělte mezerou', 'folder in the site root (e.g. app) and start script (e.g. app.js), space separated'), '1 1 320px'), ctx.F('c', _('port (1024–65535)', 'port (1024–65535)'), '0 0 140px')], submit: _('Vytvořit', 'Create'), on: function () {
-        var parts = v(ctx, 'b').split(/\s+/);
-        act(ctx, 'node.create', { name: v(ctx, 'a'), path: parts[0] || '', script: parts[1] || 'index.js', port: parseInt(v(ctx, 'c'), 10) || 0, domains: [sel.name] }, ['node_projects'], _('Projekt se zakládá', 'Creating the project'), '');
-      } }, [], 'node_projects');
+      function (x) { return { cells: [ctx.cell(x.name + (x.domains && x.domains.length ? ' · ' + x.domains.join(', ') : ''), '1 1 200px', 1), ctx.cell((x.port || '—') + ' · ' + (x.version || '—'), '0 0 140px', 1), ctx.cell(x.state || '—', '0 0 100px')], note: x.path || '', actions: ops.map(function (op) { return ctx.A(label[op], function () { ask(x, op); }); }) }; },
+      form, [], 'node_projects');
+    if (!full) panel.reason = 'shared_node';
     return panel;
   };
 
@@ -922,9 +945,43 @@
         p.current || !d.changeable ? [] : [ctx.A(yearly ? _('Platit ročně', 'Bill yearly') : _('Platit měsíčně', 'Bill monthly'), function () { changePlan(ctx, p, d); })]]);
     });
   }
+  /* The subscription behind this service: renewal and ending (POST /subscriptions/{id}/auto-renew and /cancel, TASK-0072).
+   * The list is read once per service (every page, A().all) and dropped after a change so the next render reads it again. */
+  function subscriptionOf(ctx) {
+    var key = ctx.sel.id + ':subscription', r = ctx.X.state.resources[key];
+    if (r === undefined) {
+      ctx.X.state.resources[key] = null;
+      API.all('/subscriptions').then(function (res) {
+        var list = Array.isArray(res) ? res : ((res && res.data) || []);
+        ctx.X.state.resources[key] = list.filter(function (x) { return x.service_id === ctx.sel.id; })[0] || false;
+      }).catch(function (e) { ctx.X.state.resources[key] = { __error: (e && e.message) || 'error' }; }).then(function () { ctx.X.rerender(ctx.cmp); });
+    }
+    return r === undefined ? null : r;
+  }
+  function renewalPairs(ctx, pairs) {
+    var _ = ctx._, sub = subscriptionOf(ctx), label = _('Předplatné', 'Subscription');
+    if (sub === null) { pairs.push([label, _('načítám…', 'loading…')]); return; }
+    if (!sub || sub.__error) { if (sub && sub.__error) pairs.push([label, sub.__error]); return; }
+    var date = function (iso) { return iso ? new Date(iso).toLocaleDateString(ctx.X.T(ctx.cmp)('cs-CZ', 'en-GB')) : ''; };
+    var ending = !!sub.cancel_at_period_end, auto = !!sub.auto_renew;
+    var text = ending ? _('skončí ', 'ends ') + date(sub.current_period_end || sub.next_renewal_at)
+      : (auto ? _('obnovuje se automaticky z kreditu · příští obnova ', 'renews automatically from credit · next renewal ') + date(sub.next_renewal_at)
+        : _('automatická obnova je vypnutá · období do ', 'automatic renewal is off · period until ') + date(sub.current_period_end || sub.next_renewal_at));
+    var active = sub.state === 'active';
+    var reload = function () { drop(ctx, ['subscription']); };
+    var change = function (kind) { return function () { WB.subscriptionChange(ctx.cmp, sub, kind, reload); }; };
+    var actions = [];
+    if (ending) actions.push(ctx.A(_('Zachovat předplatné', 'Keep the subscription'), change('keep')));
+    else if (active) {
+      actions.push(ctx.A(auto ? _('Vypnout automatickou obnovu', 'Turn automatic renewal off') : _('Zapnout automatickou obnovu', 'Turn automatic renewal on'), change(auto ? 'auto_off' : 'auto_on')));
+      actions.push(ctx.A(_('Ukončit ke konci období', 'End at the end of the period'), change('cancel')));
+    }
+    pairs.push([label, text, ending ? _('služba po tomto dni skončí; do té doby můžete ukončení vzít zpět', 'the service ends after this day; you can take it back until then') : '', actions]);
+  }
   function planInfo(ctx) {
     var _ = ctx._, pairs = [];
     planPairs(ctx, pairs);
+    renewalPairs(ctx, pairs);
     return info(ctx, 'real:plan', _('Výkon a tarif · ', 'Resources and plan · ') + ctx.sel.name, _('změna tarifu proběhne za provozu; doplatek je poměrná část do konce období, nová cena platí od příštího období', 'a plan change happens live; you pay the pro-rated difference for the rest of the period, the new price applies from the next one'), pairs, [refreshBtn(ctx, ['plans'])]);
   }
 
@@ -933,6 +990,7 @@
     var q = res(ctx, 'quotas');
     var pairs = q === null ? [[_('Stav', 'State'), _('načítám…', 'loading…')]] : (q.__error ? [[_('Chyba', 'Error'), q.__error]] : [[_('Obsazený prostor', 'Disk used'), bytes(q.disk_used_bytes) + (q.disk_limit_bytes ? ' / ' + bytes(q.disk_limit_bytes) : '')], [_('Přenos tento měsíc', 'Traffic this month'), bytes(q.traffic_used_bytes) + (q.traffic_limit_bytes ? ' / ' + bytes(q.traffic_limit_bytes) : '')], [_('Počet souborů', 'Files'), q.inodes_used == null ? '—' : String(q.inodes_used)], [_('Změřeno', 'Measured'), ctx.X.since(ctx.cmp, q.measured_at) || '—']]);
     planPairs(ctx, pairs);
+    renewalPairs(ctx, pairs);
     return info(ctx, 'real:quotas', _('Kvóty · ', 'Quotas · ') + sel.name, _('prostor a přenos podle tarifu; při překročení web nepozastavujeme, ale ozveme se', 'disk and traffic per plan; we do not suspend the site when exceeded, we get in touch'), pairs, [refreshBtn(ctx, ['quotas'])]);
   };
 
