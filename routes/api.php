@@ -360,6 +360,7 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
     Route::post('domains/{domain}/auto-renew', [DomainController::class, 'autoRenew']);
     Route::post('domains/{domain}/transfer-lock', [DomainController::class, 'transferLock']);
     Route::post('domains/{domain}/auth-info', [DomainController::class, 'authInfo']);
+    Route::post('domains/{domain}/holder', [DomainController::class, 'holder']);
     Route::post('domains/{domain}/dnssec/publish', [DomainController::class, 'publishDs']);
     Route::post('domains/{domain}/pair', [RegistrarConnectionController::class, 'pair']);
     Route::post('domains/{domain}/unpair', [RegistrarConnectionController::class, 'unpair']);

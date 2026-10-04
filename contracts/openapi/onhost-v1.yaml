@@ -2077,11 +2077,16 @@ paths:
                   -
                     $ref: '#/components/schemas/List'
         422:
-          description: 'Validation or domain rule violation'
+          description: 'Validation or domain rule violation — error: `domain_action_invalid`'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Problem'
+                allOf:
+                  -
+                    $ref: '#/components/schemas/Problem'
+                  -
+                    properties:
+                      error: { enum: [domain_action_invalid] }
         429:
           description: 'Rate limited'
           content:
@@ -2370,11 +2375,16 @@ paths:
                   -
                     $ref: '#/components/schemas/List'
         422:
-          description: 'Validation or domain rule violation'
+          description: 'Validation or domain rule violation — error: `domain_action_invalid`'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Problem'
+                allOf:
+                  -
+                    $ref: '#/components/schemas/Problem'
+                  -
+                    properties:
+                      error: { enum: [domain_action_invalid] }
         429:
           description: 'Rate limited'
           content:
@@ -3890,11 +3900,16 @@ paths:
                   -
                     $ref: '#/components/schemas/List'
         422:
-          description: 'Validation or domain rule violation'
+          description: 'Validation or domain rule violation — error: `transfer_needs_order`, `transfer_order_mismatch`, `domain_invalid`'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Problem'
+                allOf:
+                  -
+                    $ref: '#/components/schemas/Problem'
+                  -
+                    properties:
+                      error: { enum: [transfer_needs_order, transfer_order_mismatch, domain_invalid] }
         429:
           description: 'Rate limited'
           content:
@@ -3925,6 +3940,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
+        409:
+          description: 'Conflict with the current state — error: `transfer_order_not_paid`, `transfer_already_submitted`, `transfer_line_closed`, `domain_taken`'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  -
+                    $ref: '#/components/schemas/Problem'
+                  -
+                    properties:
+                      error: { enum: [transfer_order_not_paid, transfer_already_submitted, transfer_line_closed, domain_taken] }
       security:
         -
           session: []
@@ -3936,7 +3962,44 @@ paths:
           application/json:
             schema:
               type: object
-              additionalProperties: true
+              required:
+                - fqdn
+                - auth_info
+                - consent
+              properties:
+                fqdn:
+                  type: string
+                  maxLength: 253
+                order_item_id:
+                  type: string
+                  maxLength: 40
+                  description: 'The PAID order line `action: transfer` for this name (TASK-0058). Required for customers; only staff acting as staff may transfer without one.'
+                auth_info:
+                  type: string
+                  maxLength: 64
+                  writeOnly: true
+                  description: 'Transfer code (AUTH-ID) from the current registrar; kept encrypted until the registrar has it, never returned.'
+                registrant_contact_id:
+                  type: string
+                registrant:
+                  type: object
+                nameservers:
+                  type: array
+                  items:
+                    type: string
+                period:
+                  type: integer
+                  minimum: 1
+                  maximum: 10
+                  description: 'Ignored with an order line: the paid years decide.'
+                consent:
+                  type: object
+                  required:
+                    - person
+                  properties:
+                    person:
+                      type: string
+                      maxLength: 190
   '/domains/{domain}':
     get:
       operationId: domainShow
@@ -4226,6 +4289,103 @@ paths:
             schema:
               type: object
               additionalProperties: true
+  '/domains/{domain}/holder':
+    post:
+      operationId: domainHolder
+      tags:
+        - domains
+      summary: 'POST /domains/{domain}/holder'
+      parameters:
+        -
+          name: domain
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        201:
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        422:
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        200:
+          description: 'Success (idempotent replay or synchronous result)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        401:
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        403:
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        404:
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+        -
+          bearer: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                  maxLength: 190
+                phone:
+                  type: string
+                  maxLength: 40
+                street:
+                  type: string
+                  maxLength: 190
+                city:
+                  type: string
+                  maxLength: 120
+                postal_code:
+                  type: string
+                  maxLength: 20
+                country:
+                  type: string
+                  minLength: 2
+                  maxLength: 2
+              description: 'How the holder is reached (e-mail, phone, address), changed at the registrar first. HIGH: needs a fresh step-up. The holder himself (name, company, IČO, DIČ) is a transfer of the domain and is refused.'
   '/domains/{domain}/nameservers':
     post:
       operationId: domainNameservers
@@ -7414,11 +7574,16 @@ paths:
                   -
                     $ref: '#/components/schemas/List'
         422:
-          description: 'Validation or domain rule violation'
+          description: 'Validation or domain rule violation — error: `domain_action_invalid`'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Problem'
+                allOf:
+                  -
+                    $ref: '#/components/schemas/Problem'
+                  -
+                    properties:
+                      error: { enum: [domain_action_invalid] }
         429:
           description: 'Rate limited'
           content:

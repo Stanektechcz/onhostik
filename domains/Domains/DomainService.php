@@ -9,6 +9,8 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Catalog\CatalogService;
+use Onhost\Domain\Catalog\Models\DomainPrice;
+use Onhost\Domain\Catalog\Models\TldPolicy;
 use Onhost\Domain\Dns\DnsService;
 use Onhost\Domain\Dns\Models\DnsZone;
 use Onhost\Domain\Domains\Models\Domain;
@@ -104,7 +106,7 @@ final class DomainService
                 $price = $this->catalog->domainPrice($tld, $currency);
                 $entry = array_merge($entry, [
                     'fqdn' => $fqdn, 'unicode' => Hostname::unicode($fqdn), 'tld' => $tld, 'supported' => (bool) $policy->registrable,
-                    'price_register' => $price->register()->minor, 'price_renew' => $price->renew()->minor, 'price_transfer' => $price->transfer()->minor,
+                    'price_register' => $price->register()->minor, 'price_renew' => $price->renew()->minor, 'price_transfer' => self::transferPrice($price, $policy)->minor, 'transfer_years' => self::transferYears($policy),
                     'periods' => (array) ($policy->periods ?: [1]), 'policy' => [
                         'idn' => (bool) $policy->idn, 'dnssec' => (bool) $policy->dnssec_supported, 'nsset_required' => (bool) $policy->nsset_required, 'contact_schema' => $policy->contact_schema, 'transfer_mode' => $policy->transfer_mode,
                         'grace_days' => (int) $policy->grace_days, 'registry_terms_url' => $policy->registry_terms_url, 'registrar_terms_url' => $policy->registrar_terms_url, 'requirements' => (array) data_get($policy->meta, 'requirements', []),
@@ -143,6 +145,22 @@ final class DomainService
         }
 
         return $out;
+    }
+
+    /**
+     * The transfer price a customer is SHOWN (TASK-0066): what the cart charges for a transfer line with no period of its own —
+     * the list renewal price for the years it brings (QuoteService, TASK-0058). The catalogue's own transfer price (0 Kč for .cz)
+     * paid the registrar nothing and is not what anybody pays.
+     */
+    public static function transferPrice(DomainPrice $price, TldPolicy $policy): Money
+    {
+        return $price->renew()->multiply(self::transferYears($policy));
+    }
+
+    /** The years a transfer line brings when the cart names none: the TLD's default period, at least one (QuoteService). */
+    public static function transferYears(TldPolicy $policy): int
+    {
+        return max(1, (int) $policy->default_period);
     }
 
     // ── registration ─────────────────────────────────────────────────────────
@@ -505,8 +523,11 @@ final class DomainService
         if ($existing !== null && $existing->isActive()) {
             throw new DomainError($existing->organization_id === $order->organization_id ? 'domain_already_registered' : 'domain_taken', "{$fqdn} is already managed at ONhost; there is nothing to transfer.", 409);
         }
-        $item->forceFill(['state' => 'provisioning', 'config' => array_merge($config, ['awaiting_transfer_code' => now()->toIso8601String()])])->save();
+        $since = now()->toIso8601String();
+        $item->forceFill(['state' => 'provisioning', 'config' => array_merge($config, ['awaiting_transfer_code' => $since])])->save();
         $this->audit->record($context->withScope($order->organization_id), 'domain.transfer_awaiting_code', 'succeeded', ['fqdn' => $fqdn, 'order' => $order->number, 'order_item_id' => $item->id], 'order', $order->id);
+        // TASK-0066: the customer is asked for the code — the line used to wait silently until it expired and the money went back
+        $this->outbox->publish(GenericEvent::of('domain.transfer.code_needed', 'order', $order->id, ['fqdn' => $fqdn, 'order' => $order->number, 'order_item_id' => $item->id, 'awaiting_since' => $since, 'wait_days' => max(1, (int) config('onhost.domains.transfer_code_wait_days', 30))], $order->organization_id));
     }
 
     /** The paid transfer line the code belongs to: the organization's own, for this name, still waiting for its code. */
