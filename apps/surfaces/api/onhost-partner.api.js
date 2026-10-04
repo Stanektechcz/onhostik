@@ -190,7 +190,7 @@
   }
   function requestPayout(cmp, amount, iban) {
     var a = A(); if (!a) return;
-    a.post('/partner/payouts', { amount: amount, iban: iban, method: 'bank_transfer' }, a.key()).then(function (r) {
+    a.post('/partner/payouts', { amount: amount, iban: iban, method: 'bank_transfer' }, a.key('partner.payout', { amount: amount, iban: iban })).then(function (r) { // a second press before the answer is the same request
       var d = r.data || r; reload(cmp);
       cmp.flash(tr(cmp, 'Žádost přijata', 'Request received'), (d.number || '') + ' — ' + tr(cmp, 'samofakturaci vystavíme a peníze odejdou do pěti pracovních dnů.', 'we issue the self-billed invoice and the money leaves within five working days.'));
       cmp.setState({ payAmount: '', payTouched: false });
