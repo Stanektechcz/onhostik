@@ -76,6 +76,7 @@ return [
     'staff.service.delete' => ['can' => 'Personál: zruší kteroukoli zákaznickou službu, i předčasně nebo bez závěrečného archivu.', 'warning' => 'Odstraní zákaznickou službu i s daty; potřebuje druhou osobu.'],
     'staff.console' => ['can' => 'Personál: otevře konzoli zákaznického serveru (nahrává se, váže se k tiketu).', 'warning' => 'Plná vláda nad zákaznickým serverem.'],
     'support.customer_impersonate' => ['can' => 'Personál: vidí portál tak, jak ho vidí zákazník.', 'warning' => 'Jedná v zákaznickém účtu; každý krok se zapisuje do auditu.'],
+    'staff.chargeback.decide' => ['can' => 'Personál: rozhodne žádost zákazníka o vrácení kreditu za předčasně zrušenou službu.', 'cannot' => 'Výši vraceného podílu nemění; tu nastavuje finanční oddělení.'],
 
     // ── personál: zřizování a poskytovatelé ──
     'provisioning.operation.read' => ['can' => 'Personál: vidí operace, úlohy a volání poskytovatelů.'],

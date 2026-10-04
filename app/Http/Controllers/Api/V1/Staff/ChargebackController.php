@@ -34,14 +34,14 @@ final class ChargebackController extends ApiController
             'service' => ($s = $services->get($r->service_id)) ? ['label' => $s->label ?: $s->name, 'product_key' => $s->product_key, 'state' => $s->state] : null,
             'organization' => $organizations->get($r->organization_id)?->name,
         ])->all(), 'percent' => $chargebacks->percent(), 'open' => ChargebackRequest::query()->whereIn('state', ChargebackRequest::OPEN)->count(),
-            'can_decide' => $this->api->can($request, 'staff.service.manage', CommandScope::global()), 'can_set_share' => $this->api->can($request, 'billing.credit.adjust', CommandScope::global())]]); // H348: support decides requests, finance sets the money
+            'can_decide' => $this->api->can($request, ChargebackStaffCommand::DECIDE, CommandScope::global()), 'can_set_share' => $this->api->can($request, 'billing.credit.adjust', CommandScope::global())]]); // H348: support decides requests, finance sets the money
     }
 
     /** The queue is read by those who decide requests and by finance, who set the share (H348). */
     private function authorizeRead(Request $request): void
     {
         if (! $this->api->can($request, 'billing.credit.adjust', CommandScope::global())) {
-            $this->api->authorize($request, 'staff.service.manage', CommandScope::global());
+            $this->api->authorize($request, ChargebackStaffCommand::DECIDE, CommandScope::global()); // B6: those who decide, not every staff.service.manage
         }
     }
 

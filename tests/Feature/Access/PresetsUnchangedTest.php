@@ -30,10 +30,29 @@ const PUC_NEW_ROLES = ['svc_data_delete', 'svc_operate'];
 /** ServiceActionCommand::STAFF_PERMISSIONS at cc9501c. */
 const PUC_STAFF_BEFORE = ['service.manage' => 'staff.service.manage', 'service.delete' => 'staff.service.delete', 'staff.service.delete' => 'staff.service.delete'];
 
-/** @return array{roles: array<string, list<string>>, actions: array<string, string>} */
+/**
+ * B6 role hygiene (audit 2026-10, decision R8), made on this branch on purpose and nowhere else: the only differences from the
+ * base besides the split. None of them touches a customer service action (the action test below holds for every role).
+ *
+ * @var array<string, array{add: list<string>, drop: list<string>}>
+ */
+const PUC_B6_CHANGES = [
+    'security_auditor' => ['add' => [], 'drop' => ['security.settings.manage']], // an auditor reads (no HIGH write)
+    'support_manager' => ['add' => ['provisioning.operation.read', 'staff.chargeback.decide'], 'drop' => ['support.customer_impersonate']], // SS-7
+    'support_l2' => ['add' => ['staff.chargeback.decide'], 'drop' => []],
+    'support_l3' => ['add' => ['staff.chargeback.decide'], 'drop' => []],
+    'platform_owner' => ['add' => ['staff.chargeback.decide'], 'drop' => []], // every staff key, the new one too
+];
+
+/** @return array{roles: array<string, list<string>>, actions: array<string, string>} the base, with the B6 changes applied */
 function pucBefore(): array
 {
-    return require __DIR__.'/fixtures/before-task-0043.php';
+    $before = require __DIR__.'/fixtures/before-task-0043.php';
+    foreach (PUC_B6_CHANGES as $role => $change) {
+        $before['roles'][$role] = array_values(array_merge(array_diff($before['roles'][$role], $change['drop']), $change['add']));
+    }
+
+    return $before;
 }
 
 /** @param list<string> $keys @return list<string> */

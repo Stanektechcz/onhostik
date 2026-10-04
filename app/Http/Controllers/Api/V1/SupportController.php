@@ -119,7 +119,7 @@ final class SupportController extends ApiController
         if (! $model->isOpen()) {
             throw new DomainError('ticket_not_open', 'Tiket už je vyřešený.', 409);
         }
-        $tickets->transition($model, TicketStateMachine::RESOLVED, $this->api->context($request), 'Zákazník označil požadavek za vyřešený.');
+        $tickets->transition($model, TicketStateMachine::RESOLVED, $this->api->context($request), 'Zákazník označil požadavek za vyřešený.', 'public'); // the customer's own words: public (TicketService made a transition note internal by default, TASK-0054)
 
         return response()->json(['data' => self::ticket($model->fresh(), true)]);
     }

@@ -76,6 +76,7 @@ return [
     'staff.service.delete' => ['can' => 'Staff: cancel any customer service, early or without its final archive.', 'warning' => 'Removes a customer service and its data; needs a second person.'],
     'staff.console' => ['can' => 'Staff: open a console on a customer server (recorded, bound to a ticket).', 'warning' => 'Full control of a customer server.'],
     'support.customer_impersonate' => ['can' => 'Staff: see the portal as a customer sees it.', 'warning' => 'Acts in a customer account; every step is audited.'],
+    'staff.chargeback.decide' => ['can' => 'Staff: decide a customer request for credit back for a service cancelled early.', 'cannot' => 'Does not change the share returned; finance sets it.'],
 
     // ── staff: provisioning and providers ──
     'provisioning.operation.read' => ['can' => 'Staff: see operations, jobs and provider calls.'],

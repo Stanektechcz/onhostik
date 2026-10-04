@@ -10,6 +10,7 @@ use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Services\Commands\ServiceActionCommand;
 use Onhost\Domain\Services\Models\Service;
+use Onhost\Domain\Support\TicketVisibility;
 use Onhost\Platform\Commands\CommandScope;
 
 /**

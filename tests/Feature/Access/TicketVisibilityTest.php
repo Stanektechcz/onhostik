@@ -148,3 +148,15 @@ it('shows the assistant only the open tickets the person may read', function () 
     expect($lines($contact))->not->toContain('Tiket '.$tickets['billing']->number)->toContain('Tiket '.$tickets['a']->number);
     expect(Str::of(implode(' ', $lines($developer)))->contains('Tiket '))->toBeTrue(); // an organization-wide viewer keeps the list
 });
+
+it('shows the customer their own "resolved" note: closing a ticket from the portal leaves a public message', function () {
+    [$owner, $org, $tickets] = tvisWorld($this);
+    $h = ['X-Organization' => $org->id];
+
+    $this->actingAs($owner, 'sanctum')->postJson("/v1/tickets/{$tickets['general']->id}/close", [], $h)->assertOk();
+
+    $note = $tickets['general']->messages()->where('body', 'Zákazník označil požadavek za vyřešený.')->first();
+    expect($note)->not->toBeNull()->and($note->visibility)->toBe('public');
+    expect(array_column($this->getJson("/v1/tickets/{$tickets['general']->id}", $h)->assertOk()->json('data.messages'), 'text'))
+        ->toContain('Zákazník označil požadavek za vyřešený.');
+});

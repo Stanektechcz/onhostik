@@ -105,8 +105,13 @@ final class TicketVisibility
             }
         };
 
-        return Ticket::query()->where('organization_id', $organizationId)
-            ->where(fn (Builder $q) => $q->where(fn (Builder $inner) => $visible($inner))->orWhere('user_id', $author));
+        $tickets = Ticket::query()->where('organization_id', $organizationId);
+        if ($ticketsHere && $servicesHere && $billing) {
+            // nothing to narrow — and an empty nested where would vanish from the SQL, leaving only "the author's" behind
+            return $tickets;
+        }
+
+        return $tickets->where(fn (Builder $q) => $q->where(fn (Builder $inner) => $visible($inner))->orWhere('user_id', $author));
     }
 
     /** Services of the organization where `$permission` is held by a project or a shared-service binding (unless held organization-wide). @param Builder<Service> $services */

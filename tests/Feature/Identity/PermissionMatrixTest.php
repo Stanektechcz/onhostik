@@ -2,6 +2,9 @@
 
 declare(strict_types=1);
 
+use App\Http\Navigation\StaffNavigation;
+use Database\Seeders\AuthorizationSeeder;
+use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Authorization\PermissionCatalog;
 use Onhost\Domain\Identity\Authorization\RoleCatalog;
@@ -86,7 +89,7 @@ it('lets only the owner and the billing admin spend the organization\'s credit, 
         ->and(RoleCatalog::orgAdminWithheld())->toContain('billing.wallet.spend');
 });
 
-it('leaves no console to the break-glass account alone: every staff permission is held by a named role, except the three that ARE break-glass', function () {
+it('leaves no console to the break-glass account alone: every staff permission is held by a named role, except the three that ARE break-glass and the withdrawn impersonation', function () {
     $held = [];
     foreach (RoleCatalog::all() as $key => $role) {
         if ($key !== 'platform_owner') {
@@ -97,7 +100,9 @@ it('leaves no console to the break-glass account alone: every staff permission i
     sort($orphans);
     // pricing, notification templates, feature flags, loyalty and sandbox credit were checked by their consoles and held by nobody:
     // usable only as PlatformOwner — "never a daily account" — so the daily account it became
-    expect($orphans)->toBe(['iam.break_glass', 'provider.secret.view', 'secret.rotate']);
+    // B6 (audit 2026-10, R8): impersonating a customer is withdrawn from the support manager until it runs through the bus with
+    // four eyes; no daily role holds it, and nothing asks for it (PermissionCatalog::DORMANT)
+    expect($orphans)->toBe(['iam.break_glass', 'provider.secret.view', 'secret.rotate', 'support.customer_impersonate']);
 });
 
 it('lets every role read what it may change: no support role could open a ticket it was allowed to answer', function () {
@@ -149,4 +154,111 @@ it('opens the support queue and the operations boards to the roles that work the
     $this->getJson('/v1/staff/tickets')->assertOk(); // it used to be 403 for every support role
     $this->getJson('/v1/staff/provisioning/deletions')->assertOk();
     $this->getJson('/v1/staff/provisioning/ssh-key-revocations')->assertOk();
+});
+
+// ── B6 role hygiene (audit 2026-10 "Hygiena rolí", decision R8; TASK-0043) ─────────────────────────────────────────────────
+
+/** The keys nothing asks for yet, pinned: a key leaves the list the day an endpoint, a command or a check asks for it. */
+const PMT_DORMANT = [
+    'ai.ops.read', 'audit.read.global', 'feature_flag.manage', 'iam.access_review.manage', 'iam.break_glass', 'iam.jit.approve', 'iam.jit.request',
+    'iam.user.manage', 'ipam.manage', 'notification.mass.send', 'provider.secret.view', 'secret.rotate', 'security.event.read', 'security.settings.manage',
+    'support.customer_impersonate',
+];
+
+it('takes impersonation from the support manager (R8, SS-7) and gives it the operations board it was missing', function () {
+    $roles = RoleCatalog::all();
+
+    expect($roles['support_manager']['permissions'])->not->toContain('support.customer_impersonate')
+        ->toContain('provisioning.operation.read');
+    $holders = array_keys(array_filter($roles, fn (array $role) => in_array('support.customer_impersonate', $role['permissions'], true)));
+    expect($holders)->toBe(['platform_owner']); // the break-glass account holds every staff key; no daily role does
+    // and the seeded database, which the authorizer reads, says the same
+    $manager = $this->staff('support_manager');
+    expect(app(Authorizer::class)->can($manager, 'support.customer_impersonate', CommandScope::global()))->toBeFalse()
+        ->and(app(Authorizer::class)->can($manager, 'provisioning.operation.read', CommandScope::global()))->toBeTrue();
+    $this->actingAs($manager, 'sanctum')->getJson('/v1/staff/provisioning/deletions')->assertOk();
+});
+
+it('keeps the security auditor read-only: no HIGH or CRITICAL permission, no write at all', function () {
+    $auditor = RoleCatalog::all()['security_auditor'];
+    $risky = array_values(array_filter($auditor['permissions'], fn (string $p) => PermissionCatalog::risk($p) !== PermissionCatalog::NORMAL));
+    $writes = array_values(array_filter($auditor['permissions'], fn (string $p) => ! str_ends_with($p, '.read')));
+
+    expect($risky)->toBe([])->and($writes)->toBe([])
+        ->and($auditor['description'])->not->toContain('security settings');
+});
+
+it('keeps the content team out of customer accounts: no Customer 360 for a role that edits public content', function () {
+    // B6 asked whether marketing_content should get `staff.customer.read` (the staff notifications ask for it). Not granted: it is
+    // the whole customer view (AssistantScopeTest pins that staff without it do not reach a customer's account) — open decision
+    expect(RoleCatalog::all()['marketing_content']['permissions'])->toBe(['content.manage']);
+});
+
+it('pins the dormant permissions: catalogue keys that no endpoint, command or check asks for yet', function () {
+    $dormant = array_keys(PermissionCatalog::DORMANT);
+    sort($dormant);
+    expect($dormant)->toBe(PMT_DORMANT)
+        ->and(array_values(array_diff($dormant, PermissionCatalog::keys())))->toBe([]);
+    foreach (PermissionCatalog::DORMANT as $key => $why) {
+        expect(trim($why))->not->toBe('', "{$key} needs its reason");
+    }
+
+    // nothing outside the catalogue files names them: the day something asks for one, it leaves the list
+    $catalogueFiles = ['PermissionCatalog.php', 'RoleCatalog.php', 'TokenScopes.php', 'StaffNavigation.php', 'CapabilityMatrix.php'];
+    $askedFor = [];
+    foreach (['app', 'domains', 'platform', 'providers', 'routes'] as $dir) {
+        $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(base_path($dir), FilesystemIterator::SKIP_DOTS));
+        foreach ($files as $file) {
+            if (! str_ends_with($file->getFilename(), '.php') || in_array($file->getFilename(), $catalogueFiles, true)) {
+                continue;
+            }
+            $source = (string) file_get_contents($file->getPathname());
+            foreach ($dormant as $key) {
+                if (str_contains($source, "'{$key}'") || str_contains($source, "\"{$key}\"")) {
+                    $askedFor[] = "{$key} in ".$file->getFilename();
+                }
+            }
+        }
+    }
+    expect($askedFor)->toBe([]);
+
+    // a staff key without a navigation item says it is dormant, not "the bus asks it"
+    foreach ($dormant as $key) {
+        if (PermissionCatalog::all()[$key]['audience'] === 'staff') {
+            expect(StaffNavigation::PERMISSIONS_WITHOUT_ITEM[$key] ?? '')->toStartWith('dormant');
+        }
+    }
+});
+
+it('leaves chargeback decisions to the support desk, not to every holder of staff.service.manage', function () {
+    $deciders = array_keys(array_filter(RoleCatalog::all(), fn (array $role) => in_array('staff.chargeback.decide', $role['permissions'], true)));
+    sort($deciders);
+    expect($deciders)->toBe(['platform_owner', 'support_l2', 'support_l3', 'support_manager'])
+        ->and(PermissionCatalog::all()['staff.chargeback.decide'])->toMatchArray(['audience' => 'staff', 'risk' => PermissionCatalog::NORMAL]);
+
+    // a game administrator manages every game server, and decided whether a customer gets money back: no longer
+    $this->actingAs($this->staff('game_admin'), 'sanctum');
+    $this->getJson('/v1/staff/chargebacks')->assertForbidden();
+    $this->withHeader('Idempotency-Key', 'b6-cb-1')->postJson('/v1/staff/chargebacks/cb_missing/decide', ['decision' => 'approve'])->assertForbidden();
+    $this->getJson('/v1/staff/chargebacks/analytics')->assertOk(); // why customers leave stays with the service teams
+
+    $this->actingAs($this->staff('support_manager'), 'sanctum');
+    expect($this->getJson('/v1/staff/chargebacks')->assertOk()->json('data'))->toMatchArray(['can_decide' => true, 'can_set_share' => false]);
+    $this->withHeader('Idempotency-Key', 'b6-cb-2')->postJson('/v1/staff/chargebacks/cb_missing/decide', ['decision' => 'approve'])->assertNotFound();
+});
+
+it('seeds exactly the catalogue: the doctor row "roles in the database match the catalog" holds after AuthorizationSeeder', function () {
+    $this->seed(AuthorizationSeeder::class); // a second run (a deploy) changes nothing and removes what the catalogue dropped
+    $stored = DB::table('role_permissions')->get()->groupBy('role_key')->map(fn ($rows) => $rows->pluck('permission_key')->map(fn ($p) => (string) $p)->sort()->values()->all());
+    $drift = [];
+    foreach (RoleCatalog::all() as $key => $role) { // the comparison Doctor::authorizationCatalog makes
+        $expected = $role['permissions'];
+        sort($expected);
+        if (($stored[$key] ?? []) !== $expected) {
+            $drift[] = $key;
+        }
+    }
+    expect($drift)->toBe([])
+        ->and(DB::table('role_permissions')->where('role_key', 'support_manager')->where('permission_key', 'support.customer_impersonate')->exists())->toBeFalse()
+        ->and(DB::table('permission_definitions')->where('key', 'staff.chargeback.decide')->exists())->toBeTrue();
 });

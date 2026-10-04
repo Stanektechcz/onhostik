@@ -42,6 +42,33 @@ final class PermissionCatalog
     public const LOWERED_RISK = [];
     // ── end TASK-0037 ──
 
+    // ── TASK-0043 / B6 role hygiene (audit 2026-10 "spící oprávnění") ──
+    /**
+     * Catalogue keys no endpoint, command or check asks for yet: holding one gives nothing today. They stay in the catalogue
+     * (the roles that will need them are already named, and removing a key breaks stored custom bindings), and they are pinned
+     * by PermissionMatrixTest — which also fails the day code names one of them, so the key then leaves this list on purpose.
+     *
+     * @var array<string, string> key => why nothing asks for it
+     */
+    public const DORMANT = [
+        'iam.user.manage' => 'staff accounts are made by onhost:staff:create (StaffAccountCommand asks iam.role.manage); no console screen yet',
+        'iam.jit.request' => 'no just-in-time elevation flow is built',
+        'iam.jit.approve' => 'no just-in-time elevation flow is built',
+        'iam.access_review.manage' => 'no access review is built',
+        'iam.break_glass' => 'break-glass is the platform_owner account itself, a procedure without an endpoint',
+        'secret.rotate' => 'secrets are rotated by operator commands on the host, not through the bus',
+        'audit.read.global' => 'no global audit read endpoint yet',
+        'security.event.read' => 'no security event feed yet',
+        'ai.ops.read' => 'no AI runs screen yet',
+        'feature_flag.manage' => 'feature switches are environment settings, no flag store',
+        'ipam.manage' => 'no IPAM endpoint yet',
+        'notification.mass.send' => 'no mass notice endpoint yet (incident notices go through incident.publish)',
+        'provider.secret.view' => 'provider secrets are never revealed through the platform; onhost:integrations:secret sets them on the host',
+        'support.customer_impersonate' => 'withdrawn (R8, SS-7) until impersonation runs through the bus with four eyes; held by platform_owner only',
+        'security.settings.manage' => 'no customer security settings endpoint yet (MFA enforcement, IP allow-lists); owner and organization admin hold it',
+    ];
+    // ── end TASK-0043 / B6 ──
+
     /**
      * @return array<string, array{description:string, risk:string, audience:string}>
      */
@@ -122,6 +149,9 @@ final class PermissionCatalog
             'staff.service.delete' => $s('Terminate any service', self::HIGH),
             'staff.console' => $s('Open console on customer resources (recorded, ticket-bound)', self::HIGH),
             'support.customer_impersonate' => $s('Impersonate a customer in the portal', self::HIGH),
+            // B6 (audit 2026-10; TASK-0043): whether a customer gets credit back for a service they leave early is the support desk's
+            // decision, not that of every role that may restart any service (`staff.service.manage`); the share stays finance's (H348)
+            'staff.chargeback.decide' => $s('Decide customer chargeback requests (credit returned for a service cancelled early)'),
 
             // ── staff: provisioning & providers ──────────────────────────────
             'provisioning.operation.read' => $s('View operations, jobs and provider calls'),
