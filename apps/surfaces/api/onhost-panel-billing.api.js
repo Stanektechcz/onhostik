@@ -51,7 +51,8 @@
   function payFromCredit(cmp, doc) {
     var _ = tr(cmp), A = window.OnhostApi;
     if (!A) return;
-    A.post('/invoices/' + doc.id + '/pay', { method: 'wallet' }, A.key()).then(function () {
+    // one key per document and way of paying: a double click or a retry pays once
+    A.post('/invoices/' + doc.id + '/pay', { method: 'wallet' }, A.key('invoice.pay:' + doc.id, 'wallet')).then(function () {
       flash(cmp, _('Uhrazeno z kreditu · ', 'Paid from credit · ') + doc.number, _('Doklad je zaplacený, potvrzení posíláme na fakturační e-mail. Panel se za okamžik obnoví.', 'The document is paid and the confirmation goes to your billing e-mail. The panel refreshes in a moment.'));
       if (window.OnhostStore && window.OnhostStore.refresh) window.OnhostStore.refresh();
       setTimeout(function () { location.reload(); }, 1500);
@@ -71,7 +72,7 @@
   function payByBank(cmp, doc) {
     var _ = tr(cmp), A = window.OnhostApi;
     if (!A) return;
-    A.post('/invoices/' + doc.id + '/pay', { method: 'bank' }, A.key()).then(function (r) {
+    A.post('/invoices/' + doc.id + '/pay', { method: 'bank' }, A.key('invoice.pay:' + doc.id, 'bank')).then(function (r) {
       var d = r.data || r, ins = d.instructions || {};
       flash(cmp, _('Platba převodem · ', 'Bank transfer · ') + (d.number || doc.number), bankBody(cmp, amt(d.amount) || doc.outstanding || doc.total, ins.variable_symbol || doc.payment_reference || null, doc.due || null));
       if (window.OnhostStore && window.OnhostStore.refresh) window.OnhostStore.refresh();
@@ -83,7 +84,7 @@
   function payByCard(cmp, doc) {
     var _ = tr(cmp), A = window.OnhostApi;
     if (!A) return;
-    A.post('/invoices/' + doc.id + '/pay', { method: 'card', return_urls: { success: location.origin + '/panel/fakturace', cancel: location.origin + '/panel/fakturace' } }, A.key()).then(function (r) {
+    A.post('/invoices/' + doc.id + '/pay', { method: 'card', return_urls: { success: location.origin + '/panel/fakturace', cancel: location.origin + '/panel/fakturace' } }, A.key('invoice.pay:' + doc.id, 'card')).then(function (r) {
       var d = r.data || r;
       if (d.redirect_url) { flash(cmp, _('Přesměrování na platební bránu', 'Redirecting to the payment gateway'), money(cmp, amt(d.amount)) + ' · ' + (d.number || '')); location.href = d.redirect_url; return; }
       flash(cmp, _('Platba kartou', 'Card payment'), _('Platební brána zatím není dostupná; zaplaťte převodem nebo z kreditu.', 'The payment gateway is not available yet; pay by transfer or from credit.'));
@@ -258,7 +259,7 @@
     // stored cards (audit §5f-1): a card top-up may keep the card for automatic top-ups; asked once, only when none is stored yet
     var b0 = data(), at0 = b0 && b0.wallet ? b0.wallet.auto_topup : null, stored = (b0 && b0.wallet && b0.wallet.payment_methods) || [];
     if (method !== 'bank' && at0 && at0.supported && !stored.length) body.save_method = window.confirm(_('Uložit kartu pro automatické dobití kreditu? Kartu nikdy nevidíme — platební brána nám dá jen token; kdykoli ji odeberete ve Fakturaci.', 'Keep the card for automatic top-ups? We never see the card — the gateway gives us a token; remove it any time in Billing.'));
-    A.post('/payments/init', body, A.key()).then(function (r) {
+    A.post('/payments/init', body, A.key('wallet.topup', body)).then(function (r) { // the same amount and method again before an answer is the same top-up
       var d = r.data || r;
       if (d.redirect_url) {
         flash(cmp, _('Přesměrování na platební bránu', 'Redirecting to the payment gateway'), money(cmp, amount) + ' · ' + _('po zaplacení se vrátíte zpět do panelu a kredit bude připsaný', 'after paying you return to the panel with the credit added'));

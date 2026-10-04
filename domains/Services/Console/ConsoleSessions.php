@@ -8,7 +8,9 @@ use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Cache;
 use Onhost\Domain\Identity\Authorization\Authorizer;
+use Onhost\Domain\Identity\Models\ServiceAccount;
 use Onhost\Domain\Identity\Models\User;
+use Onhost\Domain\Identity\SessionEnds;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Platform\Commands\CommandScope;
 
@@ -33,15 +35,18 @@ use Onhost\Platform\Commands\CommandScope;
  * A descriptor with no person (a system-issued ticket, a descriptor older than TASK-0039) is not judged by a person; an open
  * console of a service deleted since closes either way. Panel sessions the platform cannot close (a panel's own SSO login) are the residual window,
  * stated in docs/runbooks/console-relay.md.
+ *
+ * TASK-0067 (PR #53 review): the kill marks were cache entries only — a flush or an eviction let every ticket and console they had
+ * ended run again. They are rows of `session_ends` now (SessionEnds), the cache a copy. A console whose live record is gone
+ * (expired past the relay's two-hour cap, or flushed) closes as before, and the close is audited like every other (the relay
+ * controller). A ticket a service account was issued (`issued_to_account`, a pipeline's token) is judged by that account: it closes
+ * when the account is disabled or deleted, or belongs to another organization than the service.
  */
 final class ConsoleSessions
 {
-    /** The relay closes every socket after two hours; a kill must outlive the longest console it may have to refuse. */
-    private const KILL_REMEMBERED_SECONDS = 3 * 3600;
-
     private const LIVE_SECONDS = 2 * 3600 + 300;
 
-    public function __construct(private readonly Authorizer $authorizer) {}
+    public function __construct(private readonly Authorizer $authorizer, private readonly SessionEnds $ends) {}
 
     /** How often the relay asks whether an open console may stay open (onhost.console.alive_check_seconds, never below 5). */
     public static function aliveSeconds(): int
@@ -61,15 +66,15 @@ final class ConsoleSessions
         if ($open && $service === null) {
             return 'service_gone'; // an open console of a service deleted since closes; a ticket is judged by its person below
         }
+        $organizationId = $service !== null ? (string) $service->organization_id : (is_string($descriptor['organization_id'] ?? null) ? $descriptor['organization_id'] : null);
         $issuedTo = $descriptor['issued_to'] ?? null;
         if (! is_string($issuedTo) || $issuedTo === '') {
-            return null;
+            return self::accountRefusal($descriptor['issued_to_account'] ?? null, $organizationId);
         }
         $person = User::query()->find($issuedTo);
         if ($person === null || ! $person->isActive()) {
             return 'account_inactive';
         }
-        $organizationId = $service !== null ? (string) $service->organization_id : (is_string($descriptor['organization_id'] ?? null) ? $descriptor['organization_id'] : null);
         if ($this->endedSince($issuedTo, $organizationId, $since ?? self::issuedAt($descriptor))) {
             return 'session_ended';
         }
@@ -89,23 +94,31 @@ final class ConsoleSessions
     {
         Cache::put(self::liveKey($token), [
             'service_id' => $descriptor['service_id'] ?? null, 'organization_id' => $descriptor['organization_id'] ?? null,
-            'issued_to' => $descriptor['issued_to'] ?? null, 'issued_at' => self::issuedAt($descriptor)->toIso8601String(),
+            'issued_to' => $descriptor['issued_to'] ?? null, 'issued_to_account' => $descriptor['issued_to_account'] ?? null,
+            'issued_at' => self::issuedAt($descriptor)->toIso8601String(),
         ], self::LIVE_SECONDS);
     }
 
-    /** The relay's alive check of an open console: null = keep it open; otherwise why it closes (the live record goes with it). */
-    public function alive(string $token): ?string
+    /**
+     * The relay's alive check of an open console: null = keep it open; otherwise why it closes and the service it was for (the
+     * live record goes with it). `session_unknown` — no live record (expired, flushed) — names no service: nothing remembers it.
+     *
+     * @return array{reason: string, service_id: ?string}|null
+     */
+    public function alive(string $token): ?array
     {
         $live = Cache::get(self::liveKey($token));
         if (! is_array($live)) {
-            return 'session_unknown';
+            return ['reason' => 'session_unknown', 'service_id' => null];
         }
         $refusal = $this->refusal($live, self::issuedAt($live), open: true);
-        if ($refusal !== null) {
-            Cache::forget(self::liveKey($token));
+        if ($refusal === null) {
+            return null;
         }
+        Cache::forget(self::liveKey($token));
+        $serviceId = $live['service_id'] ?? null;
 
-        return $refusal;
+        return ['reason' => $refusal, 'service_id' => is_string($serviceId) && $serviceId !== '' ? $serviceId : null];
     }
 
     /**
@@ -114,26 +127,35 @@ final class ConsoleSessions
      */
     public function endFor(string $userId, ?string $organizationId = null): void
     {
-        $key = self::killKey($userId);
-        $ended = Cache::get($key);
-        $ended = is_array($ended) ? $ended : [];
-        $ended[$organizationId ?? '*'] = now()->toIso8601String();
-        Cache::put($key, $ended, self::KILL_REMEMBERED_SECONDS);
+        $this->ends->mark($userId, SessionEnds::CONSOLE, $organizationId); // in the database: a cache flush must not revive it
     }
 
     private function endedSince(string $userId, ?string $organizationId, CarbonInterface $issuedAt): bool
     {
-        $ended = Cache::get(self::killKey($userId));
-        if (! is_array($ended)) {
-            return false;
+        $ended = $this->ends->endedAt($userId, SessionEnds::CONSOLE, $organizationId);
+
+        return $ended !== null && ! $issuedAt->isAfter($ended);
+    }
+
+    /**
+     * A ticket with no person: a service account's (a pipeline's API token) is judged by the account — disabled or deleted, or of
+     * another organization than the service, it opens nothing and an open console closes. A ticket the system issued (no person,
+     * no account) is not judged by anybody, as before.
+     */
+    private static function accountRefusal(mixed $accountId, ?string $organizationId): ?string
+    {
+        if (! is_string($accountId) || $accountId === '') {
+            return null;
         }
-        foreach (array_filter([$ended['*'] ?? null, $organizationId !== null ? ($ended[$organizationId] ?? null) : null]) as $at) {
-            if (! $issuedAt->isAfter(CarbonImmutable::parse((string) $at))) {
-                return true;
-            }
+        $account = ServiceAccount::query()->find($accountId); // a deleted account (soft delete) is not found
+        if ($account === null || ! $account->isActive()) {
+            return 'account_inactive';
+        }
+        if ($account->organization_id !== null && $organizationId !== null && (string) $account->organization_id !== $organizationId) {
+            return 'access_ended';
         }
 
-        return false;
+        return null;
     }
 
     private function mayOpen(User $person, Service $service): bool
@@ -168,10 +190,5 @@ final class ConsoleSessions
     private static function liveKey(string $token): string
     {
         return "onhost:console:live:{$token}";
-    }
-
-    private static function killKey(string $userId): string
-    {
-        return "onhost:console:ended:{$userId}";
     }
 }
