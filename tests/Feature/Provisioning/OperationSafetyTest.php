@@ -106,16 +106,17 @@ it('stops a running operation before its next step when the permission it starte
     // spot, while the person is still allowed — the case here is the worker reaching the row after the revocation
     $operation = app(OperationService::class)->start(ServiceActionWorkflow::class, 'safe-reboot-2', ['action' => 'power', 'power_action' => 'reboot', 'service_id' => $service->id],
         $this->contextFor($user, $org), $service->id, $org->id, null, $service->provider_instance_id, dispatch: false, authorizedPermission: ServiceActionCommand::permissionFor('power'));
-    expect($operation->authorized_permission)->toBe('service.manage')->and($operation->state)->toBe(Operation::PENDING);
+    // TASK-0043 (S1-03): a reboot asks `service.operate`, split off `service.manage` (which keeps it)
+    expect($operation->authorized_permission)->toBe('service.operate')->and($operation->state)->toBe(Operation::PENDING);
 
     // the worker has met this user before: its authorizer remembers the old bindings
-    expect(app(Authorizer::class)->can($user, 'service.manage', CommandScope::resource($service->id, $org->id)))->toBeTrue();
+    expect(app(Authorizer::class)->can($user, 'service.operate', CommandScope::resource($service->id, $org->id)))->toBeTrue();
     PolicyBinding::query()->where('principal_id', $user->id)->delete();
 
     expect(app(OperationRunner::class)->tick($operation, 5))->toBe(Operation::FAILED);
     $stopped = $operation->fresh();
     expect(data_get($stopped->error, 'detail.access_revoked'))->toBeTrue()
-        ->and(data_get($stopped->error, 'detail.required_permission'))->toBe('service.manage')
+        ->and(data_get($stopped->error, 'detail.required_permission'))->toBe('service.operate')
         ->and((string) data_get($stopped->error, 'message'))->toContain('revoked');
     expect($service->fresh()->state)->toBe(ServiceStateMachine::ACTIVE);
     Http::assertNotSent(fn (Request $r) => str_contains($r->url(), '/status/reboot'));
