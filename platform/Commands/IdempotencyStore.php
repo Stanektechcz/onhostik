@@ -94,8 +94,53 @@ final class IdempotencyStore
         );
     }
 
-    /** HTTP-level replay for `Idempotency-Key` header (public API contract: same key + different body => 409). */
-    public function rememberHttp(string $key, string $scope, string $requestHash, int $status, string $body): void
+    /**
+     * HTTP-level replay for the `Idempotency-Key` header (public API contract: same key + different body => 409).
+     *
+     * Phase D5: the key is reserved BEFORE the request runs, by one atomic insert on the (key, scope) unique index —
+     * `INSERT OR IGNORE` on SQLite, `ON CONFLICT DO NOTHING` on PostgreSQL (no exception, so no aborted transaction). The
+     * reservation is a row without a status. Whoever's insert lands runs the request; a duplicate that arrives meanwhile reads
+     * the reservation and is told the request is in progress. A reservation lives `$inFlightSeconds`: a worker that died holding
+     * it does not block the key for the whole day.
+     *
+     * @return array{status:int|null, body:string|null}|null null = reserved for this request (run it); otherwise the row that
+     *                                                       holds the key: an answer to replay, or status null = still running
+     *
+     * @throws DomainError `idempotency_key_reused` (409) when the key was used with another request
+     */
+    public function reserveHttp(string $key, string $scope, string $requestHash, int $inFlightSeconds): ?array
+    {
+        $where = ['key' => 'http:'.$key, 'scope' => $scope];
+        $row = null;
+        for ($attempt = 0; $attempt < 3 && $row === null; $attempt++) { // a row freed between our insert and our read: try again
+            // a finished answer past its day, or a reservation whose worker died: the key is free again
+            DB::table('idempotency_keys')->where($where)->where('expires_at', '<', now())->delete();
+            $inserted = DB::table('idempotency_keys')->insertOrIgnore($where + [
+                'request_hash' => $requestHash,
+                'response_status' => null,
+                'result' => null,
+                'created_at' => now(),
+                'expires_at' => now()->addSeconds($inFlightSeconds),
+            ]);
+            if ($inserted === 1) {
+                return null;
+            }
+            $row = DB::table('idempotency_keys')->where($where)->first();
+        }
+        if ($row === null) {
+            return ['status' => null, 'body' => null]; // the key keeps changing hands: answer as in progress, the client retries
+        }
+        if (! is_string($row->request_hash) || ! hash_equals($row->request_hash, $requestHash)) {
+            throw DomainError::conflict('idempotency_key_reused', 'The same Idempotency-Key was used with a different request body.', [
+                'hint' => 'Use a new key for a different request; the original response is not returned to avoid silent overwrites.',
+            ]);
+        }
+
+        return ['status' => $row->response_status === null ? null : (int) $row->response_status, 'body' => $row->result === null ? null : (string) $row->result];
+    }
+
+    /** The answer of a reserved request, kept for the day under its key. */
+    public function completeHttp(string $key, string $scope, string $requestHash, int $status, string $body): void
     {
         DB::table('idempotency_keys')->updateOrInsert(
             ['key' => 'http:'.$key, 'scope' => $scope],
@@ -109,20 +154,11 @@ final class IdempotencyStore
         );
     }
 
-    /** @return array{status:int, body:string}|null */
-    public function findHttp(string $key, string $scope, string $requestHash): ?array
+    /** Frees a reservation whose request did not complete (an error, a refusal before it ran): the client may repeat it. */
+    public function releaseHttp(string $key, string $scope, string $requestHash): void
     {
-        $row = DB::table('idempotency_keys')->where('key', 'http:'.$key)->where('scope', $scope)->first();
-        if ($row === null || ($row->expires_at !== null && strtotime((string) $row->expires_at) < time())) {
-            return null;
-        }
-        if ($row->request_hash !== $requestHash) {
-            throw DomainError::conflict('idempotency_key_reused', 'The same Idempotency-Key was used with a different request body.', [
-                'hint' => 'Use a new key for a different request; the original response is not returned to avoid silent overwrites.',
-            ]);
-        }
-
-        return ['status' => (int) $row->response_status, 'body' => (string) $row->result];
+        DB::table('idempotency_keys')->where('key', 'http:'.$key)->where('scope', $scope)
+            ->where('request_hash', $requestHash)->whereNull('response_status')->delete();
     }
 
     private function scope(CommandContext $context): string

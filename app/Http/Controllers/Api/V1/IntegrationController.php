@@ -51,7 +51,7 @@ final class IntegrationController extends ApiController
         $timestamp = (string) $request->header('X-Signature-Timestamp', '');
         $body = (string) $request->getContent();
         if (! $discord->verifySignature($signature, $timestamp, $body)) {
-            return response()->json(['error' => 'invalid_signature'], 401);
+            return response()->json(['error' => 'invalid_signature', 'message' => 'The request signature is not valid.', 'status' => 401], 401);
         }
         $payload = json_decode($body, true);
 

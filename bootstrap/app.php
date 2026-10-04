@@ -7,6 +7,7 @@ use App\Http\Middleware\SetLocale;
 use App\Http\Middleware\ShedUnderLoad;
 use App\Http\Middleware\StatusHost;
 use App\Http\Middleware\TokenRouteScope;
+use App\Http\Support\ProviderProblem;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -89,7 +90,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 ProviderErrorCode::CONFLICT => 409,
                 default => 502,
             };
-            $response = response()->json(['error' => 'provider_'.strtolower($e->errorCode->value), 'provider' => $e->provider, 'message' => app(Redactor::class)->redactString($e->getMessage()), 'status' => $status, 'retryable' => $e->isRetryable()], $status);
+            $response = response()->json(ProviderProblem::body($e, $request, $status, app(Redactor::class)), $status); // the vendor's name for staff in staff mode only (phase D5)
             if ($e->retryAfterSeconds !== null) {
                 $response->header('Retry-After', (string) $e->retryAfterSeconds);
             }
