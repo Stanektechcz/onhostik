@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
 use App\Http\Support\CatalogPresentation;
+use App\Http\Support\CurrentOrganization;
 use App\Http\Support\SurfacePricing;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
@@ -348,7 +349,9 @@ final class SurfaceDataController extends Controller
         if ($user === null) {
             abort(401);
         }
-        $organizationId = $request->query('organization') ?: OrganizationMembership::query()->where('user_id', $user->id)->current()->orderBy('joined_at')->value('organization_id');
+        // TASK-0070: the organization the page was rendered for (?organization=, the boot object's), else the one chosen in this
+        // session, else the first membership; whichever it is, only a current membership is served
+        $organizationId = $request->query('organization') ?: CurrentOrganization::chosen($request, $user) ?: OrganizationMembership::query()->where('user_id', $user->id)->current()->orderBy('joined_at')->value('organization_id');
         if ($organizationId === null || ! OrganizationMembership::query()->where('user_id', $user->id)->where('organization_id', $organizationId)->current()->exists()) {
             $locale = $user->locale ?? 'cs';
             $payload = ['services' => [], 'servers' => [], 'organization' => null, 'needs_organization' => true, 'kpis' => ['credit' => 0.0, 'currency' => 'CZK'], // audit §5z: the order centre asks for a customer profile first

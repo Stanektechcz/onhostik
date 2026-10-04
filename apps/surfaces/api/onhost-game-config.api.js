@@ -26,7 +26,10 @@
       ';color:' + FG + ';padding:12px 14px;font-family:inherit;min-width:0';
   }
   // prices with VAT in whole crowns (the cart and the invoice carry the exact amount)
-  function gross(cmp, v) { return cmp && typeof cmp.czk === 'function' ? cmp.czk(Math.round(v * 1.21) / 1.21) : (Math.round(v * 1.21).toLocaleString('cs-CZ') + ' Kč'); }
+  /* the VAT rate of the tax rules (ONHOST_DATA.vat(), TASK-0064/0070); the statutory 21 % only when the platform has no active rule set.
+     cmp.czk adds the same rate (the renderer's VAT seam), so the price is rounded to whole crowns WITH VAT and handed back without it */
+  function vatRate() { var D = window.ONHOST_DATA, r = D && typeof D.vat === 'function' ? D.vat() : null; return typeof r === 'number' ? r : 0.21; }
+  function gross(cmp, v) { var k = 1 + vatRate(); return cmp && typeof cmp.czk === 'function' ? cmp.czk(Math.round(v * k) / k) : (Math.round(v * k).toLocaleString('cs-CZ') + ' Kč'); }
   function net(cmp, v) { return cmp && typeof cmp.mny === 'function' ? cmp.mny(v) : (Math.round(v).toLocaleString('cs-CZ') + ' Kč'); }
   function snap(o, v) {
     var step = Number(o.step) || 1, min = o.min != null ? Number(o.min) : 0, max = o.max != null ? Number(o.max) : Infinity;

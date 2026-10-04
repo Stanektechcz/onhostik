@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
 use App\Http\Navigation\StaffNavigation;
+use App\Http\Support\CurrentOrganization;
 use App\Http\Support\SurfaceRenderer;
 use Illuminate\Http\Request;
 use Onhost\Domain\Identity\Authorization\Authorizer;
@@ -192,16 +193,19 @@ final class SurfaceController extends Controller
             'turnstile' => (string) config('onhost.turnstile.site_key', '') ?: null, // §5q-6: the surfaces render the widget when a site key is set
             'locale' => $user?->locale ?? 'cs',
             'version' => (string) config('onhost.version', '4.0'),
-            'user' => $user instanceof User ? $this->userBoot($user) : null,
+            'user' => $user instanceof User ? $this->userBoot($user, $request) : null,
             'links' => ['login' => '/prihlaseni', 'panel' => '/panel', 'admin' => '/sprava', 'partner' => '/partner', 'status' => '/stav'],
         ];
     }
 
-    private function userBoot(User $user): array
+    private function userBoot(User $user, Request $request): array
     {
         $memberships = OrganizationMembership::query()->where('user_id', $user->id)->current()->orderBy('joined_at')->get();
         $organizations = Organization::query()->whereIn('id', $memberships->pluck('organization_id'))->get();
-        $current = $organizations->first();
+        // TASK-0070: the organization chosen in this session (the switcher), else the first membership as before; the session bridge
+        // sends it as X-Organization and the panel data script is loaded for it
+        $chosen = CurrentOrganization::chosen($request, $user);
+        $current = ($chosen !== null ? $organizations->firstWhere('id', $chosen) : null) ?? $organizations->first();
         $partner = $current === null ? null : Partner::query()->where('organization_id', $current->id)->where('state', 'active')->first();
         $role = $this->role($user, $partner !== null);
 
@@ -213,7 +217,7 @@ final class SurfaceController extends Controller
                 // billing identity for pre-filling the checkout (the signed-in customer's own organization only)
                 'type' => $current->type, 'ico' => $current->ico, 'dic' => $current->dic, 'vat_id' => $current->vat_id, 'street' => $current->street, 'city' => $current->city, 'postal_code' => $current->postal_code, 'country' => $current->country,
             ],
-            'organizations' => $organizations->map(fn (Organization $o) => ['id' => $o->id, 'name' => $o->name])->values()->all(),
+            'organizations' => $organizations->map(fn (Organization $o) => ['id' => $o->id, 'name' => $o->name, 'role' => $memberships->firstWhere('organization_id', $o->id)?->role_key, 'current' => $current !== null && $o->id === $current->id])->values()->all(),
             'partner' => $partner === null ? null : ['code' => $partner->code, 'tier' => $partner->tier],
             'mfa' => $user->totp_confirmed_at !== null,
             // the staff console's navigation (audit 2026-10 B2): the items this person may open, each with the reads it may make

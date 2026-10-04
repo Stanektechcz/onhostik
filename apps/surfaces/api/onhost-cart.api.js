@@ -22,7 +22,9 @@
   function addonsData() { return section('addons') || {}; }
   function tldList() { return section('tlds') || []; }
   function money(cmp, v) { return cmp && typeof cmp.mny === 'function' ? cmp.mny(v) : (Math.round(v).toLocaleString('cs-CZ') + ' Kč'); }
-  function yearsWord(n, cs) { return cs ? (n === 1 ? 'rok' : (n < 5 ? 'roky' : 'let')) : (n === 1 ? 'year' : 'years'); }
+  /* the VAT rate of the tax rules (ONHOST_DATA.vat(), TASK-0064/0070); the statutory 21 % only when the platform has no active rule set */
+  function vatRate() { var d = D(), v = d && typeof d.vat === 'function' ? d.vat() : null; return typeof v === 'number' ? v : 0.21; }
+  function yearsWord(n, cs) { var I = window.OnhostI18n; return I ? I.plural(n, cs ? ['rok', 'roky', 'let'] : ['year', 'years'], cs ? 'cs' : 'en') : (cs ? (n === 1 ? 'rok' : (n < 5 ? 'roky' : 'let')) : (n === 1 ? 'year' : 'years')); }
   function chip(active) {
     return 'border:1px solid ' + (active ? 'var(--acc,#ec3013)' : 'color-mix(in srgb,var(--fg,#201e1d) 28%,transparent)') + ';background:' + (active ? 'color-mix(in srgb,var(--acc,#ec3013) 10%,transparent)' : 'transparent') +
       ';color:var(--fg,#201e1d);cursor:pointer;font-family:var(--font-heading);font-weight:800;font-size:11px;letter-spacing:.04em;text-transform:uppercase;padding:5px 9px';
@@ -255,7 +257,7 @@
       id: it.id, name: it.name,
       meta: _('registrace na ' + y + ' ' + yearsWord(y, true) + (pct ? ' · sleva ' + pct + ' %' : '') + ' · obnova ' + money(cmp, renew) + ' / rok', 'registration for ' + y + ' ' + yearsWord(y, false) + (pct ? ' · ' + pct + '% off' : '') + ' · renewal ' + money(cmp, renew) + ' / yr'),
       qty: '1', unit: money(cmp, it.price) + _(' / rok', ' / yr'),
-      line: money(cmp, line), lineVat: _('s DPH ', 'incl. VAT ') + money(cmp, line * 1.21),
+      line: money(cmp, line), lineVat: _('s DPH ', 'incl. VAT ') + money(cmp, line * (1 + vatRate())),
       discount: pct ? '− ' + pct + ' %' : '',
       discountStyle: pct ? 'font-size:11px;font-family:var(--font-heading);font-weight:800;color:var(--accInk,#ae1800)' : 'display:none',
       inc: function () {}, dec: function () {},

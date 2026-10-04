@@ -63,8 +63,11 @@ final class ApiContext
 
             return $organization;
         }
-        $membership = OrganizationMembership::query()->where('user_id', $user->id)->current()->orderBy('created_at')->first();
-        $organization = $membership ? Organization::query()->find($membership->organization_id) : null;
+        // TASK-0070: the organization the person chose in this web session (still a current membership), else the first one
+        $chosen = TokenScopes::tokenOf($user) === null ? CurrentOrganization::chosen($request, $user) : null;
+        $membership = $chosen !== null ? null : OrganizationMembership::query()->where('user_id', $user->id)->current()->orderBy('created_at')->first();
+        $organizationId = $chosen ?? $membership?->organization_id;
+        $organization = $organizationId !== null ? Organization::query()->find($organizationId) : null;
         if ($organization === null && $required) {
             throw new DomainError('organization_required', 'Choose an organization (X-Organization header).', 422, ['field' => 'organization']);
         }
