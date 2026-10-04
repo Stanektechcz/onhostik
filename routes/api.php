@@ -53,6 +53,7 @@ use App\Http\Controllers\Api\V1\Staff\WithdrawalController as StaffWithdrawalCon
 use App\Http\Controllers\Api\V1\StatusController;
 use App\Http\Controllers\Api\V1\SupportController;
 use App\Http\Controllers\Api\V1\WalletController;
+use App\Http\Controllers\Api\V1\WebhookController;
 use App\Http\Controllers\Api\V1\WebSessionController;
 use App\Http\Controllers\Api\V1\WebToolsController;
 use Illuminate\Support\Facades\Route;
@@ -271,10 +272,15 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
     Route::post('notifications/read', [NotificationController::class, 'read']);
     Route::get('notifications/preferences', [NotificationController::class, 'preferences']);
     Route::put('notifications/preferences', [NotificationController::class, 'updatePreference']);
-    Route::get('webhooks', [NotificationController::class, 'webhooks']);
-    Route::post('webhooks', [NotificationController::class, 'createWebhook']);
-    Route::delete('webhooks/{endpoint}', [NotificationController::class, 'deleteWebhook']);
-    Route::get('webhooks/{endpoint}/deliveries', [NotificationController::class, 'webhookDeliveries']);
+    // customer webhooks (D4, TASK-0077): every write is a WebhookCommand on the bus
+    Route::get('webhooks', [WebhookController::class, 'index']);
+    Route::post('webhooks', [WebhookController::class, 'store']);
+    Route::delete('webhooks/{endpoint}', [WebhookController::class, 'destroy']);
+    Route::post('webhooks/{endpoint}/enable', [WebhookController::class, 'enable']);
+    Route::post('webhooks/{endpoint}/rotate-secret', [WebhookController::class, 'rotateSecret']);
+    Route::post('webhooks/{endpoint}/ping', [WebhookController::class, 'ping']);
+    Route::get('webhooks/{endpoint}/deliveries', [WebhookController::class, 'deliveries']);
+    Route::post('webhooks/{endpoint}/deliveries/{delivery}/redeliver', [WebhookController::class, 'redeliver']);
 
     Route::get('subscriptions', [BillingController::class, 'subscriptions']);
     Route::post('subscriptions/{subscription}/cancel', [BillingController::class, 'cancelSubscription']);

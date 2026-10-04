@@ -185,9 +185,14 @@ Message envelope: `id`, `name`, `aggregate_type`, `aggregate_id`, `organization_
 
 * **NotificationRouter** — maps events to in-app notifications (customer | internal), mail templates and
   mandatory kinds (`config/onhost.php` → `notifications.mandatory_kinds`).
-* **WebhookDispatcher** — delivers customer-facing events to organization webhook endpoints with an
-  HMAC-SHA256 signature (`v1=`) over `timestamp.body`, exponential retry [1, 5, 30, 120, 720] minutes and
-  automatic pause after 20 consecutive failures.
+* **WebhookDispatcher** — delivers customer-facing events to organization webhook endpoints (D4, TASK-0077). Only
+  events listed in `domains/Notifications/Webhooks/WebhookEvents.php` leave, and of those only the listed fields
+  (`WebhookPayload`; a value is a scalar, a list of scalars, a money value or a short code — never a nested object
+  or the platform's own `error` text). The relay only writes the delivery row and queues `DeliverWebhook`; the attempt
+  is signed `X-ONhost-Timestamp` + `X-ONhost-Signature: v1=<HMAC-SHA256(secret, timestamp.body)>` (`WebhookSigner`),
+  goes through `EgressGuard`, is retried after [1, 5, 30, 120, 720] minutes by `onhost:webhooks:retry`, and 20
+  consecutive failures suspend the endpoint (`webhook.endpoint.suspended`). A new event that a customer should
+  receive by webhook needs its row in `WebhookEvents` with its public fields — without one it is never sent.
 * **Domain listeners** — `onhost.order.paid` → `FulfillPaidOrder`; `onhost.invoice.paid` →
   `SettleBillingAfterPayment` (dunning, subscriptions), `ReleaseOrderReservation` (a postpaid order frees its share of
   the credit line) and `AccruePartnerCommission`; `onhost.invoice.issued`
@@ -301,3 +306,10 @@ no longer open it) and `service.console.closed` (the relay's alive check closed 
 | `organization.owner_recovery.continued` | organization | `recovery_id`, `mode`, `not_before` — support continued a contested recovery with the evidence written down and a second person who is no party. Staff and the organization in-app | OwnerRecoveries::continue |
 | `organization.owner_recovery.cancels_repeated` | organization | `count`, `window_days` — the second stop (cancel or objection) of an owner recovery within `onhost.grants.owner_recovery_cancel_window_days`; whoever stops every attempt may hold the account. Staff in-app (hot) | OwnerRecoveries::alertOnRepeats |
 <!-- TASK-0044 recovery-sessions-tokens: end -->
+
+<!-- TASK-0077 webhooks: begin -->
+| Event | Aggregate | Payload / meaning | Source |
+| --- | --- | --- | --- |
+| `webhook.endpoint.suspended` | webhook_endpoint | `host` (the endpoint's host, never its path: chat URLs carry a credential there), `failures` (consecutive failed attempts, 20), `last_status` (HTTP status of the last attempt, null for a transport error) — an endpoint that kept failing was suspended; nothing is sent to it until the customer turns it on again (`POST /v1/webhooks/{id}/enable`). Routed to the customer (portal notice `account`, mail `webhook-suspended`); not itself a webhook event | WebhookDispatcher |
+| `webhook.ping` | webhook_endpoint | `endpoint_id` — not an outbox event: the test delivery `POST /v1/webhooks/{id}/ping` sends to that endpoint only | WebhookDispatcher::ping |
+<!-- TASK-0077 webhooks: end -->

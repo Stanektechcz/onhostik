@@ -339,8 +339,8 @@ Artisan::command('onhost:bank:sync {--from=} {--to=}', function (BankStatementIm
 })->purpose('Download new incoming transfers from the Fio bank API and settle the proformas / top-ups they pay');
 
 Artisan::command('onhost:webhooks:retry', function (WebhookDispatcher $webhooks) {
-    $this->table(['delivered', 'failed', 'dead'], [$webhooks->retryDue()]);
-})->purpose('Retry pending/failed webhook deliveries with backoff');
+    $this->table(['queued', 'dead'], [$webhooks->retryDue()]);
+})->purpose('Queue the due webhook attempts (backoff retries); endpoints no longer active end their deliveries');
 
 Artisan::command('onhost:oncall:escalate', function (OnCallService $oncall, AutomationLedger $ledger) {
     $stats = $oncall->escalateDue();
