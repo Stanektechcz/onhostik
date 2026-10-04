@@ -2,10 +2,17 @@
 
 declare(strict_types=1);
 
+use App\Http\Middleware\ThrottleFailedAuth;
+use Illuminate\Routing\Middleware\ThrottleRequests;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Onhost\Domain\Dns\Models\DnsZone;
+use Onhost\Domain\Domains\DomainStateMachine;
+use Onhost\Domain\Domains\Models\Domain;
 use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
+use Onhost\Domain\Identity\Authorization\TokenScopes;
 use Onhost\Domain\Identity\Models\PersonalAccessToken;
 use Onhost\Domain\Identity\Models\ServiceAccount;
 use Onhost\Domain\Identity\Models\User;
@@ -235,4 +242,42 @@ it('lets a service account token write what its role and scope allow, audited as
     $audit = AuditEvent::query()->where('action', 'dns.stage')->where('result', 'succeeded')->sole();
     expect($audit->actor_type)->toBe('service_account')
         ->and($audit->actor_id)->toBe((string) $created->json('data.id'));
+});
+
+it('answers a service account token with all scopes on every GET route without a server error', function () {
+    // security review of PR #72 (M1): GET /v1/services/{id}/features handed the account to code typed for a person — a 500.
+    // Every GET route is called with an organization admin's account token holding every scope: a refusal (401/403/404/422,
+    // `person_required` included) is an answer, a 5xx is a bug
+    Http::fake();
+    // the staff routes answer a token 401, which the failed-authentication throttle counts: without it the sweep ends in 429s
+    $this->withoutMiddleware([ThrottleRequests::class, ThrottleFailedAuth::class]);
+    [$owner, $org] = $this->customerWithOrganization();
+    $service = featureWebService($org, 'aapanel');
+    $domain = Domain::query()->create(['organization_id' => $org->id, 'fqdn_ascii' => 'sa-sweep.cz', 'fqdn_unicode' => 'sa-sweep.cz', 'tld' => 'cz', 'state' => DomainStateMachine::ACTIVE, 'expires_at' => now()->addYear()]);
+    $zone = DnsZone::query()->create(['organization_id' => $org->id, 'domain_id' => $domain->id, 'name' => 'sa-sweep.cz', 'provider' => 'powerdns', 'provider_instance_id' => pdnsLab()->id, 'serial' => 1, 'version' => 1, 'state' => 'active', 'kind' => 'primary', 'nameservers' => ['ns1.onhost.cz']]);
+    $created = saApiCreate($this, $owner, $org, ['name' => 'sweep', 'role' => 'org_admin', 'scopes' => TokenScopes::ALL])->assertCreated();
+    $plain = (string) $created->json('token');
+    $ids = ['service' => $service->id, 'organization' => $org->id, 'zone' => $zone->id, 'domain' => $domain->id, 'account' => (string) $created->json('data.id')];
+
+    $errors = [];
+    $calls = 0;
+    foreach (Route::getRoutes()->getRoutes() as $route) {
+        if (! str_starts_with($route->uri(), 'v1/') || ! in_array('GET', $route->methods(), true)) {
+            continue;
+        }
+        $uri = '/'.preg_replace_callback('/\{(\w+)\??\}/', fn ($m) => (string) ($ids[$m[1]] ?? 'x'), $route->uri());
+        $response = saApiBearer($this, $plain, $org)->getJson($uri);
+        $calls++;
+        if ($response->getStatusCode() === 429) {
+            $errors[] = "GET {$uri} → 429: throttled, the route was never reached";
+        }
+        // a provider answer the empty fake cannot give (`provider_*`, 502) is the panel's, the same for a person; anything else is ours
+        if ($response->getStatusCode() >= 500 && ! str_starts_with((string) $response->json('error'), 'provider_')) {
+            $errors[] = "GET {$uri} → {$response->getStatusCode()} ".substr((string) $response->getContent(), 0, 200);
+        }
+    }
+    expect($calls)->toBeGreaterThan(100)
+        ->and($errors)->toBe([], "A service account token met a server error:\n".implode("\n", $errors));
+    // and the route of the finding answers: what this account may do with the service
+    saApiBearer($this, $plain, $org)->getJson("/v1/services/{$service->id}/features")->assertOk()->assertJsonStructure(['data' => ['features', 'actions']]);
 });

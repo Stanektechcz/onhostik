@@ -19,6 +19,12 @@ final class ServiceAccount extends Model
 
     protected $table = 'service_accounts';
 
+    /**
+     * TASK-0079 review L1: today an account is only ever `active` or removed (soft-deleted, every token revoked), and a removed one
+     * cannot authenticate. If a "disable" op is ever added, Sanctum still accepts the token of a disabled account: the state must
+     * then be checked at authentication (e.g. Sanctum::authenticateAccessTokensUsing) — not only in ApiContext and the Authorizer,
+     * which a route that never asks them would bypass.
+     */
     public function isActive(): bool
     {
         return $this->state === 'active';
