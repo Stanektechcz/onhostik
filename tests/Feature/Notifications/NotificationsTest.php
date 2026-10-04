@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
+use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Notifications\Mail\TemplatedMail;
 use Onhost\Domain\Notifications\Models\MailOutbox;
 use Onhost\Domain\Notifications\Models\Notification;
@@ -73,9 +74,10 @@ it('reports missing placeholders on test render and refuses unknown templates', 
     $this->postJson('/v1/staff/templates/render', ['key' => 'welcome', 'vars' => ['jmeno' => 'Jana', 'organizace' => 'X', 'url' => 'https://onhost.cz/panel']])->assertForbidden(); // template management is not an SRE permission
 });
 
-it('signs and delivers customer webhooks, retries with backoff and pauses failing endpoints', function () {
+it('signs and delivers customer webhooks and retries with backoff', function () {
     [$user, $org] = $this->customerWithOrganization();
     $this->actingAs($user, 'sanctum');
+    app(StepUpService::class)->grant($user, 'totp', null, '127.0.0.1'); // creating a webhook is HIGH since D4 (TASK-0077)
     $created = $this->postJson('/v1/webhooks', ['url' => 'https://hooks.example.cz/onhost', 'events' => ['service.*', 'invoice.paid']])->assertCreated();
     $secret = $created->json('data.secret');
     expect($secret)->toStartWith('whsec_');
@@ -97,7 +99,7 @@ it('signs and delivers customer webhooks, retries with backoff and pauses failin
     $failed = WebhookDelivery::query()->where('event', 'service.suspended')->firstOrFail();
     expect($failed->state)->toBe('failed')->and($failed->attempts)->toBe(1)->and($failed->next_attempt_at)->not->toBeNull()->and($failed->last_error)->toBe('HTTP 500');
     $this->travel(2)->minutes();
-    expect(app(WebhookDispatcher::class)->retryDue())->toMatchArray(['delivered' => 1]);
+    expect(app(WebhookDispatcher::class)->retryDue())->toMatchArray(['queued' => 1]); // the attempt runs on the queue (sync in tests)
     expect($failed->fresh()->state)->toBe('delivered');
     $this->getJson('/v1/webhooks/'.$created->json('data.id').'/deliveries')->assertOk()->assertHeader('X-Total-Count', '2');
 });

@@ -133,8 +133,17 @@ return [
         'public_rate_limit_per_minute' => 600,
         'idempotency_ttl_hours' => 24,
         'idempotency_key_max_length' => 200, // what IdempotencyKey refuses beyond; the OpenAPI contract reads it
+        // how long a key stays reserved while its request runs (seconds); must exceed the longest request. Unset: twice PHP's
+        // max_execution_time + 60, at least 600, 3600 when PHP sets no limit (IdempotencyKey::inFlightSeconds)
+        'idempotency_in_flight_seconds' => null, // a number of seconds overrides the computed window
         'page_size' => 40,
         'max_page_size' => 200,
+        'version' => env('ONHOST_API_VERSION', '1.0.0'), // info.version of the OpenAPI document and X-API-Version of every response
+        'probes_rate_limit_per_minute' => 600, // per address (unauthenticated probe/alert callers)
+        'callbacks_rate_limit_per_minute' => 120, // per address (Discord interactions)
+        'failed_auth_per_minute' => 60, // 401 answers to requests that presented a bearer token, per address, before 429
+        // Deprecation policy: [{path: 'v1/foo/*', deprecated_at: '2026-10-01', sunset_at: '2027-04-01', link: 'https://…'}]
+        'deprecations' => [],
     ],
 
     'legal_entity' => [ // the operator's own company for documents (LegalEntitySeeder / onhost:production:prepare --legal); config, not env(), so a cached configuration still carries it

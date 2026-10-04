@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: 'ONhost Cloud Platform API'
-  version: '4.0'
+  version: 1.0.0
   description: |-
     Control-plane API of the ONhost hosting platform (blueprint §17). JSON only. Errors use `{error, message, status, errors?}`.
     Lists accept `?limit=&offset=` (default 40, at most 200) and return `X-Total-Count`. Mutations behind the idempotency middleware honour `Idempotency-Key` (at most 200 characters, replayed for 24 h). Money is `{minor, currency, decimal}`.
@@ -2904,6 +2904,8 @@ paths:
           schema:
             type: string
         -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
           $ref: '#/components/parameters/Organization'
       responses:
         200:
@@ -5310,6 +5312,8 @@ paths:
           schema:
             type: string
         -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
           $ref: '#/components/parameters/Organization'
       responses:
         200:
@@ -5779,6 +5783,8 @@ paths:
           required: true
           schema:
             type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
         -
           $ref: '#/components/parameters/Organization'
       responses:
@@ -7015,6 +7021,8 @@ paths:
           required: true
           schema:
             type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
         -
           $ref: '#/components/parameters/Organization'
       responses:
@@ -8874,6 +8882,8 @@ paths:
           schema:
             type: string
         -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
           $ref: '#/components/parameters/Organization'
       responses:
         200:
@@ -8939,6 +8949,8 @@ paths:
           required: true
           schema:
             type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
         -
           $ref: '#/components/parameters/Organization'
       responses:
@@ -9148,6 +9160,8 @@ paths:
           required: true
           schema:
             type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
         -
           $ref: '#/components/parameters/Organization'
       responses:
@@ -9880,6 +9894,8 @@ paths:
           required: true
           schema:
             type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
         -
           $ref: '#/components/parameters/Organization'
       responses:
@@ -11210,6 +11226,8 @@ paths:
       summary: 'DELETE /partner/payout-account/pending'
       parameters:
         -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
           $ref: '#/components/parameters/Organization'
       responses:
         200:
@@ -11561,6 +11579,8 @@ paths:
           required: true
           schema:
             type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
         -
           $ref: '#/components/parameters/Organization'
       responses:
@@ -12301,6 +12321,8 @@ paths:
           required: true
           schema:
             type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
         -
           $ref: '#/components/parameters/Organization'
       responses:
@@ -13265,6 +13287,8 @@ paths:
           schema:
             type: string
         -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
           $ref: '#/components/parameters/Organization'
       responses:
         200:
@@ -14116,6 +14140,8 @@ paths:
           required: true
           schema:
             type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
         -
           $ref: '#/components/parameters/Organization'
       responses:
@@ -15157,6 +15183,8 @@ paths:
           required: true
           schema:
             type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
         -
           $ref: '#/components/parameters/Organization'
       responses:
@@ -19396,6 +19424,8 @@ paths:
           required: true
           schema:
             type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
         -
           $ref: '#/components/parameters/Organization'
       responses:
@@ -24353,6 +24383,8 @@ paths:
           schema:
             type: string
         -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
           $ref: '#/components/parameters/Organization'
       responses:
         200:
@@ -26086,6 +26118,8 @@ paths:
           schema:
             type: string
         -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
           $ref: '#/components/parameters/Organization'
       responses:
         200:
@@ -26389,6 +26423,8 @@ paths:
           schema:
             type: string
         -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
           $ref: '#/components/parameters/Organization'
       responses:
         200:
@@ -26517,6 +26553,8 @@ paths:
           required: true
           schema:
             type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
         -
           $ref: '#/components/parameters/Organization'
       responses:
@@ -26873,6 +26911,8 @@ paths:
           required: true
           schema:
             type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
         -
           $ref: '#/components/parameters/Organization'
       responses:
@@ -30595,6 +30635,8 @@ paths:
           schema:
             type: string
         -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
           $ref: '#/components/parameters/Organization'
       responses:
         200:
@@ -30845,6 +30887,8 @@ paths:
           schema:
             type: string
         -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
           $ref: '#/components/parameters/Organization'
       responses:
         200:
@@ -31094,6 +31138,8 @@ paths:
           required: true
           schema:
             type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
         -
           $ref: '#/components/parameters/Organization'
       responses:
@@ -33699,6 +33745,8 @@ paths:
           schema:
             type: string
         -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
           $ref: '#/components/parameters/Organization'
       responses:
         200:
@@ -34469,6 +34517,8 @@ paths:
           schema:
             type: string
         -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
           $ref: '#/components/parameters/Organization'
       responses:
         200:
@@ -34579,6 +34629,312 @@ paths:
         -
           session: []
       x-token-scope: null
+  '/webhooks/{endpoint}/deliveries/{delivery}/redeliver':
+    post:
+      operationId: postWebhooksByEndpointDeliveriesByDeliveryRedeliver
+      tags:
+        - billing
+      summary: 'POST /webhooks/{endpoint}/deliveries/{delivery}/redeliver'
+      parameters:
+        -
+          name: endpoint
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          name: delivery
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        201:
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        422:
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        200:
+          description: 'Success (idempotent replay or synchronous result)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        401:
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        403:
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        404:
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+      x-token-scope: null
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  '/webhooks/{endpoint}/enable':
+    post:
+      operationId: postWebhooksByEndpointEnable
+      tags:
+        - billing
+      summary: 'POST /webhooks/{endpoint}/enable'
+      parameters:
+        -
+          name: endpoint
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        201:
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        422:
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        200:
+          description: 'Success (idempotent replay or synchronous result)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        401:
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        403:
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        404:
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+      x-token-scope: null
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  '/webhooks/{endpoint}/ping':
+    post:
+      operationId: postWebhooksByEndpointPing
+      tags:
+        - billing
+      summary: 'POST /webhooks/{endpoint}/ping'
+      parameters:
+        -
+          name: endpoint
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        201:
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        422:
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        200:
+          description: 'Success (idempotent replay or synchronous result)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        401:
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        403:
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        404:
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+      x-token-scope: null
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  '/webhooks/{endpoint}/rotate-secret':
+    post:
+      operationId: postWebhooksByEndpointRotateSecret
+      tags:
+        - billing
+      summary: 'POST /webhooks/{endpoint}/rotate-secret'
+      parameters:
+        -
+          name: endpoint
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        201:
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        422:
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        200:
+          description: 'Success (idempotent replay or synchronous result)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        401:
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        403:
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        404:
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+      x-token-scope: null
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
 components:
   securitySchemes:
     session:

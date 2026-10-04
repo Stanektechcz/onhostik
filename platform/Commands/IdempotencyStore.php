@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Platform\Commands;
 
 use Illuminate\Database\Eloquent\Model as EloquentModel;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Redaction\Redactor;
@@ -23,6 +24,9 @@ use Onhost\Platform\Redaction\Redactor;
  */
 final class IdempotencyStore
 {
+    /** How a reservation's token starts (kept in `result` while the request runs; an answer replaces it). */
+    private const RESERVATION = 'reservation:';
+
     public function __construct(private readonly int $ttlHours = 24) {}
 
     /**
@@ -94,35 +98,89 @@ final class IdempotencyStore
         );
     }
 
-    /** HTTP-level replay for `Idempotency-Key` header (public API contract: same key + different body => 409). */
-    public function rememberHttp(string $key, string $scope, string $requestHash, int $status, string $body): void
+    /**
+     * HTTP-level replay for the `Idempotency-Key` header (public API contract: same key + different body => 409).
+     *
+     * Phase D5: the key is reserved BEFORE the request runs, by one atomic insert on the (key, scope) unique index —
+     * `INSERT OR IGNORE` on SQLite, `ON CONFLICT DO NOTHING` on PostgreSQL (no exception, so no aborted transaction). The
+     * reservation is a row without a status. Whoever's insert lands runs the request; a duplicate that arrives meanwhile reads
+     * the reservation and is told the request is in progress. A reservation lives `$inFlightSeconds` (longer than the longest
+     * request): a worker that died holding it does not block the key for the whole day.
+     *
+     * Security review H1: a reservation that ran out while its request still ran could be taken over, and the slow request then
+     * wrote its answer over the new holder's. Each reservation carries its own token (kept in `result`, which a reservation does
+     * not otherwise use); only the holder of the token completes or frees it — a request that lost its reservation writes nothing.
+     *
+     * @return array{token:string|null, status:int|null, body:string|null, age:int} token = the key is reserved for this request
+     *                                                                              (run it, then complete or release with the token);
+     *                                                                              otherwise the row that holds the key: an answer to
+     *                                                                              replay, or status null = still running for `age` s
+     *
+     * @throws DomainError `idempotency_key_reused` (409) when the key was used with another request
+     */
+    public function reserveHttp(string $key, string $scope, string $requestHash, int $inFlightSeconds): array
     {
-        DB::table('idempotency_keys')->updateOrInsert(
-            ['key' => 'http:'.$key, 'scope' => $scope],
-            [
+        $where = ['key' => 'http:'.$key, 'scope' => $scope];
+        $token = self::RESERVATION.bin2hex(random_bytes(16));
+        $row = null;
+        for ($attempt = 0; $attempt < 3 && $row === null; $attempt++) { // a row freed between our insert and our read: try again
+            // an answer past its day, or a reservation past its window (its request died, or outlived the window and has lost
+            // the key — its token no longer matches, so it cannot write): the key is free again
+            DB::table('idempotency_keys')->where($where)->where('expires_at', '<', now())->delete();
+            $inserted = DB::table('idempotency_keys')->insertOrIgnore($where + [
                 'request_hash' => $requestHash,
-                'response_status' => $status,
-                'result' => $body,
+                'response_status' => null,
+                'result' => $token,
                 'created_at' => now(),
-                'expires_at' => now()->addHours($this->ttlHours),
-            ],
-        );
-    }
-
-    /** @return array{status:int, body:string}|null */
-    public function findHttp(string $key, string $scope, string $requestHash): ?array
-    {
-        $row = DB::table('idempotency_keys')->where('key', 'http:'.$key)->where('scope', $scope)->first();
-        if ($row === null || ($row->expires_at !== null && strtotime((string) $row->expires_at) < time())) {
-            return null;
+                'expires_at' => now()->addSeconds($inFlightSeconds),
+            ]);
+            if ($inserted === 1) {
+                return ['token' => $token, 'status' => null, 'body' => null, 'age' => 0];
+            }
+            $row = DB::table('idempotency_keys')->where($where)->first();
         }
-        if ($row->request_hash !== $requestHash) {
+        if ($row === null) {
+            return ['token' => null, 'status' => null, 'body' => null, 'age' => 0]; // the key keeps changing hands: in progress, retry
+        }
+        if (! is_string($row->request_hash) || ! hash_equals($row->request_hash, $requestHash)) {
             throw DomainError::conflict('idempotency_key_reused', 'The same Idempotency-Key was used with a different request body.', [
                 'hint' => 'Use a new key for a different request; the original response is not returned to avoid silent overwrites.',
             ]);
         }
+        if ($row->response_status === null) {
+            $age = $row->created_at !== null ? max(0, time() - (int) strtotime((string) $row->created_at)) : 0;
 
-        return ['status' => (int) $row->response_status, 'body' => (string) $row->result];
+            return ['token' => null, 'status' => null, 'body' => null, 'age' => $age];
+        }
+
+        return ['token' => null, 'status' => (int) $row->response_status, 'body' => (string) $row->result, 'age' => 0];
+    }
+
+    /**
+     * The answer of a reserved request, kept for the day under its key — only while this request still holds the reservation.
+     *
+     * @return bool false when the reservation was lost (taken over after it ran out): nothing was written
+     */
+    public function completeHttp(string $key, string $scope, string $token, int $status, string $body): bool
+    {
+        return $this->ownReservation($key, $scope, $token)->update([
+            'response_status' => $status,
+            'result' => $body,
+            'created_at' => now(),
+            'expires_at' => now()->addHours($this->ttlHours),
+        ]) === 1;
+    }
+
+    /** Frees a reservation whose request did not complete (an error, a refusal before it ran) — only this request's own. */
+    public function releaseHttp(string $key, string $scope, string $token): void
+    {
+        $this->ownReservation($key, $scope, $token)->delete();
+    }
+
+    private function ownReservation(string $key, string $scope, string $token): Builder
+    {
+        return DB::table('idempotency_keys')->where('key', 'http:'.$key)->where('scope', $scope)
+            ->whereNull('response_status')->where('result', $token);
     }
 
     private function scope(CommandContext $context): string

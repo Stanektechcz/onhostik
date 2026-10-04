@@ -23,6 +23,12 @@ final class EgressGuard
     /** Not covered by PHP's private/reserved flags: CGNAT, benchmarking, IETF protocol assignments, 6to4 relay, NAT64, Teredo. */
     private const EXTRA_DENY = ['100.64.0.0/10', '198.18.0.0/15', '192.0.0.0/24', '192.88.99.0/24', '64:ff9b::/96', '2001::/32', '2001:db8::/32', '2002::/16'];
 
+    /**
+     * IPv4-mapped IPv6 (`::ffff:10.0.0.5`): the same IPv4 host behind another spelling. PHP's reserved-range flag happens to
+     * catch it today; it is refused here by name, before any operator allow-list, so that no filter change reopens it (D4 review).
+     */
+    private const MAPPED_V4 = '::ffff:0:0/96';
+
     public function __construct(private readonly HostResolver $resolver) {}
 
     /**
@@ -128,6 +134,9 @@ final class EgressGuard
 
     public function isPublic(string $ip): bool
     {
+        if (self::inCidr($ip, self::MAPPED_V4)) {
+            return false;
+        }
         foreach (array_map('strval', (array) config('onhost.egress.allow_cidrs', [])) as $cidr) { // a lab whose nodes live on private addresses says so explicitly
             if (self::inCidr($ip, $cidr)) {
                 return true;

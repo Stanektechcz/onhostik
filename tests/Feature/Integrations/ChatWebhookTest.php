@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Http;
+use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Integrations\ChatMessage;
 use Onhost\Domain\Notifications\WebhookDispatcher;
 use Onhost\Platform\Events\GenericEvent;
@@ -28,6 +29,7 @@ it('delivers platform events to Slack as Block Kit and to Teams as a MessageCard
     [$user, $org] = $this->customerWithOrganization();
     Http::fake(['hooks.slack.com/*' => Http::response('ok', 200), '*.webhook.office.com/*' => Http::response('1', 200), 'example.com/*' => Http::response('', 204)]);
     $this->actingAs($user, 'sanctum');
+    app(StepUpService::class)->grant($user, 'totp', null, '127.0.0.1'); // creating a webhook is HIGH since D4 (TASK-0077)
     $this->postJson('/v1/webhooks', ['url' => 'https://hooks.slack.com/services/T000/B000/xyz', 'events' => ['*']])->assertCreated();
     $this->postJson('/v1/webhooks', ['url' => 'https://contoso.webhook.office.com/webhookb2/guid@guid/IncomingWebhook/abc/def', 'events' => ['*']])->assertCreated();
     $this->postJson('/v1/webhooks', ['url' => 'https://example.com/hooks/onhost', 'events' => ['*']])->assertCreated();
