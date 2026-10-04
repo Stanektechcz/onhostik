@@ -114,10 +114,83 @@
    * tab, so that is where it lives: a chip next to "Provoz". Whoever may not manage members gets a 403 from the list and
    * never sees the chip; a guest the service was shared with sees the service and nothing of this. */
   var ACCESS_CAPS = { view: ['zobrazení', 'view'], manage: ['správa', 'manage'], console: ['konzole', 'console'], backups: ['zálohy', 'backups'], restore: ['obnova', 'restore'], assistant: ['AI asistent', 'AI assistant'] };
+  /* the chips of the operations tab; "Přístupy" is there only for somebody who may decide who else sees the service */
+  function nocChips(ctx, grants) {
+    var _ = ctx._, t = ctx.s.wbTool, has = Array.isArray(grants);
+    var now = t === 'health' || t === 'spec' ? t : (t === 'access' && has ? 'access' : null);
+    var set = function (v) { return function () { ctx.cmp.setState({ wbTool: v, wbF: { a: '', b: '', c: '' } }); }; };
+    var open = has ? grants.filter(function (g) { return g.state === 'active' || g.state === 'pending'; }).length : 0;
+    var chips = [{ label: _('Provoz', 'Operations'), active: now === null, on: set(null) }, { label: _('Kontrola služby', 'Service check'), active: now === 'health', on: set('health') }, { label: _('Nastavení jako dokument', 'Settings document'), active: now === 'spec', on: set('spec') }];
+    if (has) chips.push({ label: _('Přístupy', 'Access') + (open ? ' · ' + open : ''), active: now === 'access', on: set('access') });
+    return chips;
+  }
+  function nocPanel(ctx, core) {
+    var t = ctx.s.wbTool, out;
+    if (t === 'health') out = healthPanel(ctx);
+    else if (t === 'spec') out = specPanel(ctx);
+    else out = accessPanel(ctx, core) || core;
+    if (!out.chips) { out.chips = nocChips(ctx, null); out.chipsLabel = ctx._('Zobrazit', 'Show'); }
+    return out;
+  }
+  /* GET /services/{id}/health: the platform's own one-pass check (state, backup, certificate, monitoring, failed operations,
+   * limits), worst first, in the person's language, plus what features(service, actor) switched off and why */
+  function healthPanel(ctx) {
+    var _ = ctx._, sel = ctx.sel, X = ctx.X, cell = ctx.cell;
+    var d = get(ctx, 'health', '/services/' + encodeURIComponent(sel.id) + '/health');
+    var verdict = { ok: _('v pořádku', 'all right'), warn: _('pár věcí k vyřešení', 'a few things to look at'), bad: _('vyžaduje pozornost', 'needs attention') };
+    var level = { ok: _('v pořádku', 'ok'), warn: _('pozor', 'attention'), bad: _('problém', 'problem') };
+    var order = { bad: 0, warn: 1, ok: 2 };
+    var rows;
+    if (d === null) rows = loadingRow(ctx);
+    else if (d.__error) rows = errRow(ctx, d.__error);
+    else rows = (d.findings || []).slice().sort(function (a, b) { return order[a.level] - order[b.level]; }).map(function (x) { return { cells: [cell(level[x.level] || x.level, '0 0 110px', 1), cell(_(x.cs, x.en), '1 1 380px')], note: '' }; });
+    var blocked = { state: [], permission: [] };
+    Object.keys((ctx.f && ctx.f.features) || {}).forEach(function (k) { var x = ctx.f.features[k]; if (x && !x.enabled && x.reason && blocked[x.reason]) blocked[x.reason].push(k.replace(/_/g, ' ')); });
+    ['state', 'permission'].forEach(function (why) {
+      if (!blocked[why].length) return;
+      rows.push({ cells: [cell(_('nedostupné', 'unavailable'), '0 0 110px', 1), cell(X.plural(ctx.cmp, blocked[why].length, ['funkce teď nejde', 'funkce teď nejdou', 'funkcí teď nejde'], ['feature is off right now', 'features are off right now']) + ': ' + blocked[why].join(', '), '1 1 380px')], note: X.unavailableReason(_, why) });
+    });
+    var ok = d && !d.__error;
+    return { key: 'real:health', title: _('Kontrola služby · ', 'Service check · ') + sel.name, note: ok ? _('stav ze záznamů platformy, zkontrolováno ', 'from the platform records, checked ') + X.since(ctx.cmp, d.checked_at) : _('jedno čtení záznamů platformy: stav, záloha, certifikát, monitoring, operace, limity', 'one read of the platform records: state, backup, certificate, monitoring, operations, limits'),
+      state: ok ? (verdict[d.verdict] || d.verdict) : '', head: [cell(_('Úroveň', 'Level'), '0 0 110px'), cell(_('Zjištění', 'Finding'), '1 1 380px')], rows: rows, chips: nocChips(ctx, null), chipsLabel: _('Zobrazit', 'Show'),
+      extra: [{ label: _('Zkontrolovat znovu', 'Check again'), primary: true, on: function () { drop(ctx, ['health']); } }] };
+  }
+  /* GET/PUT /services/{id}/spec: the configurable sections of a service as one document; only the section named is sent */
+  function specPanel(ctx) {
+    var _ = ctx._, sel = ctx.sel, X = ctx.X, cell = ctx.cell;
+    var d = get(ctx, 'spec', '/services/' + encodeURIComponent(sel.id) + '/spec');
+    var good = d && !d.__error && typeof d === 'object';
+    var sections = good ? Object.keys(d).filter(function (k) { return k !== 'features'; }) : [];
+    var editable = good && Array.isArray(d.features) ? d.features : sections;
+    var short = function (v) { var t = v === null || v === undefined ? 'null' : JSON.stringify(v); return t.length > 160 ? t.slice(0, 157) + '…' : t; };
+    var rows;
+    if (d === null) rows = loadingRow(ctx);
+    else if (!good) rows = errRow(ctx, (d && d.__error) || 'invalid');
+    else rows = sections.map(function (k) {
+      var can = d[k] !== null && editable.indexOf(k) >= 0;
+      return { cells: [cell(k, '0 0 150px', 1), cell(short(d[k]), '1 1 380px', 1)], note: d[k] === null ? _('panel tuto sekci nevrátil; změnit ji nejde', 'the panel did not return this section; it cannot be changed') : (can ? '' : _('tuto sekci služba nemění', 'this section is not changeable on this service')),
+        actions: can ? [ctx.A(_('Upravit', 'Edit'), function () { ctx.cmp.setState({ wbF: { a: k, b: JSON.stringify(d[k]), c: '' } }); })] : [] };
+    });
+    if (good && !rows.length) rows = loadingRow(ctx, _('služba nemá žádnou nastavitelnou sekci', 'the service has no changeable section'));
+    return { key: 'real:spec', title: _('Nastavení jako dokument · ', 'Settings document · ') + sel.name, note: _('Každá sekce je celé nastavení jedné věci. Upravíte ji jako JSON a platforma udělá jen ty změny, kterými se liší od skutečnosti; ostatní sekce se nedotknou.', 'Each section is the whole setting of one thing. Edit it as JSON and the platform makes only the changes that differ from what is there; other sections are not touched.'),
+      state: good ? X.plural(ctx.cmp, editable.length, ['sekce k úpravě', 'sekce k úpravě', 'sekcí k úpravě'], ['section to edit', 'sections to edit']) : '', head: [cell(_('Sekce', 'Section'), '0 0 150px'), cell(_('Hodnota', 'Value'), '1 1 380px')], rows: rows, chips: nocChips(ctx, null), chipsLabel: _('Zobrazit', 'Show'),
+      form: good ? { title: _('Použít sekci', 'Apply a section'), fields: [ctx.F('a', _('sekce', 'section'), '0 0 150px'), ctx.F('b', _('hodnota jako JSON (tlačítko Upravit ji vyplní)', 'value as JSON (the Edit button fills it)'), '1 1 420px')], submit: _('Použít', 'Apply'), on: function () {
+        var name = v(ctx, 'a'), raw = v(ctx, 'b'), value;
+        if (editable.indexOf(name) < 0) { X.flash(ctx.cmp, _('Neznámá sekce', 'Unknown section'), editable.join(', ')); return; }
+        try { value = JSON.parse(raw); } catch (e) { X.flash(ctx.cmp, _('Hodnota není platný JSON', 'The value is not valid JSON'), (e && e.message) || ''); return; }
+        var body = { spec: {} }; body.spec[name] = value;
+        X.dialog(ctx.cmp, { title: _('Použít sekci ' + name + '?', 'Apply the section ' + name + '?'), lead: sel.name, lines: [_('Služba se upraví podle zadané hodnoty; co v ní chybí, se může odebrat.', 'The service is changed to match the value; what is missing from it may be removed.'), _('Ostatní sekce zůstávají, jak jsou.', 'Other sections stay as they are.')], confirm: _('Použít', 'Apply'), danger: true }).then(function (yes) {
+          if (!yes) return;
+          API.put('/services/' + encodeURIComponent(sel.id) + '/spec', body, API.key('svc:' + sel.id + ':spec', body)).then(function () { clearForm(ctx); X.flash(ctx.cmp, _('Nastavení se použije', 'The settings are being applied'), _('Průběh je v pohledu Provoz.', 'Progress is under Operations.')); later(ctx, ['spec', 'health']); }).catch(function (e) { X.flash(ctx.cmp, _('Nastavení se nepodařilo použít', 'The settings could not be applied'), (e && e.message) || ''); });
+        });
+      } } : null,
+      extra: [refreshBtn(ctx, ['spec'])] };
+  }
+
   function accessPanel(ctx, core) {
     var _ = ctx._, sel = ctx.sel, d = get(ctx, 'access', '/services/' + encodeURIComponent(sel.id) + '/access');
     if (!d || d.__error || !Array.isArray(d)) return core; // loading, or not this person's decision
-    var chips = [{ label: _('Provoz', 'Operations'), active: ctx.s.wbTool !== 'access', on: function () { ctx.cmp.setState({ wbTool: null }); } }, { label: _('Přístupy', 'Access') + (d.filter(function (g) { return g.state === 'active' || g.state === 'pending'; }).length ? ' · ' + d.filter(function (g) { return g.state === 'active' || g.state === 'pending'; }).length : ''), active: ctx.s.wbTool === 'access', on: function () { ctx.cmp.setState({ wbTool: 'access', wbF: { a: '', b: '', c: '' } }); } }];
+    var chips = nocChips(ctx, d);
     if (ctx.s.wbTool !== 'access') { core.chips = chips; core.chipsLabel = _('Zobrazit', 'Show'); return core; }
     var caps = function (list) { return (list || []).map(function (c) { return ACCESS_CAPS[c] ? _(ACCESS_CAPS[c][0], ACCESS_CAPS[c][1]) : c; }).join(', '); };
     var states = { active: _('aktivní', 'active'), pending: _('čeká na přijetí pozvánky', 'invitation not accepted yet'), revoked: _('odebráno', 'revoked'), expired: _('vypršelo', 'expired') };
@@ -155,7 +228,7 @@
   function enhance(cmp, sel, tab, _, core, X) {
     if (tab === 'plan') { var pc = ctxOf(cmp, sel, tab, _, X); if (pc) return planInfo(pc); } // game servers: the prototype's plan tab shows the real plans
     var fam = X.family(sel);
-    if (tab === 'noc' && fam && fam !== 'domain') { var ac = ctxOf(cmp, sel, tab, _, X); if (ac) { try { return accessPanel(ac, core) || core; } catch (e) { return core; } } }
+    if (tab === 'noc' && fam && fam !== 'domain') { var ac = ctxOf(cmp, sel, tab, _, X); if (ac) { try { return nocPanel(ac, core) || core; } catch (e) { return core; } } }
     var builders = fam === 'web' ? WEB : (fam === 'mail' ? MAIL : null);
     if (!builders || !builders[tab]) return core;
     var ctx = ctxOf(cmp, sel, tab, _, X);
@@ -166,6 +239,49 @@
 
   /* ════════════════════════════════ WEB ═══════════════════════════════════ */
   var WEB = {};
+
+  /* SSH keys of the shell accounts (GET /services/{id}/ssh-keys): whose key sits on which account, what is being revoked and
+   * has not been confirmed by the server yet (until then the key still signs in); set or take off a key. */
+  var SSH_KEY = /^(ssh-(ed25519|rsa|dss)|ecdsa-sha2-nistp\d+|sk-[A-Za-z0-9@.-]+)\s+[A-Za-z0-9+/=]+(\s.*)?$/;
+  WEB.ssh = function (ctx, core) {
+    if (!ctx.on('shell') || !core) return null;
+    var _ = ctx._, sel = ctx.sel, X = ctx.X, cell = ctx.cell, keys = ctx.s.wbSsh === 'keys';
+    var pending = (get(ctx, 'ssh_keys', '/services/' + encodeURIComponent(sel.id) + '/ssh-keys') || {}).pending_revocations || 0;
+    var chips = [{ label: _('Účty', 'Accounts'), active: !keys, on: function () { ctx.cmp.setState({ wbSsh: 'accounts' }); } }, { label: _('Klíče a odvolání', 'Keys and revocations') + (pending ? ' · ' + pending : ''), active: keys, on: function () { ctx.cmp.setState({ wbSsh: 'keys' }); } }];
+    if (!keys) { core.chips = chips; core.chipsLabel = _('Zobrazit', 'Show'); return core; }
+    var d = get(ctx, 'ssh_keys', '/services/' + encodeURIComponent(sel.id) + '/ssh-keys');
+    var list = d && !d.__error && Array.isArray(d.keys) ? d.keys : null;
+    var stateWord = { active: _('platí', 'valid'), revoking: _('ruší se', 'being removed'), revoked: _('odebrán', 'removed'), replaced: _('nahrazen', 'replaced') };
+    var rows;
+    if (d === null) rows = loadingRow(ctx);
+    else if (!list) rows = errRow(ctx, (d && d.__error) || 'invalid');
+    else rows = list.map(function (g) {
+      var who = g.owner ? (g.owner.name || g.owner.email || '') + (g.owner.member === false ? _(' (už není členem)', ' (no longer a member)') : '') : _('bez přiřazené osoby', 'no person assigned');
+      var open = g.state === 'active' || g.state === 'revoking';
+      return { cells: [cell(g.account && g.account.user || '—', '1 1 160px', 1), cell((g.key_type || '') + ' ' + (g.fingerprint || ''), '1 1 300px', 1), cell(who, '1 1 180px'), cell(stateWord[g.state] || g.state, '0 0 100px', g.state === 'revoking')],
+        note: g.state === 'revoking' ? _('Server odebrání klíče ještě nepotvrdil, do té doby se jím lze přihlásit. Pokusů: ', 'The server has not confirmed the removal yet, until then the key still signs in. Attempts: ') + ((g.revocation && g.revocation.attempts) || 0) : (g.installed_at ? _('nastaven ', 'set ') + X.since(ctx.cmp, g.installed_at) : ''),
+        actions: open ? [ctx.A(_('Odebrat klíč', 'Remove key'), function () {
+          X.dialog(ctx.cmp, { danger: true, title: _('Odebrat klíč z účtu ' + (g.account && g.account.user) + '?', 'Remove the key from account ' + (g.account && g.account.user) + '?'), lead: (g.key_type || '') + ' ' + (g.fingerprint || ''), lines: [_('Po odebrání se tímto klíčem na účet nepřihlásí nikdo.', 'Nobody can sign in to the account with this key once it is removed.'), _('Server může změnu provést se zpožděním; do potvrzení je klíč označen jako „ruší se“.', 'The server may apply the change with a delay; until it confirms, the key shows as "being removed".')], confirm: _('Odebrat klíč', 'Remove the key') }).then(function (yes) {
+            if (yes) act(ctx, 'shell.key', { remote_id: g.account.remote_id, ssh_key: '' }, ['shell_users', 'ssh_keys'], _('Klíč se odebírá', 'Removing the key'), _('Odebrání potvrdí server; stav sledujte zde.', 'The server confirms the removal; follow the state here.')).catch(function () { /* the action told why */ });
+          });
+        })] : [] };
+    });
+    if (list && !list.length) rows = loadingRow(ctx, _('na shell účtech zatím žádný klíč není', 'no key on the shell accounts yet'));
+    if (pending) rows.unshift({ cells: [cell(_('Pozor', 'Attention'), '1 1 160px', 1), cell(X.plural(ctx.cmp, pending, ['odebraný klíč server nepotvrdil', 'odebrané klíče server nepotvrdil', 'odebraných klíčů server nepotvrdil'], ['removed key is not confirmed by the server', 'removed keys are not confirmed by the server']), '1 1 480px')], note: _('Dokud server odebrání nepotvrdí, lze se tím klíčem ještě přihlásit.', 'Until the server confirms, the key still signs in.') });
+    return { key: 'real:sshkeys', title: _('SSH klíče · ', 'SSH keys · ') + sel.name, note: _('kdo má jaký klíč na kterém shell účtu; klíč lze nastavit i odebrat', 'whose key sits on which shell account; a key can be set or removed'), state: list ? X.plural(ctx.cmp, list.filter(function (g) { return g.state === 'active' || g.state === 'revoking'; }).length, ['klíč platí', 'klíče platí', 'klíčů platí'], ['key valid', 'keys valid']) : '',
+      head: [cell(_('Účet', 'Account'), '1 1 160px'), cell(_('Otisk', 'Fingerprint'), '1 1 300px'), cell(_('Komu patří', 'Owner'), '1 1 180px'), cell(_('Stav', 'State'), '0 0 100px')], rows: rows, chips: chips, chipsLabel: _('Zobrazit', 'Show'),
+      form: { title: _('Nastavit klíč účtu', 'Set an account key'), fields: [ctx.F('a', _('shell účet (uživatel)', 'shell account (user)'), '0 0 180px'), ctx.F('b', _('veřejný klíč ssh-ed25519 …', 'public key ssh-ed25519 …'), '1 1 420px')], submit: _('Nastavit', 'Set'), on: function () {
+        var user = v(ctx, 'a'), key = v(ctx, 'b'), accounts = res(ctx, 'shell_users');
+        var acc = Array.isArray(accounts) ? accounts.filter(function (x) { return x.user === user; })[0] : null;
+        if (!acc) { X.flash(ctx.cmp, _('Takový shell účet není', 'No such shell account'), (Array.isArray(accounts) ? accounts.map(function (x) { return x.user; }).join(', ') : '') || _('účty se ještě načítají', 'the accounts are still loading')); return; }
+        if (!SSH_KEY.test(key)) { X.flash(ctx.cmp, _('To nevypadá jako veřejný SSH klíč', 'That does not look like a public SSH key'), _('Začíná ssh-ed25519, ssh-rsa nebo ecdsa-sha2-… a nikdy nevkládejte soukromý klíč.', 'It starts with ssh-ed25519, ssh-rsa or ecdsa-sha2-… and never paste a private key.')); return; }
+        X.dialog(ctx.cmp, { title: _('Nastavit klíč účtu ' + user + '?', 'Set the key of account ' + user + '?'), lead: sel.name, lines: [_('Zadaný klíč nahradí klíč, který účet má.', 'The key replaces the key the account has.')], confirm: _('Nastavit klíč', 'Set the key') }).then(function (yes) {
+          if (!yes) return;
+          act(ctx, 'shell.key', { remote_id: acc.remote_id, ssh_key: key }, ['shell_users', 'ssh_keys'], _('Klíč se nastavuje', 'Setting the key'), '').then(function () { clearForm(ctx); }).catch(function () { /* the action told why */ });
+        });
+      } },
+      extra: [refreshBtn(ctx, ['ssh_keys', 'shell_users'])] };
+  };
 
   /* Terminal: one command = one audited operation; output comes back through the operation result. */
   WEB.terminal = function (ctx) {
@@ -285,7 +401,7 @@
         if (!row || !row.cells) return;
         row.actions = row.actions || [];
         if (ctx.on('backup_download') && x.state === 'completed') row.actions.push(ctx.A(_('Stáhnout', 'Download'), function () { window.open(API.base + '/services/' + sel.id + '/backups/' + x.id + '/download', '_blank', 'noopener'); }));
-        if (ctx.on('backup_delete') && x.state === 'completed' && !x.protected) row.actions.push(ctx.A(_('Smazat', 'Delete'), function () { if (window.confirm(_('Smazat tuto zálohu?', 'Delete this backup?'))) act(ctx, 'backup.delete', { remote_id: x.remote_id || x.id }, [], _('Záloha smazána', 'Backup deleted'), '').then(function () { delete ctx.X.state.resources[sel.id + ':backups']; setTimeout(function () { delete ctx.X.state.resources[sel.id + ':backups']; ctx.X.rerender(ctx.cmp); }, 4000); }); }));
+        if (ctx.on('backup_delete') && x.state === 'completed' && !x.protected) row.actions.push(ctx.A(_('Smazat', 'Delete'), function () { ctx.X.destructive(ctx.cmp, sel, 'backup.delete', { backup_id: x.id, remote_id: x.remote_id || x.id }, { title: _('Smazat tuto zálohu?', 'Delete this backup?'), confirm: _('Smazat zálohu', 'Delete the backup'), okTitle: _('Záloha smazána', 'Backup deleted'), okBody: '' }).then(function () { delete ctx.X.state.resources[sel.id + ':backups']; setTimeout(function () { delete ctx.X.state.resources[sel.id + ':backups']; ctx.X.rerender(ctx.cmp); }, 4000); }); }));
         if (x.kind) row.note = (row.note ? row.note + ' · ' : '') + { manual: _('ruční', 'manual'), scheduled: _('plánovaná', 'scheduled'), 'pre-push': _('před přenosem stagingu', 'before staging push'), final: _('závěrečná', 'final') }[x.kind] || x.kind;
       });
     }
@@ -455,8 +571,8 @@
     if (st.state === 'ready') {
       panel.extra.push({ label: _('Otevřít staging', 'Open staging'), on: function () { window.open(st.staging.url, '_blank', 'noopener'); } });
       panel.extra.push({ label: _('Obnovit z produkce', 'Refresh from production'), on: function () { if (window.confirm(_('Přepsat staging aktuální produkcí (soubory i databáze)?', 'Overwrite staging with current production (files and databases)?'))) act(ctx, 'staging.refresh', { databases: true }, ['staging'], _('Obnovuji staging', 'Refreshing staging'), ''); } });
-      panel.extra.push({ label: _('Přenést do produkce', 'Push to production'), primary: true, on: function () { if (window.confirm(_('Přenést staging do PRODUKCE? Produkční soubory a databáze se nahradí kopií ze stagingu; před přenosem vytvoříme zálohu.', 'Push staging to PRODUCTION? Production files and databases are replaced by the staging copy; a backup is taken first.'))) act(ctx, 'staging.push', { databases: true, confirm: true }, ['staging', 'backups'], _('Přenáším do produkce', 'Pushing to production'), _('Nejdřív záloha, pak kopie; průběh je v záložce Provoz a NOC.', 'Backup first, then the copy; progress is under Operations and NOC.')); } });
-      panel.extra.push({ label: _('Smazat staging', 'Delete staging'), on: function () { if (window.confirm(_('Smazat staging web včetně jeho databází?', 'Delete the staging site with its databases?'))) act(ctx, 'staging.delete', {}, ['staging'], _('Staging se ruší', 'Deleting staging'), ''); } });
+      panel.extra.push({ label: _('Přenést do produkce', 'Push to production'), primary: true, on: function () { ctx.X.destructive(ctx.cmp, sel, 'staging.push', { databases: true, confirm: true }, { kinds: ['staging', 'backups'], title: _('Přenést staging do produkce?', 'Push staging to production?'), confirm: _('Přenést do produkce', 'Push to production'), okTitle: _('Přenáším do produkce', 'Pushing to production'), okBody: _('Nejdřív záloha, pak kopie; průběh je v záložce Provoz a NOC.', 'Backup first, then the copy; progress is under Operations and NOC.') }).then(function () { later(ctx, ['staging', 'backups']); }); } });
+      panel.extra.push({ label: _('Smazat staging', 'Delete staging'), on: function () { ctx.X.destructive(ctx.cmp, sel, 'staging.delete', {}, { kinds: ['staging'], title: _('Smazat staging?', 'Delete staging?'), confirm: _('Smazat staging', 'Delete staging'), okTitle: _('Staging se ruší', 'Deleting staging'), okBody: '' }).then(function () { later(ctx, ['staging']); }); } });
     }
     panel.extra.push(refreshBtn(ctx, ['staging']));
     return panel;
@@ -822,6 +938,27 @@
 
   /* ════════════════════════════════ MAIL ══════════════════════════════════ */
   var MAIL = {};
+
+  /* sending.set: the mail domain sends or only receives. The panel does not report the current state, so both directions are offered, each confirmed. */
+  MAIL.auth = function (ctx, core) {
+    var feature = ctx.f.features.sending;
+    if (!core || !Array.isArray(core.rows) || !feature) return null; // not on this plan: nothing to say
+    var _ = ctx._, sel = ctx.sel, X = ctx.X, cell = ctx.cell;
+    var row = { cells: [cell(_('Odesílání pošty', 'Sending mail'), '1 1 220px'), cell(feature.enabled ? _('zapnout nebo vypnout pro všechny schránky domény', 'switch on or off for every mailbox of the domain') : X.unavailableReason(_, feature.reason), '1 1 260px', 1)], note: feature.enabled ? _('Příjem pošty zůstává, vypnutí zastaví jen odesílání z klientů a webmailu.', 'Receiving mail stays; switching off stops only sending from mail clients and webmail.') : '', actions: [] };
+    if (feature.enabled) {
+      var change = function (enabled) {
+        return function () {
+          X.dialog(ctx.cmp, { danger: !enabled, title: enabled ? _('Zapnout odesílání pošty z ' + sel.name + '?', 'Switch sending on for ' + sel.name + '?') : _('Vypnout odesílání pošty z ' + sel.name + '?', 'Switch sending off for ' + sel.name + '?'), lead: sel.name,
+            lines: enabled ? [_('Schránky domény budou moct znovu odesílat poštu.', 'The mailboxes of the domain can send mail again.')] : [_('Schránky domény nebudou moct odesílat poštu (ani webmail a aplikace na webu přes jejich účet).', 'The mailboxes of the domain cannot send mail (nor webmail or apps using their account).'), _('Příchozí pošta chodí dál.', 'Incoming mail keeps arriving.')], confirm: enabled ? _('Zapnout odesílání', 'Switch sending on') : _('Vypnout odesílání', 'Switch sending off') }).then(function (yes) {
+            if (yes) act(ctx, 'sending.set', { enabled: enabled }, ['mailboxes'], enabled ? _('Odesílání se zapíná', 'Switching sending on') : _('Odesílání se vypíná', 'Switching sending off'), '').catch(function () { /* the action told why */ });
+          });
+        };
+      };
+      row.actions = [ctx.A(_('Zapnout', 'On'), change(true)), ctx.A(_('Vypnout', 'Off'), change(false))];
+    }
+    core.rows = core.rows.concat([row]);
+    return core;
+  };
 
   MAIL.catchall = function (ctx) {
     var _ = ctx._, sel = ctx.sel;

@@ -7,7 +7,7 @@
 (function () {
   'use strict';
   if (window.OnhostPanelProjects) return;
-  var S = { list: null, detail: null, detailId: null, services: null, busy: {} };
+  var S = { list: null, detail: null, detailId: null, services: null, busy: {}, err: {} };
   var FALLBACK_ROLES = [['viewer', 'jen čtení', 'viewer'], ['developer', 'vývojář', 'developer'], ['cloud_operator', 'operátor cloudu', 'cloud operator'], ['domain_manager', 'správce domén', 'domain manager'], ['dns_manager', 'správce DNS', 'DNS manager'], ['mail_manager', 'správce pošty', 'mail manager'], ['billing_admin', 'fakturace', 'billing'], ['support_contact', 'kontakt pro podporu', 'support contact']];
 
   function A() { return window.OnhostApi; }
@@ -18,6 +18,8 @@
   function flash(cmp, t, b) { if (cmp && typeof cmp.flash === 'function') cmp.flash(t, b); }
   function fail(cmp, _, e) { flash(cmp, _('Nepodařilo se', 'Failed'), (e && e.message) || _('Zkuste to prosím znovu.', 'Please try again.')); }
   function base() { return '/organizations/' + encodeURIComponent(orgId()) + '/projects'; }
+  /* Czech plural: 1 služba, 2–4 služby, 0 and 5+ služeb */
+  function plural(cs, n, cs3, en2) { n = Math.abs(Number(n) || 0); if (!cs) return n + ' ' + (n === 1 ? en2[0] : en2[1]); return n + ' ' + (n === 1 ? cs3[0] : (n >= 2 && n <= 4 ? cs3[1] : cs3[2])); }
   function money(m, cs) { if (!m) return '—'; var n = Number(m.decimal != null ? m.decimal : (m.minor || 0) / 100); return n.toLocaleString(cs ? 'cs-CZ' : 'en-GB', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' ' + (m.currency || ''); }
   function day(iso, cs) { if (!iso) return '—'; return new Date(iso).toLocaleDateString(cs ? 'cs-CZ' : 'en-GB'); }
   function roles() { var acct = window.OnhostPanelAccount; return (acct && acct.roles) || FALLBACK_ROLES; }
@@ -27,22 +29,33 @@
      must not offer what will be refused */
   function canManage() { var u = me() || {}; return u.member_role === 'owner' || u.member_role === 'org_admin'; }
 
+  /* a failed read is said out loud and kept (S.err), never turned into an empty list: "no projects" and "the projects did not
+     load" are not the same sentence. The view shows it with a retry; the failure is not retried on its own on every render. */
+  function lost(cmp, key, e) {
+    S.err[key] = (e && e.message) || 'error';
+    flash(cmp, isCs(cmp) ? 'Načtení se nepodařilo' : 'Loading failed', S.err[key]);
+  }
+  function retry(cmp, key) { return function () { delete S.err[key]; if (key === 'list') S.list = null; else if (key === 'detail') { S.detail = null; S.detailId = null; } else if (key === 'services') S.services = null; rerender(cmp); }; }
+  function failedRow(cmp, _, H, key, what) {
+    return { name: what, sub: S.err[key], c2: '', state: _('chyba', 'error'), stateStyle: H.pill('warn'), barStyle: H.bar(100, 'warn'), metric: '—', rowStyle: H.rowStyle, action: _('Zkusit znovu', 'Try again'), actionCls: 'btn btn-secondary', onAction: retry(cmp, key) };
+  }
   function loadList(cmp) {
-    if (S.list !== null || S.busy.list || !A() || !orgId()) return;
+    if (S.list !== null || S.busy.list || S.err.list || !A() || !orgId()) return;
     S.busy.list = true;
-    A().get(base()).then(function (r) { S.list = r; }).catch(function () { S.list = { data: [], spend: null }; }).then(function () { delete S.busy.list; rerender(cmp); });
+    A().get(base()).then(function (r) { S.list = r; }).catch(function (e) { S.list = { data: [], spend: null }; lost(cmp, 'list', e); }).then(function () { delete S.busy.list; rerender(cmp); });
   }
   function loadDetail(cmp, id) {
-    if (S.detailId === id && (S.detail !== null || S.busy.detail)) return;
-    S.detailId = id; S.detail = null; S.busy.detail = true;
-    A().get(base() + '/' + encodeURIComponent(id)).then(function (r) { S.detail = r.data || r; }).catch(function () { S.detail = null; }).then(function () { delete S.busy.detail; rerender(cmp); });
+    if (S.detailId === id && (S.detail !== null || S.busy.detail || S.err.detail)) return;
+    S.detailId = id; S.detail = null; S.busy.detail = true; delete S.err.detail;
+    A().get(base() + '/' + encodeURIComponent(id)).then(function (r) { S.detail = r.data || r; }).catch(function (e) { S.detail = null; lost(cmp, 'detail', e); }).then(function () { delete S.busy.detail; rerender(cmp); });
   }
+  /* every service of the organization, all pages (OnhostApi.all): a list cut at 200 would silently hide the 201st service from "assign" */
   function loadServices(cmp) {
-    if (S.services !== null || S.busy.services || !A()) return;
+    if (S.services !== null || S.busy.services || S.err.services || !A()) return;
     S.busy.services = true;
-    A().get('/services?limit=200').then(function (r) { S.services = r.data || []; }).catch(function () { S.services = []; }).then(function () { delete S.busy.services; rerender(cmp); });
+    A().all('/services').then(function (r) { S.services = r.data || []; }).catch(function (e) { S.services = []; lost(cmp, 'services', e); }).then(function () { delete S.busy.services; rerender(cmp); });
   }
-  function reload(cmp) { S.list = null; S.detail = null; S.detailId = null; S.services = null; rerender(cmp); }
+  function reload(cmp) { S.list = null; S.detail = null; S.detailId = null; S.services = null; S.err = {}; rerender(cmp); }
   function back(cmp) { return function () { cmp.setState({ projSel: null, query: '' }); }; }
 
   function assign(cmp, _, service, projectId, label) {
@@ -80,11 +93,12 @@
       } : null,
       tableTitle: _('Projekty', 'Projects'), tableNote: _('služby, útrata a podíl na celku', 'services, spend and share of the total'),
       cols: [_('Projekt', 'Project'), _('Obsah', 'Contents'), _('Stav', 'State'), _('Měsíčně', 'Monthly'), ''],
-      rows: rows.filter(function (p) { return H.match(p.name) || H.match(p.slug || ''); }).map(function (p) {
+      rows: (S.err.list ? [failedRow(cmp, _, H, 'list', _('Projekty se nepodařilo načíst', 'The projects did not load'))] : []).concat(rows.filter(function (p) { return H.match(p.name) || H.match(p.slug || ''); })).map(function (p) {
+        if (p.onAction && p.state === _('chyba', 'error')) return p;
         var archived = p.state === 'archived';
         return {
           name: p.name, sub: [p.description, p.cost_center ? _('středisko ', 'cost centre ') + p.cost_center : null, (p.tags || []).join(', ')].filter(Boolean).join(' · ') || p.slug || '',
-          c2: String(p.services || 0) + _(' služeb', ' services') + (p.members ? ' · ' + p.members + _(' členů', ' members') : ''),
+          c2: plural(cs, p.services || 0, ['služba', 'služby', 'služeb'], ['service', 'services']) + (p.members ? ' · ' + plural(cs, p.members, ['člen', 'členové', 'členů'], ['member', 'members']) : ''),
           state: archived ? _('archivován', 'archived') : _('aktivní', 'active'), stateStyle: H.pill(archived ? 'off' : 'ok'), barStyle: H.bar(Math.max(2, Number(p.share) || 0), archived ? 'off' : 'ok'),
           metric: money(p.monthly, cs) + (p.share ? ' · ' + p.share + ' %' : ''), rowStyle: H.rowStyle,
           action: _('Otevřít', 'Open'), actionCls: 'btn btn-secondary', onAction: function () { cmp.setState({ projSel: p.id, query: '' }); }
@@ -94,8 +108,8 @@
       side: {
         title: _('Útrata podle projektů', 'Spend by project'),
         rows: rows.map(function (p) {
-          return { title: p.name, meta: String(p.services || 0) + _(' služeb · ', ' services · ') + (p.share || 0) + ' %', value: money(p.monthly, cs), kind: p.state === 'archived' ? 'off' : 'ok', on: function () { cmp.setState({ projSel: p.id, query: '' }); } };
-        }).concat(spend.unassigned ? [{ title: _('Nezařazeno', 'Unassigned'), meta: String(spend.unassigned.services || 0) + _(' služeb', ' services'), value: money(spend.unassigned.monthly, cs), kind: spend.unassigned.services ? 'warn' : 'off' }] : [])
+          return { title: p.name, meta: plural(cs, p.services || 0, ['služba', 'služby', 'služeb'], ['service', 'services']) + ' · ' + (p.share || 0) + ' %', value: money(p.monthly, cs), kind: p.state === 'archived' ? 'off' : 'ok', on: function () { cmp.setState({ projSel: p.id, query: '' }); } };
+        }).concat(spend.unassigned ? [{ title: _('Nezařazeno', 'Unassigned'), meta: plural(cs, spend.unassigned.services || 0, ['služba', 'služby', 'služeb'], ['service', 'services']), value: money(spend.unassigned.monthly, cs), kind: spend.unassigned.services ? 'warn' : 'off' }] : [])
       },
       advice: {
         title: _('Role platí v rámci projektu', 'Roles apply inside a project'),
@@ -110,6 +124,9 @@
   function detailView(cmp, _, H, cs, s, id) {
     loadList(cmp); loadDetail(cmp, id); loadServices(cmp);
     var p = S.detail;
+    if (!p && S.err.detail) {
+      return { crumb: _('Projekty', 'Projects'), title: _('Projekt se nepodařilo načíst', 'The project did not load'), stats: [], cols: [_('Položka', 'Item'), _('Typ', 'Type'), _('Stav', 'State'), _('Od', 'Since'), ''], rows: [failedRow(cmp, _, H, 'detail', _('Projekt se nepodařilo načíst', 'The project did not load'))], filters: [], readOnly: true, side: { title: _('Projekty', 'Projects'), rows: [{ title: _('← Zpět na projekty', '← Back to projects'), meta: '', value: '', kind: 'off', on: back(cmp) }] } };
+    }
     if (!p) {
       return { crumb: _('Projekty', 'Projects'), title: _('Načítám projekt…', 'Loading the project…'), stats: [], cols: [], rows: [], filters: [], readOnly: true, side: { title: _('Projekty', 'Projects'), rows: [{ title: _('← Zpět na projekty', '← Back to projects'), meta: '', value: '', kind: 'off', on: back(cmp) }] } };
     }
@@ -175,7 +192,7 @@
         title: _('Přiřadit službu', 'Assign a service'),
         rows: [{ title: _('← Zpět na projekty', '← Back to projects'), meta: '', value: '', kind: 'off', on: back(cmp) }].concat(manage && !archived ? candidates.slice(0, 12).map(function (x) {
           return { title: x.label || x.hostname || x.name, meta: (x.project_id ? _('nyní v jiném projektu', 'now in another project') : _('nezařazeno', 'unassigned')) + (x.product_key ? ' · ' + x.product_key : ''), value: _('Přiřadit →', 'Assign →'), kind: 'ok', on: function () { assign(cmp, _, x.id, p.id, x.label || x.hostname); } };
-        }) : []).concat(manage && !archived && !candidates.length ? [{ title: _('Všechny služby už jsou v tomto projektu', 'Every service is already in this project'), meta: '', value: '', kind: 'off' }] : [])
+        }) : []).concat(manage && !archived && S.err.services ? [{ title: _('Služby se nepodařilo načíst', 'The services did not load'), meta: S.err.services, value: _('Zkusit znovu →', 'Try again →'), kind: 'warn', on: retry(cmp, 'services') }] : []).concat(manage && !archived && !S.err.services && S.services !== null && !candidates.length ? [{ title: _('Všechny služby už jsou v tomto projektu', 'Every service is already in this project'), meta: '', value: '', kind: 'off' }] : [])
       },
       advice: archived ? {
         title: _('Projekt je archivován', 'The project is archived'), lead: _('Archivovaný projekt nepřijímá služby ani členy. Obnovením se vrátí mezi aktivní.', 'An archived project takes no services or members. Restoring it makes it active again.'),
