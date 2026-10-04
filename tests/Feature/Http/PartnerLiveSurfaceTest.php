@@ -6,8 +6,8 @@ use Onhost\Domain\Partners\PartnerService;
 use Onhost\Platform\Commands\CommandContext;
 
 /*
- * The partner portal on the API (audit §5l-1, seam #47): every narrated tab reads the partner API when it answers and keeps
- * the prototype literal as fallback; the overview carries the tier table the portal needs.
+ * The partner portal on the API (audit §5l-1, seam #47): every narrated tab reads the partner API when it answers and has
+ * no prototype literal behind it (audit A3); the overview carries the tier table the portal needs.
  */
 
 it('puts the prototype tabs on the partner API and ships the tier table', function () {
@@ -25,8 +25,8 @@ it('puts the prototype tabs on the partner API and ships the tier table', functi
     ] as $seam) {
         expect($html)->toContain($seam);
     }
-    // the literals survive as fallback
-    expect($html)->toContain('this.CLIENTS(cs)')->toContain("'https://onhost.cz/?ref=SINDELAR4821'")->toContain('PO-2026-08');
+    // audit A3: no narrated fallback — the prototype literals are gone, the helpers answer with loading, empty or error states
+    expect($html)->toContain('this.CLIENTS(cs)')->not->toContain('SINDELAR4821')->not->toContain("['PO-2026-08',")->not->toContain('Šindelář');
 
     $h = ['X-Organization' => $partnerOrg->id];
     $overview = $this->withHeaders($h)->getJson('/v1/partner/overview')->assertOk()->json('data');

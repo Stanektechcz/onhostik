@@ -103,6 +103,64 @@ final class SurfaceRenderer
      * capacity strip, role switcher, seeded log and access grants are dropped; every hook keeps the literal as fallback.
      */
     /**
+     * Audit A3 (P0-2): outside demo mode the partner portal never carries the prototype's narrated partner — its ten clients,
+     * the activity feed, the payout history, the made-up balance, monthly bases and KPI deltas leave the page source; the
+     * helpers of api/onhost-partner.api.js answer with loading, empty or error states until the partner API answers.
+     */
+    private static function partnerLiterals(string $html): string
+    {
+        $html = self::between($html, "  CLIENTS(cs) {\n", '  renderVals() {', "  CLIENTS(cs) {\n    return []; // outside demo mode the clients come from the partner API only (audit A3)\n  }\n\n");
+        $html = self::between($html, "    const feed = [\n", "    ];\n\n    // clients table", "    const feed = [\n");
+        $html = self::between($html, "    const payData = [\n", "    ];\n    const payRows", "    const payData = [\n");
+        $pairs = [
+            "    const months = cs ? ['Srpen 2026', 'Červenec 2026', 'Červen 2026', 'Květen 2026', 'Duben 2026', 'Březen 2026'] : ['August 2026', 'July 2026', 'June 2026', 'May 2026', 'April 2026', 'March 2026'];\n    const bases = [54150, 52400, 51880, 47300, 44120, 41960];" => "    const months = [];\n    const bases = [];",
+            "value: this.mny(mrrTotal * mult), delta: '+ 8,4 %', deltaStyle: dPos }" => "value: this.mny(mrrTotal * mult), delta: '', deltaStyle: dMut }",
+            "delta: _('2 nové tento měsíc', '2 new this month'), deltaStyle: dPos }" => "delta: '', deltaStyle: dMut }",
+            "value: '1,9 %', delta: _('trh má 7 %', 'market is at 7%'), deltaStyle: dMut }" => "value: '—', delta: '', deltaStyle: dMut }",
+            '    const balanceNum = live ? live.earned : 11913;' => '    const balanceNum = live ? live.earned : 0;',
+            "    const openPayoutNo = 'PO-2026-09';" => "    const openPayoutNo = _('nová žádost', 'new request'); // no document number before a payout was requested",
+            'value: this.mny(11913) }' => 'value: this.mny(0) }',
+            'value: this.mny(1901) }' => 'value: this.mny(0) }',
+            'value: this.mny(87340) }' => 'value: this.mny(0) }',
+            "lead: _('Deset účtů, které jste přivedli. " => "lead: _('Účty, které jste přivedli. ",
+            "'Ten accounts you brought in. " => "'The accounts you brought in. ",
+            // no tier table yet (loading, failed read): an empty bar and the read's state instead of "you are at the top tier"
+            '    const pct = nextT ? Math.min(100, Math.round((mrrTotal / nextT[0]) * 100)) : 100;' => '    const pct = nextT ? Math.min(100, Math.round((mrrTotal / nextT[0]) * 100)) : (window.OnhostPartner && !window.OnhostPartner.tiers(this) ? 0 : 100);',
+            "        : _('Jste na nejvyšším stupni. Další sazba se řeší smlouvou, ne tabulkou.'," => "        : (window.OnhostPartner && !window.OnhostPartner.tiers(this) && window.OnhostPartner.statusText(this, 'overview')) || _('Jste na nejvyšším stupni. Další sazba se řeší smlouvou, ne tabulkou.',",
+            // a payout row that stands for a failed read offers a retry instead of a receipt or a payout
+            "      state: p[4] === 'paid' ? _('vyplaceno', 'paid') : _('otevřeno', 'open')," => "      state: p[4] === 'error' ? _('chyba', 'error') : p[4] === 'paid' ? _('vyplaceno', 'paid') : _('otevřeno', 'open'),",
+            "      action: p[4] === 'paid' ? _('Doklad PDF', 'PDF receipt') : _('Vyplatit', 'Pay out')," => "      action: p[4] === 'error' ? _('Zkusit znovu', 'Retry') : p[4] === 'paid' ? _('Doklad PDF', 'PDF receipt') : _('Vyplatit', 'Pay out'),",
+            "      on: (e) => { nav(e); p[4] === 'paid'" => "      on: (e) => { nav(e); if (p[4] === 'error') { if (window.OnhostPartner) window.OnhostPartner.reload(this); return; } p[4] === 'paid'",
+            // the clients table names a loading or failed read instead of "no client matches this filter"
+            "      noRows: _('Žádný klient tomuto filtru neodpovídá.', 'No client matches this filter.')," => "      noRows: (window.OnhostPartner && window.OnhostPartner.emptyText(this, 'clients')) || _('Žádný klient tomuto filtru neodpovídá.', 'No client matches this filter.'),",
+        ];
+        foreach ($pairs as $from => $to) {
+            if (substr_count($html, $from) !== 1) {
+                Log::warning('surface partner literal anchor mismatch', ['anchor' => mb_substr($from, 0, 80)]);
+
+                continue;
+            }
+            $html = str_replace($from, $to, $html);
+        }
+
+        return $html;
+    }
+
+    /** Replaces the text from `$from` up to (not including) `$to` — both unique — with `$replacement`; logs and keeps the page on a mismatch. */
+    private static function between(string $html, string $from, string $to, string $replacement): string
+    {
+        $start = substr_count($html, $from) === 1 ? strpos($html, $from) : false;
+        $end = $start === false ? false : strpos($html, $to, $start + strlen($from));
+        if ($start === false || $end === false) {
+            Log::warning('surface partner literal anchor mismatch', ['anchor' => mb_substr($from, 0, 80)]);
+
+            return $html;
+        }
+
+        return substr($html, 0, $start).$replacement.substr($html, $end);
+    }
+
+    /**
      * Seam #46 (api/onhost-partner.api.js): the partner portal gains one API-backed tab — the marketplace (listings, jobs,
      * deliveries). The prototype's tab table, the view flags and the page titles get one more entry each; the markup of the
      * tab is inserted before the payouts block. Every hook keeps the literal in place when the anchor is missing (logged).
@@ -125,12 +183,12 @@ final class SurfaceRenderer
                 self::PARTNER_MARKETPLACE_MARKUP.'    <sc-if value="{{ isPayouts }}" hint-placeholder-val="{{ false }}">'],
             // seam #47 (audit §5l-1): the prototype's own tabs read the partner API when it answers, the literal stays as fallback
             ['    const nav = (e) => { if (e && e.preventDefault) e.preventDefault(); };', "    const nav = (e) => { if (e && e.preventDefault) e.preventDefault(); };\n    if (window.OnhostPartner) window.OnhostPartner.sync(this); // the partner's model and white-label settings arrive from the API once"],
-            ["      company: _('Atelier Šindelář · ID 4821', 'Atelier Šindelář · ID 4821'),", "      company: (window.OnhostPartner && window.OnhostPartner.company(this)) || _('Atelier Šindelář · ID 4821', 'Atelier Šindelář · ID 4821'),"],
+            ["      company: _('Atelier Šindelář · ID 4821', 'Atelier Šindelář · ID 4821'),", "      company: window.OnhostPartner ? window.OnhostPartner.company(this) : '',"],
             ['    const clients = this.CLIENTS(cs);', '    const clients = (window.OnhostPartner && window.OnhostPartner.clients(this)) || this.CLIENTS(cs);'],
-            ["      ['clients', _('Klienti', 'Clients'), '10'],", "      ['clients', _('Klienti', 'Clients'), (window.OnhostPartner && window.OnhostPartner.clientBadge(this)) || '10'],"],
-            ["      ['payouts', _('Výplaty', 'Payouts'), '1'],", "      ['payouts', _('Výplaty', 'Payouts'), window.OnhostPartner ? window.OnhostPartner.payoutBadge(this) : '1'],"],
-            ["    const tiers = [[0, _('Bronz', 'Bronze'), 15], [25000, _('Stříbro', 'Silver'), 18], [50000, _('Zlato', 'Gold'), 22], [120000, _('Platina', 'Platinum'), 26]];", "    const tiers = (window.OnhostPartner && window.OnhostPartner.tiers(this)) || [[0, _('Bronz', 'Bronze'), 15], [25000, _('Stříbro', 'Silver'), 18], [50000, _('Zlato', 'Gold'), 22], [120000, _('Platina', 'Platinum'), 26]];"],
-            ["    const rate = s.model === 'share' ? tiers[ti][2] / 100 : 0.15;", "    const liveRate = window.OnhostPartner ? window.OnhostPartner.rate(this) : null;\n    const rate = liveRate != null ? liveRate : (s.model === 'share' ? tiers[ti][2] / 100 : 0.15);"],
+            ["      ['clients', _('Klienti', 'Clients'), '10'],", "      ['clients', _('Klienti', 'Clients'), (window.OnhostPartner && window.OnhostPartner.clientBadge(this)) || ''],"],
+            ["      ['payouts', _('Výplaty', 'Payouts'), '1'],", "      ['payouts', _('Výplaty', 'Payouts'), window.OnhostPartner ? window.OnhostPartner.payoutBadge(this) : ''],"],
+            ["    const tiers = [[0, _('Bronz', 'Bronze'), 15], [25000, _('Stříbro', 'Silver'), 18], [50000, _('Zlato', 'Gold'), 22], [120000, _('Platina', 'Platinum'), 26]];", "    const tiers = (window.OnhostPartner && window.OnhostPartner.tiers(this)) || [[0, '—', 0]];"], // until the API answers: no tier, no rate
+            ["    const rate = s.model === 'share' ? tiers[ti][2] / 100 : 0.15;", "    const liveRate = window.OnhostPartner ? window.OnhostPartner.rate(this) : null;\n    const rate = liveRate != null ? liveRate : 0;"],
             ['    const kpis = [', '    const kpis = (window.OnhostPartner && window.OnhostPartner.kpis(this, mrrTotal, rate, mult)) || ['],
             ['    const feed = [', '    const feed = (window.OnhostPartner && window.OnhostPartner.feed(this)) || ['],
             ['value: this.mny(selC.mrr * rate * 14)', 'value: this.mny(selC.commission != null ? selC.commission : selC.mrr * rate * 14)'],
@@ -146,9 +204,14 @@ final class SurfaceRenderer
             ['        if (a >= 1000 && a <= balanceNum && /^CZ\\d{22}$/.test(ib)) {', "        if (window.OnhostPartner && a >= 1000 && /^CZ\\d{22}$/.test(ib)) { window.OnhostPartner.requestPayout(this, a, ib); return; }\n        if (a >= 1000 && a <= balanceNum && /^CZ\\d{22}$/.test(ib)) {"],
             ["        this.setState({ wlErr: '', wlVerified: true });", "        if (window.OnhostPartner) { window.OnhostPartner.saveWhitelabel(this, dom, s.wl); return; }\n        this.setState({ wlErr: '', wlVerified: true });"],
             ['      wlState: s.wlVerified ?', '      wlState: (s.wlVerified || (window.OnhostPartner && window.OnhostPartner.wlVerified(this))) ?'],
-            ["      wlRecord: (domOk ? dom : 'panel.vasefirma.cz') + '.   300  IN  CNAME  wl.onhost.cz.", "      wlRecord: (window.OnhostPartner && window.OnhostPartner.wlRecord(this, domOk ? dom : 'panel.vasefirma.cz')) || (domOk ? dom : 'panel.vasefirma.cz') + '.   300  IN  CNAME  wl.onhost.cz."],
-            ["    const brandName = s.wl.hideBrand ? (cs ? 'Atelier Šindelář' : 'Atelier Šindelář') : 'Onhost';", "    const brandName = s.wl.hideBrand ? ((window.OnhostPartner && window.OnhostPartner.orgName()) || (cs ? 'Atelier Šindelář' : 'Atelier Šindelář')) : 'Onhost';"],
-            ["    const base = 'https://onhost.cz/?ref=SINDELAR4821';", "    const base = (window.OnhostPartner && window.OnhostPartner.refBase(this)) || 'https://onhost.cz/?ref=SINDELAR4821';"],
+            // the prototype's record (a CNAME to wl.onhost.cz and a made-up verification token) is replaced whole: the CNAME target comes from the API or nothing is shown
+            [<<<'JS'
+      wlRecord: (domOk ? dom : 'panel.vasefirma.cz') + '.   300  IN  CNAME  wl.onhost.cz.\n_onhost-wl.' + (domOk ? dom : 'panel.vasefirma.cz') + '.   300  IN  TXT   "verify=4821-6f2a91c4"',
+JS, "      wlRecord: (window.OnhostPartner && window.OnhostPartner.wlRecord(this, domOk ? dom : 'panel.vasefirma.cz')) || '',"],
+            ["    const brandName = s.wl.hideBrand ? (cs ? 'Atelier Šindelář' : 'Atelier Šindelář') : 'Onhost';", "    const brandName = s.wl.hideBrand ? ((window.OnhostPartner && window.OnhostPartner.orgName()) || (cs ? 'Vaše firma' : 'Your company')) : 'Onhost';"],
+            ["    const base = 'https://onhost.cz/?ref=SINDELAR4821';", "    const base = (window.OnhostPartner && window.OnhostPartner.refBase(this)) || '';"],
+            // no referral code yet (loading, failed read): the link field says so instead of a link that attributes nobody
+            ['    const refUrl = base + (utm ? \'&\' + utm : \'\');', "    const refUrl = base ? base + (utm ? '&' + utm : '') : ((window.OnhostPartner && window.OnhostPartner.statusText(this, 'overview')) || '');"],
             ['    const files = [', '    const files = ((window.OnhostPartner && window.OnhostPartner.files(this)) || ['],
             ["    ].map(f => ({\n      name: f[0], meta: f[1],", "    ]).map(f => ({\n      name: f[0], meta: f[1],"],
             ["      on: (e) => { nav(e); this.flash(_('Stahuje se', 'Downloading'), f[0]", "      on: (e) => { nav(e); if (f[2]) { window.open(f[2], '_blank', 'noopener'); return; } this.flash(_('Stahuje se', 'Downloading'), f[0]"],
@@ -400,6 +463,11 @@ HTML;
         $v = $this->assetVersion();
         $html = (string) preg_replace('~(src|href)="(?:\./)?((?:_ds|assets)/[^"]+|ios-frame\.jsx)"~', '$1="/surfaces/$2"', $html);
         $html = (string) preg_replace('~src="(?:\./)?(support\.js|onhost-[a-z0-9-]+\.js)"~', 'src="/surfaces/$1?v='.$v.'"', $html);
+
+        // 1b. owner decision R11: the mobile shell and the component gallery are concepts — never indexed, marked as such on screen
+        if (in_array($surface, ['mobile', 'widgets'], true)) {
+            $html = (string) preg_replace('~<head>~', "<head>\n".self::CONCEPT_HEAD, $html, 1);
+        }
 
         // 2. data seams → API-backed variants (demo mode keeps the prototype's local store)
         if (! $demo) {
@@ -925,7 +993,8 @@ HTML;
 
         // 6. admin: system settings (provider onboarding, nodes, health) are a server-rendered page — linked from the user menu
         if ($surface === 'partner' && ! $demo) {
-            $html = self::partnerSeams($html); // seam #46: the marketplace tab of the partner portal (audit §5k-1)
+            // audit A3 (P0-2): the narrated partner (clients, feed, payouts, referral code) goes first, then seams #46/#47 hook the API in
+            $html = self::partnerSeams(self::partnerLiterals($html)); // seam #46: the marketplace tab of the partner portal (audit §5k-1)
         }
         if ($surface === 'admin' && ! $demo) {
             $html = self::adminSeams($html);
@@ -1526,6 +1595,28 @@ HTML;
             $html,
         );
     }
+
+    /**
+     * Owner decision R11: the mobile shell (/m) and the component gallery (/widgets) are design concepts with narrated data. The
+     * head carries noindex (the response sends X-Robots-Tag as well) and a fixed banner says what the page is.
+     */
+    private const CONCEPT_HEAD = <<<'HTML'
+<meta name="robots" content="noindex, nofollow">
+<script>
+(function () {
+  function banner() {
+    if (document.getElementById('onhost-concept-banner')) return;
+    var b = document.createElement('div');
+    b.id = 'onhost-concept-banner';
+    b.setAttribute('role', 'note');
+    b.style.cssText = 'position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:2147483000;background:#201e1d;color:#f3f2f2;border-left:4px solid #ec3013;padding:8px 14px;font:700 12px/1.35 Archivo,system-ui,sans-serif;letter-spacing:.02em;box-shadow:0 10px 28px rgba(0,0,0,.25);max-width:calc(100vw - 28px);pointer-events:none';
+    b.textContent = 'KONCEPT · ukázka návrhu, ne funkční část ONhostu — data jsou smyšlená';
+    document.body.appendChild(b);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', banner); else banner();
+})();
+</script>
+HTML;
 
     /** Public header on a phone (§5w): the topbar keeps the status and the switches, the menu lives behind the burger, nothing overflows. */
     private const MOBILE_CSS = <<<'CSS'
