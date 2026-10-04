@@ -9,6 +9,7 @@ use Illuminate\Routing\Router;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use Onhost\Domain\Identity\Authorization\TokenScopes;
 use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Notifications\Models\WebhookDelivery;
 use Onhost\Domain\Notifications\Models\WebhookEndpoint;
@@ -335,4 +336,19 @@ it('keeps the webhook numbers of the changelog and the pages equal to the dispat
         ->toContain('port '.implode(' nebo ', WebhookDispatcher::ALLOWED_PORTS))->toContain('jednou za '.WebhookCommandHandler::PING_COOLDOWN_SECONDS.' s');
     $html = $this->get('/dokumentace/api')->assertOk()->getContent();
     expect($html)->toContain('X-ONhost-Delivery')->toContain('aggregate')->toContain('2 h 36 min')->toContain('14 h 36 min')->and(PublicApiDocs::eventFamilies())->toBe(WebhookEvents::FAMILIES);
+});
+
+it('has code behind the service account and dns:read claims of the changelog', function () {
+    $routes = apiDocsRoutes();
+    foreach (['GET /v1/service-accounts', 'POST /v1/service-accounts', 'POST /v1/service-accounts/{account}/tokens', 'DELETE /v1/service-accounts/{account}/tokens/{token}'] as $route) {
+        expect($routes)->toContain($route);
+    }
+    $contract = Yaml::parseFile(base_path('contracts/openapi/onhost-v1.yaml'));
+    expect($contract['paths'])->toHaveKey('/service-accounts/{account}/tokens')
+        ->and(TokenScopes::ALL)->toContain('dns:read')
+        ->and(TokenScopes::IMPLIED_BY['dns:read'])->toContain('dns:write')
+        ->and(PublicApiDocs::scopeOf('GET', '/v1/domains/{zone}/zone'))->toBe('dns:read')
+        ->and(PublicApiDocs::scopeOf('POST', '/v1/domains/{zone}/zone/commit'))->toBe('dns:write')
+        ->and(PublicApiDocs::scopes())->toContain('dns:read')
+        ->and(PublicApiDocs::errorSlugs())->toHaveKey('person_required');
 });

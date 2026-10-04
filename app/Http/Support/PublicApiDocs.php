@@ -174,6 +174,9 @@ final class PublicApiDocs
         if ($family === 'me') {
             return 'libovolný klíč';
         }
+        if ($family === 'domains' && ($segments[3] ?? '') === 'zone') {
+            $family = 'dns'; // the handoff aliases /v1/domains/{zone}/zone are the DNS routes under another name
+        }
         $pair = self::families()[$family] ?? null;
         $needed = $pair === null ? null : $pair[in_array($method, ['GET', 'HEAD'], true) ? 0 : 1];
         if ($family === 'services' && ($segments[3] ?? '') === 'actions') {
