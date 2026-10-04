@@ -36,11 +36,17 @@ final class IdempotencyKey
     /** The writes a key protects. */
     private const METHODS = ['POST', 'PATCH', 'PUT', 'DELETE'];
 
-    /** How long a reservation holds the key while its request runs; a worker that died frees it after this. */
-    private const IN_FLIGHT_SECONDS = 600;
+    /** The shortest window a reservation holds the key while its request runs; a worker that died frees it after the window. */
+    private const MIN_IN_FLIGHT_SECONDS = 600;
 
-    /** What a duplicate of a running request is told to wait before it asks again. */
-    private const RETRY_AFTER_SECONDS = 2;
+    /** The window when PHP sets no limit on a request (max_execution_time = 0). */
+    private const UNLIMITED_IN_FLIGHT_SECONDS = 3600;
+
+    /** The longest key, unless configured (`onhost.api.idempotency_key_max_length`). */
+    private const DEFAULT_KEY_MAX_LENGTH = 200;
+
+    /** The longest wait a duplicate of a running request is told; the wait grows with the age of the reservation up to this. */
+    private const MAX_RETRY_AFTER_SECONDS = 60;
 
     /** The session key under which the panel keeps the organization chosen in it (App\Http\Support\CurrentOrganization::SESSION_KEY). */
     public const SESSION_ORGANIZATION = 'onhost_organization';
@@ -53,20 +59,24 @@ final class IdempotencyKey
         if (! is_string($key) || $key === '' || ! in_array($request->method(), self::METHODS, true)) {
             return $next($request);
         }
-        if (strlen($key) > 200) {
-            return $this->problem(422, 'invalid_idempotency_key', 'Idempotency-Key must be at most 200 characters.');
+        $maxLength = (int) config('onhost.api.idempotency_key_max_length', self::DEFAULT_KEY_MAX_LENGTH);
+        if (strlen($key) > $maxLength) {
+            return $this->problem(422, 'invalid_idempotency_key', "Idempotency-Key must be at most {$maxLength} characters.");
         }
         $organization = $this->organization($request);
         $scope = $this->scope($request, $organization);
-        $hash = hash('sha256', $request->method().'|'.$request->path().'|'.$organization.'|'.$request->getContent());
-        $held = $this->store->reserveHttp($key, $scope, $hash, self::IN_FLIGHT_SECONDS);
-        if ($held !== null) {
-            return $this->answerHeld($held['status'], (string) $held['body']);
+        // the query is part of the request (`DELETE …?force=1` is another request than without it), in a canonical order
+        $query = Request::normalizeQueryString($request->getQueryString());
+        $hash = hash('sha256', $request->method().'|'.$request->path().'?'.$query.'|'.$organization.'|'.$request->getContent());
+        $held = $this->store->reserveHttp($key, $scope, $hash, self::inFlightSeconds());
+        $token = $held['token'];
+        if ($token === null) {
+            return $this->answerHeld($held['status'], (string) $held['body'], $held['age']);
         }
         try {
             $response = $next($request);
         } catch (Throwable $e) {
-            $this->store->releaseHttp($key, $scope, $hash);
+            $this->store->releaseHttp($key, $scope, $token);
 
             throw $e;
         }
@@ -74,20 +84,24 @@ final class IdempotencyKey
         // repeats it with the same key once it has fixed that, so those answers must not be replayed — nor a server error
         $status = $response->getStatusCode();
         if ($status < 500 && ! in_array($status, [401, 403, 429], true) && is_string($response->getContent())) {
-            $this->store->completeHttp($key, $scope, $hash, $status, $this->keepable($response->getContent()));
+            // false: this request outlived its reservation and another took the key over — its answer is not kept (H1)
+            $this->store->completeHttp($key, $scope, $token, $status, $this->keepable($response->getContent()));
         } else {
-            $this->store->releaseHttp($key, $scope, $hash);
+            $this->store->releaseHttp($key, $scope, $token);
         }
 
         return $response;
     }
 
     /** The answer for a key another request already holds: still running, done with a secret, or done (replayed as it was). */
-    private function answerHeld(?int $status, string $body): Response
+    private function answerHeld(?int $status, string $body, int $age): Response
     {
         if ($status === null) {
+            // a request that has run for a while will likely run a while longer: wait about half its age, 1 s to 60 s
+            $retryAfter = min(self::MAX_RETRY_AFTER_SECONDS, max(1, intdiv($age, 2) + 1));
+
             return $this->problem(409, 'idempotency_in_progress', 'A request with this Idempotency-Key is still being carried out. Repeat it with the same key in a moment to get its answer.')
-                ->header('Retry-After', (string) self::RETRY_AFTER_SECONDS);
+                ->header('Retry-After', (string) $retryAfter);
         }
         if ($body === self::SHOWN_ONCE) {
             return $this->problem(409, 'already_done', 'This request was already carried out. What it handed out (a token, a link, a password) was shown once and is not kept; it cannot be shown again.', ['original_status' => $status])
@@ -97,6 +111,23 @@ final class IdempotencyKey
         return response($body, $status)
             ->header('Content-Type', 'application/json')
             ->header('Idempotent-Replayed', 'true');
+    }
+
+    /**
+     * How long a reservation holds the key: `onhost.api.idempotency_in_flight_seconds` when configured, else longer than PHP
+     * lets a request run — twice max_execution_time plus a minute (on Linux that limit counts CPU time, not time spent waiting on
+     * a panel), at least 10 minutes, an hour when PHP sets no limit. A request still running after its window has lost the key:
+     * a duplicate may run, and the late answer is not kept.
+     */
+    private static function inFlightSeconds(): int
+    {
+        $configured = config('onhost.api.idempotency_in_flight_seconds');
+        if (is_numeric($configured) && (int) $configured > 0) {
+            return (int) $configured;
+        }
+        $limit = (int) ini_get('max_execution_time');
+
+        return $limit <= 0 ? self::UNLIMITED_IN_FLIGHT_SECONDS : max(self::MIN_IN_FLIGHT_SECONDS, 2 * $limit + 60);
     }
 
     /** @param array<string,mixed> $extra */
@@ -116,7 +147,8 @@ final class IdempotencyKey
 
     /**
      * The organization the request acts for, as the request names it: `X-Organization`, `?organization=`, else the one chosen
-     * in the web session. Only a discriminator here — whether the caller may act for it is the controller's question.
+     * in the web session — read as ApiContext::organization reads it (a value that is not a non-empty string, an array from
+     * `?organization[]=`, names none). Only a discriminator here — whether the caller may act for it is the controller's question.
      */
     private function organization(Request $request): string
     {

@@ -8,6 +8,7 @@ use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Route;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Platform\Errors\DomainError;
@@ -183,4 +184,147 @@ it('keeps the invoice in the bus key of an invoice payment', function () {
 
     $busKeys = DB::table('idempotency_keys')->where('key', 'like', 'invoice.pay:%')->pluck('key');
     expect($busKeys)->toHaveCount(1)->and($busKeys->first())->toContain($invoice->id)->toEndWith(':idk-invoice');
+});
+
+/*
+ * Phase D5, security review of PR #68.
+ *
+ *  H1 — a reservation that ran out while its request was still running was taken over by a duplicate (B). When the slow request
+ *       (A) finished, it wrote its answer over B's: B's client then replays an answer B never gave, and A executed although B
+ *       did too. Each reservation now carries its own token; only the holder of the token completes or frees it.
+ *  M1 — the query string was not part of the fingerprint: `DELETE /x?force=1` replayed the answer of `DELETE /x`.
+ *  M2 — Retry-After grows with the age of the reservation; the free-on-exception path is proved through a real route.
+ *  L1 — an organization sent as an array is no organization (as ApiContext reads it), not an error.
+ *  L4 — the longest key comes from config('onhost.api.idempotency_key_max_length').
+ */
+
+it('H1: lets no slow request whose reservation was taken over write over the answer of the request that took it', function () {
+    $user = User::factory()->create();
+    $takeover = null;
+
+    $slow = idkSend('POST', 'idr-slow', $user, inner: function () use ($user, &$takeover) {
+        // A runs longer than its reservation lives: B arrives after the expiry and takes the key over
+        DB::table('idempotency_keys')->where('key', 'http:idr-slow')->update(['expires_at' => now()->subSecond()]);
+        $takeover = idkSend('POST', 'idr-slow', $user, inner: fn () => response()->json(['by' => 'B'], 201));
+
+        return response()->json(['by' => 'A'], 201);
+    });
+
+    expect(idkJson($slow))->toBe(['by' => 'A'])->and(idkJson($takeover))->toBe(['by' => 'B']);
+    $replay = idkSend('POST', 'idr-slow', $user);
+    expect(idkJson($replay))->toBe(['by' => 'B']) // B's answer stays the answer of the key
+        ->and($replay->headers->get('Idempotent-Replayed'))->toBe('true')
+        ->and($this->idkRuns)->toBe(2);
+});
+
+it('H1: lets no slow request free a reservation it no longer holds', function () {
+    $user = User::factory()->create();
+    $held = null;
+
+    idkSend('POST', 'idr-free', $user, status: 500, inner: function () use (&$held) {
+        DB::table('idempotency_keys')->where('key', 'http:idr-free')->update(['expires_at' => now()->subSecond()]);
+        // B takes the key over and is still running when A fails
+        $row = DB::table('idempotency_keys')->where('key', 'http:idr-free')->first();
+        DB::table('idempotency_keys')->where('id', $row->id)->delete();
+        DB::table('idempotency_keys')->insert(['key' => 'http:idr-free', 'scope' => $row->scope, 'request_hash' => $row->request_hash, 'response_status' => null, 'result' => 'reservation:of-b', 'created_at' => now(), 'expires_at' => now()->addMinutes(10)]);
+        $held = $row->scope;
+
+        return response()->json(['error' => 'boom', 'status' => 500], 500);
+    });
+
+    expect(DB::table('idempotency_keys')->where('key', 'http:idr-free')->where('scope', $held)->value('result'))->toBe('reservation:of-b');
+    $duplicate = idkSend('POST', 'idr-free', $user);
+    expect($duplicate->getStatusCode())->toBe(409)->and(idkJson($duplicate)['error'])->toBe('idempotency_in_progress');
+});
+
+it('H1: holds a reservation longer than the longest request, and the window is configuration', function () {
+    $user = User::factory()->create();
+    $limit = (int) ini_get('max_execution_time');
+    $seen = null;
+
+    idkSend('POST', 'idr-window', $user, inner: function () use (&$seen) {
+        $seen = DB::table('idempotency_keys')->where('key', 'http:idr-window')->value('expires_at');
+
+        return response()->json(['ok' => true], 201);
+    });
+    expect(strtotime((string) $seen) - time())->toBeGreaterThan(max($limit, 600) - 5);
+
+    config(['onhost.api.idempotency_in_flight_seconds' => 7200]);
+    idkSend('POST', 'idr-window-2', $user, inner: function () use (&$seen) {
+        $seen = DB::table('idempotency_keys')->where('key', 'http:idr-window-2')->value('expires_at');
+
+        return response()->json(['ok' => true], 201);
+    });
+    expect(strtotime((string) $seen) - time())->toBeGreaterThan(7190);
+});
+
+it('M1: keeps a delete with ?force=1 apart from the same delete without it', function () {
+    $user = User::factory()->create();
+
+    idkSend('DELETE', 'idr-force', $user, body: '', uri: '/v1/idr/svc_1', status: 200);
+    $forced = fn () => idkSend('DELETE', 'idr-force', $user, body: '', uri: '/v1/idr/svc_1?force=1', status: 200);
+
+    expect($forced)->toThrow(DomainError::class, 'different request');
+    // the same query in another order is the same request
+    idkSend('DELETE', 'idr-order', $user, body: '', uri: '/v1/idr/svc_1?a=1&b=2', status: 200);
+    $reordered = idkSend('DELETE', 'idr-order', $user, body: '', uri: '/v1/idr/svc_1?b=2&a=1', status: 200);
+    expect($reordered->headers->get('Idempotent-Replayed'))->toBe('true')->and($this->idkRuns)->toBe(2);
+});
+
+it('M2: tells a duplicate to wait longer the longer the first request has been running', function () {
+    $user = User::factory()->create();
+    $young = null;
+    $old = null;
+
+    idkSend('POST', 'idr-retry', $user, inner: function () use ($user, &$young, &$old) {
+        $young = idkSend('POST', 'idr-retry', $user);
+        DB::table('idempotency_keys')->where('key', 'http:idr-retry')->update(['created_at' => now()->subSeconds(90)]);
+        $old = idkSend('POST', 'idr-retry', $user);
+
+        return response()->json(['ok' => true], 201);
+    });
+
+    expect((int) $young->headers->get('Retry-After'))->toBeGreaterThanOrEqual(1)
+        ->and((int) $old->headers->get('Retry-After'))->toBeGreaterThan((int) $young->headers->get('Retry-After'))
+        ->and((int) $old->headers->get('Retry-After'))->toBeLessThanOrEqual(60);
+});
+
+it('M2: frees the key when the controller behind a real route throws, so the client may repeat the request', function () {
+    $runs = 0;
+    Route::middleware(['api', 'auth:sanctum', 'idempotency'])->post('v1/idr-throws', function () use (&$runs) {
+        $runs++;
+        if ($runs === 1) {
+            throw new RuntimeException('the first attempt fails');
+        }
+
+        return response()->json(['run' => $runs], 201);
+    });
+    [$owner] = $this->customerWithOrganization();
+    $this->actingAs($owner, 'sanctum');
+
+    $this->postJson('/v1/idr-throws', ['a' => 1], ['Idempotency-Key' => 'idr-throws'])->assertStatus(500);
+    expect(DB::table('idempotency_keys')->where('key', 'http:idr-throws')->count())->toBe(0);
+    $this->postJson('/v1/idr-throws', ['a' => 1], ['Idempotency-Key' => 'idr-throws'])->assertCreated()->assertJsonPath('run', 2);
+    $this->postJson('/v1/idr-throws', ['a' => 1], ['Idempotency-Key' => 'idr-throws'])->assertCreated()->assertHeader('Idempotent-Replayed', 'true');
+    expect($runs)->toBe(2);
+});
+
+it('L1: reads an organization sent as an array as no organization, as ApiContext does', function () {
+    $user = User::factory()->create();
+
+    $first = idkSend('POST', 'idr-array', $user, uri: '/v1/idr?organization[]=org_a');
+    $plain = idkSend('POST', 'idr-array', $user, uri: '/v1/idr?organization[]=org_a');
+
+    expect($first->getStatusCode())->toBe(201)->and($plain->headers->get('Idempotent-Replayed'))->toBe('true')->and($this->idkRuns)->toBe(1);
+});
+
+it('L4: takes the longest key from configuration', function () {
+    $user = User::factory()->create();
+    config(['onhost.api.idempotency_key_max_length' => 40]);
+
+    $tooLong = idkSend('POST', str_repeat('k', 41), $user);
+    $fits = idkSend('POST', str_repeat('k', 40), $user);
+
+    expect($tooLong->getStatusCode())->toBe(422)->and(idkJson($tooLong))->toMatchArray(['error' => 'invalid_idempotency_key', 'status' => 422])
+        ->and($fits->getStatusCode())->toBe(201);
 });
