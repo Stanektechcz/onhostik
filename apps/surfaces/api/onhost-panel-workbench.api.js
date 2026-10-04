@@ -1169,6 +1169,46 @@
     return X.unavailable(sel.name);
   }
 
+  /* ── subscription lifecycle (TASK-0072) ──────────────────────────────────
+   * POST /subscriptions/{id}/auto-renew {enabled} and POST /subscriptions/{id}/cancel {cancel}: the costs page and the billing
+   * area of the service detail share this one confirmation. kind: auto_off | auto_on | cancel (end at the period's end) | keep
+   * (take the scheduled end back). Nothing is sent before the person confirms; the server's refusal (a member who may not
+   * spend credit, say) is shown as it is said. after() runs once the change went through, to read the subscription again. */
+  function subscriptionChange(cmp, sub, kind, after) {
+    var _ = T(cmp), name = sub.name || sub.hostname || sub.service_id || sub.id;
+    var endIso = sub.current_period_end || sub.next_renewal_at;
+    var end = endIso ? new Date(endIso).toLocaleDateString(cs(cmp) ? 'cs-CZ' : 'en-GB') : '';
+    var plan = {
+      auto_off: { cancels: false, body: { enabled: false }, danger: false,
+        title: _('Vypnout automatickou obnovu?', 'Turn automatic renewal off?'), confirm: _('Vypnout obnovu', 'Turn renewal off'),
+        lines: [_('Předplatné se na konci období samo z kreditu neprodlouží.', 'The subscription will not renew itself from credit at the end of the period.'), _('Službu pak musíte prodloužit sami, jinak může skončit.', 'You then have to renew the service yourself, or it may end.')],
+        ok: [_('Automatická obnova vypnuta', 'Automatic renewal off'), _('Předplatné se samo neobnoví.', 'The subscription will not renew by itself.')] },
+      auto_on: { cancels: false, body: { enabled: true }, danger: false,
+        title: _('Zapnout automatickou obnovu?', 'Turn automatic renewal on?'), confirm: _('Zapnout obnovu', 'Turn renewal on'),
+        lines: [_('Obnova se bude platit z kreditu' + (end ? ' ke dni ' + end : ' na konci období') + '.', 'The renewal will be paid from credit' + (end ? ' on ' + end : ' at the end of the period') + '.'), _('Zapnutí smí provést vlastník nebo správce fakturace.', 'Only the owner or the billing admin can switch this on.')],
+        ok: [_('Automatická obnova zapnuta', 'Automatic renewal on'), _('Předplatné se obnoví z kreditu.', 'The subscription renews from credit.')] },
+      cancel: { cancels: true, body: { cancel: true }, danger: true,
+        title: _('Ukončit předplatné ke konci období?', 'End the subscription at the end of the period?'), confirm: _('Ukončit předplatné', 'End the subscription'),
+        lines: [_('Služba poběží' + (end ? ' do ' + end : ' do konce zaplaceného období') + ' a pak skončí.', 'The service runs' + (end ? ' until ' + end : ' until the end of the paid period') + ' and then ends.'), _('Automatická obnova se vypne.', 'Automatic renewal is turned off.'), _('Do konce období můžete ukončení vzít zpět.', 'You can take the ending back until the period is over.')],
+        ok: [_('Ukončení naplánováno', 'Ending scheduled'), _('Předplatné skončí ke konci zaplaceného období.', 'The subscription ends when the paid period does.')] },
+      keep: { cancels: true, body: { cancel: false }, danger: false,
+        title: _('Zachovat předplatné?', 'Keep the subscription?'), confirm: _('Zachovat předplatné', 'Keep the subscription'),
+        lines: [_('Naplánované ukončení se zruší a předplatné pokračuje.', 'The scheduled ending is cancelled and the subscription goes on.'), _('Automatickou obnovu pak případně zapněte zvlášť.', 'Turn automatic renewal on separately if you want it.')],
+        ok: [_('Ukončení zrušeno', 'Ending cancelled'), _('Předplatné pokračuje.', 'The subscription goes on.')] }
+    }[kind];
+    if (!plan || !sub || !sub.id) return Promise.resolve(null);
+    return dialog(cmp, { danger: plan.danger, title: plan.title, lead: name, lines: plan.lines, confirm: plan.confirm }).then(function (yes) {
+      if (!yes) return null;
+      return API.post(plan.cancels ? '/subscriptions/' + encodeURIComponent(sub.id) + '/cancel' : '/subscriptions/' + encodeURIComponent(sub.id) + '/auto-renew', plan.body, API.key('subscription:' + sub.id + ':' + kind, plan.body)).then(function (r) {
+        flash(cmp, plan.ok[0], plan.ok[1]);
+        if (typeof after === 'function') after(r && r.data ? r.data : r);
+        return r;
+      }).catch(function (e) {
+        flash(cmp, _('Změna předplatného neproběhla', 'The subscription was not changed'), (e && e.message) || _('Zkuste to prosím znovu.', 'Please try again.'));
+        return null;
+      });
+    });
+  }
   /* The web/mail toolkit module (onhost-panel-tools.api.js, seam #31) adds tabs to TABS and enhances or replaces
    * panels through build(): it receives the core panel plus the helpers it needs and returns the final one. */
   function helpers() { return { act: act, resource: resource, features: features, forget: forget, rerender: rerender, flash: flash, since: since, load: load, state: state, password: password, T: T, family: family, backupsPanel: backupsPanel, dialog: dialog, destructive: destructive, plural: plural, passwordLink: passwordLink, unavailableReason: unavailableReason }; }
@@ -1180,5 +1220,5 @@
     catch (e) { return core; }
   }
 
-  window.OnhostPanelWorkbench = { tabs: tabs, build: build, features: features, state: state, TABS: TABS, dialog: dialog, destructive: destructive, plural: plural };
+  window.OnhostPanelWorkbench = { tabs: tabs, build: build, features: features, state: state, TABS: TABS, dialog: dialog, destructive: destructive, plural: plural, subscriptionChange: subscriptionChange };
 })();

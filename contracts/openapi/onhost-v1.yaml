@@ -2891,11 +2891,11 @@ paths:
               type: object
               additionalProperties: true
   '/dns/zones/{zone}':
-    get:
-      operationId: getDnsZonesByZone
+    delete:
+      operationId: deleteDnsZonesByZone
       tags:
         - dns
-      summary: 'GET /dns/zones/{zone}'
+      summary: 'DELETE /dns/zones/{zone}'
       parameters:
         -
           name: zone
@@ -2953,11 +2953,11 @@ paths:
           bearer: []
       x-token-scope:
         - 'dns:write'
-    delete:
-      operationId: deleteDnsZonesByZone
+    get:
+      operationId: getDnsZonesByZone
       tags:
         - dns
-      summary: 'DELETE /dns/zones/{zone}'
+      summary: 'GET /dns/zones/{zone}'
       parameters:
         -
           name: zone
@@ -8921,6 +8921,71 @@ paths:
           session: []
       x-token-scope: null
   '/organizations/{organization}/members/{user}':
+    delete:
+      operationId: deleteOrganizationsByOrganizationMembersByUser
+      tags:
+        - organizations
+      summary: 'DELETE /organizations/{organization}/members/{user}'
+      parameters:
+        -
+          name: organization
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          name: user
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        422:
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        401:
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        403:
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        404:
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+      x-token-scope: null
     patch:
       operationId: patchOrganizationsByOrganizationMembersByUser
       tags:
@@ -8995,71 +9060,6 @@ paths:
             schema:
               type: object
               additionalProperties: true
-    delete:
-      operationId: deleteOrganizationsByOrganizationMembersByUser
-      tags:
-        - organizations
-      summary: 'DELETE /organizations/{organization}/members/{user}'
-      parameters:
-        -
-          name: organization
-          in: path
-          required: true
-          schema:
-            type: string
-        -
-          name: user
-          in: path
-          required: true
-          schema:
-            type: string
-        -
-          $ref: '#/components/parameters/Organization'
-      responses:
-        200:
-          description: Success
-          content:
-            application/json:
-              schema:
-                oneOf:
-                  -
-                    $ref: '#/components/schemas/Envelope'
-                  -
-                    $ref: '#/components/schemas/List'
-        422:
-          description: 'Validation or domain rule violation'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        429:
-          description: 'Rate limited'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        401:
-          description: Unauthenticated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        403:
-          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        404:
-          description: 'Not found'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-      security:
-        -
-          session: []
-      x-token-scope: null
   '/organizations/{organization}/owner-recovery/cancel':
     post:
       operationId: postOrganizationsByOrganizationOwnerRecoveryCancel
@@ -9136,6 +9136,65 @@ paths:
               type: object
               additionalProperties: true
   '/organizations/{organization}/ownership-transfer':
+    delete:
+      operationId: deleteOrganizationsByOrganizationOwnershipTransfer
+      tags:
+        - organizations
+      summary: 'DELETE /organizations/{organization}/ownership-transfer'
+      parameters:
+        -
+          name: organization
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        422:
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        401:
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        403:
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        404:
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+      x-token-scope: null
     post:
       operationId: postOrganizationsByOrganizationOwnershipTransfer
       tags:
@@ -9210,65 +9269,6 @@ paths:
             schema:
               type: object
               additionalProperties: true
-    delete:
-      operationId: deleteOrganizationsByOrganizationOwnershipTransfer
-      tags:
-        - organizations
-      summary: 'DELETE /organizations/{organization}/ownership-transfer'
-      parameters:
-        -
-          name: organization
-          in: path
-          required: true
-          schema:
-            type: string
-        -
-          $ref: '#/components/parameters/Organization'
-      responses:
-        200:
-          description: Success
-          content:
-            application/json:
-              schema:
-                oneOf:
-                  -
-                    $ref: '#/components/schemas/Envelope'
-                  -
-                    $ref: '#/components/schemas/List'
-        422:
-          description: 'Validation or domain rule violation'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        429:
-          description: 'Rate limited'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        401:
-          description: Unauthenticated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        403:
-          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        404:
-          description: 'Not found'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-      security:
-        -
-          session: []
-      x-token-scope: null
   '/organizations/{organization}/ownership-transfer/accept':
     post:
       operationId: postOrganizationsByOrganizationOwnershipTransferAccept
@@ -9420,6 +9420,65 @@ paths:
               type: object
               additionalProperties: true
   '/organizations/{organization}/projects':
+    get:
+      operationId: getOrganizationsByOrganizationProjects
+      tags:
+        - organizations
+      summary: 'GET /organizations/{organization}/projects'
+      parameters:
+        -
+          name: organization
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        422:
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        401:
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        403:
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        404:
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+      x-token-scope: null
     post:
       operationId: postOrganizationsByOrganizationProjects
       tags:
@@ -9494,65 +9553,6 @@ paths:
             schema:
               type: object
               additionalProperties: true
-    get:
-      operationId: getOrganizationsByOrganizationProjects
-      tags:
-        - organizations
-      summary: 'GET /organizations/{organization}/projects'
-      parameters:
-        -
-          name: organization
-          in: path
-          required: true
-          schema:
-            type: string
-        -
-          $ref: '#/components/parameters/Organization'
-      responses:
-        200:
-          description: Success
-          content:
-            application/json:
-              schema:
-                oneOf:
-                  -
-                    $ref: '#/components/schemas/Envelope'
-                  -
-                    $ref: '#/components/schemas/List'
-        422:
-          description: 'Validation or domain rule violation'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        429:
-          description: 'Rate limited'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        401:
-          description: Unauthenticated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        403:
-          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        404:
-          description: 'Not found'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-      security:
-        -
-          session: []
-      x-token-scope: null
   '/organizations/{organization}/projects/{project}':
     get:
       operationId: getOrganizationsByOrganizationProjectsByProject
@@ -12289,6 +12289,65 @@ paths:
               type: object
               additionalProperties: true
   '/registrar-connections/{connection}':
+    delete:
+      operationId: deleteRegistrarConnectionsByConnection
+      tags:
+        - registrar-connections
+      summary: 'DELETE /registrar-connections/{connection}'
+      parameters:
+        -
+          name: connection
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        422:
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        401:
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        403:
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        404:
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+      x-token-scope: null
     get:
       operationId: getRegistrarConnectionsByConnection
       tags:
@@ -12416,65 +12475,6 @@ paths:
             schema:
               type: object
               additionalProperties: true
-    delete:
-      operationId: deleteRegistrarConnectionsByConnection
-      tags:
-        - registrar-connections
-      summary: 'DELETE /registrar-connections/{connection}'
-      parameters:
-        -
-          name: connection
-          in: path
-          required: true
-          schema:
-            type: string
-        -
-          $ref: '#/components/parameters/Organization'
-      responses:
-        200:
-          description: Success
-          content:
-            application/json:
-              schema:
-                oneOf:
-                  -
-                    $ref: '#/components/schemas/Envelope'
-                  -
-                    $ref: '#/components/schemas/List'
-        422:
-          description: 'Validation or domain rule violation'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        429:
-          description: 'Rate limited'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        401:
-          description: Unauthenticated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        403:
-          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        404:
-          description: 'Not found'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-      security:
-        -
-          session: []
-      x-token-scope: null
   '/registrar-connections/{connection}/history':
     get:
       operationId: getRegistrarConnectionsByConnectionHistory
@@ -14104,6 +14104,68 @@ paths:
               type: object
               additionalProperties: true
   '/services/{service}/deploy':
+    delete:
+      operationId: deleteServicesByServiceDeploy
+      tags:
+        - services
+      summary: 'DELETE /services/{service}/deploy'
+      parameters:
+        -
+          name: service
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        422:
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        401:
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        403:
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        404:
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+        -
+          bearer: []
+      x-token-scope:
+        - 'services:power'
     get:
       operationId: getServicesByServiceDeploy
       tags:
@@ -14237,68 +14299,6 @@ paths:
             schema:
               type: object
               additionalProperties: true
-    delete:
-      operationId: deleteServicesByServiceDeploy
-      tags:
-        - services
-      summary: 'DELETE /services/{service}/deploy'
-      parameters:
-        -
-          name: service
-          in: path
-          required: true
-          schema:
-            type: string
-        -
-          $ref: '#/components/parameters/Organization'
-      responses:
-        200:
-          description: Success
-          content:
-            application/json:
-              schema:
-                oneOf:
-                  -
-                    $ref: '#/components/schemas/Envelope'
-                  -
-                    $ref: '#/components/schemas/List'
-        422:
-          description: 'Validation or domain rule violation'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        429:
-          description: 'Rate limited'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        401:
-          description: Unauthenticated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        403:
-          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        404:
-          description: 'Not found'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-      security:
-        -
-          session: []
-        -
-          bearer: []
-      x-token-scope:
-        - 'services:power'
   '/services/{service}/deploy/rotate-secret':
     post:
       operationId: postServicesByServiceDeployRotateSecret
@@ -19384,6 +19384,65 @@ paths:
               type: object
               additionalProperties: true
   '/staff/customers/{organization}/owner-recovery':
+    delete:
+      operationId: deleteStaffCustomersByOrganizationOwnerRecovery
+      tags:
+        - staff-customers
+      summary: 'DELETE /staff/customers/{organization}/owner-recovery'
+      parameters:
+        -
+          name: organization
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        422:
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        401:
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        403:
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        404:
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+      x-token-scope: null
     post:
       operationId: postStaffCustomersByOrganizationOwnerRecovery
       tags:
@@ -19458,65 +19517,6 @@ paths:
             schema:
               type: object
               additionalProperties: true
-    delete:
-      operationId: deleteStaffCustomersByOrganizationOwnerRecovery
-      tags:
-        - staff-customers
-      summary: 'DELETE /staff/customers/{organization}/owner-recovery'
-      parameters:
-        -
-          name: organization
-          in: path
-          required: true
-          schema:
-            type: string
-        -
-          $ref: '#/components/parameters/Organization'
-      responses:
-        200:
-          description: Success
-          content:
-            application/json:
-              schema:
-                oneOf:
-                  -
-                    $ref: '#/components/schemas/Envelope'
-                  -
-                    $ref: '#/components/schemas/List'
-        422:
-          description: 'Validation or domain rule violation'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        429:
-          description: 'Rate limited'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        401:
-          description: Unauthenticated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        403:
-          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        404:
-          description: 'Not found'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-      security:
-        -
-          session: []
-      x-token-scope: null
   '/staff/customers/{organization}/owner-recovery/complete':
     post:
       operationId: postStaffCustomersByOrganizationOwnerRecoveryComplete
@@ -29797,65 +29797,6 @@ paths:
               type: object
               additionalProperties: true
   '/staff/services/{service}/panel-login':
-    get:
-      operationId: getStaffServicesByServicePanelLogin
-      tags:
-        - staff-services
-      summary: 'GET /staff/services/{service}/panel-login'
-      parameters:
-        -
-          name: service
-          in: path
-          required: true
-          schema:
-            type: string
-        -
-          $ref: '#/components/parameters/Organization'
-      responses:
-        200:
-          description: Success
-          content:
-            application/json:
-              schema:
-                oneOf:
-                  -
-                    $ref: '#/components/schemas/Envelope'
-                  -
-                    $ref: '#/components/schemas/List'
-        422:
-          description: 'Validation or domain rule violation'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        429:
-          description: 'Rate limited'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        401:
-          description: Unauthenticated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        403:
-          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        404:
-          description: 'Not found'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-      security:
-        -
-          session: []
-      x-token-scope: null
     post:
       operationId: postStaffServicesByServicePanelLogin
       tags:
@@ -30641,6 +30582,65 @@ paths:
               type: object
               additionalProperties: true
   '/staff/support/macros/{id}':
+    delete:
+      operationId: deleteStaffSupportMacrosById
+      tags:
+        - staff-support
+      summary: 'DELETE /staff/support/macros/{id}'
+      parameters:
+        -
+          name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        422:
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        401:
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        403:
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        404:
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+      x-token-scope: null
     patch:
       operationId: patchStaffSupportMacrosById
       tags:
@@ -30709,65 +30709,6 @@ paths:
             schema:
               type: object
               additionalProperties: true
-    delete:
-      operationId: deleteStaffSupportMacrosById
-      tags:
-        - staff-support
-      summary: 'DELETE /staff/support/macros/{id}'
-      parameters:
-        -
-          name: id
-          in: path
-          required: true
-          schema:
-            type: string
-        -
-          $ref: '#/components/parameters/Organization'
-      responses:
-        200:
-          description: Success
-          content:
-            application/json:
-              schema:
-                oneOf:
-                  -
-                    $ref: '#/components/schemas/Envelope'
-                  -
-                    $ref: '#/components/schemas/List'
-        422:
-          description: 'Validation or domain rule violation'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        429:
-          description: 'Rate limited'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        401:
-          description: Unauthenticated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        403:
-          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        404:
-          description: 'Not found'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-      security:
-        -
-          session: []
-      x-token-scope: null
   /staff/support/queues:
     get:
       operationId: getStaffSupportQueues
@@ -30891,6 +30832,65 @@ paths:
               type: object
               additionalProperties: true
   '/staff/support/queues/{id}':
+    delete:
+      operationId: deleteStaffSupportQueuesById
+      tags:
+        - staff-support
+      summary: 'DELETE /staff/support/queues/{id}'
+      parameters:
+        -
+          name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        422:
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        401:
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        403:
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        404:
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+      x-token-scope: null
     patch:
       operationId: patchStaffSupportQueuesById
       tags:
@@ -30959,65 +30959,6 @@ paths:
             schema:
               type: object
               additionalProperties: true
-    delete:
-      operationId: deleteStaffSupportQueuesById
-      tags:
-        - staff-support
-      summary: 'DELETE /staff/support/queues/{id}'
-      parameters:
-        -
-          name: id
-          in: path
-          required: true
-          schema:
-            type: string
-        -
-          $ref: '#/components/parameters/Organization'
-      responses:
-        200:
-          description: Success
-          content:
-            application/json:
-              schema:
-                oneOf:
-                  -
-                    $ref: '#/components/schemas/Envelope'
-                  -
-                    $ref: '#/components/schemas/List'
-        422:
-          description: 'Validation or domain rule violation'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        429:
-          description: 'Rate limited'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        401:
-          description: Unauthenticated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        403:
-          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        404:
-          description: 'Not found'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-      security:
-        -
-          session: []
-      x-token-scope: null
   /staff/support/sla-policies:
     get:
       operationId: getStaffSupportSlaPolicies
@@ -31141,6 +31082,65 @@ paths:
               type: object
               additionalProperties: true
   '/staff/support/sla-policies/{id}':
+    delete:
+      operationId: deleteStaffSupportSlaPoliciesById
+      tags:
+        - staff-support
+      summary: 'DELETE /staff/support/sla-policies/{id}'
+      parameters:
+        -
+          name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        422:
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        401:
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        403:
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        404:
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+      x-token-scope: null
     patch:
       operationId: patchStaffSupportSlaPoliciesById
       tags:
@@ -31209,65 +31209,6 @@ paths:
             schema:
               type: object
               additionalProperties: true
-    delete:
-      operationId: deleteStaffSupportSlaPoliciesById
-      tags:
-        - staff-support
-      summary: 'DELETE /staff/support/sla-policies/{id}'
-      parameters:
-        -
-          name: id
-          in: path
-          required: true
-          schema:
-            type: string
-        -
-          $ref: '#/components/parameters/Organization'
-      responses:
-        200:
-          description: Success
-          content:
-            application/json:
-              schema:
-                oneOf:
-                  -
-                    $ref: '#/components/schemas/Envelope'
-                  -
-                    $ref: '#/components/schemas/List'
-        422:
-          description: 'Validation or domain rule violation'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        429:
-          description: 'Rate limited'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        401:
-          description: Unauthenticated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        403:
-          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        404:
-          description: 'Not found'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-      security:
-        -
-          session: []
-      x-token-scope: null
   /staff/templates:
     get:
       operationId: getStaffTemplates

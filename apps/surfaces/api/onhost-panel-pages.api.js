@@ -19,10 +19,10 @@
   function fail(cmp, _, e) { flash(cmp, _('Nepodařilo se', 'Failed'), (e && e.message) || _('Zkuste to prosím znovu.', 'Please try again.')); }
   /* A read that failed is said and kept in S.err[key]: the view shows it first, with a retry. It used to become an empty list,
      so "the backups did not load" looked exactly like "you have no backups". A failed read is not retried by every render. */
-  function load(cmp, key, path, map) {
+  function load(cmp, key, path, map, many) {
     if (S[key] !== undefined || S.busy[key] || !A()) return;
     S.busy[key] = true;
-    A().get(path).then(function (r) { S[key] = map ? map(r) : r; }).catch(function (e) { S[key] = map ? map({ data: [] }) : { data: [] }; lost(cmp, key, e); }).then(function () { delete S.busy[key]; rerender(cmp); });
+    (many && typeof A().all === 'function' ? A().all(path) : A().get(path)).then(function (r) { S[key] = map ? map(r) : r; }).catch(function (e) { S[key] = map ? map({ data: [] }) : { data: [] }; lost(cmp, key, e); }).then(function () { delete S.busy[key]; rerender(cmp); });
   }
   function lost(cmp, key, e) {
     S.err = S.err || {};
@@ -134,13 +134,33 @@
     };
   }
 
+  /* the side panel of one subscription: renewal and ending, each through the shared confirmation of the workbench (TASK-0072) */
+  function managePanel(cmp, _, s, cs) {
+    var WB = window.OnhostPanelWorkbench, active = s.state === 'active', ending = !!s.cancel_at_period_end, auto = !!s.auto_renew;
+    var change = function (kind) {
+      return function () {
+        if (!WB || !WB.subscriptionChange) return;
+        WB.subscriptionChange(cmp, s, kind, function () { reload(cmp, ['subs', 'wallet']); });
+      };
+    };
+    var rows = [];
+    if (ending) rows.push({ title: _('Zachovat předplatné', 'Keep the subscription'), meta: _('naplánované ukončení ' + day(s.current_period_end || s.next_renewal_at, cs) + ' se zruší', 'the ending scheduled for ' + day(s.current_period_end || s.next_renewal_at, cs) + ' is cancelled'), value: '→', kind: 'ok', on: change('keep') });
+    else if (active) {
+      rows.push({ title: auto ? _('Vypnout automatickou obnovu', 'Turn automatic renewal off') : _('Zapnout automatickou obnovu', 'Turn automatic renewal on'), meta: auto ? _('obnova z kreditu se pak nespustí sama', 'the renewal from credit then does not start by itself') : _('obnovu zaplatíme z kreditu', 'we pay the renewal from credit'), value: '→', kind: auto ? 'warn' : 'ok', on: change(auto ? 'auto_off' : 'auto_on') });
+      rows.push({ title: _('Ukončit ke konci období', 'End at the end of the period'), meta: _('služba poběží do konce zaplaceného období, ukončení jde vzít zpět', 'the service runs to the end of the paid period; the ending can be taken back'), value: '→', kind: 'warn', on: change('cancel') });
+    } else rows.push({ title: _('Předplatné teď nejde měnit', 'The subscription cannot be changed now'), meta: _('stav: ', 'state: ') + (s.state || '—'), value: '', kind: 'off' });
+    if (s.service_id) rows.push({ title: _('Otevřít službu', 'Open service'), meta: '', value: '→', kind: 'ok', on: openService(cmp, s.service_id) });
+    rows.push({ title: _('← Zpět na útratu podle projektů', '← Back to spend by project'), meta: '', value: '', kind: 'off', on: function () { cmp.setState({ subSel: null }); } });
+    return { title: _('Předplatné · ', 'Subscription · ') + (s.name || s.hostname || s.service_id || s.id), rows: rows };
+  }
   /* ── costs and forecast ───────────────────────────────────────────────── */
   function costs(cmp, _, H) {
     var cs = isCs(cmp);
     load(cmp, 'wallet', '/wallet');
-    load(cmp, 'subs', '/subscriptions?limit=60');
+    load(cmp, 'subs', '/subscriptions', null, true); // every page: a subscription past the first 60 is still one the person can end
     if (orgId()) load(cmp, 'projects', '/organizations/' + encodeURIComponent(orgId()) + '/projects');
     var w = (S.wallet && S.wallet.data) || {}, f = w.forecast || {}, subs = (S.subs && S.subs.data) || [], projects = (S.projects && S.projects.data) || [], spend = (S.projects && S.projects.spend) || {};
+    var managed = S.subs && subs.filter(function (x) { return x.id === (cmp.state && cmp.state.subSel); })[0] || null;
     var runway = f.days == null ? _('víc než 120 dní', 'more than 120 days') : plural(cs, f.days, DAYS[0], DAYS[1]);
     return {
       crumb: _('Účet', 'Account'), title: _('Náklady a předpověď', 'Costs and forecast'),
@@ -150,18 +170,18 @@
         H.stat(_('Obnovy do 30 dní', 'Renewals within 30 days'), money(f.renewals_30d, cs), f.shortfall_30d && f.shortfall_30d.minor > 0 ? _('chybí ', 'short by ') + money(f.shortfall_30d, cs) : _('kryto kreditem', 'covered by credit'), 14, 50, 8, f.shortfall_30d && f.shortfall_30d.minor > 0 ? 'warn' : 'ok'),
         H.stat(_('Předplatných', 'Subscriptions'), String(f.subscriptions != null ? f.subscriptions : subs.length), f.next_renewal ? _('nejbližší ', 'next ') + day(f.next_renewal.at || f.next_renewal.next_renewal_at, cs) : '', 18, Math.min(100, subs.length * 10), 8, 'ok')
       ],
-      tableTitle: _('Předplatná a obnovy', 'Subscriptions and renewals'), tableNote: _('co se kdy obnoví a za kolik · vypnutí obnovy je v detailu služby', 'what renews when and for how much · turn renewal off in the service detail'),
+      tableTitle: _('Předplatná a obnovy', 'Subscriptions and renewals'), tableNote: _('co se kdy obnoví a za kolik · obnovu vypnete nebo předplatné ukončíte u položky tlačítkem Spravovat', 'what renews when and for how much · turn renewal off or end a subscription with the Manage button of the row'),
       cols: [_('Služba', 'Service'), _('Období', 'Period'), _('Stav', 'State'), _('Obnova', 'Renewal'), ''],
       rows: subs.filter(function (s) { return H.match(s.label || s.service || s.service_id || ''); }).map(function (s) {
-        var active = s.state === 'active';
+        var active = s.state === 'active', ending = !!s.cancel_at_period_end;
         return {
-          name: s.label || s.service || s.hostname || s.service_id || s.id, sub: (s.product_key || '') + (s.auto_renew === false ? _(' · automatická obnova vypnutá', ' · automatic renewal off') : ''), c2: s.period === 'year' ? _('ročně', 'yearly') : _('měsíčně', 'monthly'),
-          state: active ? _('aktivní', 'active') : (s.state || '—'), stateStyle: H.pill(active ? 'ok' : 'warn'), barStyle: H.bar(active ? 100 : 30, active ? 'ok' : 'warn'), metric: money(s.amount, cs) + (s.next_renewal_at ? ' · ' + day(s.next_renewal_at, cs) : ''), rowStyle: H.rowStyle,
-          action: s.service_id ? _('Otevřít službu', 'Open service') : '', actionCls: 'btn btn-secondary', onAction: openService(cmp, s.service_id)
+          name: s.label || s.name || s.service || s.hostname || s.service_id || s.id, sub: (s.product_key || '') + (ending ? _(' · skončí ', ' · ends ') + day(s.current_period_end || s.next_renewal_at, cs) : (s.auto_renew === false ? _(' · automatická obnova vypnutá', ' · automatic renewal off') : '')), c2: s.period === 'year' ? _('ročně', 'yearly') : _('měsíčně', 'monthly'),
+          state: ending ? _('ukončení naplánováno', 'ending scheduled') : (active ? _('aktivní', 'active') : (s.state || '—')), stateStyle: H.pill(active && !ending ? 'ok' : 'warn'), barStyle: H.bar(active ? 100 : 30, active && !ending ? 'ok' : 'warn'), metric: money(s.amount, cs) + (s.next_renewal_at && !ending ? ' · ' + day(s.next_renewal_at, cs) : ''), rowStyle: H.rowStyle,
+          action: _('Spravovat', 'Manage'), actionCls: 'btn btn-secondary', onAction: function () { cmp.setState({ subSel: s.id }); }
         };
       }),
       filters: [], readOnly: true,
-      side: {
+      side: managed ? managePanel(cmp, _, managed, cs) : {
         title: _('Útrata podle projektů', 'Spend by project'),
         rows: projects.map(function (p) { return { title: p.name, meta: plural(cs, p.services || 0, SERVICES[0], SERVICES[1]) + ' · ' + (p.share || 0) + ' %', value: money(p.monthly, cs), kind: p.state === 'archived' ? 'off' : 'ok', on: function () { cmp.setState({ tab: 'projects', projSel: p.id, query: '' }); } }; })
           .concat(spend.unassigned ? [{ title: _('Nezařazeno', 'Unassigned'), meta: plural(cs, spend.unassigned.services || 0, SERVICES[0], SERVICES[1]), value: money(spend.unassigned.monthly, cs), kind: spend.unassigned.services ? 'warn' : 'off' }] : [])

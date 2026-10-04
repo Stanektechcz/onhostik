@@ -75,9 +75,17 @@ public — no loopback, private, link-local, CGNAT, multicast; local names such 
   TASK-0030): a HIGH permission needs the same fresh grant the bus would ask for (403 `step_up_required` → the console's
   dialog repeats the request); a CRITICAL permission there is a programming error (it goes through the bus for the second
   person). Today: `POST /v1/staff/dunning/run`, `POST /v1/staff/capacity/forecast/run`,
-  `GET /v1/staff/services/{id}/panel-login`. Reads keep `authorize()`. Every `->authorize()` with a HIGH/CRITICAL
-  permission in `app/Http/Controllers` is classified in `tests/Feature/Http/StaffTriggerStepUpTest.php`; a new one fails
-  there until it is classified.
+  `POST /v1/staff/services/{id}/panel-login` (POST only since D2; GET answers 405). Reads keep `authorize()`. Every
+  `->authorize()` with a HIGH/CRITICAL permission in `app/Http/Controllers` is classified in
+  `tests/Feature/Http/StaffTriggerStepUpTest.php`; a new one fails there until it is classified.
+* **Every `/v1/staff/*` route carries the `staff` middleware** (`App\Http\Middleware\EnsureStaff`, phase D2 / audit P1-10):
+  the person must act as staff (`StaffActor::acts` — staff mode, an active staff account acting for themselves, never a
+  token) and hold at least one staff-audience permission at platform level; a customer key held through a global binding
+  does not count. It runs before route model binding, so an outsider gets 403 `staff_only` — never a 404 that confirms an
+  identifier or a 422 that shows an endpoint's shape. Controllers and the bus still check their own permission.
+  `tests/Feature/Staff/StaffRouteSweepTest.php` walks every staff route and method as an organization owner and as staff
+  without a permission (allow-list `STAFF_SWEEP_NO_PERMISSION_ALLOW_LIST`, empty) and fails on a new `prefix('staff')`
+  group without the middleware.
 
 ## 4. Roles
 
