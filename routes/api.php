@@ -400,7 +400,7 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
     Route::post('domains/{zone}/zone/commit', [DnsController::class, 'commit']);
 
     // ── staff ────────────────────────────────────────────────────────────────
-    Route::prefix('staff')->group(function (): void {
+    Route::prefix('staff')->middleware('staff')->group(function (): void { // D2: staff guard (EnsureStaff)
         Route::get('customers', [CustomerController::class, 'index']);
         Route::get('customers/{organization}', [CustomerController::class, 'show']);
         Route::get('orders', [CustomerController::class, 'orders']);
@@ -548,7 +548,7 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
         Route::get('provisioning/deletions', [ProvisioningController::class, 'deletions']);
         Route::get('provisioning/ssh-key-revocations', [ProvisioningController::class, 'sshKeyRevocations']); // keys that may still open a session (H185)
         Route::post('provisioning/services/{service}/purge', [ProvisioningController::class, 'purgeService']);
-        Route::get('services/{service}/panel-login', [WebToolsController::class, 'panelLogin']); // staff SSO into the customer's hosting panel (audited)
+        // D2 (P1-10): the staff panel sign-on changes state and is POST only (TASK-0039 group below); GET answers 405
         Route::get('resource-mappings', [ProvisioningController::class, 'drifts']);
         Route::post('resource-mappings/{drift}/resolve', [ProvisioningController::class, 'resolveDrift']);
         Route::post('assistant/chat', [StaffSupportController::class, 'assistant']); // the assistant over one customer's account, for support and NOC
@@ -661,7 +661,7 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
     // ── TASK-0039 (permission program P0-08 IF-8, P0-14 IF-16): staff act as staff on /v1/staff only — the customer routes treat a
     // member of staff as the customer they act as there. The same controllers, in staff mode (ApiContext::staffMode): lifting
     // ONhost's holds, staff parameters of an action, a restore on the customer's behalf; the panel sign-on as a bus command ──
-    Route::prefix('staff')->group(function (): void {
+    Route::prefix('staff')->middleware('staff')->group(function (): void { // D2: staff guard (EnsureStaff)
         Route::post('services/{service}/actions', [ServiceController::class, 'action']);
         Route::post('services/{service}/reinstate', [ServiceController::class, 'reinstate']);
         // review round 2: never through the HTTP replay store — it kept the answer (the one-time panel link) verbatim for 24 h and
@@ -670,7 +670,7 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
     });
     // ── end TASK-0039 ──
     // ── TASK-0042 (permission program D21): a lost customer owner is recovered in the open; anybody else's MFA reset by support ──
-    Route::prefix('staff')->group(function (): void {
+    Route::prefix('staff')->middleware('staff')->group(function (): void { // D2: staff guard (EnsureStaff)
         Route::post('customers/{organization}/owner-recovery', [OwnerRecoveryController::class, 'open']);
         Route::post('customers/{organization}/owner-recovery/complete', [OwnerRecoveryController::class, 'complete']);
         Route::post('customers/{organization}/owner-recovery/continue', [OwnerRecoveryController::class, 'continue']); // TASK-0044: a contested recovery

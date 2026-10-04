@@ -33,7 +33,7 @@ final class StaffNavigation
      * @var array<string, string>
      */
     public const API_ALLOW_LIST = [
-        'staff/services/{service}/panel-login' => 'staff SSO into one customer service, opened from that service (audited, P1-10 moves it to POST); not a console read',
+        // empty since D2: the staff panel sign-on (staff/services/{service}/panel-login) is POST only (P1-10), no GET is left outside an item
     ];
 
     /**

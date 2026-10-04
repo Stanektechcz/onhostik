@@ -58,7 +58,7 @@ is merged into the stored mailbox record like every other mailbox update, so the
 | CDN | `cdn.enable/disable/purge` (settings) ; resource `cdn` | `CdnService` + `CloudflareCdnProvider` (`ONHOST_CDN_CLOUDFLARE_SECRET_REF` → secret with `token`, `account_id`): zone per apex, records mirrored from the platform DNS (web hosts proxied), settings, purge, nameserver switch when the domain is ours; `onhost:cdn:refresh` hourly |
 | Import | `import.run` (kind cpanel/plesk/url/upload, source, files, databases, subdir) ; resource `imports` | `ImportService` + `ImportWorkflow`: unpack on the control plane, detect document root and SQL dumps, upload through the transport, create databases, re-point WordPress; a historical site (not created by ONhost) only via docs/runbooks/historical-site-import.md, as an import into a NEW site |
 | Node.js projects | `node.create`, `node.action` ; resource `node_projects` | aaPanel Node project API |
-| Staff panel login | staff `GET /v1/staff/services/{id}/panel-login` | ISPConfig `client_login_get` (permission `staff.console`, fresh step-up, audited) |
+| Staff panel login | staff `POST /v1/staff/services/{id}/panel-login` (GET answers 405 since D2) | ISPConfig `client_login_get` (permission `staff.console`, fresh step-up, audited) |
 
 ## Executors on the nodes (what a live check taught us)
 
