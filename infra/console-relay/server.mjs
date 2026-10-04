@@ -25,10 +25,16 @@ const server = http.createServer((req, res) => {
 });
 const wss = new WebSocketServer({ server, path: undefined, maxPayload: 4 * 1024 * 1024 });
 
+// The timer covers the headers AND the body (read inside the try, before clearTimeout): a stalled body is bounded too.
+// Resolves {ok, status, data}; a timeout rejects with AbortError, which both callers treat as a failed check / rejected token.
 async function apiFetch(url, init) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
-  try { return await fetch(url, { ...init, signal: ctl.signal }); } finally { clearTimeout(timer); }
+  try {
+    const r = await fetch(url, { ...init, signal: ctl.signal });
+    const data = r.ok ? await r.json().catch((e) => { if (e && e.name === 'AbortError') throw e; return null; }) : null;
+    return { ok: r.ok, status: r.status, data };
+  } finally { clearTimeout(timer); }
 }
 
 async function stillAlive(token) {
@@ -41,7 +47,8 @@ async function stillAlive(token) {
 async function resolve(token) {
   const r = await apiFetch(`${API}/console/ws/${encodeURIComponent(token)}`, { headers: { 'X-Relay-Key': KEY, Accept: 'application/json' } });
   if (!r.ok) throw new Error(`descriptor ${r.status}`);
-  return (await r.json()).data;
+  if (!r.data) throw new Error('descriptor body');
+  return r.data.data;
 }
 
 wss.on('connection', async (client, req) => {

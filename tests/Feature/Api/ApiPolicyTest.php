@@ -93,5 +93,31 @@ it('reports the configured API version in the OpenAPI document', function () {
 
 it('gives the console relay fetches a configurable timeout', function () {
     $source = (string) file_get_contents(base_path('infra/console-relay/server.mjs'));
-    expect($source)->toContain('AbortController')->and($source)->toContain('RELAY_FETCH_TIMEOUT_MS')->and($source)->not->toContain('await fetch(`');
+    expect($source)->toContain('AbortController')->and($source)->toContain('RELAY_FETCH_TIMEOUT_MS')->and($source)->not->toContain('await fetch(`')->and($source)->toContain('await r.json()');
+});
+
+it('does not lock out a logged-out client that polls without any credentials', function () {
+    config()->set('onhost.api.failed_auth_per_minute', 2);
+    foreach (range(1, 6) as $_) {
+        $this->getJson('/v1/me')->assertUnauthorized();
+    }
+    // and a few bad bearers still lock only the bearer guesser
+    foreach (['g1', 'g2'] as $bearer) {
+        $this->withToken($bearer)->getJson('/v1/me')->assertUnauthorized();
+    }
+    $this->withToken('g3')->getJson('/v1/me')->assertStatus(429);
+});
+
+it('defaults the failed-authentication ceiling to 60 a minute', function () {
+    expect(config('onhost.api.failed_auth_per_minute'))->toBe(60);
+});
+
+it('skips a deprecation rule with an invalid date instead of failing the response', function () {
+    config()->set('onhost.api.deprecations', [
+        ['path' => 'v1/stock', 'deprecated_at' => 'not a date', 'sunset_at' => 'also bad'],
+    ]);
+    Log::spy();
+    $response = $this->getJson('/v1/stock');
+    expect($response->status())->toBe(200)->and($response->headers->has('Deprecation'))->toBeFalse();
+    Log::shouldHaveReceived('warning')->once();
 });
