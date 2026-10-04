@@ -368,7 +368,10 @@ final class Doctor extends Command
         }
         $at = mb_strrpos($detail, ' — ');
 
-        return $at === false ? '' : trim(mb_substr($detail, $at + 3));
+        $tail = $at === false ? '' : trim(mb_substr($detail, $at + 3));
+
+        // only an instruction is a remedy; a note ("nothing is sent to them") stays in the detail
+        return preg_match('/^(php |set |run |read |grant |raise |check |open |lift |add |fix |remove |use |onhost:|systemctl |GET |POST |see |decide |tell )/i', $tail) === 1 ? $tail : '';
     }
 
     /**

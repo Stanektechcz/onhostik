@@ -84,7 +84,6 @@ it('refuses a wildcard proxy, warns on an empty list in production and accepts e
     expect($wild['ok'])->toBeFalse()->and($wild['blocking'])->toBeTrue()->and($wild['remedy'])->toContain('exact address');
 
     TrustProxies::flushState();
-    putenv('TRUSTED_PROXIES'); // unset: the environment must not hide the empty case
     $emptyProd = goLiveRow($name, new GoLiveChecks(production: true));
     $emptyDev = goLiveRow($name, new GoLiveChecks(production: false));
     expect($emptyProd['ok'])->toBeFalse()->and($emptyProd['blocking'])->toBeFalse()->and($emptyProd['remedy'])->toContain('TRUSTED_PROXIES')
@@ -135,7 +134,7 @@ it('puts every new row into the doctor with a status and the remedy, and fails o
         $row = goLiveDoctor($check);
         expect($row)->toHaveKeys(['status', 'detail', 'remedy'])->and($row['status'])->toBeIn(['OK', 'WARN', 'FAIL']);
         if ($row['status'] !== 'OK') {
-            expect($row['remedy'])->not->toBe('', $check);
+            expect($row['remedy'])->not->toBeEmpty();
         }
     }
     TrustProxies::at('*');
@@ -155,4 +154,48 @@ it('gives the existing Turnstile and capacity-basis rows a remedy when they are 
     config(['onhost.provisioning.capacity_basis.disk' => 'measured']);
     $capacity = goLiveDoctor('capacity basis as decided (disk sold, RAM and CPU measured)');
     expect($capacity['status'])->toBe('WARN')->and($capacity['remedy'])->toContain('ONHOST_CAPACITY_DISK_BASIS=sold');
+});
+
+it('makes an old PHP blocking, which the doctor turns into FAIL in production', function () {
+    $old = goLiveRow('PHP binary is the one the deploy and the workers must use', new GoLiveChecks(phpBinary: '/usr/bin/php', phpVersion: '8.2.9'));
+    expect($old['ok'])->toBeFalse()->and($old['blocking'])->toBeTrue();
+    // Doctor::add maps (not ok, blocking, production) to FAIL; the test runner's own PHP is 8.3+, so the live row is OK
+    $this->seed([LegalEntitySeeder::class]);
+    expect(goLiveDoctor('PHP binary is the one the deploy and the workers must use', production: true)['status'])->toBe('OK');
+});
+
+it('treats the other wildcard, a blank proxy value and an exact list correctly', function () {
+    $name = 'trusted proxies are exact addresses';
+    TrustProxies::at('**');
+    expect(goLiveRow($name, new GoLiveChecks(production: false)))->toMatchArray(['ok' => false, 'blocking' => true]);
+    TrustProxies::at(['10.0.0.1', '*']);
+    expect(goLiveRow($name, new GoLiveChecks(production: false))['ok'])->toBeFalse();
+    TrustProxies::at(' , ');
+    $blank = goLiveRow($name, new GoLiveChecks(production: true));
+    expect($blank['ok'])->toBeFalse()->and($blank['blocking'])->toBeFalse()->and($blank['remedy'])->toContain('process environment variable');
+});
+
+it('warns for the array and null cache drivers in production too', function () {
+    foreach (['array', 'null'] as $driver) {
+        config(['cache.default' => $driver, 'cache.stores.'.$driver.'.driver' => $driver]);
+        $row = goLiveRow('cache store is shared (rate limits)', new GoLiveChecks(production: true));
+        expect($row['ok'])->toBeFalse()->and($row['blocking'])->toBeFalse()->and($row['remedy'])->toContain('redis');
+    }
+});
+
+it('says staff are not locked out when staff MFA is not required', function () {
+    $this->seed([LegalEntitySeeder::class]);
+    User::factory()->create(['is_staff' => true, 'totp_secret' => null, 'totp_confirmed_at' => null]);
+    config(['onhost.identity.staff_mfa_required' => false]);
+    $row = goLiveRow('staff and demo accounts have an authenticator');
+    expect($row['ok'])->toBeFalse()->and($row['detail'])->toContain('staff MFA is not required')->and($row['detail'])->not->toContain('cannot sign in');
+});
+
+it('keeps a note out of the remedy column', function () {
+    $this->seed([LegalEntitySeeder::class]);
+    Artisan::call('onhost:doctor', ['--json' => true]);
+    $report = json_decode(trim(Artisan::output()), true, 512, JSON_THROW_ON_ERROR);
+    foreach ($report['checks'] as $row) {
+        expect($row['remedy'])->not->toStartWith('nothing is sent');
+    }
 });

@@ -77,7 +77,7 @@ final class GoLiveChecks
         $named = $binary === '' ? 'binary unknown (FPM)' : $binary;
 
         return $this->row('platform', 'PHP binary is the one the deploy and the workers must use', $ok, "PHP {$version} · {$named}",
-            'PHP '.self::MIN_PHP.'+ is required: run the deploy with PHP=<path of a PHP '.self::MIN_PHP.'+ CLI> (staging-launch.md S7: PHP=/www/server/php/83/bin/php onhost-deploy) and use the same path in the queue/scheduler units');
+            'PHP '.self::MIN_PHP.'+ is required: run the deploy with PHP=<path of a PHP '.self::MIN_PHP.'+ CLI> (staging-launch.md S7: PHP=/www/server/php/83/bin/php onhost-deploy) and use the same path in the queue/scheduler units', true);
     }
 
     /** The catalogue revision that withdrew what the web plans cannot deliver (R4, TASK-0068). */
@@ -113,11 +113,11 @@ final class GoLiveChecks
         $list = is_array($configured) ? $configured : array_values(array_filter(array_map('trim', explode(',', (string) $configured)), fn (string $p) => $p !== ''));
         if (in_array('*', $list, true) || in_array('**', $list, true)) {
             return $this->row('security', 'trusted proxies are exact addresses', false, 'TRUSTED_PROXIES trusts every sender (*): any client can claim any IP and dodge rate limits and the audit trail',
-                'set TRUSTED_PROXIES to the exact address(es) of the reverse proxy (comma separated), then php artisan config:cache', true);
+                'set TRUSTED_PROXIES to the exact address(es) of the reverse proxy (comma separated) as a real process environment variable (systemd unit / FPM pool env, not .env), then php artisan config:cache', true);
         }
         if ($list === []) {
             return $this->row('security', 'trusted proxies are exact addresses', ! $this->isProduction(), 'TRUSTED_PROXIES is empty'.($this->isProduction() ? ': behind a proxy every client appears as the proxy' : ' (not production: nothing to judge)'),
-                'set TRUSTED_PROXIES to the exact address(es) of the reverse proxy (comma separated) in the server environment, then php artisan config:cache; no proxy in front: leave it empty and accept this row');
+                'set TRUSTED_PROXIES to the exact address(es) of the reverse proxy (comma separated) as a real process environment variable (systemd unit / FPM pool env, not .env: bootstrap reads env() and config:cache skips .env), then php artisan config:cache; no proxy in front: leave it empty and accept this row');
         }
 
         return $this->row('security', 'trusted proxies are exact addresses', true, count($list).' address(es): '.implode(', ', array_slice($list, 0, 5)), '');
