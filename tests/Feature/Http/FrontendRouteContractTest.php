@@ -32,9 +32,6 @@ function frontendRouteAllowList(): array
 {
     return [
         '/v1' => 'the API base itself (ONHOST.apiBase, the read-only foot notes), every call adds its own path to it',
-        // DomainController::holder exists and says it is registered, but routes/api.php has no line for it: the holder-contact
-        // screen (TASK-0056) answers 404. routes/api.php belongs to another worker in phase C; remove this entry with that line.
-        '/domains/{p}/holder' => 'MISSING ROUTE: POST /v1/domains/{domain}/holder is not registered (DomainController::holder is unreachable)',
         '/mo' => 'the English price unit of the game configurator ("/měs", "/mo"), text and not a path',
     ];
 }
