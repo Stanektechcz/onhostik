@@ -2,7 +2,9 @@
  * Seam #46 adds the Marketplace tab (listings, jobs, deliveries). Seam #47 puts the prototype's narrated tabs on the partner
  * API: clients, the tier and rate, the overview KPIs and feed, the monthly commissions, the balance and payouts (a real
  * payout request), the white-label settings (saved, verified by the scheduler) and the assets with the partner's own link.
- * Every helper returns null until its data arrived, so the prototype's literal stays as the fallback. */
+ * Audit A3 (P0-2): the renderer removes the prototype's narrated partner from the page, so the helpers of the prototype's own
+ * tabs never fall back to it — until the partner API answers they show a loading state, an empty list, or an error row that
+ * names the failed read (statusText/emptyText); only the tier table and the rate stay null and take the renderer's neutral value. */
 (function () {
   if (window.OnhostPartner) return;
   var S = { listings: null, orders: null, overview: null, clients: null, commissions: null, payouts: null, whitelabel: null, assets: null, model: null, terms: null, busy: {}, error: null, synced: false };
@@ -18,6 +20,18 @@
     A().get(path).then(function (r) { S[key] = r.data !== undefined ? r.data : r; }).catch(function (e) { S[key] = { __error: (e && e.message) || 'error' }; S.error = (e && e.message) || 'error'; }).then(function () { delete S.busy[key]; if (cmp && cmp.forceUpdate) cmp.forceUpdate(); });
   }
   function ok(v) { return v && !v.__error ? v : null; }
+  /* the state of one read: 'loading' until it answered, 'error' when it failed, 'ready' otherwise */
+  function status(key) { var v = S[key]; return v && v.__error ? 'error' : (v === null || v === undefined ? 'loading' : 'ready'); }
+  function statusText(cmp, key) {
+    var st = status(key);
+    if (st === 'loading') return tr(cmp, 'Načítám data partnera…', 'Loading partner data…');
+    if (st === 'error') return tr(cmp, 'Data partnera se nepodařilo načíst', 'Partner data could not be loaded') + (S[key].__error && S[key].__error !== 'error' ? ' (' + S[key].__error + ')' : '') + tr(cmp, ' — zkuste to znovu.', ' — please try again.');
+    return null;
+  }
+  /* the text of an empty table while its read is loading or failed (null once the data is there) */
+  function emptyText(cmp, key) { if (key === 'clients') clientsRaw(cmp); return statusText(cmp, key); }
+  var ROW_ERR = 'font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-family:var(--font-heading,Archivo);font-weight:800;padding:4px 8px;background:#201e1d;color:#f3f2f2';
+  var ROW_MUTED = 'font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-family:var(--font-heading,Archivo);font-weight:800;padding:4px 8px;border:1px solid rgba(32,30,29,.35);color:rgba(32,30,29,.7)';
   function reload(cmp) { ['listings', 'orders', 'overview', 'clients', 'commissions', 'payouts', 'whitelabel', 'model', 'terms'].forEach(function (k) { S[k] = null; }); S.error = null; if (cmp && cmp.forceUpdate) cmp.forceUpdate(); }
   function act(cmp, method, path, body, done) {
     var a = A(); if (!a) return;
@@ -36,7 +50,7 @@
   /* clients in the prototype's row shape: {id, name, contact, st, mrr (major), since, svc, services [[name, major]], paid} */
   function clients(cmp) {
     var list = clientsRaw(cmp);
-    if (!Array.isArray(list)) return null;
+    if (!Array.isArray(list)) return []; // loading or failed: an empty table that says so (emptyText)
     return list.map(function (c) {
       return { id: c.id, name: c.name || '—', contact: c.contact || '', st: c.st || 'ok', mrr: major(c.mrr), since: c.since || '', svc: c.svc || '', services: (c.services || []).map(function (s) { return [s[0], major(s[1])]; }), commission: major(c.commission) };
     });
@@ -49,7 +63,7 @@
     return o.tier.table.map(function (t) { var n = names[t.name] || [t.name, t.name]; return [Math.round((t.threshold_minor || 0) / 100), tr(cmp, n[0], n[1]), t.rate]; });
   }
   function rate(cmp) { var o = overview(cmp); return o && o.partner && o.partner.rate != null ? o.partner.rate / 100 : null; }
-  function company(cmp) { var o = overview(cmp); var n = orgName(); return o && o.partner ? (n || tr(cmp, 'Partner', 'Partner')) + ' · ' + o.partner.code : null; }
+  function company(cmp) { var o = overview(cmp); var n = orgName(); return o && o.partner ? (n || tr(cmp, 'Partner', 'Partner')) + ' · ' + o.partner.code : statusText(cmp, 'overview') || (n || ''); }
   /* §5m-1: the commission model is a contract term — clicking the other model asks finance; the note shows the request's state */
   function modelInfo(cmp) { load(cmp, 'model', '/partner/model'); return ok(S.model); }
   function requestModel(cmp, model) {
@@ -114,11 +128,14 @@
     a.post('/partner/changes', { kind: kind, value: value, note: note || null }, a.key()).then(function () { S.terms = null; S.model = null; if (cmp.forceUpdate) cmp.forceUpdate(); cmp.flash(tr(cmp, 'Žádost odeslána', 'Request sent'), tr(cmp, 'Finance rozhodnou; schválená změna platí od 1. dne příštího měsíce.', 'Finance decides; an approved change applies from the 1st of next month.')); }).catch(function (e) { cmp.flash(tr(cmp, 'Žádost neprošla', 'Request failed'), (e && e.message) || 'error'); });
   }
   /* tab badges: the real client count and the payouts waiting for approval (empty = no badge) */
-  function clientBadge(cmp) { var list = clientsRaw(cmp); return Array.isArray(list) ? String(list.length) : null; }
+  function clientBadge(cmp) { var list = clientsRaw(cmp); return Array.isArray(list) && list.length ? String(list.length) : ''; }
   function payoutBadge(cmp) { var p = payouts(cmp); if (!p || !Array.isArray(p.payouts)) return ''; var n = p.payouts.filter(function (x) { return x.state === 'requested' || x.state === 'approved'; }).length; return n ? String(n) : ''; }
   function kpis(cmp, mrrTotal, rateNow, mult) {
     var o = overview(cmp);
-    if (!o || !o.kpis) return null;
+    if (!o || !o.kpis) {
+      var note = statusText(cmp, 'overview') || '', st = 'font-size:12px;margin-top:6px;color:' + (status('overview') === 'error' ? '#ae1800' : 'rgba(32,30,29,.55)');
+      return [[tr(cmp, 'Objem klientů', 'Client volume')], [tr(cmp, 'Provize z objemu / měs.', 'Commission on volume / mo')], [tr(cmp, 'Aktivní klienti', 'Active clients')], [tr(cmp, 'Výpovědi', 'Notices')]].map(function (l) { return { label: l[0], value: '—', delta: note, deltaStyle: st }; });
+    }
     var k = o.kpis, dPos = 'font-size:12px;margin-top:6px;color:#ae1800;font-family:var(--font-heading,Archivo);font-weight:700', dMut = 'font-size:12px;margin-top:6px;color:rgba(32,30,29,.55)';
     var rateLabel = Math.round(rateNow * 100) + ' %';
     return [
@@ -130,14 +147,20 @@
   }
   function feed(cmp) {
     var o = overview(cmp);
-    if (!o || !Array.isArray(o.feed)) return null;
     var tagS = function (color) { return 'font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-family:var(--font-heading,Archivo);font-weight:800;margin-top:6px;margin-left:72px;color:' + color; };
+    if (!o || !Array.isArray(o.feed)) {
+      var failed = status('overview') === 'error';
+      return [{ when: '—', text: statusText(cmp, 'overview') || '', tag: failed ? tr(cmp, 'chyba', 'error') : '', tagStyle: tagS(failed ? '#ae1800' : 'rgba(32,30,29,.55)') }];
+    }
     if (!o.feed.length) return [{ when: '—', text: tr(cmp, 'Zatím žádný pohyb: první provize vznikne z první zaplacené faktury vašeho klienta.', 'Nothing yet: the first commission comes with the first paid invoice of your client.'), tag: tr(cmp, 'start', 'start'), tagStyle: tagS('rgba(32,30,29,.55)') }];
     return o.feed.map(function (f) { return { when: when(f.when, cmp), text: f.text || '', tag: f.tag || '', tagStyle: tagS(f.tag === 'dobropis' ? '#ae1800' : 'rgba(32,30,29,.55)') }; });
   }
   function commRows(cmp) {
     var c = commissions(cmp);
-    if (!c || !Array.isArray(c.months)) return null;
+    if (!c || !Array.isArray(c.months)) {
+      var bad = status('commissions') === 'error';
+      return [{ month: statusText(cmp, 'commissions') || '', clients: '', base: '', rate: '', total: '', state: bad ? tr(cmp, 'chyba', 'error') : tr(cmp, 'načítám', 'loading'), stateStyle: bad ? ROW_ERR : ROW_MUTED }];
+    }
     var states = { accruing: ['počítá se', 'accruing'], requested: ['ke schválení', 'to approve'], paid: ['vyplaceno', 'paid'] };
     var rows = c.months.map(function (m) {
       var st = states[m.state] || [m.state, m.state];
@@ -151,7 +174,7 @@
   /* the payouts tab: {docs, earned, held, paidBase, heldBase} in major units, from the balance of the commission engine */
   function payoutLive(cmp) {
     var c = commissions(cmp);
-    if (!c || !c.balance) return null;
+    if (!c || !c.balance) return { docs: 0, earned: 0, held: 0, paidBase: 0, heldBase: 0 }; // nothing payable until the commission engine answered
     var docs = (c.months || []).reduce(function (n, m) { return n + ((m.lines || []).length); }, 0);
     var r = (c.rules && c.rules.rate) || 0;
     var earned = major(c.balance.payable), held = major(c.balance.held);
@@ -159,7 +182,7 @@
   }
   function payRows(cmp, balanceNum, openNo) {
     var p = payouts(cmp);
-    if (!p || !Array.isArray(p.payouts)) return null;
+    if (!p || !Array.isArray(p.payouts)) return status('payouts') === 'error' ? [[tr(cmp, 'chyba', 'error'), '—', 0, statusText(cmp, 'payouts'), 'error']] : [];
     var labels = { requested: ['požádáno', 'requested'], approved: ['schváleno', 'approved'], paid: ['vyplaceno', 'paid'], rejected: ['zamítnuto', 'rejected'] };
     var rows = p.payouts.map(function (x) { var st = labels[x.state] || [x.state, x.state]; return [x.number, when(x.paid_at || x.requested_at, cmp), major(x.amount), x.method === 'offset' ? tr(cmp, 'zápočet proti faktuře', 'offset against invoice') : tr(cmp, 'bankovní převod', 'bank transfer'), x.state === 'paid' ? 'paid' : 'open', tr(cmp, st[0], st[1])]; });
     if (balanceNum > 0) rows.push([openNo, '—', balanceNum, tr(cmp, 'čeká na žádost', 'awaiting request'), 'open', tr(cmp, 'otevřeno', 'open')]);
@@ -209,7 +232,7 @@
     }).catch(function (e) { cmp.setState({ wlErr: (e && e.message) || 'error' }); });
   }
   function refBase(cmp) { var o = overview(cmp); return o && o.partner && o.partner.code ? location.origin + '/?ref=' + encodeURIComponent(o.partner.code) : null; }
-  function files(cmp) { var a = assets(cmp); if (!Array.isArray(a)) return null; return a.map(function (f) { return [f.name || f.key, f.type || (String(f.url || '').split('.').pop() || '').toUpperCase(), f.url || '']; }); }
+  function files(cmp) { var a = assets(cmp); if (!Array.isArray(a)) return []; return a.map(function (f) { return [f.name || f.key, f.type || (String(f.url || '').split('.').pop() || '').toUpperCase(), f.url || '']; }); }
 
   /* ── seam #46: the marketplace tab ───────────────────────────────────────────────────────────────────────────── */
   var BTN = 'background:transparent;border:2px solid #201e1d;color:#201e1d;font-family:var(--font-heading,Archivo);font-weight:800;font-size:11px;padding:6px 10px;cursor:pointer;margin-left:6px';
@@ -322,7 +345,7 @@
   }
   function badge() { var n = (S.orders || []).filter(function (o) { return o.state === 'ordered'; }).length; return n ? String(n) : ''; }
   window.OnhostPartner = {
-    vals: vals, page: page, badge: badge, reload: reload,
+    vals: vals, page: page, badge: badge, reload: reload, statusText: statusText, emptyText: emptyText,
     sync: sync, clients: clients, tiers: tiers, rate: rate, company: company, orgName: orgName, kpis: kpis, feed: feed, commRows: commRows, clientBadge: clientBadge, payoutBadge: payoutBadge, requestModel: requestModel, modelNote: modelNote, terms: terms, termsTitle: termsTitle, requestChange: requestChange,
     payoutLive: payoutLive, payRows: payRows, requestPayout: requestPayout, wlVerified: wlVerified, cnameTarget: cnameTarget, wlRecord: wlRecord, saveWhitelabel: saveWhitelabel, refBase: refBase, files: files
   };

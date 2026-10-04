@@ -63,7 +63,7 @@ it('gates the panel and admin surfaces, injects the real session and swaps the d
     expect($seam)->toContain('window.ONHOST_PANEL = ')->toContain('"id":"'.$service->id.'"')->toContain('"type":"vps"')->toContain('"spec":"4 vCPU / 8 GB / 80 GB NVMe"')->toContain('"state":"running"')->toContain('"cpu":41')->toContain('"ip":"192.0.2.10"');
 
     $this->get('/sprava')->assertRedirect('/panel'); // customers never see the staff console
-    $this->get('/partner')->assertOk(); // the surface itself loads; the portal API answers partner_missing until enrolled
+    $this->get('/partner')->assertRedirect('/reseller'); // audit A3: not enrolled — the programme and its application form, not the portal
 
     $this->actingAs($this->staff('sre'));
     expect($this->get('/sprava/incidenty')->assertOk()->getContent())->toContain('"role":"noc"')->toContain('"staff":true')->toContain('"hash":"#/incidenty"')->toContain('src="/surfaces/api/onhost-integrations.api.js?v=');

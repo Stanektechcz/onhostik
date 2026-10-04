@@ -33,6 +33,12 @@ final class SurfaceController extends Controller
     /** Public marketing paths that map 1:1 onto hash routes of Onhost.dc.html (docs-audit-implementace §route table). */
     public const PUBLIC_PATHS = ['sluzby', 'sluzba', 'ceny', 'ceny-a-sla', 'webhosting', 'gamehosting', 'technika', 'jak-fungujeme', 'blog', 'znalostni-baze', 'napoveda', 'dokumentace', 'api', 'stav', 'zmeny', 'lide', 'reseller', 'verejne-zakazky', 'kosik', 'prihlaseni', 'registrace', 'obnova-hesla'];
 
+    /** Design concepts with narrated data (owner decision R11): staff and demo mode only, never indexed, marked as a concept. */
+    public const CONCEPT_SURFACES = ['mobile', 'widgets'];
+
+    /** Where a signed-in person without a partnership is sent from /partner: the reseller programme with its application form. */
+    public const PARTNER_APPLICATION = '/reseller';
+
     public function __construct(private readonly SurfaceRenderer $renderer, private readonly Authorizer $authorizer, private readonly StaffNavigation $navigation) {}
 
     public function public(Request $request, ?string $path = null): Response
@@ -129,13 +135,47 @@ final class SurfaceController extends Controller
         if ($user === null && in_array($surface, ['panel', 'admin', 'partner'], true) && ! $demo) {
             return redirect('/prihlaseni?next='.urlencode($request->getRequestUri()));
         }
+        // owner decision R11: the mobile shell and the component gallery are design concepts with narrated data — staff and demo only
+        if (in_array($surface, self::CONCEPT_SURFACES, true) && ! $demo) {
+            if ($user === null) {
+                return redirect('/prihlaseni?next='.urlencode($request->getRequestUri()));
+            }
+            if (! ($user instanceof User && $user->is_staff)) { // the same test as the staff console below
+                return redirect('/panel');
+            }
+        }
         $boot = $this->boot($request, $surface, $hash, $demo);
         if ($user !== null && $surface === 'admin' && ! ($boot['user']['staff'] ?? false) && ! $demo) {
             return redirect('/panel');
         }
+        // audit A3 (P0-2): the partner portal is for the people who run an active partnership; everyone else is shown the
+        // programme and its application form instead of the prototype's narrated partner
+        if ($user instanceof User && $surface === 'partner' && ! $demo && ! $this->runsPartnership($user, $boot['user'] ?? null)) {
+            return redirect(self::PARTNER_APPLICATION);
+        }
         $html = $this->renderer->render($surface, $boot, $demo);
+        $headers = ['Content-Type' => 'text/html; charset=utf-8', 'Cache-Control' => 'no-store', 'X-Frame-Options' => 'SAMEORIGIN', 'Referrer-Policy' => 'strict-origin-when-cross-origin'];
+        if (in_array($surface, self::CONCEPT_SURFACES, true)) {
+            $headers['X-Robots-Tag'] = 'noindex, nofollow';
+        }
 
-        return response($html, 200, ['Content-Type' => 'text/html; charset=utf-8', 'Cache-Control' => 'no-store', 'X-Frame-Options' => 'SAMEORIGIN', 'Referrer-Policy' => 'strict-origin-when-cross-origin']);
+        return response($html, 200, $headers);
+    }
+
+    /**
+     * The organization the surfaces act for (the boot's current organization, the one the session bridge sends as
+     * X-Organization) is an active partner and this person may read its portal (partner.portal.read, as the partner API asks).
+     *
+     * @param  array<string,mixed>|null  $boot
+     */
+    private function runsPartnership(User $user, ?array $boot): bool
+    {
+        $organization = $boot['organization']['id'] ?? null;
+        if (! is_string($organization) || ($boot['partner'] ?? null) === null) {
+            return false;
+        }
+
+        return $this->authorizer->can($user, 'partner.portal.read', CommandScope::organization($organization));
     }
 
     /** The `window.ONHOST` boot object (template-inventory §6.6). */
