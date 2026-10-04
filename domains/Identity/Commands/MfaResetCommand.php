@@ -9,8 +9,8 @@ use Onhost\Domain\Identity\Authorization\PermissionCatalog;
 use Onhost\Domain\Identity\Authorization\RiskAwareCommand;
 use Onhost\Domain\Identity\Authorization\StaffActor;
 use Onhost\Domain\Identity\Models\User;
-use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\GrantPolicy;
+use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Platform\Commands\GlobalCommand;
 
 /**

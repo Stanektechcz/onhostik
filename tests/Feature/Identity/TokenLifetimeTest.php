@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Str;
 use Onhost\Domain\Identity\Commands\ApiTokenCommand;
 use Onhost\Domain\Identity\Models\PersonalAccessToken;
@@ -86,8 +87,8 @@ it('lists the tokens made before every token ended for the owners\' notice, and 
     $endless->forceFill(['organization_id' => $org->id])->save();
     $current = tltIssue($owner, $org);
 
-    Illuminate\Support\Facades\Artisan::call('operator:tokens:unbound', ['--dry-run' => true, '--past-cap' => true]);
-    $out = Illuminate\Support\Facades\Artisan::output();
+    Artisan::call('operator:tokens:unbound', ['--dry-run' => true, '--past-cap' => true]);
+    $out = Artisan::output();
 
     expect($out)->toContain('Tokens with no end or ending after the cap of 365 days')->toContain('legacy')->toContain('1 tokens past the cap')->not->toContain('Tokens bound to no organization')
         ->and($endless->fresh()->expires_at)->toBeNull()

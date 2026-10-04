@@ -694,6 +694,7 @@ final class NotificationRouter
         $this->notifications->notify('customer', 'account', 'Váš přístup do organizace '.($org->name ?? '').' byl obnoven', 'Pokud ho nechcete, organizaci opusťte v Týmu.', '/panel/tym', $m->organization_id, $person->id, $m->aggregate_type, $m->aggregate_id, $m->name, 'warn', $person->locale ?? 'cs');
         $this->notifications->queueMail('access-restored', $person->email, ['organizace' => (string) ($org->name ?? ''), 'url' => "{$portal}/panel/tym"], $m->aggregate_type, $m->aggregate_id, $m->organization_id, $person->locale ?? 'cs', $person->id);
     }
+
     // ── TASK-0021 (owner decision 20) ──
     /** Every owner and billing admin of the organization, each in person: in-app and by mail. @param array<string,string> $vars */
     private function creditApprovers(OutboxMessage $m, string $title, string $body, array $vars): void

@@ -2,6 +2,9 @@
 
 declare(strict_types=1);
 
+use Illuminate\Auth\Events\Login;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -9,10 +12,12 @@ use Illuminate\Support\Str;
 use Onhost\Domain\Identity\Commands\MfaResetCommandHandler;
 use Onhost\Domain\Identity\Models\StepUpGrant;
 use Onhost\Domain\Identity\Models\User;
+use Onhost\Domain\Identity\SessionKill;
 use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Organizations\Commands\OrganizationCommand;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\OrganizationService;
+use Onhost\Domain\Services\Console\ConsoleSessions;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Platform\Audit\AuditEvent;
@@ -83,7 +88,7 @@ it('closes the open console of a removed member at the next alive check, and ope
     // the relay's own key is still asked first
     $this->flushHeaders()->getJson("/console/ws/{$open}/alive")->assertStatus(401);
     config(['onhost.console.alive_check_seconds' => 1]);
-    expect(Onhost\Domain\Services\Console\ConsoleSessions::aliveSeconds())->toBe(5); // never below 5
+    expect(ConsoleSessions::aliveSeconds())->toBe(5); // never below 5
 });
 
 it('ends every web session, step-up, token and console of a person whose MFA support reset, and lets them start again', function () {
@@ -135,4 +140,31 @@ it('opens no console for a disabled account or a service that is gone, and keeps
     sewaRelay("/console/ws/{$system}")->assertOk();
     $service->delete();
     sewaRelay("/console/ws/{$system}/alive")->assertStatus(410);
+});
+
+it('logs out a web session signed in before the person\'s sessions were ended, whatever stores it, and keeps a later one', function () {
+    $person = User::factory()->create();
+    $signIn = function () use ($person): void {
+        $request = Request::create('/panel');
+        $request->setLaravelSession(app('session.store'));
+        app()->instance('request', $request);
+        Auth::guard('web')->logout();
+        event(new Login('web', $person, false));
+    };
+    $guard = fn () => Auth::guard('web');
+
+    $signIn();
+    $guard()->setUser($person);
+    expect($guard()->user()?->id)->toBe($person->id);
+
+    $this->travel(1)->seconds();
+    app(SessionKill::class)->end($person, 'mfa_reset', null, CommandContext::system('sewa'));
+    $guard()->setUser($person); // the next request loads the person from the session again (SessionGuard fires Authenticated)
+    expect($guard()->user())->toBeNull();
+
+    // signed in again after the end: the session stays
+    $this->travel(1)->seconds();
+    $signIn();
+    $guard()->setUser($person);
+    expect($guard()->user()?->id)->toBe($person->id);
 });

@@ -19,7 +19,8 @@ use Onhost\Platform\Commands\CommandContext;
  * reset (support believed somebody else holds the second factor) and an owner taken out by an owner recovery (the account may be
  * in an attacker's hands) left every signed-in browser signed in, the "remember me" cookie working, a fresh step-up usable for
  * its minutes, and an open root console typing. So, at once and not when the outbox delivers an event:
- *  · every web session of the person (the `sessions` table of the database session driver) and the "remember me" token;
+ *  · every web session of the person — whatever stores them (WebSessionGate: signed in before now = logged out on the next
+ *    request; the rows of the database driver are deleted at once) — and the "remember me" token;
  *  · every step-up grant (a step-up says "this is the person" — exactly what is in doubt);
  *  · their console tickets and open consoles (ConsoleSessions::endFor) — in one organization, or everywhere when `$organizationId`
  *    is null; the relay's next alive check closes an open socket.
@@ -33,6 +34,9 @@ final class SessionKill
     /** @return array{web_sessions: int, step_up_grants: int, consoles: string} */
     public function end(User $user, string $reason, ?string $organizationId, CommandContext $context): array
     {
+        // any session store (production keeps them in Redis): a session signed in before now is logged out on its next request
+        // (WebSessionGate); the rows of the database driver go at once as well
+        WebSessionGate::endAll($user->id);
         $web = 0;
         if (config('session.driver') === 'database') {
             $web = DB::table((string) config('session.table', 'sessions'))->where('user_id', $user->id)->delete();
