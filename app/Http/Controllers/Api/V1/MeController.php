@@ -17,6 +17,7 @@ use Onhost\Domain\Identity\Models\PersonalAccessToken;
 use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Identity\StepUp\Totp;
 use Onhost\Domain\Identity\Tokens\TokenLifetime;
+use Onhost\Domain\Identity\WebSessions;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
@@ -46,6 +47,10 @@ final class MeController extends ApiController
         // the browser that changed the password stays signed in; every other session, remembered device and step-up is out
         $user->forceFill(['password' => $data['password'], 'password_changed_at' => now(), 'remember_token' => Str::random(60)])->save();
         $stepUp->revokeAll($user);
+        // TASK-0070: whatever stores the sessions (production: Redis, where the rows below do not exist) every other browser of the
+        // person is logged out on its next request (WebSessionGate asks its row); this one keeps its row
+        $keep = $request->hasSession() ? $request->session()->get(WebSessions::SESSION_KEY) : null;
+        app(WebSessions::class)->endAllBut((string) $user->id, is_string($keep) && $keep !== '' ? $keep : null, WebSessions::PASSWORD_CHANGED);
         if (config('session.driver') === 'database') {
             $others = DB::table((string) config('session.table', 'sessions'))->where('user_id', $user->getAuthIdentifier());
             $current = $this->api->sessionId($request);

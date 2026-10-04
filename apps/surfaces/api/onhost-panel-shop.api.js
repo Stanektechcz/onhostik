@@ -31,7 +31,9 @@
   function _(a, b) { return cs() ? a : b; }
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function kc(n) { var v = Math.round((Number(n) || 0) * 100) / 100; return v.toLocaleString(cs() ? 'cs-CZ' : 'en-US', { minimumFractionDigits: Number.isInteger(v) ? 0 : 2, maximumFractionDigits: 2 }) + ' Kč'; }
-  function gross(n) { return kc(Math.round((Number(n) || 0) * 1.21)); }
+  /* the VAT rate of the tax rules (ONHOST_PANEL.vat, TASK-0064/0070); the statutory 21 % only when the platform has no active rule set */
+  function vatRate() { var v = D().vat; return typeof v === 'number' ? v : 0.21; }
+  function gross(n) { return kc(Math.round((Number(n) || 0) * (1 + vatRate()))); }
   function catalog() { return (D().catalog || []).filter(function (p) { return p.family !== 'addon'; }); }
   function product(key) { return catalog().filter(function (p) { return p.key === key; })[0] || null; }
   function credit() { var k = D().kpis || {}; return typeof k.credit === 'number' ? k.credit : ((cmpRef && cmpRef.state && typeof cmpRef.state.credit === 'number') ? cmpRef.state.credit : 0); }

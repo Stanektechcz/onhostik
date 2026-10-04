@@ -2,14 +2,14 @@
  *
  * API keys (/v1/tokens), profile, password and two-factor (/v1/me, /v1/me/password, /v1/me/totp/*), team
  * (/v1/organizations/{id} members, invitations, roles), billing identity (PATCH /v1/organizations/{id}), webhooks
- * (/v1/webhooks) and sessions. Every view is returned in the prototype's generic view shape
+ * (/v1/webhooks) and sessions (/v1/me/sessions, TASK-0070). Every view is returned in the prototype's generic view shape
  * (crumb/title/stats/form/cols/rows/side/wide/advice) so the surface stays byte-identical; the renderer swaps the
  * narrated builders for these when window.ONHOST_PANEL is present. Helpers (stat/pill/bar/dot/rowStyle/match)
  * come from the prototype's render scope. */
 (function () {
   'use strict';
   if (window.OnhostPanelAccount) return;
-  var S = { tokens: null, org: null, webhooks: null, discord: null, totp: null, lastToken: null, recovery: null, pw: false, prefilled: false, busy: {} };
+  var S = { tokens: null, sessions: null, org: null, webhooks: null, discord: null, totp: null, lastToken: null, recovery: null, pw: false, prefilled: false, busy: {} };
   var SCOPES = { 'services:read': ['čtení služeb', 'read services'], 'services:power': ['start a restart služeb', 'power services'], 'invoices:read': ['čtení faktur', 'read invoices'], 'tickets:write': ['zakládání tiketů', 'write tickets'], 'dns:write': ['zápis DNS', 'write DNS'], 'domains:read': ['čtení domén', 'read domains'], 'wallet:read': ['čtení kreditu', 'read wallet'], 'services:console': ['konzole, terminál a příkazy', 'consoles, terminal and commands'] };
   /* A console is neither a read nor a restart (C13-H2c): no preset carries it, the customer ticks it on purpose. */
   var EXPLICIT_ONLY = ['services:console'];
@@ -38,6 +38,13 @@
   function mfaOn() { var u = me(); return !!(u && u.mfa && (u.mfa === true || u.mfa.totp)); }
   function setMfa(on) { var u = me(); if (u) u.mfa = on; }
   function goSecurity(cmp) { cmp.setState({ tab: 'settings', sub: 'security', selected: null, query: '' }); }
+  /* Czech plurals through the shared helper of the session bridge (TASK-0070): csForms [1, 2–4, 5+], enForms [1, other] */
+  function plural(n, csForms, enForms, cmp) {
+    var en = !isCs(cmp), I = window.OnhostI18n;
+    if (I) return I.plural(n, en ? enForms : csForms, en ? 'en' : 'cs');
+    return en ? (n === 1 ? enForms[0] : enForms[1]) : (n === 1 ? csForms[0] : (n >= 2 && n <= 4 ? csForms[1] : csForms[2]));
+  }
+  function orgList() { var u = me(); return (u && Array.isArray(u.organizations)) ? u.organizations : []; }
 
   /* ── API keys and webhooks ─────────────────────────────────────────────────────────────── */
   /* Discord: link the account for /onhost slash commands and confirmation buttons; a Discord channel webhook receives the same events as any webhook, as embeds. */
@@ -242,9 +249,59 @@
     };
   }
 
+  /* ── Notification preferences (TASK-0070) ────────────────────────────────────────────────
+     GET/PUT /v1/notifications/preferences had no screen: which kinds of notice arrive by e-mail and in the panel. Mandatory notices
+     (security, invoices, legal, domain expiry, incidents) stay on and are shown as such; the server refuses to switch them off anyway. */
+  var NOTIFY_KINDS = [['service', 'služby (spuštění, pozastavení, výpadky, nasazení)', 'services (activation, suspension, outages, deploys)'], ['ticket', 'tikety podpory', 'support tickets'], ['order', 'objednávky a schvalování', 'orders and approvals'], ['domain', 'domény (registrace, obnovy)', 'domains (registration, renewals)'], ['wallet', 'kredit a dobití', 'credit and top-ups'], ['dunning', 'upomínky a nezaplacené obnovy', 'reminders and unpaid renewals'], ['account', 'účet, tým a věrnostní program', 'account, team and loyalty']];
+  function escHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function notifyDialog(cmp, _) {
+    if (S.notifyOpen || !A()) return;
+    S.notifyOpen = true;
+    A().get('/notifications/preferences').then(function (r) {
+      var prefs = (r && r.data) || [], mandatory = (r && r.mandatory) || [];
+      var on = function (kind, channel) { var p = prefs.filter(function (x) { return x.kind === kind && x.channel === channel; })[0]; return p ? !!p.enabled : true; };
+      var wrap = document.createElement('div');
+      wrap.setAttribute('role', 'dialog'); wrap.setAttribute('aria-modal', 'true'); wrap.setAttribute('aria-labelledby', 'onhost-notify-title');
+      wrap.style.cssText = 'position:fixed;inset:0;z-index:130;display:flex;align-items:center;justify-content:center;background:rgba(20,18,17,.55);font-family:inherit';
+      var btn = 'font:inherit;font-size:13.5px;padding:9px 14px;border-radius:8px;cursor:pointer;';
+      var cell = 'padding:8px 6px;border-top:1px solid color-mix(in srgb,var(--fg,#201e1d) 12%,transparent);font-size:13.5px';
+      wrap.innerHTML = '<form style="background:var(--bg,#fff);color:var(--fg,#201e1d);width:min(560px,calc(100vw - 32px));max-height:calc(100vh - 48px);overflow:auto;padding:24px;border:1px solid color-mix(in srgb,var(--fg,#201e1d) 15%,transparent);border-radius:12px;box-shadow:0 24px 60px rgba(0,0,0,.28);display:flex;flex-direction:column;gap:12px">'
+        + '<div id="onhost-notify-title" style="font-weight:700;font-size:17px">' + escHtml(_('Upozornění', 'Notifications')) + '</div>'
+        + '<div style="font-size:13.5px;line-height:1.5;opacity:.85">' + escHtml(_('Vyberte, co vám má chodit e-mailem a do panelu. Bezpečnostní upozornění, doklady, právní oznámení, konec domény a výpadky chodí vždy.', 'Choose what reaches you by e-mail and in the panel. Security notices, documents, legal notices, domain expiry and outages always arrive.')) + '</div>'
+        + '<table style="border-collapse:collapse;width:100%"><thead><tr><th scope="col" style="text-align:left;font-size:12px;padding:6px">' + escHtml(_('Druh', 'Kind')) + '</th><th scope="col" style="font-size:12px;padding:6px">' + escHtml(_('E-mail', 'E-mail')) + '</th><th scope="col" style="font-size:12px;padding:6px">' + escHtml(_('V panelu', 'In the panel')) + '</th></tr></thead><tbody>'
+        + NOTIFY_KINDS.map(function (k) {
+          var label = isCs(cmp) ? k[1] : k[2], locked = mandatory.indexOf(k[0]) >= 0;
+          return '<tr><th scope="row" style="text-align:left;font-weight:500;' + cell + '">' + escHtml(label) + '</th>' + ['mail', 'inapp'].map(function (ch) {
+            return '<td style="text-align:center;' + cell + '"><input type="checkbox" data-kind="' + k[0] + '" data-channel="' + ch + '" aria-label="' + escHtml(label + ' · ' + (ch === 'mail' ? _('e-mail', 'e-mail') : _('v panelu', 'in the panel'))) + '"' + (locked || on(k[0], ch) ? ' checked' : '') + (locked ? ' disabled' : '') + '></td>';
+          }).join('') + '</tr>';
+        }).join('') + '</tbody></table>'
+        + '<div data-err role="alert" style="display:none;color:#8f1c0a;font-size:13px"></div>'
+        + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px">'
+        + '<button type="button" data-cancel style="' + btn + 'border:1px solid color-mix(in srgb,var(--fg,#201e1d) 30%,transparent);background:transparent;color:inherit">' + escHtml(_('Zavřít', 'Close')) + '</button>'
+        + '<button type="submit" style="' + btn + 'font-weight:600;border:1px solid var(--acc,#ec3013);background:var(--acc,#ec3013);color:#fff">' + escHtml(_('Uložit', 'Save')) + '</button>'
+        + '</div></form>';
+      document.body.appendChild(wrap);
+      var form = wrap.querySelector('form'), err = wrap.querySelector('[data-err]'), submit = wrap.querySelector('[type=submit]');
+      function close() { wrap.remove(); document.removeEventListener('keydown', onKey, true); S.notifyOpen = false; }
+      function onKey(ev) { if (ev.key === 'Escape') { ev.stopPropagation(); close(); } }
+      document.addEventListener('keydown', onKey, true);
+      wrap.querySelector('[data-cancel]').addEventListener('click', close);
+      form.addEventListener('submit', function (ev) {
+        ev.preventDefault(); ev.stopPropagation();
+        var changed = Array.prototype.slice.call(form.querySelectorAll('input[data-kind]:not([disabled])')).filter(function (i) { return i.checked !== on(i.getAttribute('data-kind'), i.getAttribute('data-channel')); });
+        if (!changed.length) { close(); return; }
+        submit.disabled = true;
+        changed.reduce(function (p, i) { return p.then(function () { return A().put('/notifications/preferences', { kind: i.getAttribute('data-kind'), channel: i.getAttribute('data-channel'), enabled: i.checked }); }); }, Promise.resolve())
+          .then(function () { close(); flash(cmp, _('Upozornění uložena', 'Notifications saved'), changed.length + ' ' + plural(changed.length, ['změna', 'změny', 'změn'], ['change', 'changes'], cmp)); })
+          .catch(function (e) { submit.disabled = false; err.style.display = 'block'; err.textContent = (e && e.message) || _('Nepodařilo se uložit.', 'Could not save.'); });
+      });
+      setTimeout(function () { var first = form.querySelector('input[data-kind]:not([disabled])'); if (first) first.focus(); }, 30);
+    }).catch(function (e) { S.notifyOpen = false; fail(cmp, _, e); });
+  }
+
   /* ── Account: profile and billing identity ──────────────────────────────────────────── */
   function accountView(cmp, _, H) {
-    var cs = isCs(cmp), s = cmp.state, u = me() || {}, o = (u.organization) || {};
+    var cs = isCs(cmp), s = cmp.state, u = me() || {}, o = (u.organization) || {}, orgs = orgList();
     if (orgId()) load(cmp, 'org', '/organizations/' + encodeURIComponent(orgId()));
     var org = S.org || null, b = (org && org.billing) || {};
     if (org && !S.prefilled) {
@@ -299,9 +356,13 @@
         var history = (rw.history || []).slice(0, 8).map(function (h) { return (h.points > 0 ? '+' : '') + h.points + ' · ' + (h.note || h.rule); }).join('\n');
         flash(cmp, _('Věrnostní program', 'Loyalty programme'), _('Odznaky: ', 'Badges: ') + badges + (history ? '\n' + history : '') + '\n' + _('Body za zaplacené objednávky, včasné platby, 2FA, zálohy a monitoring; úrovně přinášejí promo kredit.', 'Points for paid orders, on-time payments, 2FA, backups and monitoring; levels bring promo credit.'));
       }],
+      // TASK-0070: a person in several organizations chooses the one the panel works in (OnhostOrganizations in the session bridge)
+      orgs.length > 1 ? [_('Organizace', 'Organization'), (o.name || '—'), _('jste členem ', 'member of ') + orgs.length + ' ' + plural(orgs.length, ['organizace', 'organizací', 'organizací'], ['organization', 'organizations'], cmp) + ' · ' + orgs.filter(function (x) { return !o.id || x.id !== o.id; }).map(function (x) { return x.name; }).join(', '), 'ok', _('Přepnout', 'Switch'), function () { if (window.OnhostOrganizations) window.OnhostOrganizations.dialog(); }] : null,
       [_('Jméno', 'Name'), u.name || '—', _('zobrazuje se týmu i podpoře', 'shown to your team and to support'), 'ok', _('Upravit', 'Edit'), function () { var n = window.prompt(_('Jméno:', 'Name:'), u.name || ''); if (!n || !n.trim()) return; A().patch('/me', { name: n.trim() }).then(function () { u.name = n.trim(); flash(cmp, _('Jméno uloženo', 'Name saved'), n.trim()); rerender(cmp); }).catch(function (e) { fail(cmp, _, e); }); }],
       [_('Přihlašovací e-mail', 'Sign-in e-mail'), u.email || '—', _('ověřený · doklady a upozornění', 'verified · documents and alerts'), 'ok', _('Změnit přes podporu', 'Change via support'), function () { flash(cmp, _('Změna e-mailu', 'E-mail change'), _('Přihlašovací e-mail měníme po ověření identity — napište prosím podpoře.', 'The sign-in e-mail is changed after identity verification — please write to support.')); }],
       [_('Heslo a 2FA', 'Password and 2FA'), mfaOn() ? _('heslo + autentikátor', 'password + authenticator') : _('jen heslo', 'password only'), mfaOn() ? _('v pořádku', 'in order') : _('doporučujeme zapnout 2FA', 'we recommend 2FA'), mfaOn() ? 'ok' : 'warn', _('Zabezpečení', 'Security'), function () { goSecurity(cmp); }],
+      // TASK-0070: which notices arrive by e-mail and in the panel (GET/PUT /v1/notifications/preferences had no screen)
+      [_('Upozornění', 'Notifications'), _('e-mail a panel podle druhu', 'e-mail and panel per kind'), _('bezpečnost, doklady a výpadky chodí vždy', 'security, documents and outages always arrive'), 'ok', _('Nastavit', 'Set'), function () { notifyDialog(cmp, _); }],
       // digest tuning (audit §5f-5): weekly → monthly → off, previewed from the API; the frequency lives on the organization
       [_('Přehled e-mailem', 'E-mail summary'), (function () { var fq = (org && org.settings && org.settings.digest && org.settings.digest.frequency) || (S.digest && S.digest.frequency) || 'weekly'; return { weekly: _('týdně', 'weekly'), monthly: _('měsíčně', 'monthly'), off: _('vypnuto', 'off') }[fq] || fq; })(), _('obnovy, kredit, zálohy a monitoring v jednom e-mailu', 'renewals, credit, backups and monitoring in one e-mail'), 'ok', _('Změnit', 'Change'), function () {
         if (!orgId()) return;
@@ -315,7 +376,7 @@
         if (!orgId()) return;
         A().get('/organizations/' + encodeURIComponent(orgId()) + '/digest').then(function (r) { var d = (r.data || r); var p = d.preview; flash(cmp, p ? p.title : _('Přehled', 'Summary'), p ? (p.text || p.body || '').slice(0, 900) : _('Zatím není co shrnout — přehled má smysl s první službou.', 'Nothing to summarise yet — the summary starts with the first service.')); }).catch(function (e) { fail(cmp, _, e); });
       }],
-      [_('Jazyk panelu', 'Panel language'), (u.locale || 'cs') === 'en' ? 'English' : 'Čeština', _('faktury, e-maily i podpora', 'invoices, e-mails and support'), 'ok', _('Přepnout', 'Switch'), function () { var next = (u.locale || 'cs') === 'en' ? 'cs' : 'en'; A().patch('/me', { locale: next }).then(function () { u.locale = next; cmp.setState({ lang: next }); flash(cmp, _('Jazyk přepnut', 'Language switched'), next === 'cs' ? 'Čeština' : 'English'); }).catch(function (e) { fail(cmp, _, e); }); }],
+      [_('Jazyk panelu', 'Panel language'), (u.locale || 'cs') === 'en' ? 'English' : 'Čeština', _('faktury, e-maily i podpora', 'invoices, e-mails and support'), 'ok', _('Přepnout', 'Switch'), function () { var next = (u.locale || 'cs') === 'en' ? 'cs' : 'en'; A().patch('/me', { locale: next }).then(function () { u.locale = next; try { document.documentElement.lang = next; } catch (x) {} cmp.setState({ lang: next }); flash(cmp, _('Jazyk přepnut', 'Language switched'), next === 'cs' ? 'Čeština' : 'English'); }).catch(function (e) { fail(cmp, _, e); }); }],
       [_('Zákaznický profil', 'Customer profile'), (org && org.customer_class === 'b2b') || o.ico ? _('firma (B2B)', 'company (B2B)') : _('spotřebitel (B2C)', 'consumer (B2C)'), (b.ico || o.ico) ? 'IČO ' + (b.ico || o.ico) : _('bez IČO', 'no company id'), 'ok', _('Fakturační údaje', 'Billing details'), function () { flash(cmp, _('Fakturační údaje', 'Billing details'), _('Upravte je ve formuláři níže.', 'Edit them in the form below.')); }]
     ];
     return {
@@ -348,7 +409,7 @@
       },
       tableTitle: _('Profil a přihlašování', 'Profile and sign-in'), tableNote: _('vše, co patří k účtu a osobě', 'everything tied to the account and the person'),
       cols: [_('Údaj', 'Detail'), _('Hodnota', 'Value'), _('Stav', 'State'), _('Poznámka', 'Note'), ''],
-      rows: profileRows.filter(function (r) { return H.match(r[0]) || H.match(r[1]); }).map(function (r) {
+      rows: profileRows.filter(function (r) { return r && (H.match(r[0]) || H.match(r[1])); }).map(function (r) {
         return { name: r[0], sub: r[2], c2: r[1], state: r[3] === 'ok' ? _('v pořádku', 'in order') : _('doporučeno', 'recommended'), stateStyle: H.pill(r[3]), barStyle: H.bar(r[3] === 'ok' ? 100 : 45, r[3]), metric: r[2], rowStyle: H.rowStyle, action: r[4], actionCls: r[3] === 'ok' ? 'btn btn-secondary' : 'btn btn-primary', onAction: r[5] };
       }),
       filters: [], readOnly: true,
@@ -374,20 +435,58 @@
   }
 
   /* ── Sessions and devices ───────────────────────────────────────────────────────────── */
+  /* TASK-0070: the person's open web sessions (/v1/me/sessions) — every signed-in browser, not only this one — each with its own
+     sign-out; "sign out the others" ends all the others. The server ends them through the bus and logs each browser out on its
+     next request; the current one is signed out with the usual sign-out. */
+  function device(ua, _) {
+    var s = String(ua || ''), browser = (s.match(/(Edg|OPR|Firefox|Chrome|Safari)\/[\d]+/) || [null])[0];
+    var os = /iPhone|iPad/.test(s) ? 'iOS' : (/Android/.test(s) ? 'Android' : (/Windows/.test(s) ? 'Windows' : (/Mac OS X|Macintosh/.test(s) ? 'macOS' : (/Linux/.test(s) ? 'Linux' : ''))));
+    if (!browser && !os) return s ? s.slice(0, 48) : _('neznámé zařízení', 'unknown device');
+    return (browser ? browser.replace('Edg/', 'Edge ').replace('OPR/', 'Opera ').replace('/', ' ') : _('prohlížeč', 'browser')) + (os ? ' · ' + os : '');
+  }
   function sessionsView(cmp, _, H) {
     load(cmp, 'tokens', '/tokens');
+    load(cmp, 'sessions', '/me/sessions');
     var cs = isCs(cmp), tokens = (S.tokens || []).filter(function (t) { return !t.revoked_at; });
-    var ua = (navigator.userAgent.match(/(Firefox|Edg|Chrome|Safari)\/[\d.]+/) || ['prohlížeč'])[0];
-    var rows = [{ name: ua, sub: _('tato relace', 'this session'), c2: _('aktuální zařízení', 'this device'), state: _('aktivní', 'active'), stateStyle: H.pill('ok'), barStyle: H.bar(100, 'ok'), metric: _('právě teď', 'right now'), rowStyle: H.rowStyle, action: _('Odhlásit', 'Sign out'), actionCls: 'btn btn-secondary', onAction: function () { if (window.OnhostSession) window.OnhostSession.signOut(); } }]
-      .concat(tokens.map(function (t) { return { name: t.name, sub: _('API klíč', 'API key'), c2: (t.scopes || []).join(', '), state: _('klíč', 'key'), stateStyle: H.pill('off'), barStyle: H.bar(55, 'ok'), metric: t.last_used_at ? when(t.last_used_at, cs) : _('nepoužit', 'unused'), rowStyle: H.rowStyle, action: _('Zrušit', 'Revoke'), actionCls: 'btn btn-secondary', onAction: function () { if (window.confirm(_('Zrušit klíč ' + t.name + '?', 'Revoke key ' + t.name + '?'))) A().del('/tokens/' + encodeURIComponent(t.id)).then(function () { reload(cmp, 'tokens'); }).catch(function (e) { fail(cmp, _, e); }); } }; }));
+    var sessions = Array.isArray(S.sessions) ? S.sessions : [], others = sessions.filter(function (x) { return !x.current; });
+    var endOne = function (x) {
+      if (!window.confirm(_('Odhlásit zařízení ' + device(x.user_agent, _) + '? Při dalším použití se bude muset přihlásit znovu.', 'Sign out ' + device(x.user_agent, _) + '? It will have to sign in again on its next use.'))) return;
+      A().del('/me/sessions/' + encodeURIComponent(x.id)).then(function () { flash(cmp, _('Zařízení odhlášeno', 'Device signed out'), device(x.user_agent, _)); reload(cmp, 'sessions'); }).catch(function (e) { fail(cmp, _, e); });
+    };
+    var endOthers = function () {
+      if (!others.length) { flash(cmp, _('Žádná jiná relace', 'No other session'), _('Přihlášeni jste jen v tomto prohlížeči.', 'You are signed in in this browser only.')); return; }
+      if (!window.confirm(_('Odhlásit všechna ostatní zařízení (' + others.length + ')? Tento prohlížeč zůstane přihlášený.', 'Sign out every other device (' + others.length + ')? This browser stays signed in.'))) return;
+      A().post('/me/sessions/end-others', {}, A().key()).then(function (r) {
+        var n = Number((r && (r.ended != null ? r.ended : (r.data && r.data.ended))) || 0);
+        flash(cmp, _('Ostatní zařízení odhlášena', 'Other devices signed out'), n + ' ' + plural(n, ['relace', 'relace', 'relací'], ['session', 'sessions'], cmp));
+        reload(cmp, 'sessions');
+      }).catch(function (e) { fail(cmp, _, e); });
+    };
+    var listed = sessions.length ? sessions : [{ id: null, current: true, user_agent: navigator.userAgent, ip: null, last_seen_at: null, signed_in_at: null }];
+    var sessionRows = listed.map(function (x) {
+      return {
+        name: device(x.user_agent, _), sub: x.current ? _('tato relace', 'this session') : (_('přihlášeno ', 'signed in ') + (when(x.signed_in_at, cs) || '—')),
+        c2: x.ip || (x.current ? _('aktuální zařízení', 'this device') : '—'), state: x.current ? _('tato', 'this one') : _('aktivní', 'active'),
+        stateStyle: H.pill('ok'), barStyle: H.bar(x.current ? 100 : 70, 'ok'), metric: x.current ? _('právě teď', 'right now') : (when(x.last_seen_at, cs) || '—'),
+        rowStyle: H.rowStyle, action: _('Odhlásit', 'Sign out'), actionCls: 'btn btn-secondary',
+        onAction: x.current ? function () { if (window.OnhostSession) window.OnhostSession.signOut(); } : function () { endOne(x); }
+      };
+    });
+    var rows = sessionRows.concat(tokens.map(function (t) { return { name: t.name, sub: _('API klíč', 'API key'), c2: (t.scopes || []).join(', '), state: _('klíč', 'key'), stateStyle: H.pill('off'), barStyle: H.bar(55, 'ok'), metric: t.last_used_at ? when(t.last_used_at, cs) : _('nepoužit', 'unused'), rowStyle: H.rowStyle, action: _('Zrušit', 'Revoke'), actionCls: 'btn btn-secondary', onAction: function () { if (window.confirm(_('Zrušit klíč ' + t.name + '?', 'Revoke key ' + t.name + '?'))) A().del('/tokens/' + encodeURIComponent(t.id)).then(function () { reload(cmp, 'tokens'); }).catch(function (e) { fail(cmp, _, e); }); } }; }));
+    var count = listed.length;
+    var advice = others.length
+      ? { title: _('Odhlásit ostatní zařízení', 'Sign out the other devices'), lead: _('Jste přihlášeni ještě na ' + others.length + ' ' + plural(others.length, ['dalším zařízení', 'dalších zařízeních', 'dalších zařízeních'], ['other device', 'other devices'], cmp) + '. Jedním klikem je odhlásíte; tento prohlížeč zůstane přihlášený.', 'You are also signed in on ' + others.length + ' ' + plural(others.length, ['other device', 'other devices'], ['other device', 'other devices'], cmp) + '. One click signs them out; this browser stays signed in.'), cta: _('Odhlásit ostatní', 'Sign out the others'), on: endOthers }
+      : (mfaOn()
+        ? { title: _('Změna hesla odhlásí ostatní zařízení', 'A password change signs out other devices'), lead: _('Pokud máte podezření na cizí přihlášení, změňte heslo v Zabezpečení — všechny ostatní relace skončí.', 'If you suspect a foreign sign-in, change the password under Security — every other session ends.'), cta: _('Zabezpečení →', 'Security →'), on: function () { goSecurity(cmp); } }
+        : { title: _('Zapněte dvoufázové ověření', 'Turn on two-factor'), lead: _('Každé nové přihlášení pak potvrdí kód z autentikátoru.', 'Every new sign-in is then confirmed by a code from the authenticator.'), cta: _('Zapnout 2FA →', 'Turn on 2FA →'), on: function () { goSecurity(cmp); } });
     return {
       crumb: _('Nastavení', 'Settings'), title: _('Relace a zařízení', 'Sessions and devices'),
-      stats: [H.stat(_('Aktivní relace', 'Active sessions'), '1', _('tato', 'this one'), 5, 30, 12, 'ok'), H.stat(_('API klíče', 'API keys'), String(tokens.length), '', 13, Math.min(100, tokens.length * 20), 10, 'ok'), H.stat(_('Dvoufázové ověření', 'Two-factor'), mfaOn() ? _('zapnuto', 'on') : _('vypnuto', 'off'), '', 21, mfaOn() ? 100 : 30, 8, mfaOn() ? 'ok' : 'warn'), H.stat(_('Ochrana', 'Protection'), _('8 pokusů → 15 min', '8 attempts → 15 min'), _('zámek přihlášení', 'sign-in lock'), 29, 60, 6, 'ok')],
-      tableTitle: _('Aktivní relace a klíče', 'Active sessions and keys'), tableNote: _('odhlášení je okamžité · po změně hesla se ostatní relace odhlásí samy', 'sign-out is immediate · a password change signs the others out'),
-      cols: [_('Zařízení', 'Device'), _('Rozsah', 'Scope'), _('Stav', 'State'), _('Aktivita', 'Activity'), ''],
+      stats: [H.stat(_('Aktivní relace', 'Active sessions'), String(count), count === 1 ? _('jen tato', 'this one only') : _('včetně této', 'including this one'), 5, Math.min(100, count * 25), 12, count > 3 ? 'warn' : 'ok'), H.stat(_('API klíče', 'API keys'), String(tokens.length), '', 13, Math.min(100, tokens.length * 20), 10, 'ok'), H.stat(_('Dvoufázové ověření', 'Two-factor'), mfaOn() ? _('zapnuto', 'on') : _('vypnuto', 'off'), '', 21, mfaOn() ? 100 : 30, 8, mfaOn() ? 'ok' : 'warn'), H.stat(_('Ochrana', 'Protection'), _('8 pokusů → 15 min', '8 attempts → 15 min'), _('zámek přihlášení', 'sign-in lock'), 29, 60, 6, 'ok')],
+      tableTitle: _('Aktivní relace a klíče', 'Active sessions and keys'), tableNote: _('odhlášené zařízení skončí při svém dalším požadavku · změna hesla odhlásí ostatní zařízení', 'a signed-out device ends on its next request · a password change signs the others out'),
+      cols: [_('Zařízení', 'Device'), _('Adresa / rozsah', 'Address / scope'), _('Stav', 'State'), _('Aktivita', 'Activity'), ''],
       rows: rows, filters: [], readOnly: true,
-      side: { title: _('Doporučení', 'Recommendation'), rows: [{ title: _('Změna hesla odhlásí ostatní zařízení', 'A password change signs out other devices'), meta: _('Nastavení → Zabezpečení a 2FA', 'Settings → Security and 2FA'), value: '', kind: 'ok' }, { title: _('Zapnuté 2FA', 'Two-factor on'), meta: mfaOn() ? _('chrání každé nové přihlášení', 'protects every new sign-in') : _('doporučujeme zapnout', 'we recommend turning it on'), value: mfaOn() ? '✓' : '—', kind: mfaOn() ? 'ok' : 'warn' }] },
-      advice: mfaOn() ? { title: _('Změna hesla odhlásí ostatní zařízení', 'A password change signs out other devices'), lead: _('Pokud máte podezření na cizí přihlášení, změňte heslo v Zabezpečení — všechny ostatní relace skončí.', 'If you suspect a foreign sign-in, change the password under Security — every other session ends.'), cta: _('Zabezpečení →', 'Security →'), on: function () { goSecurity(cmp); } } : { title: _('Zapněte dvoufázové ověření', 'Turn on two-factor'), lead: _('Každé nové přihlášení pak potvrdí kód z autentikátoru.', 'Every new sign-in is then confirmed by a code from the authenticator.'), cta: _('Zapnout 2FA →', 'Turn on 2FA →'), on: function () { goSecurity(cmp); } }
+      side: { title: _('Doporučení', 'Recommendation'), rows: [{ title: _('Neznámé zařízení? Odhlaste ho a změňte heslo', 'An unknown device? Sign it out and change the password'), meta: _('Nastavení → Zabezpečení a 2FA', 'Settings → Security and 2FA'), value: '', kind: others.length ? 'warn' : 'ok' }, { title: _('Zapnuté 2FA', 'Two-factor on'), meta: mfaOn() ? _('chrání každé nové přihlášení', 'protects every new sign-in') : _('doporučujeme zapnout', 'we recommend turning it on'), value: mfaOn() ? '✓' : '—', kind: mfaOn() ? 'ok' : 'warn' }] },
+      advice: advice
     };
   }
 

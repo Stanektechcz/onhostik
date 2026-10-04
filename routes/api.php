@@ -53,6 +53,7 @@ use App\Http\Controllers\Api\V1\Staff\WithdrawalController as StaffWithdrawalCon
 use App\Http\Controllers\Api\V1\StatusController;
 use App\Http\Controllers\Api\V1\SupportController;
 use App\Http\Controllers\Api\V1\WalletController;
+use App\Http\Controllers\Api\V1\WebSessionController;
 use App\Http\Controllers\Api\V1\WebToolsController;
 use Illuminate\Support\Facades\Route;
 
@@ -182,6 +183,11 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
     Route::get('tokens', [MeController::class, 'tokens']);
     Route::post('tokens', [MeController::class, 'createToken']);
     Route::delete('tokens/{token}', [MeController::class, 'revokeToken']);
+    // TASK-0070: the browser's own — open web sessions (list, end one, end every other) and the organization it works in
+    Route::get('me/sessions', [WebSessionController::class, 'index']);
+    Route::post('me/sessions/end-others', [WebSessionController::class, 'endOthers']);
+    Route::delete('me/sessions/{session}', [WebSessionController::class, 'end']);
+    Route::put('me/organization', [WebSessionController::class, 'switchOrganization']);
     Route::post('auth/step-up', [AuthController::class, 'stepUp']);
     Route::post('auth/logout', [AuthController::class, 'logout']);
 

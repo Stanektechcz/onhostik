@@ -15,6 +15,8 @@
   function flash(cmp, title, body) { if (cmp && typeof cmp.flash === 'function') cmp.flash(title, body); }
   function credit(cmp) { return cmp && cmp.state && typeof cmp.state.credit === 'number' ? cmp.state.credit : 0; }
   function num(m) { return m && typeof m === 'object' ? parseFloat(m.decimal || 0) : (parseFloat(m) || 0); }
+  /* the VAT rate of the tax rules (ONHOST_PANEL.vat, TASK-0064/0070); the statutory 21 % only when the platform has no active rule set */
+  function vatRate() { var d = data(), v = d && d.vat; return typeof v === 'number' ? v : 0.21; }
   function product(key) { return ((data() && data().catalog) || []).filter(function (p) { return p.key === key; })[0] || null; }
 
   /* [key, name, description] rows for the "Co chcete spustit" step; domains are a product of their own (priced per TLD and year). */
@@ -142,7 +144,7 @@
 
   /* Payment choice of the wizard: credit when it covers the order, bank transfer (proforma), card (gateway). */
   function payOptions(cmp, md, orderSize) {
-    var _ = tr(cmp), c = credit(cmp), gross = orderSize && orderSize[2] ? orderSize[2] * 1.21 : 0, enough = gross > 0 ? c >= gross : c > 0;
+    var _ = tr(cmp), c = credit(cmp), gross = orderSize && orderSize[2] ? orderSize[2] * (1 + vatRate()) : 0, enough = gross > 0 ? c >= gross : c > 0;
     return [
       ['wallet', _('Z kreditu', 'From credit'), enough ? _('zůstatek ', 'balance ') + money(cmp, c) + _(' · služba se spustí ihned', ' · the service starts at once') : _('zůstatek ', 'balance ') + money(cmp, c) + _(' nestačí — nejdřív dobijte', ' is not enough — top up first')],
       ['bank', _('Bankovní převod', 'Bank transfer'), _('zálohová faktura s variabilním symbolem · spustíme po připsání platby', 'proforma with a payment reference · starts once the money arrives')],
@@ -150,7 +152,7 @@
     ];
   }
   function payLabel(cmp, md, orderSize) {
-    var _ = tr(cmp), p = (md && md.pay) || '', c = credit(cmp), gross = orderSize && orderSize[2] ? orderSize[2] * 1.21 : 0;
+    var _ = tr(cmp), p = (md && md.pay) || '', c = credit(cmp), gross = orderSize && orderSize[2] ? orderSize[2] * (1 + vatRate()) : 0;
     if (p === 'bank') return _('bankovním převodem (zálohová faktura)', 'bank transfer (proforma)');
     if (p === 'card') return _('platební kartou (brána)', 'card (payment gateway)');
     if (p === 'wallet' || (c > 0 && c >= gross)) return _('z kreditu · zůstatek ', 'from credit · balance ') + money(cmp, c);

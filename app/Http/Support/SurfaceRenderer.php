@@ -191,10 +191,13 @@ final class SurfaceRenderer
             }
         }
         if ($surface === 'panel' && ($boot['user'] ?? null) !== null) {
-            $inject .= "\n".'<script src="/surfaces/onhost-panel.js?t='.time().'"></script>';
+            // TASK-0070: the data script of the organization the page was rendered for (the switcher's choice), so the page, its data
+            // and its X-Organization never disagree; the server still serves a current membership only
+            $organization = $boot['user']['organization']['id'] ?? null;
+            $inject .= "\n".'<script src="/surfaces/onhost-panel.js?t='.time().(is_string($organization) && $organization !== '' ? '&amp;organization='.rawurlencode($organization) : '').'"></script>';
         }
 
-        $html = str_replace(self::BOOT, $inject, $template);
+        $html = self::withLanguage(str_replace(self::BOOT, $inject, $template), $surface, $demo ? null : (is_string($boot['locale'] ?? null) ? $boot['locale'] : null));
         if (in_array($surface, ['panel', 'admin'], true) && ! $demo && ($boot['user'] ?? null) !== null) {
             $html = $this->identity($html, $boot['user'], $surface);
         }
@@ -513,6 +516,50 @@ HTML;
         return self::swap($anchors[$surface][0], $anchors[$surface][1], $html);
     }
 
+    /**
+     * TASK-0070 (audit 2026-10 P3, a11y): the panel and the staff console start in the person's language (ONHOST.locale — the
+     * panel's own "Jazyk panelu" setting saved it, and a reload used to fall back to Czech), and every language switch keeps
+     * `<html lang>` in step, so a screen reader reads the page in the language it is written in.
+     */
+    private static function languageSeams(string $html, string $surface): string
+    {
+        $initial = "(window.ONHOST && window.ONHOST.locale === 'en' ? 'en' : 'cs')";
+        $sync = 'try { document.documentElement.lang = %s; } catch (x) {} ';
+        if ($surface === 'panel' || $surface === 'admin') {
+            $html = self::swap(
+                ["lang: 'cs', ".($surface === 'panel' ? 'simple: false' : 'dark: false').', ', "      toggleLang: () => this.setState(st => ({ lang: st.lang === 'cs' ? 'en' : 'cs' })),"],
+                ["lang: {$initial}, ".($surface === 'panel' ? 'simple: false' : 'dark: false').', ', "      toggleLang: () => this.setState(st => { const lang = st.lang === 'cs' ? 'en' : 'cs'; ".sprintf($sync, 'lang').'return { lang }; }),'],
+                $html,
+            );
+        }
+        if ($surface === 'public') {
+            $html = self::swap(
+                "      setCs: () => this.setState({ lang: 'cs' }, this.runSearch), setEn: () => this.setState({ lang: 'en' }, this.runSearch),",
+                '      setCs: () => { '.sprintf($sync, "'cs'")."this.setState({ lang: 'cs' }, this.runSearch); }, setEn: () => { ".sprintf($sync, "'en'")."this.setState({ lang: 'en' }, this.runSearch); },",
+                $html,
+            );
+        }
+
+        return $html;
+    }
+
+    /**
+     * TASK-0070: per request (the transform is cached for everyone) — `<html lang>` is the language the surface starts in: the
+     * person's locale on the panel and the staff console, Czech elsewhere (the public site, the partner portal and the concepts start in
+     * Czech whoever looks); and one keyboard-focus outline for every control the prototype gave none (`:where()` weighs nothing,
+     * so every focus style of the design still wins).
+     */
+    public static function withLanguage(string $html, string $surface, ?string $locale): string
+    {
+        $lang = in_array($surface, ['panel', 'admin'], true) && $locale === 'en' ? 'en' : 'cs';
+        $html = (string) preg_replace('~<html(?![^>]*\blang=)~', '<html lang="'.$lang.'"', $html, 1);
+
+        return (string) preg_replace('~</head>~', self::FOCUS_STYLE."\n</head>", $html, 1);
+    }
+
+    /** The keyboard focus ring every interactive element gets when the design gave it none (WCAG 2.4.7). */
+    private const FOCUS_STYLE = '<style id="onhost-focus-visible">:where(a[href], button, [role="button"], [role="tab"], [role="link"], [tabindex]:not([tabindex="-1"]), summary, select, input[type="checkbox"], input[type="radio"]):focus-visible { outline: 2px solid var(--acc, #ec3013); outline-offset: 2px; }</style>';
+
     private function identity(string $html, array $user, string $surface): string
     {
         $name = htmlspecialchars((string) ($user['name'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
@@ -613,6 +660,7 @@ HTML;
         //     ends the server session and returns to the public site
         if (! $demo) {
             $html = self::signOutSeams($html, $surface);
+            $html = self::languageSeams($html, $surface); // TASK-0070: the surface starts in the person's language and <html lang> follows it
         }
 
         // 4e. panel and staff console: amounts keep their haléře (3 363,80 Kč), and the web-order banner tells the truth

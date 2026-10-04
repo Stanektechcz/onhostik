@@ -580,4 +580,70 @@
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', patchShell); else setTimeout(patchShell, 0);
   window.addEventListener('load', patchShell);
+
+  /* 6. shared wording helpers for every API module (TASK-0070, audit P3): Czech has three plural forms — 1 služba, 2–4 služby,
+   *    5 služeb (a decimal takes the second: 1,5 služby); English two. forms: [one, few, many] in Czech, [one, other] in English
+   *    (a single English pair may also be given as the last two items). The language is the page's (<html lang>) unless given. */
+  window.OnhostI18n = window.OnhostI18n || (function () {
+    function isEn(lang) { return String(lang || document.documentElement.lang || 'cs').indexOf('en') === 0; }
+    function plural(n, forms, lang) {
+      var x = Math.abs(Number(n) || 0), f = forms || [];
+      if (isEn(lang)) return x === 1 ? f[0] : f[f.length - 1];
+      if (x === 1) return f[0];
+      if (Math.floor(x) !== x || (x >= 2 && x <= 4)) return f[1] !== undefined ? f[1] : f[f.length - 1];
+      return f[2] !== undefined ? f[2] : f[f.length - 1];
+    }
+    return { plural: plural, count: function (n, forms, lang) { return n + ' ' + plural(n, forms, lang); }, en: isEn };
+  })();
+
+  /* 7. the organization this browser works in (TASK-0070): a person in several organizations picks one; the server keeps the choice in
+   *    the session (PUT /v1/me/organization — only an organization the person is a current member of) and the page reloads, so the
+   *    boot object, the panel's data script and every X-Organization name the chosen one. */
+  window.OnhostOrganizations = window.OnhostOrganizations || (function () {
+    function list() { return (B.user && Array.isArray(B.user.organizations)) ? B.user.organizations : []; }
+    function current() { return (B.user && B.user.organization) || null; }
+    function switchTo(id) {
+      if (!id || (current() && current().id === id)) return Promise.resolve(false);
+      return window.OnhostApi.put('/me/organization', { organization_id: id }).then(function () { location.reload(); return true; });
+    }
+    function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+    var open = null;
+    function dialog() {
+      if (open) return open;
+      var cs = !window.OnhostI18n.en(), orgs = list(), cur = current();
+      open = new Promise(function (resolve) {
+        var wrap = document.createElement('div');
+        wrap.setAttribute('role', 'dialog'); wrap.setAttribute('aria-modal', 'true'); wrap.setAttribute('aria-labelledby', 'onhost-org-title');
+        wrap.style.cssText = 'position:fixed;inset:0;z-index:130;display:flex;align-items:center;justify-content:center;background:rgba(20,18,17,.55);font-family:inherit';
+        var btn = 'font:inherit;font-size:13.5px;padding:9px 14px;border-radius:8px;cursor:pointer;';
+        wrap.innerHTML = '<form style="background:var(--bg,#fff);color:var(--fg,#201e1d);width:min(440px,calc(100vw - 32px));max-height:calc(100vh - 48px);overflow:auto;padding:24px;border:1px solid color-mix(in srgb,var(--fg,#201e1d) 15%,transparent);border-radius:12px;box-shadow:0 24px 60px rgba(0,0,0,.28);display:flex;flex-direction:column;gap:12px">'
+          + '<div id="onhost-org-title" style="font-weight:700;font-size:17px">' + (cs ? 'Přepnout organizaci' : 'Switch organization') + '</div>'
+          + '<div style="font-size:13.5px;line-height:1.5;opacity:.85">' + (cs ? 'Panel pak ukáže služby, doklady a tým vybrané organizace.' : 'The panel then shows the services, documents and team of the chosen organization.') + '</div>'
+          + '<fieldset style="border:0;padding:0;margin:0;display:flex;flex-direction:column;gap:6px"><legend style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">' + (cs ? 'Organizace' : 'Organizations') + '</legend>'
+          + orgs.map(function (o) { return '<label style="display:flex;gap:10px;align-items:center;padding:9px 10px;border:1px solid color-mix(in srgb,var(--fg,#201e1d) 15%,transparent);border-radius:8px;cursor:pointer;font-size:14px"><input type="radio" name="org" value="' + esc(o.id) + '"' + (cur && cur.id === o.id ? ' checked' : '') + '><span>' + esc(o.name) + '</span></label>'; }).join('')
+          + '</fieldset>'
+          + '<div data-err role="alert" style="display:none;color:#8f1c0a;font-size:13px"></div>'
+          + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px">'
+          + '<button type="button" data-cancel style="' + btn + 'border:1px solid color-mix(in srgb,var(--fg,#201e1d) 30%,transparent);background:transparent;color:inherit">' + (cs ? 'Zrušit' : 'Cancel') + '</button>'
+          + '<button type="submit" style="' + btn + 'font-weight:600;border:1px solid var(--acc,#ec3013);background:var(--acc,#ec3013);color:#fff">' + (cs ? 'Přepnout' : 'Switch') + '</button>'
+          + '</div></form>';
+        document.body.appendChild(wrap);
+        var form = wrap.querySelector('form'), err = wrap.querySelector('[data-err]'), submit = wrap.querySelector('[type=submit]');
+        function close(v) { wrap.remove(); document.removeEventListener('keydown', onKey, true); open = null; resolve(v); }
+        function onKey(ev) { if (ev.key === 'Escape') { ev.stopPropagation(); close(false); } }
+        document.addEventListener('keydown', onKey, true);
+        wrap.querySelector('[data-cancel]').addEventListener('click', function () { close(false); });
+        form.addEventListener('submit', function (ev) {
+          ev.preventDefault(); ev.stopPropagation();
+          var pick = form.querySelector('input[name=org]:checked');
+          if (!pick || (cur && pick.value === cur.id)) { close(false); return; }
+          submit.disabled = true;
+          switchTo(pick.value).then(function () { close(true); }).catch(function (e) { submit.disabled = false; err.style.display = 'block'; err.textContent = (e && e.message) || 'Error'; });
+        });
+        setTimeout(function () { var first = form.querySelector('input[name=org]:checked') || form.querySelector('input[name=org]'); if (first) first.focus(); }, 30);
+      });
+      return open;
+    }
+    return { list: list, current: current, switchTo: switchTo, dialog: dialog };
+  })();
 })();
