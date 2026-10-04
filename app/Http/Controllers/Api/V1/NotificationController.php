@@ -30,8 +30,10 @@ final class NotificationController extends ApiController
         // staff without an organization context read the internal inbox; customers (and staff impersonating) the customer feed
         $audience = (string) $request->query('audience', $user->is_staff && ! $request->hasHeader('X-Organization') && ! $request->filled('organization') ? 'internal' : 'customer');
         if ($audience === 'internal') {
-            $this->api->authorize($request, 'staff.customer.read', CommandScope::global());
             $query = Notification::query()->where('audience', 'internal');
+            if (! $this->wholeInternalInbox($request)) {
+                $query->where('user_id', $user->id); // staff.inbox.read: only what is addressed to the reader
+            }
         } else {
             $organization = $this->api->organization($request);
             $query = Notification::query()->where('audience', 'customer')->where(fn ($q) => $q->where('organization_id', $organization->id)->orWhere('user_id', $user->id));
@@ -49,11 +51,31 @@ final class NotificationController extends ApiController
         $audience = $data['audience'] ?? 'customer';
         $user = $this->api->user($request);
         $organization = $audience === 'customer' ? $this->api->organization($request) : null;
-        if ($audience === 'internal') {
-            $this->api->authorize($request, 'staff.customer.read', CommandScope::global());
+        $ids = $data['ids'];
+        if ($audience === 'internal' && ! $this->wholeInternalInbox($request)) {
+            // staff.inbox.read marks only the reader's own rows, never the shared internal inbox of everybody else
+            $ids = Notification::query()->where('audience', 'internal')->where('user_id', $user->id)->whereIn('id', $ids)->pluck('id')->map(fn ($id) => (string) $id)->all();
         }
 
-        return response()->json(['data' => ['read' => $notifications->markRead($audience, $data['ids'], $organization?->id, $user->id)]]);
+        return response()->json(['data' => ['read' => $ids === [] ? 0 : $notifications->markRead($audience, $ids, $organization?->id, $user->id)]]);
+    }
+
+    /**
+     * Who reads the internal (staff) inbox, and how much of it. `staff.customer.read` reads all of it — it names customers and
+     * their organizations. TASK-0067: `staff.inbox.read` (the content team, who hold no customer view) reads only the
+     * notifications addressed to them. Neither: 403, asking for the customer view as before.
+     */
+    private function wholeInternalInbox(Request $request): bool
+    {
+        if ($this->api->can($request, 'staff.customer.read', CommandScope::global())) {
+            return true;
+        }
+        if ($this->api->can($request, 'staff.inbox.read', CommandScope::global())) {
+            return false;
+        }
+        $this->api->authorize($request, 'staff.customer.read', CommandScope::global()); // throws: the answer names the key it always named
+
+        return true;
     }
 
     public function preferences(Request $request): JsonResponse

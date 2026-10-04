@@ -8,7 +8,6 @@ use Carbon\CarbonImmutable;
 use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Cache;
 
 /**
  * Web sessions end with access whatever stores them (TASK-0044, D20 / S1-08).
@@ -19,6 +18,10 @@ use Illuminate\Support\Facades\Cache;
  * it signed in (Login, `onhost_signed_in_at`); one that does not know (opened before this release) counts as older than any mark.
  * The "remember me" cookie is ended separately (SessionKill rotates the remember token), so a new sign-in is a real one.
  * API tokens never pass through the web guard; they are revoked on their own (ApiAccessRevocation).
+ *
+ * TASK-0067 (PR #53 review): the mark was a cache entry only — a flush or an eviction revived every session it had ended. It is a
+ * row of `session_ends` now (SessionEnds), the cache a copy; every sign-in path of the portal goes through the web guard's login()
+ * (password, MFA, password reset, registration, guest checkout, the local dev link), which fires Login and stamps the session.
  */
 final class WebSessionGate
 {
@@ -27,8 +30,7 @@ final class WebSessionGate
     /** Every web session of `$userId` signed in until now ends on its next request. */
     public static function endAll(string $userId): void
     {
-        $minutes = max(60 * 24, (int) config('session.lifetime', 120)); // as long as a session may live, at least a day
-        Cache::put(self::key($userId), now()->toIso8601String(), now()->addMinutes($minutes));
+        app(SessionEnds::class)->mark($userId, SessionEnds::WEB); // in the database: a cache flush must not revive what this ended
     }
 
     public function signedIn(Login $event): void
@@ -43,20 +45,15 @@ final class WebSessionGate
         if ($event->guard !== 'web' || ! request()->hasSession()) {
             return;
         }
-        $ended = Cache::get(self::key((string) $event->user->getAuthIdentifier()));
-        if (! is_string($ended) || $ended === '') {
+        $ended = app(SessionEnds::class)->endedAt((string) $event->user->getAuthIdentifier(), SessionEnds::WEB);
+        if ($ended === null) {
             return;
         }
         $signedIn = request()->session()->get(self::SESSION_KEY);
-        if (is_string($signedIn) && $signedIn !== '' && CarbonImmutable::parse($signedIn)->isAfter(CarbonImmutable::parse($ended))) {
+        if (is_string($signedIn) && $signedIn !== '' && CarbonImmutable::parse($signedIn)->isAfter($ended)) {
             return;
         }
         Auth::guard('web')->logout();
         request()->session()->invalidate();
-    }
-
-    private static function key(string $userId): string
-    {
-        return "onhost:web-sessions:ended:{$userId}";
     }
 }

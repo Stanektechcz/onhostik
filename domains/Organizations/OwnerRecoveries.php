@@ -187,7 +187,8 @@ final class OwnerRecoveries
         $recovery = self::pending($organization) ?? throw new DomainError('owner_recovery_not_pending', 'No owner recovery is under way in this organization.', 409);
         $by = $context->actorType === 'system' ? null : (string) ($context->onBehalfOfUserId ?? $context->actorId);
         $reason = trim((string) $reason);
-        if ($context->actorType === 'user' && $by === $recovery->owner_user_id) {
+        $byOwner = $context->actorType === 'user' && $by === $recovery->owner_user_id;
+        if ($byOwner) {
             if ($recovery->mode === 'transfer') {
                 return $this->contest($organization, $recovery, (string) $by, $context);
             }
@@ -195,7 +196,9 @@ final class OwnerRecoveries
             throw new DomainError('owner_recovery_cancel_reason', 'Say why the recovery is stopped (at least 10 characters); the organization and support read it.', 422, ['field' => 'reason']);
         }
         $this->close($organization, $recovery, $by, $reason === '' ? null : mb_substr($reason, 0, 1000), $context);
-        $this->alertOnRepeats($organization);
+        // TASK-0067 (PR #53 review, LOW): the owner ending an MFA reset of their own account is either the owner who was never lost —
+        // or whoever holds the account keeping it. Staff hear of it at the first stop, not at the second
+        $this->alertOnRepeats($organization, firstStopAlerts: $byOwner);
 
         return $recovery->refresh();
     }
@@ -441,13 +444,13 @@ final class OwnerRecoveries
      * TASK-0044: the second stop of an owner recovery in one organization within the window (cancelled, or objected to by the
      * person recovered) tells staff at once — whoever is stopping every attempt may be the one holding the account.
      */
-    private function alertOnRepeats(Organization $organization): void
+    private function alertOnRepeats(Organization $organization, bool $firstStopAlerts = false): void
     {
         $days = max(1, (int) config('onhost.grants.owner_recovery_cancel_window_days', 30));
         $since = now()->subDays($days);
         $stopped = OwnerRecovery::query()->where('organization_id', $organization->id)
             ->where(fn ($q) => $q->where('cancelled_at', '>=', $since)->orWhere('contested_at', '>=', $since))->count();
-        if ($stopped >= max(2, (int) config('onhost.grants.owner_recovery_cancel_alert', 2))) {
+        if ($stopped >= ($firstStopAlerts ? 1 : max(2, (int) config('onhost.grants.owner_recovery_cancel_alert', 2)))) {
             $this->outbox->publish(GenericEvent::of('organization.owner_recovery.cancels_repeated', 'organization', $organization->id, ['count' => $stopped, 'window_days' => $days], $organization->id));
         }
     }
