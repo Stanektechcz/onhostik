@@ -8,7 +8,7 @@
 (function () {
   'use strict';
   if (window.OnhostPanelPages) return;
-  var S = { busy: {} };
+  var S = { busy: {}, err: {} };
 
   function A() { return window.OnhostApi; }
   function me() { return (window.ONHOST && window.ONHOST.user) || null; }
@@ -17,12 +17,33 @@
   function rerender(cmp) { try { cmp.setState({ pagesAt: Date.now() }); } catch (e) {} }
   function flash(cmp, t, b) { if (cmp && typeof cmp.flash === 'function') cmp.flash(t, b); }
   function fail(cmp, _, e) { flash(cmp, _('Nepodařilo se', 'Failed'), (e && e.message) || _('Zkuste to prosím znovu.', 'Please try again.')); }
+  /* A read that failed is said and kept in S.err[key]: the view shows it first, with a retry. It used to become an empty list,
+     so "the backups did not load" looked exactly like "you have no backups". A failed read is not retried by every render. */
   function load(cmp, key, path, map) {
     if (S[key] !== undefined || S.busy[key] || !A()) return;
     S.busy[key] = true;
-    A().get(path).then(function (r) { S[key] = map ? map(r) : r; }).catch(function () { S[key] = map ? map({ data: [] }) : { data: [] }; }).then(function () { delete S.busy[key]; rerender(cmp); });
+    A().get(path).then(function (r) { S[key] = map ? map(r) : r; }).catch(function (e) { S[key] = map ? map({ data: [] }) : { data: [] }; lost(cmp, key, e); }).then(function () { delete S.busy[key]; rerender(cmp); });
   }
-  function reload(cmp, keys) { keys.forEach(function (k) { delete S[k]; }); rerender(cmp); }
+  function lost(cmp, key, e) {
+    S.err = S.err || {};
+    S.err[key] = (e && e.message) || 'error';
+    flash(cmp, isCs(cmp) ? 'Načtení se nepodařilo' : 'Loading failed', S.err[key]);
+  }
+  function reload(cmp, keys) { keys.forEach(function (k) { delete S[k]; if (S.err) delete S.err[k]; }); rerender(cmp); }
+  /* the failed reads of a view become its first row (every page here is a table of five columns) */
+  function guarded(view, keys, what) {
+    return function (cmp, _, H) {
+      var out = view(cmp, _, H);
+      var bad = keys.filter(function (k) { return S.err && S.err[k]; });
+      if (bad.length && out && Array.isArray(out.rows)) {
+        out.rows = [{ name: _(what[0], what[1]), sub: bad.map(function (k) { return S.err[k]; }).filter(function (m, i, a) { return a.indexOf(m) === i; }).join(' · '), c2: '', state: _('chyba', 'error'), stateStyle: H.pill('warn'), barStyle: H.bar(100, 'warn'), metric: '—', rowStyle: H.rowStyle, action: _('Zkusit znovu', 'Try again'), actionCls: 'btn btn-secondary', onAction: function () { reload(cmp, bad); } }].concat(out.rows);
+      }
+      return out;
+    };
+  }
+  /* Czech plural: 1 den, 2–4 dny, 0 and 5+ dní */
+  function plural(cs, n, cs3, en2) { n = Math.abs(Number(n) || 0); if (!cs) return n + ' ' + (n === 1 ? en2[0] : en2[1]); return n + ' ' + (n === 1 ? cs3[0] : (n >= 2 && n <= 4 ? cs3[1] : cs3[2])); }
+  var DAYS = [['den', 'dny', 'dní'], ['day', 'days']], SERVICES = [['služba', 'služby', 'služeb'], ['service', 'services']];
   function when(iso, cs) { if (!iso) return '—'; var d = new Date(iso); return d.toLocaleDateString(cs ? 'cs-CZ' : 'en-GB') + ' ' + d.toLocaleTimeString(cs ? 'cs-CZ' : 'en-GB', { hour: '2-digit', minute: '2-digit' }); }
   function day(iso, cs) { if (!iso) return '—'; return new Date(iso).toLocaleDateString(cs ? 'cs-CZ' : 'en-GB'); }
   function money(m, cs) { if (m == null) return '—'; var n = typeof m === 'number' ? m : Number(m.decimal != null ? m.decimal : (m.minor || 0) / 100); return n.toLocaleString(cs ? 'cs-CZ' : 'en-GB', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' ' + ((m && m.currency) || ''); }
@@ -120,7 +141,7 @@
     load(cmp, 'subs', '/subscriptions?limit=60');
     if (orgId()) load(cmp, 'projects', '/organizations/' + encodeURIComponent(orgId()) + '/projects');
     var w = (S.wallet && S.wallet.data) || {}, f = w.forecast || {}, subs = (S.subs && S.subs.data) || [], projects = (S.projects && S.projects.data) || [], spend = (S.projects && S.projects.spend) || {};
-    var runway = f.days == null ? _('víc než 120 dní', 'more than 120 days') : f.days + _(' dní', ' days');
+    var runway = f.days == null ? _('víc než 120 dní', 'more than 120 days') : plural(cs, f.days, DAYS[0], DAYS[1]);
     return {
       crumb: _('Účet', 'Account'), title: _('Náklady a předpověď', 'Costs and forecast'),
       stats: [
@@ -142,12 +163,12 @@
       filters: [], readOnly: true,
       side: {
         title: _('Útrata podle projektů', 'Spend by project'),
-        rows: projects.map(function (p) { return { title: p.name, meta: String(p.services || 0) + _(' služeb · ', ' services · ') + (p.share || 0) + ' %', value: money(p.monthly, cs), kind: p.state === 'archived' ? 'off' : 'ok', on: function () { cmp.setState({ tab: 'projects', projSel: p.id, query: '' }); } }; })
-          .concat(spend.unassigned ? [{ title: _('Nezařazeno', 'Unassigned'), meta: String(spend.unassigned.services || 0) + _(' služeb', ' services'), value: money(spend.unassigned.monthly, cs), kind: spend.unassigned.services ? 'warn' : 'off' }] : [])
+        rows: projects.map(function (p) { return { title: p.name, meta: plural(cs, p.services || 0, SERVICES[0], SERVICES[1]) + ' · ' + (p.share || 0) + ' %', value: money(p.monthly, cs), kind: p.state === 'archived' ? 'off' : 'ok', on: function () { cmp.setState({ tab: 'projects', projSel: p.id, query: '' }); } }; })
+          .concat(spend.unassigned ? [{ title: _('Nezařazeno', 'Unassigned'), meta: plural(cs, spend.unassigned.services || 0, SERVICES[0], SERVICES[1]), value: money(spend.unassigned.monthly, cs), kind: spend.unassigned.services ? 'warn' : 'off' }] : [])
           .concat([{ title: _('Dobít kredit', 'Top up credit'), meta: _('převodem nebo kartou · z kreditu se obnovy platí ihned', 'by transfer or card · renewals draw on credit at once'), value: '→', kind: 'ok', on: function () { if (window.OnhostPanelOverview && window.OnhostPanelOverview.topUp) window.OnhostPanelOverview.topUp(cmp); else cmp.setState({ tab: 'billing' }); } }])
       },
       advice: f.days != null && f.days <= 14 ? {
-        title: _('Kredit dojde za ', 'The credit runs out in ') + f.days + _(' dní', ' days'), lead: _('Podle nadcházejících obnov kredit nepokryje další období. Dobijte ho, nebo zapněte automatické dobíjení, ať služby běží bez přerušení.', 'The upcoming renewals outrun the credit. Top it up or turn on automatic top-up so the services keep running.'),
+        title: _('Kredit dojde za ', 'The credit runs out in ') + plural(cs, f.days, DAYS[0], DAYS[1]), lead: _('Podle nadcházejících obnov kredit nepokryje další období. Dobijte ho, nebo zapněte automatické dobíjení, ať služby běží bez přerušení.', 'The upcoming renewals outrun the credit. Top it up or turn on automatic top-up so the services keep running.'),
         cta: _('Dobít kredit', 'Top up credit'), on: function () { if (window.OnhostPanelOverview && window.OnhostPanelOverview.topUp) window.OnhostPanelOverview.topUp(cmp); else cmp.setState({ tab: 'billing' }); }
       } : {
         title: _('Předpověď počítá s DPH', 'The forecast includes VAT'), lead: _('Obnovy se počítají hrubě podle vašich daňových údajů; roční plány v plné výši v měsíci obnovy. Když se kredit blíží konci, dáme vědět 14 dní předem e-mailem i tady.', 'Renewals are computed gross from your tax profile; yearly plans in full in the month they renew. When the credit nears its end you hear 14 days ahead, by e-mail and here.'),
@@ -259,22 +280,23 @@
   }
   function restoreArchive(cmp, _, a, cs) {
     return function () {
-      load(cmp, 'services', '/services?limit=200');
-      var services = (S.services && S.services.data) || [];
-      var targets = services.filter(function (x) { return x.family === a.family && (x.state === 'ACTIVE' || x.state === 'DEGRADED'); });
-      if (!targets.length) { flash(cmp, _('Není kam obnovit', 'Nothing to restore into'), _('Objednejte si novou službu stejného typu — obnova do ní je zdarma.', 'Order a new service of the same kind — restoring into it is free.')); return; }
-      var target = targets[0];
-      if (targets.length > 1) {
-        var menu = targets.map(function (x, i) { return (i + 1) + ') ' + (x.label || x.name); }).join('\n');
-        var pick = window.prompt(_('Do které služby archiv obnovit? Zadejte číslo:\n', 'Which service should the archive go into? Enter the number:\n') + menu, '1');
-        var idx = Number(pick) - 1;
-        if (!pick || !(idx >= 0 && idx < targets.length)) return;
-        target = targets[idx];
-      }
-      if (!window.confirm(_('Obnova přepíše soubory a databáze služby ', 'The restore overwrites the files and databases of ') + (target.label || target.name) + _('. Je zdarma. Pokračovat?', '. It is free. Continue?'))) return;
-      A().post('/services/archives/' + encodeURIComponent(a.id) + '/restore', { service_id: target.id }, A().key())
-        .then(function () { flash(cmp, _('Obnova běží', 'The restore is running'), _('Sledujte ji v operacích služby.', 'Follow it in the service operations.')); reload(cmp, ['archives']); })
-        .catch(function (e) { fail(cmp, _, e); });
+      // the first click used to see a list that had not arrived yet and said "nothing to restore into": the services are read now, all of them
+      A().all('/services').then(function (r) {
+        var targets = (r.data || []).filter(function (x) { return x.family === a.family && (x.state === 'ACTIVE' || x.state === 'DEGRADED'); });
+        if (!targets.length) { flash(cmp, _('Není kam obnovit', 'Nothing to restore into'), _('Objednejte si novou službu stejného typu — obnova do ní je zdarma.', 'Order a new service of the same kind — restoring into it is free.')); return; }
+        var target = targets[0];
+        if (targets.length > 1) {
+          var menu = targets.map(function (x, i) { return (i + 1) + ') ' + (x.label || x.name); }).join('\n');
+          var pick = window.prompt(_('Do které služby archiv obnovit? Zadejte číslo:\n', 'Which service should the archive go into? Enter the number:\n') + menu, '1');
+          var idx = Number(pick) - 1;
+          if (!pick || !(idx >= 0 && idx < targets.length)) return;
+          target = targets[idx];
+        }
+        if (!window.confirm(_('Obnova přepíše soubory a databáze služby ', 'The restore overwrites the files and databases of ') + (target.label || target.name) + _('. Je zdarma. Pokračovat?', '. It is free. Continue?'))) return;
+        var body = { service_id: target.id };
+        return A().post('/services/archives/' + encodeURIComponent(a.id) + '/restore', body, A().key('archive.restore:' + a.id, body))
+          .then(function () { flash(cmp, _('Obnova běží', 'The restore is running'), _('Sledujte ji v operacích služby.', 'Follow it in the service operations.')); reload(cmp, ['archives']); });
+      }).catch(function (e) { fail(cmp, _, e); });
     };
   }
   /* ── backups ──────────────────────────────────────────────────────────── */
@@ -297,7 +319,7 @@
         H.stat(_('Služeb se zálohou', 'Services with a backup'), String(latest.length), '', 9, Math.min(100, latest.length * 20), 10, 'ok'),
         H.stat(_('Objem', 'Volume'), bytes(size), _('offsite, šifrované', 'off-site, encrypted'), 13, 60, 8, 'ok'),
         H.stat(_('Poslední', 'Latest'), rows[0] ? when(rows[0].finished_at || rows[0].started_at, cs) : '—', rows[0] && rows[0].service ? rows[0].service.label : '', 17, rows[0] ? 90 : 5, 8, 'ok'),
-        H.stat(_('Archivy zrušených služeb', 'Archives of cancelled services'), String(archives.length), _('držíme ', 'kept for ') + (policy.retention_days || 60) + _(' dní od zrušení', ' days after removal'), 21, Math.min(100, archives.length * 25), 9, archives.length ? 'warn' : 'ok')
+        H.stat(_('Archivy zrušených služeb', 'Archives of cancelled services'), String(archives.length), _('držíme ', 'kept for ') + plural(cs, policy.retention_days || 60, DAYS[0], DAYS[1]) + _(' od zrušení', ' after removal'), 21, Math.min(100, archives.length * 25), 9, archives.length ? 'warn' : 'ok')
       ],
       tableTitle: _('Poslední zálohy', 'Latest backups'), tableNote: _('obnovu a stažení najdete v nástrojích služby', 'restore and download live in the service tools'),
       cols: [_('Služba', 'Service'), _('Druh', 'Kind'), _('Stav', 'State'), _('Dokončeno', 'Finished'), ''],
@@ -309,7 +331,7 @@
           action: _('Otevřít službu', 'Open service'), actionCls: 'btn btn-secondary', onAction: openService(cmp, b.service_id)
         };
       }).concat(archives.filter(function (a) { return H.match(a.service) || H.match(a.label) || H.match('archiv'); }).map(function (a) {
-        var left = a.days_left == null ? '' : (a.days_left + _(' dní do smazání', ' days until deletion'));
+        var left = a.days_left == null ? '' : (plural(cs, a.days_left, DAYS[0], DAYS[1]) + _(' do smazání', ' until deletion'));
         return {
           name: (a.label || a.service || a.service_id) + _(' · archiv zrušené služby', ' · archive of a cancelled service'),
           sub: bytes(a.size_bytes) + ' · ' + (a.parts || []).join(', ') + (a.gaps && a.gaps.length ? ' · ' + a.gaps.join(' · ') : ''),
@@ -320,10 +342,18 @@
         };
       })),
       filters: [], readOnly: true,
-      side: { title: archives.length ? _('Archivy zrušených služeb', 'Archives of cancelled services') : _('Poslední záloha každé služby', 'Every service\'s latest backup'), rows: archives.map(function (a) { return { title: (a.label || a.service || a.service_id), meta: _('obnova do nové placené služby zdarma · ', 'restoring into a new paid service is free · ') + (a.days_left == null ? '' : a.days_left + _(' dní', ' days')), value: _('Obnovit', 'Restore'), kind: 'warn', on: restoreArchive(cmp, _, a, cs) }; }).concat(latest.length ? latest.map(function (b) { return { title: (b.service && b.service.label) || b.service_id, meta: when(b.finished_at || b.started_at, cs) + ' · ' + bytes(b.size_bytes), value: b.state, kind: (b.state === 'completed' || b.state === 'ok') ? 'ok' : 'warn', on: openService(cmp, b.service_id) }; }) : (archives.length ? [] : [{ title: _('Zatím žádná záloha', 'No backup yet'), meta: _('automatické zálohy běží každou noc; ruční zálohu spustíte v nástrojích služby', 'automatic backups run every night; start a manual one in the service tools'), value: '', kind: 'off' }])) },
+      side: { title: archives.length ? _('Archivy zrušených služeb', 'Archives of cancelled services') : _('Poslední záloha každé služby', 'Every service\'s latest backup'), rows: archives.map(function (a) { return { title: (a.label || a.service || a.service_id), meta: _('obnova do nové placené služby zdarma · ', 'restoring into a new paid service is free · ') + (a.days_left == null ? '' : plural(cs, a.days_left, DAYS[0], DAYS[1])), value: _('Obnovit', 'Restore'), kind: 'warn', on: restoreArchive(cmp, _, a, cs) }; }).concat(latest.length ? latest.map(function (b) { return { title: (b.service && b.service.label) || b.service_id, meta: when(b.finished_at || b.started_at, cs) + ' · ' + bytes(b.size_bytes), value: b.state, kind: (b.state === 'completed' || b.state === 'ok') ? 'ok' : 'warn', on: openService(cmp, b.service_id) }; }) : (archives.length ? [] : [{ title: _('Zatím žádná záloha', 'No backup yet'), meta: _('automatické zálohy běží každou noc; ruční zálohu spustíte v nástrojích služby', 'automatic backups run every night; start a manual one in the service tools'), value: '', kind: 'off' }])) },
       advice: { title: _('Záloha, kterou jsme neobnovili, není záloha', 'A backup we never restored is not a backup'), lead: _('Zálohy ověřujeme obnovou na zkoušku a výsledek vidíte u každé z nich. Obnovu spustíte sami v nástrojích služby — do původního místa nebo vedle něj.', 'Backups are verified by a trial restore and the result shows on each. Restore yourself in the service tools — in place or next to it.'), cta: '', on: function () {} }
     };
   }
 
-  window.OnhostPanelPages = { audit: audit, windows: windows, costs: costs, privacy: privacy, monitoring: monitoring, backups: backups, reload: function (cmp) { S = { busy: {} }; rerender(cmp); } };
+  /* every view says a failed read first (guarded) */
+  audit = guarded(audit, ['audit', 'notifs', 'unread'], ['Audit a oznámení se nepodařilo načíst', 'The audit and notifications did not load']);
+  windows = guarded(windows, ['calendar', 'status'], ['Kalendář údržeb se nepodařilo načíst', 'The maintenance calendar did not load']);
+  costs = guarded(costs, ['wallet', 'subs', 'projects'], ['Náklady se nepodařilo načíst', 'The costs did not load']);
+  privacy = guarded(privacy, ['requests'], ['Žádosti o údaje se nepodařilo načíst', 'The data requests did not load']);
+  monitoring = guarded(monitoring, ['monitors'], ['Monitoring se nepodařilo načíst', 'Monitoring did not load']);
+  backups = guarded(backups, ['backups', 'archives'], ['Zálohy se nepodařilo načíst', 'The backups did not load']);
+
+  window.OnhostPanelPages = { audit: audit, windows: windows, costs: costs, privacy: privacy, monitoring: monitoring, backups: backups, reload: function (cmp) { S = { busy: {}, err: {} }; rerender(cmp); } };
 })();
