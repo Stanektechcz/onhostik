@@ -155,3 +155,68 @@ Za běhu je potřeba ověřit:
 - schopnosti živých instancí (`mail.create`, `cron_api`);
 - vlastníka souboru `onhost-v1.yaml` na stagingu;
 - nesloučenou práci v TASK-0050.
+
+## Stav po fázi C (2026-10-04)
+
+Stav každého nálezu P0 a P1 po fázi C. „Hotovo“ znamená sloučeno do `development` s testy; „otevřeno“ znamená, že práce neproběhla, nebo čeká na rozhodnutí či zásah vlastníka. Čísla PR jsou z repozitáře `Stanektechcz/onhost-platform`.
+
+### P0
+
+| Nález | Stav | Task / PR | Poznámka |
+|---|---|---|---|
+| P0-1 | hotovo | TASK-0053 #42 | Payload panelu se skládá podle oprávnění role. |
+| P0-2 | hotovo | TASK-0060 #51 | Partnerská brána; ne-partner dostane přihlášku a vymyšlená data zmizela. |
+| P0-3 | hotovo | TASK-0068 #61 + TASK-0071 #63 | Terminál, Node projekty a cron na uzavřeném sdíleném aaPanel uzlu jsou vypnuté. Existující Node projekt jde stále zastavit nebo smazat (`node_projects_exit`); UI doplňuje TASK-0072. |
+| P0-4 | otevřeno | – | `backups.compute` se zapne až po kontrole PBS a se souhlasem vlastníka (R3). |
+| P0-5 | otevřeno | – | `staging.sh`, fáze E0. |
+| P0-6 | otevřeno | – | `staging.sh`, fáze E0. |
+
+### P1
+
+| Nález | Stav | Task / PR | Poznámka |
+|---|---|---|---|
+| P1-1 | hotovo | TASK-0052 #44 | Sidebar admina podle role. |
+| P1-2 | hotovo | TASK-0054 #43 | Přechody ticketu přijmou `to` i `state`. |
+| P1-3 | hotovo | TASK-0054 #43 | Zápisy ticketů přes CommandBus. |
+| P1-4 | hotovo | TASK-0052 #44 | Stránky nastavení s `authorize()`. |
+| P1-5 | hotovo | TASK-0063 #59 | Volání neexistující routy je opravené a hlídá ho kontraktní test frontend → routy. |
+| P1-6 | hotovo | TASK-0064 #60 (+ TASK-0070 #64, DPH) | Ceny z katalogu, kurzy z ČNB, DPH z pravidel. |
+| P1-7 | hotovo | TASK-0063 #59 | Stabilní Idempotency-Key pro každý záměr uživatele. |
+| P1-8 | hotovo | TASK-0064 #60 | Test kotev seamů (`SeamAnchorTest`). |
+| P1-9 | otevřeno | – | Fáze D (kontrakt OpenAPI). |
+| P1-10 | otevřeno | – | Fáze D (staff middleware a sweep). |
+| P1-11 | otevřeno | – | Fáze D (pravdivé `/api` a `/dokumentace`). |
+| P1-12 | otevřeno | – | Fáze D (webhooky). |
+| P1-13 | otevřeno | – | Fáze E12 (věrnostní body). |
+| P1-14 | otevřeno | – | Fáze E3 (Comgate nad nahranými odpověďmi). |
+| P1-15 | částečně hotovo | TASK-0068 #61, TASK-0057 #47 | Revize katalogu je definovaná, ale operátor ji musí použít (`onhost:catalog:revise --apply`). Snapshoty VPS: TASK-0057 #47. |
+| P1-16 | otevřeno | – | Fáze E0 a E11 (staging a runbook). |
+
+### Další sloučená práce fáze C
+
+| Task | PR |
+|---|---|
+| TASK-0043 / B6 | #55 |
+| TASK-0044 | #53 |
+| TASK-0067 | #58 |
+| TASK-0056 | #46 |
+| TASK-0058 | #48, #50 |
+| TASK-0066 | #57 |
+| TASK-0057 | #47 |
+| TASK-0059 | #49 |
+| TASK-0055 | #45 |
+| TASK-0061 | #52 |
+| TASK-0062 | #54 |
+| TASK-0065 | #56 |
+| TASK-0069 | #62 |
+| TASK-0070 | #64 |
+| TASK-0072 (uzavření fáze C: ukončení a automatická obnova předplatného na stránce Náklady a v detailu služby, Node projekty na uzavřeném sdíleném uzlu) | návrh, nesloučeno |
+
+### Otevřené navazující body
+
+* Operátor musí spustit `php artisan onhost:catalog:revise --apply`; bez toho se revize katalogu (TASK-0068) neprojeví.
+* Přeinstalace VPS vyžaduje test na testovacím uzlu Proxmoxu a souhlas vlastníka.
+* Texty `DestructivePreview` jsou jen česky.
+* Časový limit načtení přes relay (relay fetch timeout).
+* `InvoiceController` předává do busu klíč bez id faktury (LOW).
+* Vedlejší efekt rotace remember tokenu.

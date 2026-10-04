@@ -268,7 +268,13 @@ say "Caches"
 art config:cache
 art route:cache
 art event:cache
-art onhost:openapi >/dev/null || echo "warning: onhost:openapi failed (a root-owned checkout: the committed contract stands)"
+# the committed contract is never rewritten here: generated into storage and compared (the same as deploy.sh)
+if art onhost:openapi --out=storage/framework/openapi-generated.yaml >/dev/null; then
+  cmp -s "$APP_DIR/contracts/openapi/onhost-v1.yaml" "$APP_DIR/storage/framework/openapi-generated.yaml" || warn "the committed contracts/openapi/onhost-v1.yaml differs from what the routes generate: run 'php artisan onhost:openapi' in development and commit it"
+else
+  warn "onhost:openapi failed: the committed contract could not be compared with the routes"
+fi
+as_run rm -f "$APP_DIR/storage/framework/openapi-generated.yaml"
 # VERSION sits in a directory www owns: written in the root-only state dir and renamed over whatever name is there
 (umask 022; printf '%s %s\n' "$EXPECTED_SHA" "$REF" > "$DEPLOY_STATE_DIR/VERSION.new") && mv -fT "$DEPLOY_STATE_DIR/VERSION.new" "$APP_DIR/VERSION"
 

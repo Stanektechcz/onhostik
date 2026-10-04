@@ -132,6 +132,7 @@ return [
         'default_rate_limit_per_minute' => 120,
         'public_rate_limit_per_minute' => 600,
         'idempotency_ttl_hours' => 24,
+        'idempotency_key_max_length' => 200, // what IdempotencyKey refuses beyond; the OpenAPI contract reads it
         'page_size' => 40,
         'max_page_size' => 200,
     ],
