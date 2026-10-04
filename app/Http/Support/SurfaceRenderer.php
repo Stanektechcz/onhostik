@@ -33,6 +33,97 @@ final class SurfaceRenderer
         return $this->root;
     }
 
+    /**
+     * Audit P1-8 (C3): what every anchor of one surface's transform hit, outside demo mode — `[anchor, hits, expect]` per
+     * replaced needle, array blocks counted needle by needle. `once` must hit exactly once, `many` at least once, `any` is a
+     * safety net that may find nothing. A prototype that drifted under a seam shows up here (tests/Feature/Http/SeamAnchorTest).
+     *
+     * @return list<array{anchor:string, hits:int, expect:string}>
+     */
+    public function anchorReport(string $surface): array
+    {
+        $file = self::SURFACES[$surface] ?? null;
+        if ($file === null || ! is_file($this->root.'/'.$file)) {
+            throw new \InvalidArgumentException("Unknown surface {$surface}.");
+        }
+        self::$anchors = [];
+        try {
+            $this->transform((string) file_get_contents($this->root.'/'.$file), $surface, false);
+
+            return self::$anchors;
+        } finally {
+            self::$anchors = null;
+        }
+    }
+
+    /** @var list<array{anchor:string, hits:int, expect:string}>|null collected only while anchorReport() runs */
+    private static ?array $anchors = null;
+
+    /** Records one anchor; a miss outside the expectation is logged so a drifted prototype never fails silently. */
+    private static function hit(string $anchor, int $hits, string $expect): void
+    {
+        $ok = match ($expect) {
+            'once' => $hits === 1,
+            'many' => $hits >= 1,
+            default => true,
+        };
+        if (! $ok) {
+            Log::warning('surface seam anchor mismatch', ['anchor' => mb_substr($anchor, 0, 80), 'hits' => $hits, 'expect' => $expect]);
+        }
+        if (self::$anchors !== null) {
+            self::$anchors[] = ['anchor' => $anchor, 'hits' => $hits, 'expect' => $expect];
+        }
+    }
+
+    /**
+     * `str_replace` that counts: the needles are applied one after another (exactly as an array `str_replace` does) and each
+     * needle's hits are recorded under `$expect` (the needles listed in `$many` are meant to hit every copy of themselves).
+     *
+     * @param  string|list<string>  $from
+     * @param  string|list<string>  $to
+     * @param  list<string>  $many
+     */
+    private static function swap(string|array $from, string|array $to, string $html, string $expect = 'once', array $many = []): string
+    {
+        $targets = (array) $to;
+        foreach (array_values((array) $from) as $i => $needle) {
+            $hits = substr_count($html, $needle);
+            self::hit($needle, $hits, in_array($needle, $many, true) ? 'many' : $expect);
+            if ($hits > 0) {
+                $html = str_replace($needle, is_array($to) ? (string) ($targets[$i] ?? '') : $to, $html);
+            }
+        }
+
+        return $html;
+    }
+
+    /** One anchor that must be unique: replaced only when it is (the partner and staff seams keep the literal otherwise). */
+    private static function swapUnique(string $from, string $to, string $html): string
+    {
+        $hits = substr_count($html, $from);
+        self::hit($from, $hits, 'once');
+
+        return $hits === 1 ? str_replace($from, $to, $html) : $html;
+    }
+
+    /**
+     * `preg_replace` that counts (`$limit` as in preg_replace).
+     *
+     * @param  string|list<string>  $pattern
+     * @param  string|list<string>  $replacement
+     */
+    private static function swapRe(string|array $pattern, string|array $replacement, string $html, int $limit = -1, string $expect = 'once'): string
+    {
+        $replacements = (array) $replacement;
+        foreach (array_values((array) $pattern) as $i => $re) {
+            $hits = 0;
+            $html = (string) preg_replace($re, is_array($replacement) ? (string) ($replacements[$i] ?? '') : $replacement, $html, $limit, $hits);
+            self::hit($re, $hits, $expect);
+        }
+
+        return $html;
+    }
+
     /** @param array<string,mixed> $boot the `window.ONHOST` object */
     public function render(string $surface, array $boot, bool $demo): string
     {
@@ -135,12 +226,7 @@ final class SurfaceRenderer
             "      noRows: _('Žádný klient tomuto filtru neodpovídá.', 'No client matches this filter.')," => "      noRows: (window.OnhostPartner && window.OnhostPartner.emptyText(this, 'clients')) || _('Žádný klient tomuto filtru neodpovídá.', 'No client matches this filter.'),",
         ];
         foreach ($pairs as $from => $to) {
-            if (substr_count($html, $from) !== 1) {
-                Log::warning('surface partner literal anchor mismatch', ['anchor' => mb_substr($from, 0, 80)]);
-
-                continue;
-            }
-            $html = str_replace($from, $to, $html);
+            $html = self::swapUnique($from, $to, $html);
         }
 
         return $html;
@@ -151,9 +237,8 @@ final class SurfaceRenderer
     {
         $start = substr_count($html, $from) === 1 ? strpos($html, $from) : false;
         $end = $start === false ? false : strpos($html, $to, $start + strlen($from));
+        self::hit($from.' … '.$to, $start === false || $end === false ? 0 : 1, 'once');
         if ($start === false || $end === false) {
-            Log::warning('surface partner literal anchor mismatch', ['anchor' => mb_substr($from, 0, 80)]);
-
             return $html;
         }
 
@@ -217,12 +302,7 @@ JS, "      wlRecord: (window.OnhostPartner && window.OnhostPartner.wlRecord(this
             ["      on: (e) => { nav(e); this.flash(_('Stahuje se', 'Downloading'), f[0]", "      on: (e) => { nav(e); if (f[2]) { window.open(f[2], '_blank', 'noopener'); return; } this.flash(_('Stahuje se', 'Downloading'), f[0]"],
         ];
         foreach ($pairs as [$from, $to]) {
-            if (substr_count($html, $from) !== 1) {
-                Log::warning('surface seam #46 anchor mismatch', ['anchor' => mb_substr($from, 0, 80)]);
-
-                continue;
-            }
-            $html = str_replace($from, $to, $html);
+            $html = self::swapUnique($from, $to, $html);
         }
 
         return $html;
@@ -387,48 +467,35 @@ HTML;
             "        ['nodecost', _('Náklady na uzel', 'Cost per node'), '6', 'warn']," => "        ['nodecost', window.OnhostAdmin ? _('Kapacita a nákup uzlů', 'Capacity and node purchases') : _('Náklady na uzel', 'Cost per node'), window.OnhostAdmin ? window.OnhostAdmin.counts(this).nodecost : '6', window.OnhostAdmin ? window.OnhostAdmin.counts(this).nodecostDot : 'warn'],",
         ];
         foreach ($pairs as $from => $to) {
-            $count = substr_count($html, $from);
-            if ($count !== 1) {
-                Log::warning('surface seam #33 anchor mismatch', ['anchor' => mb_substr($from, 0, 60), 'count' => $count]);
-
-                continue;
-            }
-            $html = str_replace($from, $to, $html);
+            $html = self::swapUnique($from, $to, $html);
         }
         // the ticket actions close right after the "Uzavřít" entry (the closing line alone is not unique in the template)
-        $html = (string) preg_replace(
+        $html = self::swapRe(
             '~(\[_\(\'Uzavřít\', \'Close\'\), false, \(\) => \{ this\.pushLog\(\'ticket\.close\', sel\.id\);[^\n]*\n)          \]\.map\(a => \(\{ label: a\[0\], on: a\[2\], style: btn\(a\[1\]\) \}\)\),\n          quick: \[~u',
             "$1          ]).map(a => ({ label: a[0], on: a[2], style: btn(a[1]) })),\n          quick: (window.OnhostAdmin ? window.OnhostAdmin.quick(this, sel, _) : [",
             $html,
             1,
-            $count,
         );
-        if ($count !== 1) {
-            Log::warning('surface seam #33 anchor mismatch', ['anchor' => 'ticket actions close', 'count' => $count]);
-        }
 
         return $html;
     }
 
     /** Header identity: the prototype's demo person (panel: Hana Nováková, admin: Petr Doležal) → the signed-in user, text nodes only. */
     /** The public account box, the panel user menu and the admin user menu sign out through the API (bridge-patched OnhostSession.signOut). */
-    private static function signOutSeams(string $html): string
+    private static function signOutSeams(string $html, string $surface): string
     {
         $call = 'if (window.OnhostSession && window.OnhostSession.__onhostBridged) { window.OnhostSession.signOut(); return; }';
+        // each surface has its own sign-out stub (the partner portal, the mobile concept and the gallery have none)
+        $anchors = [
+            'public' => ["      logout: (e) => { if (e && e.preventDefault) e.preventDefault(); try { localStorage.removeItem('onhost.session'); } catch (x) {}", "      logout: (e) => { if (e && e.preventDefault) e.preventDefault(); {$call} try { localStorage.removeItem('onhost.session'); } catch (x) {}"],
+            'panel' => ["        on: () => { if (m[2] === 'logout') { this.setState({ userOpen: false }); this.flash(_('Odhlášeno', 'Signed out'),", "        on: () => { if (m[2] === 'logout') { this.setState({ userOpen: false }); {$call} this.flash(_('Odhlášeno', 'Signed out'),"],
+            'admin' => ["        [_('Odhlásit se', 'Sign out'), '', () => { this.setState({ userOpen: false }); this.pushLog('auth.logout',", "        [_('Odhlásit se', 'Sign out'), '', () => { this.setState({ userOpen: false }); {$call} this.pushLog('auth.logout',"],
+        ];
+        if (! isset($anchors[$surface])) {
+            return $html;
+        }
 
-        return str_replace(
-            [
-                "      logout: (e) => { if (e && e.preventDefault) e.preventDefault(); try { localStorage.removeItem('onhost.session'); } catch (x) {}",
-                "        on: () => { if (m[2] === 'logout') { this.setState({ userOpen: false }); this.flash(_('Odhlášeno', 'Signed out'),",
-                "        [_('Odhlásit se', 'Sign out'), '', () => { this.setState({ userOpen: false }); this.pushLog('auth.logout',",
-            ],
-            [
-                "      logout: (e) => { if (e && e.preventDefault) e.preventDefault(); {$call} try { localStorage.removeItem('onhost.session'); } catch (x) {}",
-                "        on: () => { if (m[2] === 'logout') { this.setState({ userOpen: false }); {$call} this.flash(_('Odhlášeno', 'Signed out'),",
-                "        [_('Odhlásit se', 'Sign out'), '', () => { this.setState({ userOpen: false }); {$call} this.pushLog('auth.logout',",
-            ],
-            $html,
-        );
+        return self::swap($anchors[$surface][0], $anchors[$surface][1], $html);
     }
 
     private function identity(string $html, array $user, string $surface): string
@@ -461,36 +528,37 @@ HTML;
         // 1. relative assets → /surfaces/…  (support.js, _ds/…, assets/…, onhost-*.js, ios-frame.jsx); prototype scripts are
         //    versioned by the asset version so browsers refetch them after a deploy (the design-system bundle is content-addressed)
         $v = $this->assetVersion();
-        $html = (string) preg_replace('~(src|href)="(?:\./)?((?:_ds|assets)/[^"]+|ios-frame\.jsx)"~', '$1="/surfaces/$2"', $html);
-        $html = (string) preg_replace('~src="(?:\./)?(support\.js|onhost-[a-z0-9-]+\.js)"~', 'src="/surfaces/$1?v='.$v.'"', $html);
+        $html = self::swapRe('~(src|href)="(?:\./)?((?:_ds|assets)/[^"]+|ios-frame\.jsx)"~', '$1="/surfaces/$2"', $html, -1, 'many');
+        $html = self::swapRe('~src="(?:\./)?(support\.js|onhost-[a-z0-9-]+\.js)"~', 'src="/surfaces/$1?v='.$v.'"', $html, -1, 'many');
 
         // 1b. owner decision R11: the mobile shell and the component gallery are concepts — never indexed, marked as such on screen
         if (in_array($surface, ['mobile', 'widgets'], true)) {
-            $html = (string) preg_replace('~<head>~', "<head>\n".self::CONCEPT_HEAD, $html, 1);
+            $html = self::swapRe('~<head>~', "<head>\n".self::CONCEPT_HEAD, $html, 1);
         }
 
         // 2. data seams → API-backed variants (demo mode keeps the prototype's local store)
         if (! $demo) {
-            $html = str_replace(
+            $html = self::swap(
                 ['src="/surfaces/onhost-store.js?v='.$v.'"', 'src="/surfaces/onhost-integrations.js?v='.$v.'"', 'src="/surfaces/onhost-domains.js?v='.$v.'"'],
                 ['src="/surfaces/api/onhost-store.api.js?v='.$v.'"', 'src="/surfaces/api/onhost-integrations.api.js?v='.$v.'"', 'src="/surfaces/api/onhost-domains.api.js?v='.$v.'"'],
                 $html,
+                'any', // no prototype loads these by a tag today (the shell lazy-loads them and render() preloads the API variants); a tag added later is swapped
             );
         }
 
         // 4. boot object + session bridge right before the shell (the shell must see window.ONHOST)
         $shell = '<script src="/surfaces/onhost-shell.js?v='.$v.'"></script>';
         if (str_contains($html, $shell)) {
-            $html = str_replace($shell, self::BOOT."\n".$shell, $html);
+            $html = self::swap($shell, self::BOOT."\n".$shell, $html);
         } else {
-            $html = (string) preg_replace('~</helmet>~', self::BOOT."\n</helmet>", $html, 1);
+            $html = self::swapRe('~</helmet>~', self::BOOT."\n</helmet>", $html, 1);
         }
 
         // 4b. public checkout: the order number comes from the control plane (bridge sets window.__onhostOrder before the prototype's handler runs);
         //     the ".cz domain" upsell needs a checked domain name, so it is not pre-selected (domains are ordered in the panel)
         if ($surface === 'public' && ! $demo) {
             // product pages (onhost-svc-*.js) and the web hosting landing sell the catalogue's plans; cart lines carry their SKU (seam #23)
-            $html = str_replace(
+            $html = self::swap(
                 [
                     'this.svcMods = [ms[0].webPages, ms[1].computePages, ms[2].otherPages, ms[3].morePages, ms[4].devPages, ms[5].corpPages];',
                     "      webPlans: (cs ? [\n        ['Start', 89,",
@@ -511,7 +579,7 @@ HTML;
                 $html,
             );
             $html = self::gameSeams($html); // the game landing sells games (audit §5v/§5w)
-            $html = str_replace(
+            $html = self::swap(
                 ["const id = 'OH-' + new Date().getFullYear() + '-' + String(Math.floor(Math.random() * 9000) + 1000);", 'co: { domain: true, backup: true, ddos: false, mail: false }', '<label style="{{ po.style }}">'],
                 ["const id = (window.__onhostOrder && window.__onhostOrder.number) || ('OH-' + new Date().getFullYear() + '-' + String(Math.floor(Math.random() * 9000) + 1000));", 'co: { domain: false, backup: true, ddos: false, mail: false }', '<label style="{{ po.style }}" onClick="{{ po.on }}">'],
                 $html,
@@ -528,12 +596,12 @@ HTML;
         // 4d. every surface's "sign out" is a prototype stub (localStorage + a toast): the bridge's OnhostSession.signOut()
         //     ends the server session and returns to the public site
         if (! $demo) {
-            $html = self::signOutSeams($html);
+            $html = self::signOutSeams($html, $surface);
         }
 
         // 4e. panel and staff console: amounts keep their haléře (3 363,80 Kč), and the web-order banner tells the truth
         //     while fulfilment waits on a node (the store flags such orders from GET /v1/orders → provisioning.stalled)
-        if (in_array($surface, ['panel', 'admin'], true) && ! $demo) {
+        if ($surface === 'panel' && ! $demo) { // the staff console has none of these anchors (its money() and hash sync differ)
             $html = self::panelSeams($html);
         }
 
@@ -543,7 +611,7 @@ HTML;
         if ($surface === 'panel' && ! $demo) {
             $acct = 'window.OnhostPanelAccount';
             $helpers = '{ stat, pill, bar, dot, rowStyle, match }';
-            $html = str_replace(
+            $html = self::swap(
                 [
                     '<div style="position:fixed;right:24px;bottom:24px;z-index:80;background:var(--ink,#1a1918);color:#f3f2f2;border-left:4px solid var(--neon,#b8ff2e);padding:14px 18px;box-shadow:0 18px 40px rgba(0,0,0,.24);animation:ohIn .25s ease;max-width:360px">',
                     '<div style="font-family:var(--font-heading);font-weight:800;font-size:13px;margin-bottom:2px">{{ toast.title }}</div>',
@@ -604,22 +672,22 @@ HTML;
 
         // 5. panel: services/servers from window.ONHOST_PANEL, live simulation off by default
         if ($surface === 'panel' && ! $demo) {
-            $html = (string) preg_replace('~(\n\s+services: )\{(\n\s+domain: \[)~', '$1(window.ONHOST_PANEL && window.ONHOST_PANEL.services) || {$2', $html, 1);
-            $html = (string) preg_replace('~(\n\s+servers: )\[(\n\s+\{ id: \'app-prod\')~', '$1(window.ONHOST_PANEL && window.ONHOST_PANEL.servers) || [$2', $html, 1);
+            $html = self::swapRe('~(\n\s+services: )\{(\n\s+domain: \[)~', '$1(window.ONHOST_PANEL && window.ONHOST_PANEL.services) || {$2', $html, 1);
+            $html = self::swapRe('~(\n\s+servers: )\[(\n\s+\{ id: \'app-prod\')~', '$1(window.ONHOST_PANEL && window.ONHOST_PANEL.servers) || [$2', $html, 1);
             // the desk's state views (SurfaceDataController::stateGroups, listed through OnhostPanelNav.cats) hold the
             // same rows as the category a service lives in: never counted twice, never found twice in the search
-            $html = str_replace('const svAll = SV.cats.reduce(', "const svAll = SV.cats.filter(function (c) { return String(c.key).indexOf('state:') !== 0; }).reduce(", $html);
-            $html = str_replace('return Object.keys(s).reduce((n, k) => n + s[k].length, 0);', "return Object.keys(s).reduce((n, k) => n + (k.indexOf('state:') === 0 ? 0 : s[k].length), 0);", $html);
-            $html = str_replace('&quot;liveSimulation&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true', '&quot;liveSimulation&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false', $html);
+            $html = self::swap('const svAll = SV.cats.reduce(', "const svAll = SV.cats.filter(function (c) { return String(c.key).indexOf('state:') !== 0; }).reduce(", $html);
+            $html = self::swap('return Object.keys(s).reduce((n, k) => n + s[k].length, 0);', "return Object.keys(s).reduce((n, k) => n + (k.indexOf('state:') === 0 ? 0 : s[k].length), 0);", $html);
+            $html = self::swap('&quot;liveSimulation&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true', '&quot;liveSimulation&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false', $html);
             // account KPIs: wallet credit and 30-day availability come from window.ONHOST_PANEL.kpis (prototype literals stay as fallback)
             $kpi = 'window.ONHOST_PANEL && window.ONHOST_PANEL.kpis';
-            $html = (string) preg_replace('~(\n\s+modal: null, mStep: 0, md: \{\}, )credit: 4200,~', '$1credit: ('.$kpi.' && window.ONHOST_PANEL.kpis.credit != null ? window.ONHOST_PANEL.kpis.credit : 4200),', $html, 1);
-            $html = str_replace('this.money(4200)', 'this.money(this.state.credit)', $html);
-            $html = str_replace("stat(_('Dostupnost 30 dní', 'Uptime, 30 days'), '99,99 %',", "stat(_('Dostupnost 30 dní', 'Uptime, 30 days'), ((".$kpi." && window.ONHOST_PANEL.kpis.uptime) || '99,99 %'),", $html);
+            $html = self::swapRe('~(\n\s+modal: null, mStep: 0, md: \{\}, )credit: 4200,~', '$1credit: ('.$kpi.' && window.ONHOST_PANEL.kpis.credit != null ? window.ONHOST_PANEL.kpis.credit : 4200),', $html, 1);
+            $html = self::swap('this.money(4200)', 'this.money(this.state.credit)', $html, 'many'); // every place the prototype prints the credit
+            $html = self::swap("stat(_('Dostupnost 30 dní', 'Uptime, 30 days'), '99,99 %',", "stat(_('Dostupnost 30 dní', 'Uptime, 30 days'), ((".$kpi." && window.ONHOST_PANEL.kpis.uptime) || '99,99 %'),", $html, 'many'); // overview and status strip
             // projects (seam #35, api/onhost-panel-projects.api.js) and connected registrar accounts (seam #36, api/onhost-panel-registrars.api.js):
             // two settings pages the prototype does not have, rendered through its generic view like the account area; deep links
             // /panel/projekty and /panel/registratori (the WAPI password uses the account seam's `password` field kind)
-            $html = str_replace(
+            $html = self::swap(
                 [
                     "    if (T('team')) sets.team = ({$acct} ? {$acct}.teamView(this, _, {$helpers}) : null) || {",
                     "    svcdesk: 'sluzba', hardware: 'hardware', housing: 'housing'\n  };",
@@ -633,11 +701,11 @@ HTML;
             // the remaining narrated areas — notifications and audit, maintenance windows, costs, personal data, monitoring, backups —
             // read the organization's real data through api/onhost-panel-pages.api.js (seam #37); the narrated set stays as the fallback
             foreach (['audit', 'windows', 'costs', 'privacy', 'monitoring', 'backups'] as $page) {
-                $html = str_replace("    if (T('{$page}')) sets.{$page} = {", "    if (T('{$page}')) sets.{$page} = (window.OnhostPanelPages ? window.OnhostPanelPages.{$page}(this, _, {$helpers}) : null) || {", $html);
+                $html = self::swap("    if (T('{$page}')) sets.{$page} = {", "    if (T('{$page}')) sets.{$page} = (window.OnhostPanelPages ? window.OnhostPanelPages.{$page}(this, _, {$helpers}) : null) || {", $html);
             }
             // quick select (⌘K, seam #34): the header search answers with the basic actions, the organization's services, domains and
             // tickets; Enter takes the first hit, Escape clears (api/onhost-panel-nav.api.js `hits()` / `enter()`)
-            $html = str_replace(
+            $html = self::swap(
                 [
                     '<div style="justify-self:center;display:flex;align-items:center;gap:8px;border:2px solid color-mix(in srgb,var(--fg,#201e1d) 28%,transparent);background:var(--field,#f8f4f4);padding:0 10px;height:38px;width:clamp(220px,30vw,440px)',
                     '<input type="text" value="{{ query }}" onInput="{{ onQuery }}" placeholder="{{ searchPh }}" style="flex:1;min-width:0;border:0;background:transparent;color:var(--fg,#201e1d);font-size:13px;padding:0;outline:none">',
@@ -658,19 +726,19 @@ HTML;
                 $html,
             );
             // … and the full-page search shows the same real groups instead of the prototype's narrated lists
-            $html = str_replace(
+            $html = self::swap(
                 ["        const groups = [\n          [_('Služby', 'Services'), s.servers.filter(x => hit(x.name) || hit(x.spec) || hit(x.site) || hit(x.os))", "        ];\n        const total = groups.reduce((a, g) => a + g[1].length, 0);"],
                 ["        const groups = ((window.OnhostPanelNav && window.OnhostPanelNav.searchGroups) ? window.OnhostPanelNav.searchGroups(this, _) : [\n          [_('Služby', 'Services'), s.servers.filter(x => hit(x.name) || hit(x.spec) || hit(x.site) || hit(x.os))", "        ]);\n        const total = groups.reduce((a, g) => a + g[1].length, 0);"],
                 $html,
             );
             // a deep link may only open a tab the sidebar offers (seam #29): the prototype's narrated areas (servers, deploys,
             // monitoring, forum, …) stay unreachable by URL outside demo mode
-            $html = str_replace("    const tab = this.tabForSlug(parts[0]);\n    if (!tab) return null;", "    const tab = this.tabForSlug(parts[0]);\n    if (!tab || (window.OnhostPanelNav && window.OnhostPanelNav.allows && !window.OnhostPanelNav.allows(tab))) return null;", $html);
+            $html = self::swap("    const tab = this.tabForSlug(parts[0]);\n    if (!tab) return null;", "    const tab = this.tabForSlug(parts[0]);\n    if (!tab || (window.OnhostPanelNav && window.OnhostPanelNav.allows && !window.OnhostPanelNav.allows(tab))) return null;", $html);
             // the top strip's "Aktivní služby" counts the organization's ACTIVE services (domains aside), like the overview KPI
-            $html = str_replace("{ label: _('Aktivní služby', 'Active services'), value: String(s.servers.filter(x => x.state !== 'paused').length),", "{ label: _('Aktivní služby', 'Active services'), value: (window.ONHOST_PANEL ? String(Object.keys(window.ONHOST_PANEL.services || {}).filter(k => k !== 'domain').reduce((n, k) => n + (window.ONHOST_PANEL.services[k] || []).filter(x => x.apiState === 'ACTIVE').length, 0)) : String(s.servers.filter(x => x.state !== 'paused').length)),", $html);
+            $html = self::swap("{ label: _('Aktivní služby', 'Active services'), value: String(s.servers.filter(x => x.state !== 'paused').length),", "{ label: _('Aktivní služby', 'Active services'), value: (window.ONHOST_PANEL ? String(Object.keys(window.ONHOST_PANEL.services || {}).filter(k => k !== 'domain').reduce((n, k) => n + (window.ONHOST_PANEL.services[k] || []).filter(x => x.apiState === 'ACTIVE').length, 0)) : String(s.servers.filter(x => x.state !== 'paused').length)),", $html);
             // billing tab: the invoice card, the cost breakdown and the history row actions come from the organization's
             // documents (api/onhost-panel-billing.api.js); the prototype's narrated demo history is dropped outside demo mode
-            $html = str_replace(
+            $html = self::swap(
                 [
                     "ledger: {\n        title: _('Faktura 2026-08-0412', 'Invoice 2026-08-0412'),",
                     'return live.concat(demo);',
@@ -690,7 +758,7 @@ HTML;
             // therefore not promised (document rows are read-only: no edit/duplicate/remove on invoices)
             $real = 'window.ONHOST_PANEL';
             $bill = '(window.ONHOST_PANEL && window.ONHOST_PANEL.billing && window.ONHOST_PANEL.billing.organization && window.ONHOST_PANEL.billing.terms)'; // an account without an organisation (staff) has no billing block
-            $html = str_replace(
+            $html = self::swap(
                 [
                     "submit: () => {\n          const n = Number(s.topUp);",
                     "note: _('od ', 'from ') + this.money(5000) + _(' přidáváme 10 %', ' up we add 10%'),",
@@ -742,10 +810,12 @@ HTML;
                     "legend: ({$real} && window.ONHOST_PANEL.billing && window.ONHOST_PANEL.billing.chart) ? window.ONHOST_PANEL.billing.chart.legend.map((l, i) => [l[0], l[1], [acc, 'color-mix(in srgb,' + acc + ' 45%,transparent)', 'var(--ink,#1a1918)'][i]]) : [[_('Servery', 'Servers'), '44 %', acc], ['GPU', '27 %', 'color-mix(in srgb,' + acc + ' 45%,transparent)'], [_('Data a síť', 'Data and network'), '29 %', 'var(--ink,#1a1918)']],",
                 ],
                 $html,
+                'once',
+                ["const bonus = base >= 5000 ? Math.round(base * 0.1) : 0;", "this.money(this.state.credit), '+10 %',", "this.money(totalSpend), '+6 %',"], // the top-up form and the wizard, the billing and the overview strip
             );
             // billing widgets/usage/quick cards and the narrated "cost by project" ledger; overview cards and the recent-events
             // strip (api/onhost-panel-overview.api.js reads the organization's notifications)
-            $html = str_replace(
+            $html = self::swap(
                 [
                     "widgets: [\n        {\n          kind: 'donut', title: _('Struktura faktury', 'Invoice structure'), value: this.money(totalSpend),",
                     "        }\n      ],\n      usage: { title: _('Čerpání rozpočtu', 'Budget consumption'),",
@@ -832,7 +902,7 @@ HTML;
         // 5a. panel tickets: the customer's real conversation (api/onhost-panel-support.api.js) replaces the narrated "Tiket 4821" thread;
         //     the list's "Odpovědět" opens the thread here instead of the staff queue; replies, closing and ratings go through the store
         if ($surface === 'panel' && ! $demo) {
-            $html = str_replace(
+            $html = self::swap(
                 [
                     "          if (t.live && window.OnhostSession) {\n            window.OnhostSession.handoff({ kind: 'ticket', id: t.storeId });\n            window.location.href = 'Onhost-admin.dc.html#/fronta';\n            return;\n          }\n",
                     "          { key: 'ticketService', label: _('Služba', 'Service'), kind: 'select', options: s.servers.map(x => x.name).concat([_('Účet a fakturace', 'Account and billing')]) },",
@@ -850,6 +920,9 @@ HTML;
                     "          this.setState({ threadDraft: '' });\n          if (typeof d.thread.onSend === 'function') { d.thread.onSend(t); this.flash(_('Odpověď odeslána', 'Reply sent'), _('Zpráva je v tiketu, podpora má notifikaci.', 'The message is in the ticket; support is notified.')); return; }\n          this.flash(_('Odpověď odeslána', 'Reply sent'), _('Tiket 4821 · inženýr Petr Doležal má notifikaci, reakce do 22 minut.', 'Ticket 4821 · engineer Petr Doležal is notified; reply within 22 minutes.'));\n",
                 ],
                 $html,
+                'once',
+                ["          on: () => this.flash(a[0], a[1])
+        })),"], // both thread action rows
             );
         }
 
@@ -858,7 +931,7 @@ HTML;
         //     shown only when flagged `real` (data from the control plane) or when they are purely descriptive
         if ($surface === 'panel' && ! $demo) {
             $order = 'window.OnhostPanelOrder';
-            $html = str_replace(
+            $html = self::swap(
                 [
                     'const ORDER_TYPES = [',
                     'const orderSizes = ORDER_SIZES[md.type] || ORDER_SIZES.server;',
@@ -911,7 +984,6 @@ HTML;
                     "        title: _('Jaké okno si můžete vybrat', 'Which window you can choose'),",
                     "        title: _('Co si v panelu můžete přenastavit', 'What you can change in the panel'),",
                     "        title: _('Prvních 7 dní u nás', 'Your first 7 days here'),",
-                    "      sectionCards: [\n        ['hardware', _('Hardware a e-shop', 'Hardware and shop'),",
                     "sectionCardsTitle: _('Úrovně priority a co znamenají', 'Priority tiers and what they mean'),",
                     "sectionCardsTitle: _('Kde se komunita schazí', 'Where the community meets'),",
                     "sectionCardsTitle: _('Kolekce', 'Collections'),",
@@ -976,7 +1048,6 @@ HTML;
                     "        real: true, title: _('Jaké okno si můžete vybrat', 'Which window you can choose'),",
                     "        real: true, title: _('Co si v panelu můžete přenastavit', 'What you can change in the panel'),",
                     "        real: true, title: _('Prvních 7 dní u nás', 'Your first 7 days here'),",
-                    "      sectionCardsReal: true, sectionCards: [\n        ['hardware', _('Hardware a e-shop', 'Hardware and shop'),",
                     "sectionCardsReal: true, sectionCardsTitle: _('Úrovně priority a co znamenají', 'Priority tiers and what they mean'),",
                     "sectionCardsReal: true, sectionCardsTitle: _('Kde se komunita schazí', 'Where the community meets'),",
                     "sectionCardsReal: true, sectionCardsTitle: _('Kolekce', 'Collections'),",
@@ -998,7 +1069,7 @@ HTML;
         }
         if ($surface === 'admin' && ! $demo) {
             $html = self::adminSeams($html);
-            $html = str_replace(
+            $html = self::swap(
                 "        [_('Klientský panel zákazníka', 'Customer client panel'), _('otevře se v novém okně', 'opens in a new window'), () => { this.setState({ userOpen: false }); window.open('Onhost-app.dc.html', '_blank'); }],",
                 "        [_('Nastavení systému · integrace', 'System settings · integrations'), _('providery, uzly, zdraví, přístupy', 'providers, nodes, health, credentials'), () => { this.setState({ userOpen: false }); location.href = '/sprava/nastaveni/integrace'; }],\n"
                 ."        [_('Klientský panel zákazníka', 'Customer client panel'), _('otevře se v novém okně', 'opens in a new window'), () => { this.setState({ userOpen: false }); window.open('Onhost-app.dc.html', '_blank'); }],",
@@ -1024,7 +1095,7 @@ HTML;
     /** Panel/admin: haléře when an amount has them; the web-order banner reports a stalled fulfilment instead of the usual 90 seconds. */
     public static function panelSeams(string $html): string
     {
-        return str_replace(
+        return self::swap(
             [
                 "  money(n) {\n    const c = this.CUR[this.state.currency] || this.CUR.czk;\n    const v = new Intl.NumberFormat(this.state.lang === 'cs' ? 'cs-CZ' : 'en-US', { minimumFractionDigits: c.dec, maximumFractionDigits: c.dec }).format(n * c.rate);",
                 "      hoText: ho ? (ho.id + ' · ' + (ho.items || []).map(i => i.name + (i.qty > 1 ? ' ×' + i.qty : '')).join(', ') + ' · nasazujeme, obvykle do 90 sekund') : '',",
@@ -1048,7 +1119,7 @@ HTML;
 
     public static function cartSeams(string $html): string
     {
-        $html = str_replace(
+        $html = self::swap(
             [
                 '  COMMITS = [[1, 0], [12, 0.1], [24, 0.18]];',
                 "      const d = (this.COMMITS.find(c => c[0] === it.commit) || [1, 0])[1];\n      net += it.price * it.qty * (1 - d);",
@@ -1115,7 +1186,7 @@ HTML;
             $html,
         );
         // templates: an "add to cart" button next to every free domain, add-ons under every cart line in the checkout, extra product page blocks
-        $html = str_replace(
+        $html = self::swap(
             [
                 '<span style="margin-left:auto;font-family:var(--font-heading);font-weight:800;font-size:13px;white-space:nowrap">{{ rs.price }}</span>',
                 self::CHECKOUT_UPSELLS,
@@ -1141,7 +1212,7 @@ HTML;
      */
     public static function checkoutSeams(string $html): string
     {
-        $html = str_replace(
+        $html = self::swap(
             [
                 "        ['card', 'Karta', 'Visa, Mastercard · Stripe'], ['bank', 'Bankovní převod', 'QR platba, okamžité spárování'],\n        ['wallet', 'Apple Pay / Google Pay', 'Jedním dotykem'], ['paypal', 'PayPal', 'Bez zadávání karty'],\n        ['crypto', 'Krypto', 'BTC, ETH, USDC'], ['invoice', 'Faktura pro firmy', 'Splatnost 14 dní'],\n        ['sepa', 'SEPA inkaso', 'Pro dlouhodobé závazky']\n",
                 "        ['card', 'Card', 'Visa, Mastercard · Stripe'], ['bank', 'Bank transfer', 'QR payment, instant matching'],\n        ['wallet', 'Apple Pay / Google Pay', 'One tap'], ['paypal', 'PayPal', 'No card details'],\n        ['crypto', 'Crypto', 'BTC, ETH, USDC'], ['invoice', 'Company invoice', '14-day terms'],\n        ['sepa', 'SEPA direct debit', 'For long commitments']\n",
@@ -1158,7 +1229,7 @@ HTML;
             ],
             $html,
         );
-        $html = str_replace(
+        $html = self::swap(
             [
                 "      email: cof.email, name: cof.name, ico: cof.ico, dic: cof.dic, terms: cof.terms,\n      onEmail: setF('email'), onName: setF('name'), onIco: setF('ico'), onDic: setF('dic'), onTerms: setF('terms'),",
                 '        return { rows, net: this.mny(net), vat: this.mny(net * 0.21), total: this.mny(net * 1.21 + s.credit) };',
@@ -1179,7 +1250,7 @@ HTML;
             ],
             $html,
         );
-        $html = str_replace(
+        $html = self::swap(
             [
                 "              <span style=\"font-family:var(--font-heading);font-weight:800;font-size:22px;letter-spacing:-.01em\">{{ co.orderId }}</span>\n            </div>\n            <a href=\"#\" onClick=\"{{ co.doneOn }}\" class=\"btn btn-primary\" style=\"font-size:15px;padding:14px 20px\">{{ co.doneCta }}</a>",
                 "              <div class=\"oh-form-2\" style=\"display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px\">\n                <label style=\"display:block\">\n                  <span style=\"display:block;font-size:12px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px\">{{ t.authIco }}</span>",
@@ -1315,14 +1386,16 @@ HTML;
     {
         if ($surface === 'panel') {
             // the toolkit fills these prototype tabs with real tools (seam #31); their labels say what the customer gets
-            $html = str_replace(
+            $html = self::swap(
                 ["T('addons', 'Příplatkové služby', 'Add-ons', 'extra')", "T('addons', 'Příplatkové služby', 'Add-ons', 'plan')", "T('phpcli', 'PHP-CLI', 'PHP-CLI', 'php')", "T('le', \"Let's Encrypt\", \"Let's Encrypt\", 'ssl')", "T('relay', 'Relay a routování', 'Relay and routing', 'route')"],
                 ["T('addons', 'Nástroje a doplňky', 'Tools and add-ons', 'extra')", "T('addons', 'Nástroje a doplňky', 'Tools and add-ons', 'plan')", "T('phpcli', 'Nastavení PHP', 'PHP settings', 'php')", "T('le', 'Wildcard, HTTP/3 a HSTS', 'Wildcard, HTTP/3 and HSTS', 'ssl')", "T('relay', 'Přesměrování a routování', 'Forwarding and routing', 'route')"],
                 $html,
+                'once',
+                ["T('addons', 'Příplatkové služby', 'Add-ons', 'extra')", "T('addons', 'Příplatkové služby', 'Add-ons', 'plan')"], // every service type's tab table
             );
         }
         if ($surface === 'public') {
-            $html = str_replace(
+            $html = self::swap(
                 [
                     "migFrom: 'wedos', migSize: 'm'", "'migrace přesun wedos forpsi'", "'migration move wedos forpsi'",
                     "'Migraci z Wedosu udělali celou za nás, včetně pošty.", "'They did the whole Wedos migration for us, mail included.",
@@ -1336,10 +1409,12 @@ HTML;
                     "'Přišli od jiného poskytovatele na jeden VPS.", "'Came from another provider on one VPS.",
                 ],
                 $html,
+                'once',
+                ["s.migFrom || 'wedos'"],
             );
         }
         if ($surface === 'panel') {
-            $html = str_replace(
+            $html = self::swap(
                 [
                     "['migrac', 'migrat', 'wedos', 'forpsi',",
                     "'DMARC a SPF při migraci z Wedosu' : 'DMARC and SPF when migrating from Wedos'",
@@ -1367,10 +1442,12 @@ HTML;
                     "_('Od jiného poskytovatele na Onhost', 'From another provider to Onhost')",
                 ],
                 $html,
+                'once',
+                ["_('Migrace z Wedosu krok za krokem', 'Migrating from Wedos step by step')"],
             );
         }
         // safety net for copy added to the prototype later: declined forms first, lowercase (JS keys) become a neutral key
-        $html = (string) preg_replace(['/\bWedosu\b/u', '/\bWedosem\b/u', '/\bWEDOS\b/u', '/\bWedos\b/u', '/\bwedos\b/u'], ['jiného poskytovatele', 'jiným poskytovatelem', 'jiný poskytovatel', 'jiný poskytovatel', 'other'], $html);
+        $html = self::swapRe(['/\bWedosu\b/u', '/\bWedosem\b/u', '/\bWEDOS\b/u', '/\bWedos\b/u', '/\bwedos\b/u'], ['jiného poskytovatele', 'jiným poskytovatelem', 'jiný poskytovatel', 'jiný poskytovatel', 'other'], $html, -1, 'any');
 
         return $html;
     }
@@ -1562,14 +1639,14 @@ HTML;
         $end = $at === false ? false : strpos($html, $endAnchor, $at);
         $feat = strpos($html, '{{ t.gmFeatTitle }}</h2>');
         $featStart = $feat === false ? false : strrpos(substr($html, 0, $feat), '  <section ');
-        if ($start !== false && $end !== false && $featStart !== false && $featStart < $start) {
+        $found = $start !== false && $end !== false && $featStart !== false && $featStart < $start;
+        self::hit('§5w game plans section {{ t.gmPlansTitle }} … {{ t.gmFeatTitle }}', $found ? 1 : 0, 'once');
+        if ($found) {
             $html = substr($html, 0, $start).substr($html, $end + strlen($endAnchor));
             $html = substr($html, 0, $featStart).$offer.substr($html, $featStart);
-        } else {
-            logger()->warning('surface seam §5w: game plans anchor missing');
         }
 
-        return str_replace(
+        return self::swap(
             [
                 "      games: ['Minecraft', 'CS2',",
                 "      products: prods.filter(p => s.filter === 'all' || p.cat === s.filter).map(p => {",
