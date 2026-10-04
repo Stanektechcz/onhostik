@@ -8,6 +8,8 @@ use App\Http\Middleware\TokenRouteScope;
 use Illuminate\Support\Facades\Cache;
 use Onhost\Domain\Identity\Authorization\TokenScopes;
 use Onhost\Domain\Notifications\WebhookDispatcher;
+use Onhost\Domain\Notifications\Webhooks\WebhookEvents;
+use Onhost\Domain\Notifications\Webhooks\WebhookSigner;
 use Onhost\Platform\Errors\ProviderErrorCode;
 use ReflectionClassConstant;
 use Symfony\Component\Finder\Finder;
@@ -118,22 +120,16 @@ final class PublicApiDocs
     }
 
     /**
-     * What the webhook dispatcher does after a failed delivery: the n-th failure waits BACKOFF_MINUTES[n-1], and the delivery is
-     * dead after as many attempts as there are entries — so the last entry is never waited out.
+     * What the webhook dispatcher does after a failed delivery: the first attempt and one retry per backoff step, the last retry
+     * the sum of every backoff after the first attempt (WebhookDispatcher::retryScheduleMinutes / scheduledAttempts).
      *
      * @return array{attempts:int,offsets:list<int>,last_minutes:int,backoff:list<int>}
      */
     public static function retrySchedule(): array
     {
-        $backoff = WebhookDispatcher::BACKOFF_MINUTES;
-        $offsets = [0];
-        $at = 0;
-        foreach (array_slice($backoff, 0, -1) as $minutes) {
-            $at += $minutes;
-            $offsets[] = $at;
-        }
+        $retries = WebhookDispatcher::retryScheduleMinutes();
 
-        return ['attempts' => count($backoff), 'offsets' => $offsets, 'last_minutes' => $at, 'backoff' => $backoff];
+        return ['attempts' => WebhookDispatcher::scheduledAttempts(), 'offsets' => [0, ...$retries], 'last_minutes' => (int) end($retries), 'backoff' => WebhookDispatcher::BACKOFF_MINUTES];
     }
 
     public static function duration(int $minutes): string
@@ -353,13 +349,13 @@ final class PublicApiDocs
     /** The signature a customer verifies, as the dispatcher builds it. */
     public static function webhookEnvelope(): string
     {
-        return "{\n  \"id\": \"<id doručení>\",\n  \"event\": \"service.created\",\n  \"created_at\": \"2026-10-04T12:00:00+02:00\",\n  \"data\": { … }\n}";
+        return "{\n  \"id\": \"<id doručení; stejné při každém opakování>\",\n  \"event\": \"service.created\",\n  \"created_at\": \"2026-10-04T12:00:00+02:00\",\n  \"data\": {\n    \"aggregate\": { \"type\": \"service\", \"id\": \"svc_…\" },\n    \"organization_id\": \"org_…\",\n    \"payload\": { … veřejná pole události … }\n  }\n}";
     }
 
-    /** @return list<string> the event families a webhook can carry (`service.`, `invoice.` …) */
+    /** @return list<string> the event families a webhook can subscribe to (`service`, `invoice` …) */
     public static function eventFamilies(): array
     {
-        return array_values(array_filter(array_map(fn (string $p) => rtrim($p, '.'), WebhookDispatcher::CUSTOMER_EVENTS), fn (string $p) => $p !== ''));
+        return WebhookEvents::FAMILIES;
     }
 
     /** The data the two prototype scripts take over (see publicScript / docsModule). @return array<string,mixed> */
@@ -425,10 +421,10 @@ final class PublicApiDocs
                 'hookUrl' => 'https://vas-server.cz/hooks/onhost',
             ],
             'hooks' => [
-                $hook('obálka', 'Každé doručení je POST s JSON obálkou {id, event, created_at, data}. Hlavičky nesou událost (X-ONhost-Event), id doručení (X-ONhost-Delivery) a čas (X-ONhost-Timestamp). Adresa musí být veřejná a odpovědět do několika sekund; přesměrování nesledujeme.', self::webhookEnvelope()),
-                $hook('podpis', 'Podpis je v hlavičce X-ONhost-Signature jako v1=<hex>, kde hex je HMAC-SHA256 tajemstvím odběru z textu `<X-ONhost-Timestamp>.<tělo>` — tělo se podepisuje tak, jak přišlo. Porovnávejte konstantním časem.', "expected = hmac_sha256(secret, timestamp + \".\" + raw_body)\nvalid = constant_time_equals(\"v1=\" + hex(expected), header[\"X-ONhost-Signature\"])"),
-                $hook('události', 'Posíláme události organizace z těchto rodin: '.$families.'. Interní události provozu se k zákazníkovi nedostanou.', implode("\n", array_map(fn (string $f) => $f.'.*', self::eventFamilies()))),
-                $hook('opakování', 'Neúspěch je jiná odpověď než 2xx nebo chyba spojení. Po neúspěchu se čeká podle tabulky; po vyčerpání pokusů je doručení mrtvé a zůstane v seznamu doručení odběru.', "pokus  čas od prvního pokusu\n".implode("\n", array_map(fn (int $o, int $i) => str_pad((string) ($i + 1), 5).'  '.($o === 0 ? 'hned' : self::duration($o)), self::retrySchedule()['offsets'], array_keys(self::retrySchedule()['offsets'])))),
+                $hook('obálka', 'Každé doručení je POST s JSON obálkou {id, event, created_at, data}. Hlavičky nesou událost (X-ONhost-Event), id doručení (X-ONhost-Delivery) a čas (X-ONhost-Timestamp). Adresa musí být https na portu '.implode(' nebo ', WebhookDispatcher::ALLOWED_PORTS).', veřejná a odpovědět do několika sekund; přesměrování nesledujeme. Doručení je alespoň jednou: stejné doručení může přijít víckrát (opakování, ruční opakování), proto si ukládejte X-ONhost-Delivery a to, co už máte, zahazujte.', self::webhookEnvelope()),
+                $hook('podpis', 'Podpis je v hlavičce X-ONhost-Signature jako v1=<hex>, kde hex je HMAC-SHA256 tajemstvím odběru z textu `<X-ONhost-Timestamp>.<tělo>` — tělo se podepisuje tak, jak přišlo. Porovnávejte konstantním časem a odmítněte čas starší než '.intdiv(WebhookSigner::TOLERANCE_SECONDS, 60).' minut. Tajemství je celý řetězec whsec_…; ukáže se jen při založení odběru.', "expected = hmac_sha256(secret, timestamp + \".\" + raw_body)\nvalid = constant_time_equals(\"v1=\" + hex(expected), header[\"X-ONhost-Signature\"])"),
+                $hook('události', 'Posíláme události organizace z těchto rodin: '.$families.'. Události vlastního provozu platformy se k zákazníkovi nedostanou. Zkušební doručení webhook.ping lze poslat jednou za 30 s na odběr.', implode("\n", array_map(fn (string $f) => $f.'.*', self::eventFamilies()))),
+                $hook('opakování', 'Neúspěch je jiná odpověď než 2xx nebo chyba spojení. Po neúspěchu se čeká podle tabulky; po vyčerpání pokusů je doručení mrtvé a zůstane v seznamu doručení odběru; odběr po '.WebhookDispatcher::SUSPEND_AFTER.' neúspěšných pokusech za sebou pozastavíme (stav suspended, zákazník se to dozví) a zapne se znovu v panelu. Jedno doručení lze celkem zkusit nejvýš '.WebhookDispatcher::MAX_ATTEMPTS.'krát včetně ručních opakování.', "pokus  čas od prvního pokusu\n".implode("\n", array_map(fn (int $o, int $i) => str_pad((string) ($i + 1), 5).'  '.($o === 0 ? 'hned' : self::duration($o)), self::retrySchedule()['offsets'], array_keys(self::retrySchedule()['offsets'])))),
             ],
             'docs' => self::docsArticles(),
         ];
@@ -467,9 +463,9 @@ final class PublicApiDocs
             ['k' => 'p', 't' => "Na klíč {$l['default']} požadavků za minutu, u veřejných koncových bodů {$l['public']} za minutu na adresu."],
             ['k' => 'code', 'lang' => 'http', 't' => "X-RateLimit-Limit: {$l['default']}\nX-RateLimit-Remaining: ".($l['default'] - 1)."\n\n(po vyčerpání)\nHTTP/1.1 429\nRetry-After: 41"],
             ['k' => 'h', 't' => 'Webhooky'],
-            ['k' => 'p', 't' => 'Dlouhé úlohy nedokončí požadavek. Místo dotazování si nechte posílat události; odběr zakládáte v panelu. Doručení je podepsané a opakuje se: '.self::retrySentence().'.'],
+            ['k' => 'p', 't' => 'Dlouhé úlohy nedokončí požadavek. Místo dotazování si nechte posílat události; odběr zakládáte v panelu. Doručení je podepsané a opakuje se: '.self::retrySentence().'. Doručení je alespoň jednou: ukládejte si X-ONhost-Delivery a doručení, které už znáte, zahazujte.'],
             ['k' => 'code', 'lang' => 'php', 't' => "\$ts = \$_SERVER['HTTP_X_ONHOST_TIMESTAMP'] ?? '';\n\$body = file_get_contents('php://input');\n\$calc = 'v1=' . hash_hmac('sha256', \$ts . '.' . \$body, getenv('ONHOST_WEBHOOK_SECRET'));\n\nif (!hash_equals(\$calc, \$_SERVER['HTTP_X_ONHOST_SIGNATURE'] ?? '')) {\n    http_response_code(400);\n    exit;\n}"],
-            ['k' => 'note', 'tone' => 'tip', 'title' => 'Odpovězte rychle', 't' => 'Doručení čeká na odpověď jen několik sekund. Zpracování dejte do fronty a hned odpovězte 2xx; jiná odpověď se počítá jako neúspěch a doručení se opakuje.'],
+            ['k' => 'note', 'tone' => 'tip', 'title' => 'Odpovězte rychle', 't' => 'Doručení čeká na odpověď jen několik sekund. Zpracování dejte do fronty a hned odpovězte 2xx; jiná odpověď se počítá jako neúspěch a doručení se opakuje. Odběr smí mířit jen na https, port '.implode(' nebo ', WebhookDispatcher::ALLOWED_PORTS).'.'],
         ];
 
         $updated = self::changelog()[0]['date'] ?? date('j. n. Y', (int) filemtime(base_path('docs/api/CHANGELOG.md')));

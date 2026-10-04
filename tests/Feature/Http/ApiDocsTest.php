@@ -9,9 +9,12 @@ use Illuminate\Routing\Router;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Notifications\Models\WebhookDelivery;
 use Onhost\Domain\Notifications\Models\WebhookEndpoint;
 use Onhost\Domain\Notifications\WebhookDispatcher;
+use Onhost\Domain\Notifications\Webhooks\WebhookCommandHandler;
+use Onhost\Domain\Notifications\Webhooks\WebhookEvents;
 use Onhost\Platform\Errors\DomainError;
 use Symfony\Component\Finder\Finder;
 use Symfony\Component\Yaml\Yaml;
@@ -170,6 +173,7 @@ it('keeps the error cache key tied to the code that is deployed', function () {
 it('describes the webhook retry the dispatcher really performs', function () {
     [$owner, $org] = $this->customerWithOrganization();
     $this->actingAs($owner, 'sanctum');
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
     FakeHostResolver::$hosts['hooks.docs-example.cz'] = ['203.0.113.50'];
     Http::fake(fn () => Http::response('down', 500));
     $created = $this->postJson('/v1/webhooks', ['url' => 'https://hooks.docs-example.cz/in'])->assertCreated()->json('data');
@@ -198,9 +202,9 @@ it('describes the webhook retry the dispatcher really performs', function () {
         ->and(count($offsets))->toBe($schedule['attempts'])
         ->and($delivery->state)->toBe('dead')
         ->and(PublicApiDocs::retrySentence())->toContain((string) $schedule['attempts'].' pokusů')->toContain(PublicApiDocs::duration($schedule['last_minutes']));
-    // the sum of every backoff (the ~14.6 h figure) is NOT the window: the last entry is never waited out
-    expect($schedule['last_minutes'])->toBe(array_sum(array_slice(WebhookDispatcher::BACKOFF_MINUTES, 0, -1)))
-        ->and($schedule['last_minutes'])->toBeLessThan(array_sum(WebhookDispatcher::BACKOFF_MINUTES));
+    // the whole backoff is waited out: the last retry comes 876 minutes (14.6 h) after the first attempt, six attempts in all
+    expect($schedule['last_minutes'])->toBe(array_sum(WebhookDispatcher::BACKOFF_MINUTES))->toBe(876)->and($schedule['attempts'])->toBe(6)
+        ->and($schedule['offsets'])->toBe([0, ...WebhookDispatcher::retryScheduleMinutes()]);
 });
 
 it('anchors every error slug of the code on /dokumentace/api, in the form the help link uses and as the raw slug', function () {
@@ -319,4 +323,16 @@ it('never lists a customer-facing error slug with no anchor on the /api page cop
         expect(PublicApiDocs::errorSlugs())->toHaveKey($row['slug']);
         expect(Str::contains($row['body'], '/dokumentace/api#'.PublicApiDocs::anchor($row['slug'])))->toBeTrue();
     }
+});
+
+it('keeps the webhook numbers of the changelog and the pages equal to the dispatcher', function () {
+    $entry = collect(PublicApiDocs::changelog())->first(fn (array $c) => str_contains($c['t'], 'Webhooky'));
+    expect($entry)->not->toBeNull();
+    foreach (WebhookDispatcher::retryScheduleMinutes() as $minutes) {
+        expect($entry['d'])->toContain((string) $minutes);
+    }
+    expect($entry['d'])->toContain('po '.WebhookDispatcher::SUSPEND_AFTER.' neúspěšných')->toContain('nejvýš '.WebhookDispatcher::MAX_ATTEMPTS.'krát')
+        ->toContain('port '.implode(' nebo ', WebhookDispatcher::ALLOWED_PORTS))->toContain('jednou za '.WebhookCommandHandler::PING_COOLDOWN_SECONDS.' s');
+    $html = $this->get('/dokumentace/api')->assertOk()->getContent();
+    expect($html)->toContain('X-ONhost-Delivery')->toContain('aggregate')->toContain('2 h 36 min')->toContain('14 h 36 min')->and(PublicApiDocs::eventFamilies())->toBe(WebhookEvents::FAMILIES);
 });

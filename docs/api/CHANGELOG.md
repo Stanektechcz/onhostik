@@ -4,6 +4,9 @@ Každý záznam je nadpis `## datum | druh | název | okno` a odstavec pod ním.
 `security`; okno je volitelné. Stránka `/dokumentace/api` i `/api` čtou tenhle soubor (`PublicApiDocs::changelog()`),
 takže tu nikdy nestojí nic jiného než na webu. Nový záznam patří nahoru.
 
+## 2026-10-04 | breaking | Webhooky: podepsané doručení z fronty, https na portu 443 nebo 8443 (D4) | bez okna
+Doručení jde z fronty a nese jen veřejná pole události v obálce `{id, event, created_at, data: {aggregate, organization_id, payload}}`; podpis je `X-ONhost-Signature: v1=<hex>` přes `<X-ONhost-Timestamp>.<tělo>`. Doručení je alespoň jednou, stejné `X-ONhost-Delivery` může přijít víckrát, takže příjemce deduplikuje. Odběr smí mířit jen na https, port 443 nebo 8443 (`webhook_port_not_allowed`); starší odběr jinam dostává neúspěšná doručení. Opakuje se po 1, 6, 36, 156 a 876 minutách od prvního pokusu (šest pokusů), odběr po 20 neúspěšných pokusech za sebou přejde do stavu `suspended`, zkušební doručení `webhook.ping` lze poslat jednou za 30 s (`webhook_ping_cooldown`) a jedno doručení lze zkusit nejvýš 10krát včetně ručních opakování.
+
 ## 2026-10-04 | compatible | Hlavičky verze a zastaralosti u každé odpovědi (D7)
 Každá odpověď nese `X-API-Version`. Cesty, které jednou zastaráme, dostanou hlavičky `Deprecation`, `Sunset` a `Link`; zatím žádnou nemáme. Požadavky s neplatným klíčem se počítají na adresu a po překročení limitu dostanou 429; požadavek bez klíče se nepočítá. Seznamy se řadí stabilně i při stejném čase vzniku.
 
