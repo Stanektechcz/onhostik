@@ -135,7 +135,7 @@ return [
         'idempotency_key_max_length' => 200, // what IdempotencyKey refuses beyond; the OpenAPI contract reads it
         // how long a key stays reserved while its request runs (seconds); must exceed the longest request. Unset: twice PHP's
         // max_execution_time + 60, at least 600, 3600 when PHP sets no limit (IdempotencyKey::inFlightSeconds)
-        'idempotency_in_flight_seconds' => env('ONHOST_IDEMPOTENCY_IN_FLIGHT_SECONDS'),
+        'idempotency_in_flight_seconds' => null, // a number of seconds overrides the computed window
         'page_size' => 40,
         'max_page_size' => 200,
     ],
