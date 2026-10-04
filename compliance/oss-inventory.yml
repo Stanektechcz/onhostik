@@ -1,4 +1,4 @@
-generated_at: '2026-10-03T23:49:17+00:00'
+generated_at: '2026-10-04T00:57:02+00:00'
 generator: 'php artisan onhost:oss-inventory'
 policy:
   allowed:
@@ -572,7 +572,7 @@ components:
     homepage: null
   -
     name: league/commonmark
-    version: 2.10.0
+    version: 2.10.3
     license: BSD-3-Clause
     scope: runtime
     source: 'https://github.com/thephpleague/commonmark.git'
@@ -901,7 +901,7 @@ components:
     homepage: 'https://symfony.com'
   -
     name: symfony/polyfill-php80
-    version: v1.37.0
+    version: v1.43.0
     license: MIT
     scope: runtime
     source: 'https://github.com/symfony/polyfill-php80.git'

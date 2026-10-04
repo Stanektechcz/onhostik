@@ -219,11 +219,12 @@ it('raises only a number the platform enforces for the family, and only where it
     limitRaiseSubscribe($game);
     expect($raise($wordpress, 'php_workers'))->toBe('limit_raise_not_enforced')
         ->and($raise($mail, 'aliases'))->toBe('limit_raise_not_enforced')
-        ->and($raise($vps, 'snapshots'))->toBe('limit_raise_not_enforced')
         ->and($raise($web, 'made_up_key'))->toBe('limit_raise_not_enforced')
         ->and($raise($web, 'cron_concurrency'))->toBe('limit_raise_not_enforced') // organization-wide, not one service's
         // v1: no cloud (a resize has no node-capacity check), and nothing that takes a node's dedicated share
         ->and($raise($vps, 'vcpu'))->toBe('limit_raise_family')
+        // a VPS's snapshots are enforced since TASK-0057 (SnapshotLimit) — still no raise: cloud is not raised in v1
+        ->and($raise($vps, 'snapshots'))->toBe('limit_raise_family')
         ->and($raise($game, 'ram_mb'))->toBe('limit_raise_capacity')
         // enforced, but the product sells no priced option for it
         ->and($raise($mail, 'mailboxes'))->toBe('limit_raise_unpriced')

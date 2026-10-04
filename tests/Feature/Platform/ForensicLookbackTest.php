@@ -697,9 +697,16 @@ function flbwDerive(): array
             $actions = [...$actions, ...array_map(fn (string $n) => trim($n, "'"), explode(', ', $names))];
         }
     }
-    preg_match_all("~^ {12}('[a-z0-9_.]+'(?:, '[a-z0-9_.]+')*) => (.*)$~m", $steps['steps']['body'], $chains);
-    foreach ($chains[1] as $i => $names) {
-        preg_match_all('~\$this->(\w+Step)\(~', $chains[2][$i], $used);
+    // an arm runs to the next arm (or `default =>`), so a chain written over several lines — `'reinstall' => cloud ? [...] : [...]`
+    // (TASK-0057) — is read whole, not only its first line
+    $chainBody = $steps['steps']['body'];
+    preg_match_all("~^ {12}('[a-z0-9_.]+'(?:, '[a-z0-9_.]+')*|default) => ~m", $chainBody, $chains, PREG_OFFSET_CAPTURE);
+    foreach ($chains[1] as $i => [$names, $at]) {
+        if ($names === 'default') {
+            continue;
+        }
+        $arm = substr($chainBody, $at, ($chains[0][$i + 1][1] ?? strlen($chainBody)) - $at);
+        preg_match_all('~\$this->(\w+Step)\(~', $arm, $used);
         foreach (array_diff($used[1], ['featureStep']) as $step) {
             if (flbwReaches($steps[$step]['body'], $calls, true, $workflow) !== null) {
                 $actions = [...$actions, ...array_map(fn (string $n) => trim($n, "'"), explode(', ', $names))];

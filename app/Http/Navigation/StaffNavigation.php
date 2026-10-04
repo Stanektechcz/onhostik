@@ -103,7 +103,10 @@ final class StaffNavigation
             // ── support ──
             new N('queue', 'support', 10, 'inbox', ['cs' => 'Fronta tiketů', 'en' => 'Ticket queue'], N::SCREEN_VIEW, 'queue', [
                 N::get('staff/tickets', $tickets), N::get('staff/tickets/clusters', 'support.queue.manage'), N::get('staff/tickets/macros', 'support.ticket.manage'),
-                N::write('post', 'staff/tickets/sla-tick', 'support.queue.manage'),            ], all: [$tickets]),
+                N::write('post', 'staff/tickets/sla-tick', 'support.queue.manage'),
+                // the desk's own settings (TASK-0054): macros, queues and SLA policies, read and changed with support.queue.manage
+                ...self::deskSettings(),
+            ], all: [$tickets]),
             new N('ticket', 'support', 20, 'message', ['cs' => 'Detail tiketu', 'en' => 'Ticket'], N::SCREEN_VIEW, 'ticket', [
                 N::get('staff/tickets/{ticket}', $tickets), N::get('staff/tickets/{ticket}/work-offers', 'support.ticket.manage'),
                 N::write('post', 'staff/tickets/{ticket}/messages', 'support.ticket.manage'), N::write('post', 'staff/tickets/{ticket}/transition', 'support.ticket.manage'),
@@ -181,7 +184,7 @@ final class StaffNavigation
             new N('chargebacks', 'commerce', 20, 'undo', ['cs' => 'Kredity a platby', 'en' => 'Credits and payments'], N::SCREEN_VIEW, 'money', [
                 N::get('staff/chargebacks', ['billing.credit.adjust', 'staff.chargeback.decide']), N::get('staff/chargebacks/settings', ['billing.credit.adjust', 'staff.chargeback.decide']),
                 N::get('staff/chargebacks/analytics', 'staff.service.manage'), N::get('staff/marketplace/orders', 'partner.manage'),
-            N::write('post', 'staff/chargebacks/{chargeback}/decide', 'staff.chargeback.decide'),
+                N::write('post', 'staff/chargebacks/{chargeback}/decide', 'staff.chargeback.decide'),
             ], any: ['billing.credit.adjust', 'staff.chargeback.decide', 'staff.service.manage']),
             new N('loyalty', 'commerce', 30, 'star', ['cs' => 'Věrnost a kampaně', 'en' => 'Loyalty and campaigns'], N::SCREEN_VIEW, 'coupons', [
                 N::get('staff/loyalty/campaigns', 'staff.customer.manage'), N::get('staff/loyalty/levels', 'staff.customer.manage'), N::get('staff/loyalty/missions', 'staff.customer.manage'),
@@ -251,6 +254,24 @@ final class StaffNavigation
                 N::get('staff/data-requests', 'compliance.case.manage'),
             ], all: ['compliance.case.manage']),
         ];
+    }
+
+    /**
+     * `/v1/staff/support/{macros|queues|sla-policies}` (SupportSettingsController): every read and write with support.queue.manage.
+     *
+     * @return list<array{method:string, path:string, permission:string}>
+     */
+    private static function deskSettings(): array
+    {
+        $entries = [];
+        foreach (['support/macros', 'support/queues', 'support/sla-policies'] as $path) {
+            $entries = [...$entries,
+                N::get("staff/{$path}", 'support.queue.manage'), N::write('post', "staff/{$path}", 'support.queue.manage'),
+                N::write('patch', "staff/{$path}/{id}", 'support.queue.manage'), N::write('delete', "staff/{$path}/{id}", 'support.queue.manage'),
+            ];
+        }
+
+        return $entries;
     }
 
     /**
