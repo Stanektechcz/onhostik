@@ -109,7 +109,6 @@ final class PlanPromises
         'spam_filter' => 'sold on mail plans; only the price list names the antispam tier, no mail config sets an rspamd policy from it — see MetricRegistry',
         'traffic_tb' => 'sold on VPS/VDS and the CDN add-on; UsageWatch only measures traffic for web/managed families — see MetricRegistry',
         'bot_management' => 'sold on the CDN add-on, whose product has no executor at all — nothing in the platform configures bot management — see MetricRegistry',
-        'snapshots' => 'sold on VPS/VDS; the "snapshots" feature limit is display-only, no count check gates snapshot.create — see MetricRegistry',
         'pids' => 'sold in every game plan\'s limits bag; PterodactylGameProvider\'s resource limits (memory/swap/disk/io/cpu) never include a PID cap — see MetricRegistry',
         'backup_days' => 'sold on web/managed, mail and db-s/db-m plans; kept only behind the owner\'s default-off rules — backups.as_sold (web/managed daily backups), mail.backup_retention (mailbox copies, TASK-0024) and backups.compute (managed databases, family `data`) — so with the rules off (the default) no family keeps it as sold — see MetricRegistry kept_under (found by family-scoping the registry check, audit §5ad)',
     ];

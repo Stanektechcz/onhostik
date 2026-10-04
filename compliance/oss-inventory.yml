@@ -1,4 +1,4 @@
-generated_at: '2026-09-12T19:51:57+00:00'
+generated_at: '2026-10-03T23:49:17+00:00'
 generator: 'php artisan onhost:oss-inventory'
 policy:
   allowed:
@@ -1065,6 +1065,11 @@ frontend:
     version: 31154b91
     license: 'proprietary — ONhost'
     scope: surfaces
+  -
+    name: noVNC
+    version: '1.5.0 (ES modules via cdn.jsdelivr.net, pinned tag)'
+    license: MPL-2.0
+    scope: 'server console page (/panel/konzole, C9)'
 external_services:
   -
     name: 'Proxmox VE'

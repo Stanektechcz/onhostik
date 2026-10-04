@@ -513,15 +513,24 @@
             } });
           }
         }
-        if (on('console')) p5.extra.push({ label: _('Získat přístup ke konzoli', 'Get console access'), on: function () { API.post('/services/' + sel.id + '/console-token', {}, API.key()).then(function (r) { var d = r.data || r; flash(cmp, _('Konzole připravena', 'Console ready'), (d.url || '') + ' · token ' + (d.token || '') + ' · ' + _('platí do ', 'valid until ') + (d.expires_at || '')); }).catch(function (e) { flash(cmp, _('Konzole nedostupná', 'Console unavailable'), e.message || ''); }); } });
+        /* C9: the graphical console is its own page (noVNC through the relay, one-time token asked by the page itself) */
+        if (on('console')) p5.extra.push({ label: _('Otevřít konzoli (VNC)', 'Open the console (VNC)'), primary: true, on: function () { var w = window.open('/panel/konzole/' + encodeURIComponent(sel.id), 'onhost-console-' + sel.id); if (!w) flash(cmp, _('Prohlížeč zablokoval nové okno', 'The browser blocked the new window'), _('Povolte pro panel vyskakovací okna, nebo otevřete adresu /panel/konzole/' + sel.id, 'Allow pop-ups for the panel, or open /panel/konzole/' + sel.id)); } });
+        if (on('vm_reinstall')) p5.extra.push({ label: _('Reinstalovat systém', 'Reinstall the system'), on: function () { reinstallVm(cmp, sel, _, (((f.features.vm_reinstall || {}).options) || {})); } });
         return p5;
       }
       if (tab === 'snap') {
         if (!on('snapshots')) return unavailable(_('Snapshoty', 'Snapshots'));
-        return listPanel('snapshots', _('Snapshoty · ', 'Snapshots · ') + sel.name, _('stav disku i paměti k danému okamžiku; návrat trvá minuty', 'disk and memory at a point in time; rolling back takes minutes'),
+        var snapData = resource(cmp, sel, 'snapshots'), snapLimit = limit('snapshots');
+        var snapUsed = Array.isArray(snapData) ? snapData.filter(function (x) { return x.counts !== false; }).length : null;
+        var psn = listPanel('snapshots', _('Snapshoty · ', 'Snapshots · ') + sel.name, _('stav disku i paměti k danému okamžiku; návrat trvá minuty', 'disk and memory at a point in time; rolling back takes minutes'),
           [cell(_('Název', 'Name'), '1 1 200px'), cell(_('Popis', 'Description'), '1 1 220px'), cell(_('Vytvořen', 'Created'), '0 0 130px')],
           function (d) { return { cells: [cell(d.name, '1 1 200px', 1), cell(d.description || '', '1 1 220px'), cell(since(cmp, d.created_at), '0 0 130px', 1)], note: '', actions: [A(_('Vrátit se', 'Roll back'), function () { if (window.confirm(_('Vrátit server do snapshotu ' + d.name + '? Novější změny zmizí.', 'Roll the server back to ' + d.name + '? Newer changes are lost.'))) act(cmp, sel, 'rollback_snapshot', { name: d.name }, ['snapshots']); }), A(_('Smazat', 'Delete'), function () { act(cmp, sel, 'snapshot.delete', { name: d.name }, ['snapshots']); })] }; },
-          { title: _('Nový snapshot', 'New snapshot'), fields: [F('a', _('název (např. pred-upgradem)', 'name (e.g. before-upgrade)'), '0 0 200px'), F('b', _('popis (volitelně)', 'description (optional)'), '1 1 220px')], submit: _('Vytvořit', 'Create'), on: function () { act(cmp, sel, 'snapshot', { name: (s.wbF.a || '').trim().replace(/[^A-Za-z0-9_-]/g, '-') || 'snap-' + Date.now().toString(36), description: (s.wbF.b || '').trim() || undefined }, ['snapshots']); } });
+          { title: _('Nový snapshot', 'New snapshot'), fields: [F('a', _('název (např. pred-upgradem)', 'name (e.g. before-upgrade)'), '0 0 200px'), F('b', _('popis (volitelně)', 'description (optional)'), '1 1 220px')], submit: _('Vytvořit', 'Create'), on: function () { if (snapLimit && snapUsed !== null && snapUsed >= snapLimit) { flash(cmp, _('Limit snapshotů je vyčerpaný', 'The snapshot limit is used up'), _('Tarif umožňuje ' + snapLimit + ' snapshotů; nejdřív některý smažte.', 'The plan allows ' + snapLimit + ' snapshots; delete one first.')); return; } act(cmp, sel, 'snapshot', { name: (s.wbF.a || '').trim().replace(/[^A-Za-z0-9_-]/g, '-') || 'snap-' + Date.now().toString(36), description: (s.wbF.b || '').trim() || undefined }, ['snapshots']); } });
+        /* C9: the plan's number is enforced; the platform's own safety snapshots (before a rollback or a reinstall) do not count */
+        if (snapUsed !== null) psn.state = snapUsed + (snapLimit ? ' / ' + snapLimit : '') + (snapUsed !== snapData.length ? _(' (+' + (snapData.length - snapUsed) + ' bezpečnostní)', ' (+' + (snapData.length - snapUsed) + ' safety)') : '');
+        if (Array.isArray(snapData)) psn.rows.forEach(function (r, i) { if (snapData[i] && snapData[i].counts === false) r.note = _('bezpečnostní snapshot platformy před přepsáním · do limitu tarifu se nepočítá', 'the platform safety snapshot before an overwrite · not counted against the plan'); });
+        if (snapLimit && snapUsed !== null && snapUsed >= snapLimit) psn.note = _('limit tarifu je vyčerpaný (' + snapLimit + '); nový snapshot vytvoříte po smazání některého ze stávajících', 'the plan limit is used up (' + snapLimit + '); create a new snapshot after deleting one');
+        return psn;
       }
       if (tab === 'disks') return infoPanel(_('Disky · ', 'Disks · ') + sel.name, _('velikost disku určuje tarif; navýšení proběhne změnou tarifu za provozu', 'disk size follows the plan; grow it by changing the plan while running'), [[_('Konfigurace', 'Configuration'), sel.spec], [_('Tarif', 'Plan'), sel.product || '']]);
       if (tab === 'net') {
@@ -557,7 +566,11 @@
         var lines2 = (Array.isArray(ops2) ? ops2 : []).filter(function (o) { return o.kind === 'service.action'; }).slice(0, 40).map(function (o) { return { t: since(cmp, o.finished_at || o.queued_at), src: o.step_label || '', m: (o.state === 'FAILED' ? (o.error && o.error.message) || 'failed' : o.state.toLowerCase()), l: o.state === 'FAILED' ? 'err' : 'ok' }; });
         var powerBtns = ['start', 'reboot', 'stop', 'kill'].filter(function () { return on('power'); }).map(function (pa) { return { label: { start: _('Start', 'Start'), reboot: _('Restart', 'Restart'), stop: _('Stop', 'Stop'), kill: _('Kill', 'Kill') }[pa], primary: pa === 'start', on: function () { act(cmp, sel, 'power', { power_action: pa }, ['status']).then(function () { setTimeout(function () { grefresh(['status']); }, 4000); }); } }; });
         if (on('game_status')) powerBtns.push({ label: _('Obnovit stav', 'Refresh status'), on: function () { grefresh(['status']); } });
-        return { key: 'real:gcon', title: _('Konzole · ', 'Console · ') + sel.name, note: _('příkaz odešleme do konzole serveru; výstup je v logu serveru', 'the command goes to the server console; output is in the server log'), state: sel.state, console: true, conStatus: gstatus, conMeta: sel.spec || '', conPrompt: '>', consoleLines: lines2, form: on('command') ? { fields: [{ ph: _('příkaz (např. say Ahoj)', 'command (e.g. say Hello)') }], on: function () { var c = (s.wbF.a || '').trim(); if (!c) return; act(cmp, sel, 'command.send', { command: c }, []); } } : null, extra: powerBtns };
+        /* C10: the live console — the game panel's websocket through our relay with a one-time token; without it, the operation log */
+        var live = liveConsole(sel);
+        if (on('console')) powerBtns.unshift(live.open ? { label: _('Odpojit živou konzoli', 'Disconnect the live console'), on: function () { liveStop(cmp, sel); } } : { label: _('Připojit živou konzoli', 'Connect the live console'), primary: true, on: function () { liveStart(cmp, sel, _); } });
+        var liveLines = live.lines.slice(-300).reverse().map(function (l) { return { t: l.t, src: l.src || '', m: l.m, l: l.l || 'ok' }; });
+        return { key: 'real:gcon', title: _('Konzole · ', 'Console · ') + sel.name, note: live.open ? _('živá konzole serveru přes relay; příkaz jde rovnou do ní', 'the live console of the server through the relay; a command goes straight into it') : _('příkaz odešleme do konzole serveru; výstup uvidíte po připojení živé konzole', 'the command goes to the server console; connect the live console to see its output'), state: sel.state, console: true, conStatus: live.open ? live.status : (live.status || gstatus), conMeta: sel.spec || '', conPrompt: '>', consoleLines: live.lines.length ? liveLines : lines2, form: on('command') ? { fields: [{ ph: _('příkaz (např. say Ahoj)', 'command (e.g. say Hello)') }], on: function () { var c = (s.wbF.a || '').trim(); if (!c) return; if (liveSend(sel, c)) { cmp.setState({ wbF: { a: '', b: '', c: '' } }); rerender(cmp); return; } act(cmp, sel, 'command.send', { command: c }, []); } } : null, extra: powerBtns };
       }
       if (tab === 'startup') {
         if (!on('startup')) return unavailable(_('Startup a proměnné', 'Startup and variables'));
@@ -739,7 +752,109 @@
         var parts = path.split('/'); var name = parts.pop(); var parent = '/' + parts.join('/');
         (content === '' ? act(cmp, sel, 'gfile.mkdir', { root: parent, name: name }, [], _('Složka vytvořena', 'Folder created'), '') : act(cmp, sel, 'gfile.save', { path: path, content: content }, [], _('Soubor uložen', 'File saved'), '')).then(refresh);
       } },
-      extra: [{ label: _('Obnovit', 'Refresh'), on: refresh }, { label: _('Kořen serveru', 'Server root'), on: function () { go(''); } }] };
+      extra: [{ label: _('Nahrát soubor', 'Upload a file'), primary: true, on: function () { uploadGameFile(cmp, sel, _, root, refresh); } }, { label: _('Obnovit', 'Refresh'), on: refresh }, { label: _('Kořen serveru', 'Server root'), on: function () { go(''); } }] };
+  }
+
+  /* ── C10 live game console (the game panel's websocket through the console relay) ───────────────────────────────
+   * POST …/console-token hands out a single-use token and the relay socket to open (`socket`); the relay resolves the
+   * token server-side, opens the panel's websocket and authenticates there — the browser never sees the panel token.
+   * Frames are the panel's own JSON {event, args}. One connection per service; a token about to expire reconnects. */
+  state.live = state.live || {};
+  function liveConsole(sel) { return state.live[sel.id] || (state.live[sel.id] = { ws: null, open: false, lines: [], status: '', reconnects: 0, timer: null }); }
+  function livePush(cmp, sel, text, level, src) {
+    var live = liveConsole(sel);
+    String(text == null ? '' : text).split(/\r?\n/).forEach(function (line) {
+      if (line === '') return;
+      live.lines.push({ t: new Date().toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit', second: '2-digit' }), src: src || '', m: line.replace(/\u001b\[[0-9;]*[A-Za-z]/g, ''), l: level || 'ok' });
+    });
+    if (live.lines.length > 2000) live.lines = live.lines.slice(-1500);
+    if (!live.timer) live.timer = setTimeout(function () { live.timer = null; rerender(cmp); }, 200); // a busy server prints hundreds of lines a second
+  }
+  function liveStart(cmp, sel, _) {
+    var live = liveConsole(sel);
+    if (live.ws && live.ws.readyState <= 1) return;
+    live.status = _('připojuji…', 'connecting…'); rerender(cmp);
+    API.post('/services/' + sel.id + '/console-token', {}, API.key()).then(function (r) {
+      var d = r.data || r;
+      if (!d.socket) { live.status = ''; flash(cmp, _('Živá konzole není dostupná', 'The live console is not available'), _('Relay konzole není na platformě nastavený; příkazy lze dál posílat a výstup je v logu.', 'The console relay is not configured; commands still work and the output is in the log.')); rerender(cmp); return; }
+      if (d.kind !== 'wings') { live.status = ''; flash(cmp, _('Tato služba nemá textovou konzoli', 'This service has no text console'), ''); rerender(cmp); return; }
+      var ws = new WebSocket(d.socket);
+      live.ws = ws;
+      ws.onopen = function () { live.open = true; live.reconnects = 0; live.status = _('živá konzole připojená', 'live console connected'); livePush(cmp, sel, _('— připojeno přes relay —', '— connected through the relay —'), 'ok', 'relay'); };
+      ws.onmessage = function (ev) {
+        var frame; try { frame = JSON.parse(ev.data); } catch (e) { livePush(cmp, sel, ev.data); return; }
+        var args = frame.args || [];
+        if (frame.event === 'auth success') { ws.send(JSON.stringify({ event: 'send logs', args: [null] })); ws.send(JSON.stringify({ event: 'send stats', args: [null] })); }
+        else if (frame.event === 'console output' || frame.event === 'install output') args.forEach(function (a) { livePush(cmp, sel, a); });
+        else if (frame.event === 'daemon message') args.forEach(function (a) { livePush(cmp, sel, a, 'ok', 'daemon'); });
+        else if (frame.event === 'status') { live.status = _('stav serveru: ', 'server state: ') + String(args[0] || ''); rerender(cmp); }
+        else if (frame.event === 'stats') { try { var st = JSON.parse(args[0]); live.status = 'CPU ' + Math.round(st.cpu_absolute || 0) + ' % · RAM ' + Math.round((st.memory_bytes || 0) / 1048576) + ' MB · ' + String(st.state || ''); if (!live.timer) live.timer = setTimeout(function () { live.timer = null; rerender(cmp); }, 1000); } catch (e) { /* not a stats frame */ } }
+        else if (frame.event === 'token expiring' || frame.event === 'token expired') { livePush(cmp, sel, _('— token konzole vyprší, obnovuji spojení —', '— the console token expires, reconnecting —'), 'ok', 'relay'); ws.close(1000, 'token'); }
+        else if (frame.event === 'jwt error' || frame.event === 'daemon error') args.forEach(function (a) { livePush(cmp, sel, a, 'err', 'daemon'); });
+      };
+      ws.onclose = function (ev) {
+        live.ws = null; live.open = false; live.status = '';
+        if (ev.reason === 'token' && live.reconnects < 20) { live.reconnects++; setTimeout(function () { liveStart(cmp, sel, _); }, 500); return; }
+        if (ev.reason !== 'closed by the customer') livePush(cmp, sel, _('— spojení ukončeno', '— connection closed') + (ev.reason ? ' (' + ev.reason + ')' : '') + ' —', ev.code === 1000 ? 'ok' : 'err', 'relay');
+        rerender(cmp);
+      };
+      ws.onerror = function () { live.status = _('relay nedostupný', 'relay unreachable'); rerender(cmp); };
+    }).catch(function (e) { live.status = ''; flash(cmp, _('Živá konzole nedostupná', 'Live console unavailable'), (e && e.message) || ''); rerender(cmp); });
+  }
+  function liveStop(cmp, sel) { var live = liveConsole(sel); if (live.ws) live.ws.close(1000, 'closed by the customer'); live.open = false; live.status = ''; rerender(cmp); }
+  /** A command into the open live console; false when it is not open (the caller sends it as an operation instead). */
+  function liveSend(sel, command) {
+    var live = liveConsole(sel);
+    if (!live.ws || live.ws.readyState !== 1) return false;
+    live.ws.send(JSON.stringify({ event: 'send command', args: [command] }));
+    live.lines.push({ t: new Date().toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit', second: '2-digit' }), src: '>', m: command, l: 'ok' });
+    return true;
+  }
+
+  /* C10: a binary file (a plugin .jar, a world archive) into the folder open in the file manager. Multipart to
+   * POST …/game-files/upload: the platform scans it first, then hands it to the daemon through the panel's signed URL. */
+  function uploadGameFile(cmp, sel, _, root, refresh) {
+    var input = document.createElement('input');
+    input.type = 'file';
+    input.style.display = 'none';
+    input.addEventListener('change', function () {
+      var file = input.files && input.files[0];
+      input.remove();
+      if (!file) return;
+      if (!window.confirm(_('Nahrát ' + file.name + ' (' + Math.max(1, Math.round(file.size / 1024)) + ' kB) do složky ' + root + '? Soubor stejného jména se přepíše.', 'Upload ' + file.name + ' (' + Math.max(1, Math.round(file.size / 1024)) + ' kB) into ' + root + '? A file of the same name is overwritten.'))) return;
+      var form = new FormData();
+      form.append('file', file, file.name);
+      form.append('directory', root || '/');
+      flash(cmp, _('Nahrávám ' + file.name + '…', 'Uploading ' + file.name + '…'), _('Soubor nejdřív zkontrolujeme antivirem, pak ho předáme serveru.', 'The file is scanned first, then handed to the server.'));
+      API.post('/services/' + sel.id + '/game-files/upload', form, API.key()).then(function (r) {
+        var d = r.data || r;
+        flash(cmp, _('Soubor přijat', 'File accepted'), file.name + _(' se nahrává na server', ' is being uploaded to the server') + (d.operation_id ? ' · ' + String(d.operation_id).slice(-6) : (d.id ? ' · ' + String(d.id).slice(-6) : '')));
+        refresh();
+      }).catch(function (e) { flash(cmp, _('Soubor se nepodařilo nahrát', 'The file could not be uploaded'), (e && e.message) || ''); });
+    });
+    document.body.appendChild(input);
+    input.click();
+  }
+
+  /* C9: a fresh operating system on a server. The image comes from the list the platform allows for it; the server's
+   * own destructive preview says what goes, the confirmation carries its fingerprint, and the bus asks for a step-up. */
+  function reinstallVm(cmp, sel, _, options) {
+    var images = options.images || [];
+    if (!images.length) { flash(cmp, _('Reinstalace není dostupná', 'Reinstall is not available'), _('Pro tento server není připravený žádný systém.', 'No system is prepared for this server.')); return; }
+    var pick = window.prompt(_('Který systém nainstalovat? Napište přesně jeden z:\n', 'Which system should be installed? Type exactly one of:\n') + images.join('\n'), images[0]);
+    if (pick === null) return;
+    pick = String(pick).trim();
+    if (images.indexOf(pick) < 0) { flash(cmp, _('Takový systém pro server nenabízíme', 'That system is not offered for this server'), images.join(', ')); return; }
+    API.get('/services/' + sel.id + '/actions/reinstall/preview?params%5Bimage%5D=' + encodeURIComponent(pick)).then(function (r) {
+      var p = r.data || r;
+      var text = (p.what || []).concat(p.depends || []).join('\n') + (p.recovery && p.recovery.note ? '\n\n' + p.recovery.note : '');
+      if (!window.confirm(_('Reinstalovat ' + sel.name + ' na ' + pick + '?\n\n', 'Reinstall ' + sel.name + ' with ' + pick + '?\n\n') + text)) return null;
+      return API.post('/services/' + sel.id + '/actions', { action: 'reinstall', params: { confirm: true, image: pick }, confirm: p.fingerprint }, API.key()).then(function (r2) {
+        var d = r2.data || r2;
+        flash(cmp, _('Reinstalace spuštěna', 'Reinstall started'), _('Nejdřív uděláme snapshot současného stavu, pak server vypneme a nainstalujeme ' + pick + '. Průběh je v Provozu.', 'A snapshot of the current state comes first, then the server is switched off and ' + pick + ' installed. Follow it under Operations.') + (d.operation_id ? ' · ' + String(d.operation_id).slice(-6) : ''));
+        [2500, 8000].forEach(function (ms) { setTimeout(function () { forget(sel, ['snapshots']); rerender(cmp); }, ms); });
+      });
+    }).catch(function (e) { flash(cmp, _('Reinstalace neproběhla', 'Reinstall failed'), (e && e.message) || ''); });
   }
 
   function usagePanel(cmp, sel, _) {

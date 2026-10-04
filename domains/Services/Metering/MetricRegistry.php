@@ -172,10 +172,10 @@ final class MetricRegistry
             'reason' => 'UsageWatch only measures "traffic" for web/managed families; cloud services (VPS/VDS) and the CDN add-on never have their monthly transfer read or capped anywhere.',
         ],
         'snapshots' => [
-            'entitlement' => ['snapshots'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::NONE, 'families' => ['cloud'],
-            'sources' => ['proxmox' => null],
-            'interval_minutes' => null, 'drives_guard' => false, 'status' => self::GAP,
-            'reason' => 'ServiceFeatures shows "snapshots" as a display limit only; ServiceService\'s snapshot action never calls the generic $limit() count check that database.create/ftp.create/cron.create/subdomain.add use, so a VPS can take unlimited snapshots.',
+            'entitlement' => ['snapshots'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::HARD, 'families' => ['cloud'],
+            'sources' => ['proxmox' => 'SnapshotLimit counts the VM\'s snapshots (ComputeProvider::listSnapshots) at the request and again in the snapshot step, and refuses a new one at the plan\'s number; the platform\'s own safety snapshots (pre_rollback, pre_reinstall) do not count'],
+            'interval_minutes' => null, 'drives_guard' => false, 'status' => self::ENFORCED_ONLY,
+            'reason' => 'Phase C (C9): a snapshot is refused once the server holds as many as its plan sells (feature_limit_reached); nothing samples the count over time — it is checked when a snapshot is asked for.',
         ],
         // TASK-0023 placement-capacity (decision 7): kept for the web family only — a web plan that sells it runs only on ISPConfig
         'php_workers_dedicated' => [

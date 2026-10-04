@@ -109,6 +109,9 @@ final class DestructivePreview
         if ($action === 'database.delete') {
             $out['database'] = (string) ($params['remote_id'] ?? '');
         }
+        if ($action === 'reinstall' && $service->family === 'cloud') {
+            $out['image'] = (string) ($params['image'] ?? ''); // another system than the one previewed is another action (C9)
+        }
         if (in_array($action, ['terminate', 'purge', 'reinstall', 'restore', 'rollback_snapshot', 'staging.push'], true)) {
             // everything of the customer's that lives on the service: a database added since the preview changes what is lost
             $out['contents'] = $this->contents($service);
@@ -146,7 +149,9 @@ final class DestructivePreview
             'purge' => $out[] = 'Služba se odstraní u poskytovatele. Tohle je konec, ne pozastavení.',
             'restore', 'archive.restore' => $out[] = 'Současný obsah služby se přepíše zálohou'.(($backup['at'] ?? null) !== null ? ' z '.$backup['at'] : '').'.',
             'rollback_snapshot' => $out[] = 'Server se vrátí do stavu ze snapshotu „'.($target['snapshot'] ?? '').'“; všechno, co udělal od té doby, zmizí.',
-            'reinstall' => $out[] = 'Soubory serveru se přepíšou instalací od začátku.',
+            'reinstall' => $out[] = $service->family === 'cloud'
+                ? 'Systémový disk serveru se nahradí čistou instalací '.((string) ($target['image'] ?? '') ?: 'vybraného systému').'; všechno, co na něm je, zmizí. Server se na chvíli vypne. Původní disk zůstane odpojený u snapshotu před reinstalací.'
+                : 'Soubory serveru se přepíšou instalací od začátku.',
             'database.delete' => $out[] = 'Databáze se smaže i s obsahem.',
             'backup.delete', 'gbackup.delete' => $out[] = 'Záloha se smaže; obnovit z ní už nepůjde.',
             'staging.delete' => $out[] = 'Testovací kopie webu se odstraní. Ostrý web zůstává.',
