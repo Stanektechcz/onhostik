@@ -94,7 +94,7 @@ final class GenerateOpenApi extends Command
             'openapi' => '3.1.0',
             'info' => [
                 'title' => 'ONhost Cloud Platform API',
-                'version' => (string) config('onhost.version', '4.0'),
+                'version' => (string) config('onhost.api.version', '1.0.0'),
                 'description' => "Control-plane API of the ONhost hosting platform (blueprint §17). JSON only. Errors use `{error, message, status, errors?}`.\nLists accept `?limit=&offset=` and return `X-Total-Count`. Mutations honour `Idempotency-Key`. Money is `{minor, currency, decimal}`.\nGenerated from routes by `php artisan onhost:openapi` — do not edit by hand.",
                 'contact' => ['name' => 'ONhost API', 'url' => (string) config('onhost.portal_url')],
             ],

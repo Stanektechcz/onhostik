@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: 'ONhost Cloud Platform API'
-  version: '4.0'
+  version: 1.0.0
   description: |-
     Control-plane API of the ONhost hosting platform (blueprint §17). JSON only. Errors use `{error, message, status, errors?}`.
     Lists accept `?limit=&offset=` and return `X-Total-Count`. Mutations honour `Idempotency-Key`. Money is `{minor, currency, decimal}`.

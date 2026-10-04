@@ -134,6 +134,12 @@ return [
         'idempotency_ttl_hours' => 24,
         'page_size' => 40,
         'max_page_size' => 200,
+        'version' => env('ONHOST_API_VERSION', '1.0.0'), // info.version of the OpenAPI document and X-API-Version of every response
+        'probes_rate_limit_per_minute' => 600, // per address (unauthenticated probe/alert callers)
+        'callbacks_rate_limit_per_minute' => 120, // per address (Discord interactions)
+        'failed_auth_per_minute' => 30, // 401 answers per address before 429
+        // Deprecation policy: [{path: 'v1/foo/*', deprecated_at: '2026-10-01', sunset_at: '2027-04-01', link: 'https://…'}]
+        'deprecations' => [],
     ],
 
     'legal_entity' => [ // the operator's own company for documents (LegalEntitySeeder / onhost:production:prepare --legal); config, not env(), so a cached configuration still carries it

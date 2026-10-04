@@ -13,6 +13,8 @@ import { WebSocketServer, WebSocket } from 'ws';
 const PORT = parseInt(process.env.PORT || '8090', 10);
 const API = (process.env.ONHOST_API || 'http://localhost:8000').replace(/\/$/, '');
 const KEY = process.env.ONHOST_CONSOLE_RELAY_KEY || '';
+// a hung API must not hold a console open or an alive-check forever (TASK-0076, D7)
+const FETCH_TIMEOUT_MS = Math.max(1000, parseInt(process.env.RELAY_FETCH_TIMEOUT_MS || '8000', 10) || 8000);
 const ALLOW_INSECURE_UPSTREAM = process.env.RELAY_ALLOW_INSECURE_UPSTREAM === '1';
 
 if (!KEY) { console.error('ONHOST_CONSOLE_RELAY_KEY is required'); process.exit(1); }
@@ -23,15 +25,21 @@ const server = http.createServer((req, res) => {
 });
 const wss = new WebSocketServer({ server, path: undefined, maxPayload: 4 * 1024 * 1024 });
 
+async function apiFetch(url, init) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
+  try { return await fetch(url, { ...init, signal: ctl.signal }); } finally { clearTimeout(timer); }
+}
+
 async function stillAlive(token) {
-  const r = await fetch(`${API}/console/ws/${encodeURIComponent(token)}/alive`, { headers: { 'X-Relay-Key': KEY, Accept: 'application/json' } });
+  const r = await apiFetch(`${API}/console/ws/${encodeURIComponent(token)}/alive`, { headers: { 'X-Relay-Key': KEY, Accept: 'application/json' } });
   if (r.ok) return true;
   if ([401, 403, 404, 410].includes(r.status)) return false;
   throw new Error(`alive ${r.status}`);
 }
 
 async function resolve(token) {
-  const r = await fetch(`${API}/console/ws/${encodeURIComponent(token)}`, { headers: { 'X-Relay-Key': KEY, Accept: 'application/json' } });
+  const r = await apiFetch(`${API}/console/ws/${encodeURIComponent(token)}`, { headers: { 'X-Relay-Key': KEY, Accept: 'application/json' } });
   if (!r.ok) throw new Error(`descriptor ${r.status}`);
   return (await r.json()).data;
 }

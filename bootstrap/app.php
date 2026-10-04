@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\ApiDeprecation;
 use App\Http\Middleware\EnsureStaff;
 use App\Http\Middleware\RememberReferral;
 use App\Http\Middleware\RequestMetrics;
@@ -7,8 +8,10 @@ use App\Http\Middleware\SecurityHeaders;
 use App\Http\Middleware\SetLocale;
 use App\Http\Middleware\ShedUnderLoad;
 use App\Http\Middleware\StatusHost;
+use App\Http\Middleware\ThrottleFailedAuth;
 use App\Http\Middleware\TokenRouteScope;
 use Illuminate\Auth\AuthenticationException;
+use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -47,6 +50,8 @@ return Application::configure(basePath: dirname(__DIR__))
         // the staff guard (phase D2) refuses before route model binding: an outsider learns neither which identifiers exist (404) nor
         // what a staff endpoint expects (422)
         $middleware->prependToPriorityList(SubstituteBindings::class, EnsureStaff::class);
+        $middleware->prependToPriorityList(before: AuthenticatesRequests::class, prepend: ThrottleFailedAuth::class); // runs OUTSIDE authentication so it sees the 401 (D7)
+        $middleware->api(append: [ApiDeprecation::class]); // X-API-Version + Deprecation/Sunset (D7)
         $middleware->trustProxies(at: env('TRUSTED_PROXIES') ? explode(',', (string) env('TRUSTED_PROXIES')) : null);
         // Surfaces are HTML: guests go to the sign-in surface. Scripts, API and relay endpoints answer 401 JSON instead.
         $middleware->redirectGuestsTo(fn (Request $request) => $request->is('v1/*') || $request->is('surfaces/*') || $request->is('console/*') || $request->expectsJson() ? null : '/prihlaseni?next='.urlencode($request->getRequestUri()));

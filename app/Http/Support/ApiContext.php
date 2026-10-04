@@ -239,7 +239,7 @@ final class ApiContext
         $limit = max(1, min((int) config('onhost.api.max_page_size', 200), (int) $request->query('limit', (string) config('onhost.api.page_size', 40))));
         $offset = max(0, (int) $request->query('offset', '0'));
         $total = (clone $query)->count();
-        $rows = $query->orderByDesc($defaultSort)->skip($offset)->take($limit)->get();
+        $rows = $query->orderByDesc($defaultSort)->orderByDesc($query->getModel()->getQualifiedKeyName())->skip($offset)->take($limit)->get();
 
         return response()->json(['data' => $rows->map($present)->values()->all(), 'total' => $total, 'limit' => $limit, 'offset' => $offset])->header('X-Total-Count', (string) $total);
     }
