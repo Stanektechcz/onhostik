@@ -48,6 +48,20 @@ function Invoke-GitChecked {
     return [pscustomobject]@{ ok = ($LASTEXITCODE -eq 0); output = $output }
 }
 
+# Native tools (composer) also write progress on stderr. Windows PowerShell 5.1 under 'Stop' turns the first stderr
+# line into a terminating NativeCommandError whenever stderr is redirected (agent shells, 2>&1, CI), so success is
+# judged by the exit code alone and stderr is merged into the output as plain text.
+function Invoke-NativeChecked {
+    param([string] $Directory, [string] $Executable, [Parameter(ValueFromRemainingArguments = $true)][string[]] $Arguments)
+    $ErrorActionPreference = 'Continue'
+    Push-Location -LiteralPath $Directory
+    try {
+        $output = @(& $Executable @Arguments 2>&1 | ForEach-Object { "$_" })
+        $code = $LASTEXITCODE
+    } finally { Pop-Location }
+    return [pscustomobject]@{ ok = ($code -eq 0); exit = $code; output = $output }
+}
+
 function ConvertTo-ScopePath {
     param([string] $Value)
     return ($Value.Trim() -replace '\\', '/' -replace '^\./', '' -replace '/+$', '').ToLowerInvariant()
@@ -266,9 +280,9 @@ switch ($Action) {
             $phar = @(@((Get-OnhostComposerPhar), (Join-Path (Split-Path -Parent $php) 'composer.phar')) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }) | Select-Object -First 1
             if (-not $phar) { Write-Warning 'composer.phar not found; run composer install in the worktree before testing.' }
             else {
-                Push-Location $tree
-                try { & $php $phar install --no-interaction --no-progress | Out-Host } finally { Pop-Location }
-                if ($LASTEXITCODE -ne 0) { Write-Warning "composer install failed (exit $LASTEXITCODE) in $tree; rerun it there before testing - the task is started but its vendor/ is incomplete." }
+                $install = Invoke-NativeChecked $tree $php $phar install --no-interaction --no-progress
+                $install.output | Out-Host
+                if (-not $install.ok) { Write-Warning "composer install failed (exit $($install.exit)) in $tree; rerun it there before testing - the task is started but its vendor/ is incomplete." }
             }
         }
 

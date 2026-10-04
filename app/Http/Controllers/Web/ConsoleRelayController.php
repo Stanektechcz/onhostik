@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Contracts\Cache\Repository as Cache;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Services\Console\ConsoleSessions;
 use Onhost\Domain\Services\Models\Service;
@@ -29,6 +30,10 @@ use Onhost\Platform\Errors\DomainError;
  */
 final class ConsoleRelayController extends Controller
 {
+    private const RELAY_KEY_ATTEMPTS = 10;
+
+    private const RELAY_KEY_DECAY_SECONDS = 60;
+
     public function __construct(private readonly Cache $cache, private readonly AuditRecorder $audit, private readonly ConsoleSessions $sessions) {}
 
     public function resolve(Request $request, string $token): JsonResponse
@@ -58,23 +63,35 @@ final class ConsoleRelayController extends Controller
     public function alive(Request $request, string $token): JsonResponse
     {
         $this->assertRelay($request, $token);
-        $refusal = $this->sessions->alive($token);
-        if ($refusal !== null) {
-            if ($refusal !== 'session_unknown') {
-                $this->audit->record(CommandContext::system('console.relay'), 'service.console.closed', 'succeeded', ['reason' => $refusal, 'relay_ip' => $request->ip()], 'service', null);
-            }
+        $closed = $this->sessions->alive($token);
+        if ($closed !== null) {
+            // TASK-0067: every close is on record with the service it was for — the one whose live record expired or was flushed
+            // (`session_unknown`, no service remembered) too, by a fingerprint of its token (never the token itself)
+            $detail = ['reason' => $closed['reason'], 'service_id' => $closed['service_id'], 'relay_ip' => $request->ip(), 'console_ref' => substr(hash('sha256', $token), 0, 16)];
+            $this->audit->record(CommandContext::system('console.relay'), 'service.console.closed', 'succeeded', $detail, 'service', $closed['service_id']);
 
-            throw new DomainError('console_session_ended', 'This console may no longer stay open.', 410, ['reason' => $refusal]);
+            throw new DomainError('console_session_ended', 'This console may no longer stay open.', 410, ['reason' => $closed['reason']]);
         }
 
         return response()->json(['data' => ['alive' => true, 'next_in' => ConsoleSessions::aliveSeconds()]]);
     }
 
+    /**
+     * TASK-0067 (PR #53 review, LOW): the relay key took unlimited guesses. An address that sent RELAY_KEY_ATTEMPTS wrong keys
+     * within RELAY_KEY_DECAY_SECONDS is refused (429) until the window passes — with a right key too, or the limit would only slow
+     * a guesser down. The relay itself never sends a wrong key; the alive check is limited per console (throttle:console-alive).
+     */
     private function assertRelay(Request $request, string $token): void
     {
+        $limiter = 'console-relay-key:'.$request->ip();
+        if (RateLimiter::tooManyAttempts($limiter, self::RELAY_KEY_ATTEMPTS)) {
+            throw new DomainError('relay_rate_limited', 'Too many wrong relay keys from this address; try again later.', 429, ['retry_after' => RateLimiter::availableIn($limiter)]);
+        }
         $relayKey = (string) config('onhost.console.relay_key', '');
         $provided = (string) $request->header('X-Relay-Key', '');
         if ($relayKey === '' || ! hash_equals($relayKey, $provided)) {
+            RateLimiter::hit($limiter, self::RELAY_KEY_DECAY_SECONDS);
+
             throw new DomainError('relay_unauthorized', 'Console relay key required.', 401);
         }
         if (! preg_match('/^con_[0-9a-z]{26}$/', $token)) {

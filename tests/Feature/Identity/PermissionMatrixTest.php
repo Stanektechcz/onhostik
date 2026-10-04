@@ -190,8 +190,9 @@ it('keeps the security auditor read-only: no HIGH or CRITICAL permission, no wri
 
 it('keeps the content team out of customer accounts: no Customer 360 for a role that edits public content', function () {
     // B6 asked whether marketing_content should get `staff.customer.read` (the staff notifications ask for it). Not granted: it is
-    // the whole customer view (AssistantScopeTest pins that staff without it do not reach a customer's account) — open decision
-    expect(RoleCatalog::all()['marketing_content']['permissions'])->toBe(['content.manage']);
+    // the whole customer view (AssistantScopeTest pins that staff without it do not reach a customer's account). TASK-0067 decided
+    // it: the content team reads its own staff inbox with the narrow `staff.inbox.read` (StaffInboxKeyTest), never Customer 360
+    expect(RoleCatalog::all()['marketing_content']['permissions'])->toBe(['content.manage', 'staff.inbox.read'])->not->toContain('staff.customer.read');
 });
 
 it('pins the dormant permissions: catalogue keys that no endpoint, command or check asks for yet', function () {

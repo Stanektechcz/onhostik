@@ -22,6 +22,35 @@ final class GenerateOpenApi extends Command
 
     protected $description = 'Write the OpenAPI 3.1 contract for /v1 from the registered routes';
 
+    /**
+     * What a route alone cannot tell (TASK-0066): documented request bodies and the error slugs an operation refuses with, keyed by
+     * "METHOD /path". Added here, not by hand in the YAML, so a regeneration (every deploy runs it) keeps them.
+     *
+     * @var array<string, array{body?: array<string, mixed>, errors?: array<int, list<string>>}>
+     */
+    private const DETAILS = [
+        'POST /domains/transfer-in' => [
+            'body' => ['required' => ['fqdn', 'auth_info', 'consent'], 'properties' => [
+                'fqdn' => ['type' => 'string', 'maxLength' => 253],
+                'order_item_id' => ['type' => 'string', 'maxLength' => 40, 'description' => 'The PAID order line `action: transfer` for this name (TASK-0058). Required for customers; only staff acting as staff may transfer without one.'],
+                'auth_info' => ['type' => 'string', 'maxLength' => 64, 'writeOnly' => true, 'description' => 'Transfer code (AUTH-ID) from the current registrar; kept encrypted until the registrar has it, never returned.'],
+                'registrant_contact_id' => ['type' => 'string'], 'registrant' => ['type' => 'object'], 'nameservers' => ['type' => 'array', 'items' => ['type' => 'string']],
+                'period' => ['type' => 'integer', 'minimum' => 1, 'maximum' => 10, 'description' => 'Ignored with an order line: the paid years decide.'],
+                'consent' => ['type' => 'object', 'required' => ['person'], 'properties' => ['person' => ['type' => 'string', 'maxLength' => 190]]],
+            ]],
+            'errors' => ['422' => ['transfer_needs_order', 'transfer_order_mismatch', 'domain_invalid'], '409' => ['transfer_order_not_paid', 'transfer_already_submitted', 'transfer_line_closed', 'domain_taken']],
+        ],
+        'POST /domains/{domain}/holder' => [
+            'body' => ['properties' => [
+                'email' => ['type' => 'string', 'format' => 'email', 'maxLength' => 190], 'phone' => ['type' => 'string', 'maxLength' => 40], 'street' => ['type' => 'string', 'maxLength' => 190],
+                'city' => ['type' => 'string', 'maxLength' => 120], 'postal_code' => ['type' => 'string', 'maxLength' => 20], 'country' => ['type' => 'string', 'minLength' => 2, 'maxLength' => 2],
+            ], 'description' => 'How the holder is reached (e-mail, phone, address), changed at the registrar first. HIGH: needs a fresh step-up. The holder himself (name, company, IČO, DIČ) is a transfer of the domain and is refused.'],
+        ],
+        'POST /cart/quote' => ['errors' => ['422' => ['domain_action_invalid']]],
+        'POST /orders' => ['errors' => ['422' => ['domain_action_invalid']]],
+        'POST /checkout/guest' => ['errors' => ['422' => ['domain_action_invalid']]],
+    ];
+
     public function handle(Router $router): int
     {
         $paths = [];
@@ -56,7 +85,7 @@ final class GenerateOpenApi extends Command
                 if ($auth) {
                     $operation['parameters'][] = ['$ref' => '#/components/parameters/Organization'];
                 }
-                $paths[$path][strtolower($method)] = $operation;
+                $paths[$path][strtolower($method)] = $this->detailed($operation, self::DETAILS["{$method} {$path}"] ?? []);
             }
         }
         ksort($paths);
@@ -101,6 +130,25 @@ final class GenerateOpenApi extends Command
         $this->info(sprintf('%s: %d paths, %d operations', $out, count($paths), array_sum(array_map('count', $paths))));
 
         return self::SUCCESS;
+    }
+
+    /**
+     * @param  array<string, mixed>  $operation
+     * @param  array{body?: array<string, mixed>, errors?: array<int, list<string>>}  $details
+     * @return array<string, mixed>
+     */
+    private function detailed(array $operation, array $details): array
+    {
+        if (isset($details['body'], $operation['requestBody'])) {
+            $operation['requestBody']['content']['application/json']['schema'] = ['type' => 'object'] + $details['body'];
+        }
+        foreach ($details['errors'] ?? [] as $status => $slugs) {
+            $listed = implode(', ', array_map(fn (string $slug) => "`{$slug}`", $slugs));
+            $base = $operation['responses'][$status]['description'] ?? ((string) $status === '409' ? 'Conflict with the current state' : 'Refused');
+            $operation['responses'][$status] = ['description' => "{$base} — error: {$listed}", 'content' => ['application/json' => ['schema' => ['allOf' => [['$ref' => '#/components/schemas/Problem'], ['properties' => ['error' => ['enum' => $slugs]]]]]]]];
+        }
+
+        return $operation;
     }
 
     private function tag(string $uri): string

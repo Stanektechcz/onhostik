@@ -38,6 +38,7 @@ final class CatalogController extends ApiController
         return response()->json(['data' => $item]);
     }
 
+    /** TLD list with list prices; `transfer` is what the cart charges for a transfer (renewal × `transfer_years`, TASK-0066). */
     public function tlds(CatalogService $catalog, Request $request): JsonResponse
     {
         [, $currency] = $this->localeCurrency($request);
@@ -48,7 +49,7 @@ final class CatalogController extends ApiController
             } catch (DomainError) {
                 continue;
             }
-            $out[] = ['tld' => $policy->tld, 'registrable' => (bool) $policy->registrable, 'periods' => $policy->periods, 'default_period' => $policy->default_period, 'transfer_mode' => $policy->transfer_mode, 'nsset_required' => (bool) $policy->nsset_required, 'dnssec' => (bool) $policy->dnssec_supported, 'idn' => (bool) $policy->idn, 'register' => $price->register(), 'renew' => $price->renew(), 'transfer' => $price->transfer(), 'registry_terms_url' => $policy->registry_terms_url, 'registrar_terms_url' => $policy->registrar_terms_url];
+            $out[] = ['tld' => $policy->tld, 'registrable' => (bool) $policy->registrable, 'periods' => $policy->periods, 'default_period' => $policy->default_period, 'transfer_mode' => $policy->transfer_mode, 'nsset_required' => (bool) $policy->nsset_required, 'dnssec' => (bool) $policy->dnssec_supported, 'idn' => (bool) $policy->idn, 'register' => $price->register(), 'renew' => $price->renew(), 'transfer' => DomainService::transferPrice($price, $policy), 'transfer_years' => DomainService::transferYears($policy), 'registry_terms_url' => $policy->registry_terms_url, 'registrar_terms_url' => $policy->registrar_terms_url];
         }
 
         return response()->json(['data' => $out, 'currency' => $currency]);

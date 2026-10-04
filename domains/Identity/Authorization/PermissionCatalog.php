@@ -152,6 +152,9 @@ final class PermissionCatalog
             // B6 (audit 2026-10; TASK-0043): whether a customer gets credit back for a service they leave early is the support desk's
             // decision, not that of every role that may restart any service (`staff.service.manage`); the share stays finance's (H348)
             'staff.chargeback.decide' => $s('Decide customer chargeback requests (credit returned for a service cancelled early)'),
+            // TASK-0067: a staff inbox of one's own — the internal notifications addressed to the reader — for staff without the customer
+            // view (the content team); the whole internal inbox stays `staff.customer.read`'s (it names customers)
+            'staff.inbox.read' => $s('Read your own staff notification inbox (notifications addressed to you)'),
 
             // ── staff: provisioning & providers ──────────────────────────────
             'provisioning.operation.read' => $s('View operations, jobs and provider calls'),

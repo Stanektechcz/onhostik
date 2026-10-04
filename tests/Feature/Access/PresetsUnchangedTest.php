@@ -41,7 +41,9 @@ const PUC_B6_CHANGES = [
     'support_manager' => ['add' => ['provisioning.operation.read', 'staff.chargeback.decide'], 'drop' => ['support.customer_impersonate']], // SS-7
     'support_l2' => ['add' => ['staff.chargeback.decide'], 'drop' => []],
     'support_l3' => ['add' => ['staff.chargeback.decide'], 'drop' => []],
-    'platform_owner' => ['add' => ['staff.chargeback.decide'], 'drop' => []], // every staff key, the new one too
+    'platform_owner' => ['add' => ['staff.chargeback.decide', 'staff.inbox.read'], 'drop' => []], // every staff key, the new ones too
+    // TASK-0067: the content team reads its own staff inbox with a narrow key of its own (still no customer view)
+    'marketing_content' => ['add' => ['staff.inbox.read'], 'drop' => []],
 ];
 
 /** @return array{roles: array<string, list<string>>, actions: array<string, string>} the base, with the B6 changes applied */
