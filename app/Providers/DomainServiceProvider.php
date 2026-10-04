@@ -58,6 +58,8 @@ use Onhost\Domain\Marketplace\Commands\MarketplaceCommandHandler;
 use Onhost\Domain\Marketplace\Commands\MarketplaceStaffCommand;
 use Onhost\Domain\Notifications\NotificationRouter;
 use Onhost\Domain\Notifications\WebhookDispatcher;
+use Onhost\Domain\Notifications\Webhooks\WebhookCommand;
+use Onhost\Domain\Notifications\Webhooks\WebhookCommandHandler;
 use Onhost\Domain\Orders\Commands\CancelOrderCommand;
 use Onhost\Domain\Orders\Commands\DecideOrderApprovalCommand;
 use Onhost\Domain\Orders\Commands\OrdersCommandHandler;
@@ -134,6 +136,7 @@ final class DomainServiceProvider extends ServiceProvider
         WithdrawalCommand::class => WithdrawalCommandHandler::class, // TASK-0025 consumer withdrawal
         WithdrawalStaffCommand::class => WithdrawalCommandHandler::class, // TASK-0025 consumer withdrawal (a letter finance records)
         LoyaltyCommand::class => LoyaltyCommandHandler::class,
+        WebhookCommand::class => WebhookCommandHandler::class, // TASK-0077 (D4) customer webhooks
         AccountLoyaltyCommand::class => LoyaltyCommandHandler::class,
         MarketplaceCommand::class => MarketplaceCommandHandler::class,
         MarketplaceStaffCommand::class => MarketplaceCommandHandler::class,

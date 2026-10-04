@@ -1,0 +1,167 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Onhost\Domain\Notifications\Webhooks;
+
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Str;
+use Onhost\Domain\Notifications\Models\WebhookDelivery;
+use Onhost\Domain\Notifications\Models\WebhookEndpoint;
+use Onhost\Domain\Notifications\WebhookDispatcher;
+use Onhost\Platform\Commands\Command;
+use Onhost\Platform\Commands\CommandContext;
+use Onhost\Platform\Commands\CommandHandler;
+use Onhost\Platform\Errors\DomainError;
+use Onhost\Platform\Http\EgressGuard;
+
+/** @implements CommandHandler<WebhookCommand> */
+final class WebhookCommandHandler implements CommandHandler
+{
+    /** active endpoints per organization: every event is sent once per endpoint */
+    public const MAX_ENDPOINTS = 10;
+
+    /** one test event per endpoint in this many seconds */
+    public const PING_COOLDOWN_SECONDS = 30;
+
+    /** redelivery requests per endpoint and hour (counted per request, whatever became of it) */
+    public const REDELIVERS_PER_HOUR = 20;
+
+    public function __construct(private readonly WebhookDispatcher $webhooks, private readonly EgressGuard $egress) {}
+
+    public function handle(Command $command, CommandContext $context): mixed
+    {
+        if (! $command instanceof WebhookCommand) {
+            throw new \LogicException('WebhookCommandHandler handles WebhookCommand only');
+        }
+
+        return match ($command->op()) {
+            'create' => $this->create($command, $context),
+            'disable' => $this->disable($this->endpoint($command)),
+            'enable' => $this->enable($this->endpoint($command)),
+            'rotate_secret' => $this->rotate($this->endpoint($command)),
+            'redeliver' => $this->redeliver($command),
+            'ping' => $this->ping($this->endpoint($command)),
+            default => throw new DomainError('webhook_op_unknown', 'Unknown webhook operation.', 422),
+        };
+    }
+
+    /** @return array<string, mixed> the endpoint and its secret, shown this once (the replay store masks it) */
+    private function create(WebhookCommand $command, CommandContext $context): array
+    {
+        $url = trim((string) $command->get('url'));
+        if (! str_starts_with($url, 'https://') || strlen($url) > 500) {
+            throw new DomainError('webhook_url_invalid', 'A webhook URL is an https:// address of at most 500 characters.', 422);
+        }
+        $this->egress->check($url); // the address first (an inward one is refused as such), with the reason, not at the first delivery
+        $problem = WebhookDispatcher::destinationProblem($url);
+        if ($problem !== null) {
+            throw new DomainError('webhook_port_not_allowed', ucfirst($problem).'.', 422, ['ports' => WebhookDispatcher::ALLOWED_PORTS]);
+        }
+        $events = WebhookEvents::normalize((array) $command->get('events', []));
+        $active = WebhookEndpoint::query()->where('organization_id', $command->organizationId)->where('state', '!=', WebhookEndpoint::DISABLED)->count();
+        if ($active >= self::MAX_ENDPOINTS) {
+            throw DomainError::conflict('webhook_limit', 'An organization has at most '.self::MAX_ENDPOINTS.' webhook endpoints; remove one first.');
+        }
+        $secret = self::newSecret();
+        $endpoint = WebhookEndpoint::query()->create(['organization_id' => $command->organizationId, 'url' => $url, 'secret' => $secret, 'events' => $events, 'state' => WebhookEndpoint::ACTIVE, 'failures' => 0, 'created_by' => $context->actorId]);
+
+        return WebhookView::endpointResult($endpoint) + ['secret' => $secret];
+    }
+
+    /** @return array<string, mixed> */
+    private function disable(WebhookEndpoint $endpoint): array
+    {
+        $endpoint->forceFill(['state' => WebhookEndpoint::DISABLED])->save();
+        // what was still waiting will not be sent: it would only be refused at its attempt
+        WebhookDelivery::query()->where('endpoint_id', $endpoint->id)->whereIn('state', [WebhookDelivery::PENDING, WebhookDelivery::FAILED])
+            ->update(['state' => WebhookDelivery::DEAD, 'last_error' => 'endpoint disabled', 'next_attempt_at' => null]);
+
+        return WebhookView::endpointResult($endpoint);
+    }
+
+    /** @return array<string, mixed> a suspended endpoint comes back with a clean failure count; a removed one stays removed */
+    private function enable(WebhookEndpoint $endpoint): array
+    {
+        if ($endpoint->state === WebhookEndpoint::DISABLED) {
+            throw DomainError::conflict('webhook_disabled', 'A removed webhook endpoint cannot be turned on again; create a new one.');
+        }
+        $endpoint->forceFill(['state' => WebhookEndpoint::ACTIVE, 'failures' => 0])->save();
+
+        return WebhookView::endpointResult($endpoint);
+    }
+
+    /** @return array<string, mixed> takes effect at once: every attempt from now on, retries included, is signed with the new secret */
+    private function rotate(WebhookEndpoint $endpoint): array
+    {
+        $this->assertNotDisabled($endpoint);
+        $secret = self::newSecret();
+        $endpoint->forceFill(['secret' => $secret])->save();
+
+        return WebhookView::endpointResult($endpoint) + ['secret' => $secret];
+    }
+
+    /** @return array<string, mixed> */
+    private function redeliver(WebhookCommand $command): array
+    {
+        $endpoint = $this->endpoint($command);
+        $this->assertActive($endpoint);
+        $key = 'webhook-redeliver:'.$endpoint->id;
+        if (RateLimiter::tooManyAttempts($key, self::REDELIVERS_PER_HOUR)) {
+            throw new DomainError('webhook_redeliver_rate', 'Too many redeliveries for this endpoint; try again later.', 429, ['retry_after' => RateLimiter::availableIn($key)]);
+        }
+        RateLimiter::hit($key, 3600);
+        $delivery = WebhookDelivery::query()->where('endpoint_id', $endpoint->id)->find((string) $command->get('delivery_id'));
+        if ($delivery === null) {
+            throw DomainError::notFound('webhook delivery');
+        }
+        if ($delivery->attempts >= WebhookDispatcher::MAX_ATTEMPTS) {
+            throw DomainError::conflict('webhook_redeliver_limit', 'This delivery was attempted '.WebhookDispatcher::MAX_ATTEMPTS.' times; it is not sent again.');
+        }
+
+        return WebhookView::delivery($this->webhooks->redeliver($delivery));
+    }
+
+    /** @return array<string, mixed> */
+    private function ping(WebhookEndpoint $endpoint): array
+    {
+        $this->assertActive($endpoint);
+        $last = WebhookDelivery::query()->where('endpoint_id', $endpoint->id)->where('event', WebhookEvents::PING)->max('created_at');
+        $wait = $last === null ? 0 : self::PING_COOLDOWN_SECONDS - (int) Carbon::parse((string) $last)->diffInSeconds(now(), true);
+        if ($wait > 0) {
+            throw new DomainError('webhook_ping_cooldown', 'One test event per endpoint every '.self::PING_COOLDOWN_SECONDS.' seconds.', 429, ['retry_after' => $wait]);
+        }
+
+        return WebhookView::delivery($this->webhooks->ping($endpoint));
+    }
+
+    private function endpoint(WebhookCommand $command): WebhookEndpoint
+    {
+        $endpoint = WebhookEndpoint::query()->where('organization_id', $command->organizationId)->find((string) $command->get('endpoint_id'));
+        if ($endpoint === null) {
+            throw DomainError::notFound('webhook');
+        }
+
+        return $endpoint;
+    }
+
+    private function assertActive(WebhookEndpoint $endpoint): void
+    {
+        if ($endpoint->state !== WebhookEndpoint::ACTIVE) {
+            throw DomainError::conflict('webhook_not_active', $endpoint->isSuspended() ? 'The endpoint is suspended after repeated failures; turn it on again first.' : 'The endpoint was removed.');
+        }
+    }
+
+    private function assertNotDisabled(WebhookEndpoint $endpoint): void
+    {
+        if ($endpoint->state === WebhookEndpoint::DISABLED) {
+            throw DomainError::conflict('webhook_disabled', 'The endpoint was removed.');
+        }
+    }
+
+    private static function newSecret(): string
+    {
+        return 'whsec_'.Str::random(40);
+    }
+}

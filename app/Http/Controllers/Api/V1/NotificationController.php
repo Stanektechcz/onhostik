@@ -11,17 +11,12 @@ use Onhost\Domain\Notifications\Models\MailOutbox;
 use Onhost\Domain\Notifications\Models\Notification;
 use Onhost\Domain\Notifications\Models\NotificationPreference;
 use Onhost\Domain\Notifications\Models\NotificationTemplate;
-use Onhost\Domain\Notifications\Models\WebhookDelivery;
-use Onhost\Domain\Notifications\Models\WebhookEndpoint;
 use Onhost\Domain\Notifications\NotificationService;
-use Onhost\Domain\Notifications\WebhookDispatcher;
-use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
-use Onhost\Platform\Http\EgressGuard;
 use Onhost\Platform\Redaction\Redactor;
 
-/** In-app feed, preferences, customer webhooks; staff mail outbox and template test render. */
+/** In-app feed and preferences; staff mail outbox and template test render. Customer webhooks: WebhookController. */
 final class NotificationController extends ApiController
 {
     public function index(Request $request): JsonResponse
@@ -95,52 +90,6 @@ final class NotificationController extends ApiController
 
     // ── customer webhooks ────────────────────────────────────────────────────
 
-    public function webhooks(Request $request): JsonResponse
-    {
-        $organization = $this->api->organization($request);
-        $this->api->authorize($request, 'organization.manage', CommandScope::organization($organization->id));
-
-        return response()->json(['data' => WebhookEndpoint::query()->where('organization_id', $organization->id)->get()->map(fn (WebhookEndpoint $e) => $this->endpoint($e))->all(), 'events' => WebhookDispatcher::CUSTOMER_EVENTS]);
-    }
-
-    public function createWebhook(Request $request, WebhookDispatcher $dispatcher, AuditRecorder $audit): JsonResponse
-    {
-        $organization = $this->api->organization($request);
-        $this->api->authorize($request, 'organization.manage', CommandScope::organization($organization->id));
-        $data = $request->validate(['url' => ['required', 'url', 'starts_with:https://', 'max:500'], 'events' => ['nullable', 'array', 'max:50'], 'events.*' => ['string', 'max:80']]);
-        app(EgressGuard::class)->check($data['url']); // refused now, with the reason, instead of failing quietly at the first delivery
-        $created = $dispatcher->createEndpoint($organization->id, $data['url'], (array) ($data['events'] ?? ['*']), $this->api->user($request)->id);
-        $audit->record($this->api->context($request, $organization), 'webhook.create', 'succeeded', ['url' => $data['url'], 'events' => $data['events'] ?? ['*']], 'webhook_endpoint', $created['endpoint']->id);
-
-        return response()->json(['data' => $this->endpoint($created['endpoint']) + ['secret' => $created['secret']]], 201);
-    }
-
-    public function deleteWebhook(Request $request, AuditRecorder $audit, string $endpoint): JsonResponse
-    {
-        $organization = $this->api->organization($request);
-        $this->api->authorize($request, 'organization.manage', CommandScope::organization($organization->id));
-        $model = WebhookEndpoint::query()->where('organization_id', $organization->id)->find($endpoint);
-        if ($model === null) {
-            throw DomainError::notFound('webhook');
-        }
-        $model->forceFill(['state' => 'disabled'])->save();
-        $audit->record($this->api->context($request, $organization), 'webhook.disable', 'succeeded', ['url' => $model->url], 'webhook_endpoint', $model->id);
-
-        return response()->json(['data' => $this->endpoint($model)]);
-    }
-
-    public function webhookDeliveries(Request $request, string $endpoint): JsonResponse
-    {
-        $organization = $this->api->organization($request);
-        $this->api->authorize($request, 'organization.manage', CommandScope::organization($organization->id));
-        $model = WebhookEndpoint::query()->where('organization_id', $organization->id)->find($endpoint);
-        if ($model === null) {
-            throw DomainError::notFound('webhook');
-        }
-
-        return $this->api->paginate($request, WebhookDelivery::query()->where('endpoint_id', $model->id), fn (WebhookDelivery $d) => ['id' => $d->id, 'event' => $d->event, 'state' => $d->state, 'attempts' => $d->attempts, 'response_status' => $d->response_status, 'last_error' => $d->last_error, 'next_attempt_at' => $d->next_attempt_at?->toIso8601String(), 'delivered_at' => $d->delivered_at?->toIso8601String(), 'at' => $d->created_at?->toIso8601String()]);
-    }
-
     // ── staff: mail outbox & templates ───────────────────────────────────────
 
     public function outbox(Request $request): JsonResponse
@@ -180,10 +129,5 @@ final class NotificationController extends ApiController
         $data = $request->validate(['key' => ['required', 'string'], 'channel' => ['nullable', 'in:mail,inapp'], 'locale' => ['nullable', 'in:cs,en'], 'vars' => ['nullable', 'array']]);
 
         return response()->json(['data' => $notifications->testRender($data['key'], $data['channel'] ?? 'mail', $data['locale'] ?? 'cs', (array) ($data['vars'] ?? []))]);
-    }
-
-    private function endpoint(WebhookEndpoint $e): array
-    {
-        return ['id' => $e->id, 'url' => $e->url, 'events' => $e->events, 'state' => $e->state, 'failures' => $e->failures, 'last_delivered_at' => $e->last_delivered_at?->toIso8601String(), 'created_at' => $e->created_at?->toIso8601String()];
     }
 }

@@ -76,7 +76,8 @@ it('keeps uptime checks, webhooks and imports out of the management network', fu
     $sample = app(UptimeMonitor::class)->check($monitor);
     expect($sample->ok)->toBeFalse()->and((string) $sample->error)->toContain('cannot be used')->and($sent)->toBe([]);
 
-    // a webhook endpoint
+    // a webhook endpoint (creating one is HIGH since D4, TASK-0077)
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
     $this->postJson('/v1/webhooks', ['url' => 'https://127.0.0.1:8888/hook'])->assertStatus(422)->assertJsonPath('error', 'destination_not_allowed');
     $created = $this->postJson('/v1/webhooks', ['url' => 'https://hooks.shop-example.cz/in'])->assertCreated()->json('data');
     FakeHostResolver::$hosts['hooks.shop-example.cz'] = ['192.168.10.10']; // rebinding after the endpoint was accepted

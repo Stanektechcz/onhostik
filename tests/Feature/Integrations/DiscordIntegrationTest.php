@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Http;
+use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Integrations\DiscordService;
 use Onhost\Domain\Integrations\Models\ActionHook;
 use Onhost\Domain\Integrations\Models\DiscordLink;
@@ -147,6 +148,7 @@ it('delivers platform events to a Discord channel webhook as embeds', function (
     [$user, $org] = $this->customerWithOrganization();
     Http::fake(['discord.com/api/webhooks/*' => Http::response('', 204)]);
     $this->actingAs($user, 'sanctum');
+    app(StepUpService::class)->grant($user, 'totp', null, '127.0.0.1'); // creating a webhook is HIGH since D4 (TASK-0077)
     $this->postJson('/v1/webhooks', ['url' => 'https://discord.com/api/webhooks/123/abcDEF_token', 'events' => ['*']])->assertCreated();
     app(OutboxPublisher::class)->publish(GenericEvent::of('monitoring.down', 'service', 'srv_x', ['url' => 'https://shop.cz/', 'error' => 'HTTP 503', 'notify' => true], $org->id));
     app(OutboxPublisher::class)->relayPending();
@@ -157,7 +159,7 @@ it('delivers platform events to a Discord channel webhook as embeds', function (
         }
         $body = $request->data();
 
-        return ($body['username'] ?? '') === 'ONhost' && str_contains((string) ($body['embeds'][0]['title'] ?? ''), 'Web neodpovídá') && str_contains((string) ($body['embeds'][0]['description'] ?? ''), 'HTTP 503');
+        return ($body['username'] ?? '') === 'ONhost' && str_contains((string) ($body['embeds'][0]['title'] ?? ''), 'Web neodpovídá') && ! str_contains((string) json_encode($body), 'HTTP 503') /* the platform's error text stays inside since the D4 review */;
     });
 });
 
