@@ -176,6 +176,12 @@ final class TokenScopes
         'partner.portal.read' => null,
         'partner.payout_account.manage' => null,
         // ── end TASK-0040 ──
+
+        // ── TASK-0043 (permission program S1-03): the two keys split off `service.manage` keep its scope, so a power token
+        //    restarts and deletes exactly what it did before (PresetsUnchangedTest) ──
+        'service.operate' => self::SERVICES_POWER,
+        'service.data.delete' => self::SERVICES_POWER,
+        // ── end TASK-0043 ──
     ];
 
     /** The scope a token needs for `$permission`; null = not available to API tokens (unknown permissions included). */

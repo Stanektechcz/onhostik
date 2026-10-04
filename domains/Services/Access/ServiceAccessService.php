@@ -7,6 +7,7 @@ namespace Onhost\Domain\Services\Access;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Identity\Authorization\Authorizer;
+use Onhost\Domain\Identity\Authorization\CapabilityMatrix;
 use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
 use Onhost\Domain\Identity\Authorization\RoleCatalog;
 use Onhost\Domain\Identity\Models\User;
@@ -43,9 +44,14 @@ use Throwable;
  */
 final class ServiceAccessService
 {
-    /** capability the owner ticks => the role its binding carries */
+    /**
+     * capability the owner ticks => the role its binding carries. TASK-0043 (permission program S1-03): `operate` (restart, PHP,
+     * caches, certificates — no files, cron, databases, logins or shell) and `data_delete` (deleting data inside the service) are
+     * ticks of their own; the order is the one the owner reads them in and the one a stored share is normalised to.
+     */
     public const CAPABILITIES = [
-        'view' => 'svc_view', 'manage' => 'svc_manage', 'console' => 'svc_console', 'backups' => 'svc_backups', 'restore' => 'svc_restore', 'assistant' => 'svc_assistant',
+        'view' => 'svc_view', 'operate' => 'svc_operate', 'manage' => 'svc_manage', 'console' => 'svc_console', 'data_delete' => 'svc_data_delete',
+        'backups' => 'svc_backups', 'restore' => 'svc_restore', 'assistant' => 'svc_assistant',
     ];
 
     public const MAX_PER_SERVICE = 25;
@@ -239,12 +245,28 @@ final class ServiceAccessService
         ])->values()->all();
     }
 
-    /** @return list<array{key:string, role:string, permissions:list<string>}> */
-    public static function catalogue(): array
+    /**
+     * The ticks with what each carries and — TASK-0043 (S1-03, ruling #20) — what the person will be able to do, in words.
+     *
+     * @return list<array{key:string, role:string, permissions:list<string>, label:string, sentences:array{can:?string, cannot:?string, warning:?string}}>
+     */
+    public static function catalogue(string $locale = 'cs'): array
     {
         $roles = RoleCatalog::all();
+        $words = self::words($locale);
 
-        return array_map(fn (string $key, string $role) => ['key' => $key, 'role' => $role, 'permissions' => $roles[$role]['permissions'] ?? []], array_keys(self::CAPABILITIES), self::CAPABILITIES);
+        return array_map(fn (string $key, string $role) => [
+            'key' => $key, 'role' => $role, 'permissions' => $roles[$role]['permissions'] ?? [], 'label' => (string) ($words[$key]['label'] ?? $key),
+            'sentences' => ['can' => $words[$key]['can'] ?? null, 'cannot' => $words[$key]['cannot'] ?? null, 'warning' => $words[$key]['warning'] ?? null],
+        ], array_keys(self::CAPABILITIES), self::CAPABILITIES);
+    }
+
+    /** @return array<string, array<string, string>> lang/{cs,en}/access.php `capabilities` */
+    private static function words(string $locale): array
+    {
+        $words = app('translator')->get('access.capabilities', [], CapabilityMatrix::locale($locale), false);
+
+        return is_array($words) ? $words : [];
     }
 
     /** @return array<string,mixed> */
@@ -403,11 +425,9 @@ final class ServiceAccessService
     /** @param list<string> $capabilities */
     private function describe(array $capabilities, string $locale): string
     {
-        $labels = $locale === 'en'
-            ? ['view' => 'view', 'manage' => 'manage and configure', 'console' => 'console and terminal', 'backups' => 'download backups', 'restore' => 'restore from a backup', 'assistant' => 'AI assistant']
-            : ['view' => 'zobrazení', 'manage' => 'správa a nastavení', 'console' => 'konzole a terminál', 'backups' => 'stahování záloh', 'restore' => 'obnova ze zálohy', 'assistant' => 'AI asistent'];
+        $words = self::words($locale); // TASK-0043: the labels live with the sentences in lang/{cs,en}/access.php
 
-        return implode(', ', array_map(fn (string $c) => $labels[$c] ?? $c, $capabilities));
+        return implode(', ', array_map(fn (string $c) => (string) ($words[$c]['label'] ?? $c), $capabilities));
     }
 
     private function serviceName(Service $service): string

@@ -38,10 +38,17 @@ final class RoleCatalog
 
             // ── capabilities on ONE service (resource scope; handed out by Services\Access\ServiceAccessService, never as an organization or project role) ──
             'svc_view' => self::role('Service: view', 'State, metrics, logs, backups list', 'resource', false, ['service.read', 'backup.read']),
-            'svc_manage' => self::role('Service: manage', 'Actions and settings: restart, PHP, databases, cron, files, deploys, mailboxes — without backup deletion and without logins that open a shell', 'resource', false, ['service.read', 'service.manage']),
+            // TASK-0043 (permission program S1-03, D4, ruling #15): the narrow level the access wizard offers first — keeping the service
+            // running without code: nothing it does writes a file, a cron job, a database or a login, or opens a shell
+            'svc_operate' => self::role('Service: operate', 'Restart, PHP version, caches, certificates — no files, cron, databases, logins or shell', 'resource', false, ['service.read', 'service.operate']),
+            // unchanged in what it may do (PresetsUnchangedTest); its description now says what the program relabelled it to: it runs code
+            'svc_manage' => self::role('Service: manage', 'Actions and settings: restart, PHP, databases, cron, files, deploys, mailboxes, deleting them too — this runs code on the service; without backup deletion and without logins that open a shell', 'resource', false, ['service.read', 'service.manage']),
             // a console is more than managing, never less (H334): whoever gets a shell on the service manages it. Root access, rescue
             // mode and game sub-users are the console too (TASK-0029, C13-H1b): each of them hands over the server itself
             'svc_console' => self::role('Service: console', 'Terminal, SSH keys and root access, rescue mode, VNC, game console and its sub-users and console schedules', 'resource', false, ['service.read', 'service.manage', 'service.console']),
+            // TASK-0043 (S1-03, audit SE-1): deleting data inside the service is a tick of its own, next to operate; copies are not data here
+            // (backup.delete and its kin stay the owner's and the operators', D29.2)
+            'svc_data_delete' => self::role('Service: delete data', 'Delete sites, databases, files, mailboxes and game data inside the service — never its backups', 'resource', false, ['service.read', 'service.data.delete']),
             'svc_backups' => self::role('Service: backups', 'Download backup archives', 'resource', false, ['service.read', 'backup.read', 'backup.download']),
             'svc_restore' => self::role('Service: restore', 'Restore the service from a backup', 'resource', false, ['service.read', 'backup.read', 'backup.restore']),
             'svc_assistant' => self::role('Service: assistant', 'Use the AI assistant for the shared service', 'resource', false, ['service.read', 'support.chat.use']),
@@ -120,10 +127,25 @@ final class RoleCatalog
     public const PARTNER_PORTAL = ['partner.portal.read'];
     // ── end TASK-0040 ──
 
+    // ── TASK-0043 (permission program S1-03, principle 11) ──
+    /**
+     * What `service.manage` was split into. A role that holds `service.manage` holds both, whatever its line lists, so the actions
+     * that ask for them now (ServiceActionCommand::PERMISSIONS) stay exactly where they were for every existing preset and every
+     * stored `svc_*` share — frozen by PresetsUnchangedTest against the task base. Only the new presets hold one without the other.
+     */
+    public const MANAGE_SPLIT = ['service.operate', 'service.data.delete'];
+
+    /** @param list<string> $permissions @return list<string> */
+    private static function withManageSplit(array $permissions): array
+    {
+        return in_array('service.manage', $permissions, true) ? [...$permissions, ...self::MANAGE_SPLIT] : $permissions;
+    }
+    // ── end TASK-0043 ──
+
     /** @param list<string> $permissions */
     private static function role(string $name, string $description, string $scope, bool $staff, array $permissions): array
     {
-        return ['name' => $name, 'description' => $description, 'scope' => $scope, 'staff' => $staff, 'permissions' => array_values(array_unique($permissions))];
+        return ['name' => $name, 'description' => $description, 'scope' => $scope, 'staff' => $staff, 'permissions' => array_values(array_unique(self::withManageSplit($permissions)))];
     }
 
     public static function exists(string $key): bool

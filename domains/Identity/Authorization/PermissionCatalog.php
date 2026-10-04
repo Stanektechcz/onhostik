@@ -75,6 +75,12 @@ final class PermissionCatalog
             // ── customer: services ───────────────────────────────────────────
             'service.read' => $c('View services, metrics, logs and activity'),
             'service.manage' => $c('Start/stop/restart, resize, configure services'),
+            // ── TASK-0043 (permission program S1-03, D4; audit PA-05/G3, SE-1): `service.manage` split in two narrower asks. Every
+            // role that holds `service.manage` holds both (RoleCatalog::withSplitKeys), so nobody's reach changes; the new presets
+            // `svc_operate` and `svc_data_delete` hold one each. NORMAL like the key they came from: no action's risk moves ──
+            'service.operate' => $c('Keep a service running: start/stop/restart, PHP version, caches, certificates — no files, cron, databases, logins or shell'),
+            'service.data.delete' => $c('Delete data inside a service: sites, databases, files, mailboxes, game databases and files, staging copies'),
+            // ── end TASK-0043 ──
             'service.delete' => $c('Terminate services (with retention grace)', self::HIGH),
             'service.console' => $c('Open consoles and shells, set root access and SSH keys, rescue mode, game sub-users and console schedules'),
             'service.credentials.rotate' => $c('Rotate service credentials', self::HIGH),

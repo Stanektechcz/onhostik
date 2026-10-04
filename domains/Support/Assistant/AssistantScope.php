@@ -56,7 +56,7 @@ final class AssistantScope
             $organization, $user, $authorizer, false, $all,
             $all ? [] : $authorizer->projectIdsWhere($user, 'service.read', $organization->id),
             $all ? [] : $authorizer->resourceIdsWhere($user, 'service.read', $organization->id),
-            $can('billing.invoice.read'), $can('billing.wallet.read'), $can('organization.read'), $can('domain.read'), $can('support.ticket.read'), $can('support.ticket.write'),
+            $can('billing.invoice.read'), $can('billing.wallet.read'), $can('organization.read'), $can('domain.read'), app(TicketVisibility::class)->holdsAnywhere($user, $organization->id), $can('support.ticket.write'), // TASK-0043 (S1-09): a project role reads its tickets
         );
     }
 

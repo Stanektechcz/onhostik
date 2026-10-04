@@ -6,6 +6,9 @@ namespace App\Http\Controllers\Api\V1;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Onhost\Domain\Identity\Authorization\CapabilityMatrix;
+use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Services\Access\AccessLevels;
 use Onhost\Domain\Services\Access\ServiceAccessService;
 use Onhost\Domain\Services\Commands\ServiceAccessCommand;
 use Onhost\Domain\Services\Models\Service;
@@ -21,15 +24,18 @@ final class ServiceAccessController extends ApiController
     public function index(Request $request, ServiceAccessService $access, string $service): JsonResponse
     {
         $model = $this->resolve($request, $service);
+        // TASK-0043 (permission program S1-03): the ticks come with what they let a person do, and the levels of the service family
+        // (CapabilityMatrix) with the ticks each of them is — the access wizard (S1-04) offers levels, the share stays the ticks
+        $locale = CapabilityMatrix::locale(is_string($request->query('locale')) ? (string) $request->query('locale') : (string) (Organization::query()->whereKey($model->organization_id)->value('locale') ?? 'cs'));
 
-        return response()->json(['data' => $access->forService($model), 'capabilities' => ServiceAccessService::catalogue()]);
+        return response()->json(['data' => $access->forService($model), 'capabilities' => ServiceAccessService::catalogue($locale)] + AccessLevels::forService($model, $locale));
     }
 
     public function store(Request $request, string $service): JsonResponse
     {
         $model = $this->resolve($request, $service);
         $data = $request->validate([
-            'email' => ['required', 'email', 'max:190'], 'capabilities' => ['required', 'array', 'min:1', 'max:6'], 'capabilities.*' => ['string', 'max:20'],
+            'email' => ['required', 'email', 'max:190'], 'capabilities' => ['required', 'array', 'min:1', 'max:'.count(ServiceAccessService::CAPABILITIES)], 'capabilities.*' => ['string', 'max:20'],
             'access_until' => ['nullable', 'date', 'after:now'], 'note' => ['nullable', 'string', 'max:250'],
         ]);
 
