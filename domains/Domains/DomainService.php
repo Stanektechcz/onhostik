@@ -20,6 +20,7 @@ use Onhost\Domain\Domains\Workflows\RegisterDomainWorkflow;
 use Onhost\Domain\Domains\Workflows\RenewDomainWorkflow;
 use Onhost\Domain\Domains\Workflows\TransferDomainInWorkflow;
 use Onhost\Domain\Domains\Workflows\UpdateNameserversWorkflow;
+use Onhost\Domain\Identity\Authorization\StaffActor;
 use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Orders\CreditOrderPolicy;
@@ -156,10 +157,18 @@ final class DomainService
         return (bool) ($answer['premium'] ?? false) || (bool) data_get($answer, 'price.premium', false);
     }
 
-    /** Called by order fulfilment for every `domain` order item (idempotent per item). */
-    public function createFromOrderItem(OrderItem $item, Order $order, CommandContext $context): Operation
+    /**
+     * Called by order fulfilment for every `domain` order item (idempotent per item). A transfer line is not a registration:
+     * it waits for the transfer code (awaitTransferCode) and returns no operation yet.
+     */
+    public function createFromOrderItem(OrderItem $item, Order $order, CommandContext $context): ?Operation
     {
         $config = (array) $item->config;
+        if (($config['action'] ?? 'register') === 'transfer') {
+            $this->awaitTransferCode($item, $order, $context);
+
+            return null;
+        }
         $organization = Organization::query()->findOrFail($order->organization_id);
         $request = [
             'period' => (int) ($config['period_years'] ?? 1), 'registrant_contact_id' => $config['registrant_contact_id'] ?? null, 'registrant' => $config['registrant'] ?? null,
@@ -222,7 +231,11 @@ final class DomainService
                 'nameservers' => $request['nameservers'] ?? null, 'registrant_contact_id' => $registrant->id, 'admin_contact_id' => $admin->id,
                 'transfer_lock' => true, 'critical' => in_array($fqdn, (array) config('onhost.domains.critical', []), true), 'order_item_id' => $item?->id,
             ];
-            $domain = $domain === null ? Domain::query()->create($attributes) : tap($domain)->forceFill($attributes)->save();
+            if ($domain === null) { // tap($domain)->forceFill()->save() handed back save()'s bool, and a reused (failed, deleted) row crashed on ->id
+                $domain = Domain::query()->create($attributes);
+            } else {
+                $domain->forceFill($attributes)->save();
+            }
             $this->recordConsents($domain, $request, $context);
             $item?->forceFill(['domain_id' => $domain->id, 'state' => 'provisioning'])->save();
 
@@ -388,6 +401,18 @@ final class DomainService
 
     // ── transfers & registry settings ────────────────────────────────────────
 
+    /**
+     * Inbound transfer (blueprint §46.5), paid for (TASK-0058). A transfer renews the name at the registrar from the platform's
+     * credit; it used to start here with no money at all — any customer with a step-up got a year of renewal for free. A customer
+     * now buys the transfer first: a cart line `action: transfer`, priced at the list renewal price, paid like any order (its
+     * reservation is the order's hold). Fulfilment leaves the line waiting for the code (awaitTransferCode); the code arrives
+     * here once, with that paid line (`order_item_id`), goes into the encrypted secret store and is wiped when the registrar
+     * has it. The saga runs as the line's operation, so ActivateDomainStep marks the line delivered (the order settles and the
+     * reservation becomes revenue for exactly that line) and a refused transfer fails it (the money goes back).
+     * Without a paid line only staff acting as staff may start a transfer, on the platform's authority; a customer is refused.
+     *
+     * @param  array{order_item_id?:?string, registrant_contact_id?:?string, registrant?:?array, nameservers?:?list<string>, period?:int, consent?:array, dns_provider?:string}  $request
+     */
     public function transferIn(Organization $organization, string $fqdn, string $authInfo, array $request, CommandContext $context, string $idempotencyKey): Operation
     {
         $this->assertStepUp($context, 'domain transfer');
@@ -395,18 +420,38 @@ final class DomainService
         if (! Hostname::isRegistrable($fqdn)) {
             throw new DomainError('domain_invalid', "{$fqdn} is not a registrable domain name.", 422);
         }
-        [$idempotencyKey, $requestHash] = OperationKey::scoped($context, [$organization->id, 'domain.transfer_in'], $idempotencyKey, 'domain.transfer_in', ['fqdn' => $fqdn]); // IF-12, as register()
+        $itemId = trim((string) ($request['order_item_id'] ?? ''));
+        $itemId = $itemId === '' ? null : $itemId;
+        if ($itemId === null && ! StaffActor::acts($context)) {
+            throw new DomainError('transfer_needs_order', 'A domain transfer is ordered and paid first; hand over the transfer code with the paid order line (order_item_id).', 422, [
+                'field' => 'order_item_id', 'hint' => 'Order the transfer in the cart (action: transfer); after payment send the code with the order line.',
+            ]);
+        }
+        [$idempotencyKey, $requestHash] = OperationKey::scoped($context, [$organization->id, 'domain.transfer_in'], $idempotencyKey, 'domain.transfer_in', ['fqdn' => $fqdn, 'order_item_id' => $itemId]); // IF-12, as register()
         $existing = OperationKey::replay($idempotencyKey, $requestHash, 'This idempotency key was already used for another domain request.');
         if ($existing !== null) {
             return $existing;
+        }
+        $line = $itemId === null ? null : $this->paidTransferLine($organization, $fqdn, $itemId);
+        $period = (int) ($request['period'] ?? 1);
+        $orderDefault = false;
+        if ($line !== null) { // what was paid decides the years; the order's holder details stand unless the customer sends others
+            $config = (array) $line->config;
+            $period = (int) ($config['period_years'] ?? 1);
+            $request += array_filter(['registrant' => $config['registrant'] ?? null, 'registrant_contact_id' => $config['registrant_contact_id'] ?? null, 'nameservers' => $config['nameservers'] ?? null], fn ($v) => $v !== null);
+            $orderDefault = data_get(Order::query()->find($line->order_id)?->meta, 'renewal_consent') === 'organization_default';
         }
         $tld = Hostname::tld($fqdn);
         $this->catalog->tld($tld);
         $choice = $this->selector->choose($tld, 'transfer');
         $provider = $choice['provider'];
         // owner decision 20 (TASK-0021): a domain a non-holder brings in renews only under the holder's standing default
-        $renewal = app(CreditOrderPolicy::class)->followsStandingDefault($organization, $context) ? ['auto_renew' => (bool) $organization->auto_renew_default] : [];
-        $domain = DB::transaction(function () use ($organization, $fqdn, $tld, $request, $authInfo, $context, $provider, $choice, $renewal) {
+        $renewal = $orderDefault || app(CreditOrderPolicy::class)->followsStandingDefault($organization, $context) ? ['auto_renew' => (bool) $organization->auto_renew_default] : [];
+        $domain = DB::transaction(function () use ($organization, $fqdn, $tld, $request, $authInfo, $context, $provider, $choice, $renewal, $line) {
+            $locked = $line === null ? null : OrderItem::query()->whereKey($line->id)->lockForUpdate()->first();
+            if ($line !== null && ($locked === null || empty($locked->config['awaiting_transfer_code']) || $locked->state !== 'provisioning')) {
+                throw new DomainError('transfer_already_submitted', 'The transfer code of this order line was already handed over.', 409);
+            }
             $domain = Domain::query()->where('fqdn_ascii', $fqdn)->first();
             if ($domain !== null && $domain->organization_id !== $organization->id && $domain->isActive()) {
                 throw new DomainError('domain_taken', "{$fqdn} is already managed by another organization.", 409);
@@ -416,17 +461,115 @@ final class DomainService
                 'organization_id' => $organization->id, 'fqdn_ascii' => $fqdn, 'fqdn_unicode' => Hostname::unicode($fqdn), 'tld' => $tld, 'state' => DomainStateMachine::TRANSFER_IN_PENDING, 'registrar_provider' => $provider,
                 'meta' => array_merge((array) ($domain?->meta ?? []), ['registrar_selection' => RegistrarSelector::summary($choice)]),
                 'registrant_contact_id' => $registrant->id, 'admin_contact_id' => $registrant->id, 'dns_provider' => (string) ($request['dns_provider'] ?? 'external'), 'nameservers' => $request['nameservers'] ?? null, 'renewal_period' => 1,
+                'order_item_id' => $line->id ?? $domain?->order_item_id,
             ] + $renewal;
-            $domain = $domain === null ? Domain::query()->create($attributes) : tap($domain)->forceFill($attributes)->save();
+            if ($domain === null) {
+                $domain = Domain::query()->create($attributes);
+            } else {
+                $domain->forceFill($attributes)->save();
+            }
             DomainTransferSecret::query()->create(['domain_id' => $domain->id, 'auth_info' => $authInfo, 'direction' => 'in', 'requested_by' => $context->actorId, 'step_up_method' => $context->stepUpMethod, 'expires_at' => now()->addDays((int) config('onhost.domains.transfer_secret_ttl_days', 7))]);
             $this->recordConsents($domain, $request, $context);
+            if ($locked !== null) { // claimed under the lock: a second hand-over (another key, another tab) finds the line taken
+                $config = array_diff_key((array) $locked->config, ['awaiting_transfer_code' => true]);
+                $locked->forceFill(['config' => $config + ['transfer_code_received_at' => now()->toIso8601String()], 'domain_id' => $domain->id])->save();
+            }
 
             return $domain;
         });
-        $operation = $this->operations->start(TransferDomainInWorkflow::class, $idempotencyKey, ['domain_id' => $domain->id, 'fqdn' => $fqdn, 'tld' => $tld, 'period' => (int) ($request['period'] ?? 1), 'nameservers' => $request['nameservers'] ?? null, 'event' => 'domain.transferred_in', 'registrar_provider' => $provider] + OperationKey::desired($requestHash), $context, null, $organization->id, null, $choice['instance']->id, $domain->id);
-        $this->audit->record($context->withScope($organization->id), 'domain.transfer_in', 'succeeded', ['fqdn' => $fqdn, 'operation_id' => $operation->id], 'domain', $domain->id, stepUp: $context->stepUpMethod);
+        $operation = $this->operations->start(TransferDomainInWorkflow::class, $idempotencyKey, ['domain_id' => $domain->id, 'fqdn' => $fqdn, 'tld' => $tld, 'period' => $period, 'nameservers' => $request['nameservers'] ?? null, 'event' => 'domain.transferred_in', 'registrar_provider' => $provider] + OperationKey::desired($requestHash), $context, null, $organization->id, $line?->id, $choice['instance']->id, $domain->id);
+        if ($line !== null) {
+            OrderItem::query()->whereKey($line->id)->whereNull('operation_id')->update(['operation_id' => $operation->id]);
+        }
+        $this->audit->record($context->withScope($organization->id), 'domain.transfer_in', 'succeeded', ['fqdn' => $fqdn, 'operation_id' => $operation->id, 'order_item_id' => $line?->id, 'paid_by' => $line !== null ? 'order' : 'platform'], 'domain', $domain->id, stepUp: $context->stepUpMethod);
 
         return $operation;
+    }
+
+    /**
+     * Fulfilment of a paid transfer line (TASK-0058): nothing is sent to the registrar yet — the transfer code is not in the cart,
+     * it is handed over afterwards with this line (transferIn). The line stays `provisioning`, so the order and its reservation
+     * wait; a name ONhost already runs is refused at once (the line fails and its money goes back).
+     */
+    private function awaitTransferCode(OrderItem $item, Order $order, CommandContext $context): void
+    {
+        if ($item->state !== 'pending') {
+            return;
+        }
+        $config = (array) $item->config;
+        $fqdn = Hostname::canonical((string) ($config['fqdn'] ?? $config['domain'] ?? ''));
+        if (! Hostname::isRegistrable($fqdn)) {
+            throw new DomainError('domain_invalid', "{$fqdn} is not a registrable domain name.", 422);
+        }
+        $existing = Domain::query()->where('fqdn_ascii', $fqdn)->first();
+        if ($existing !== null && $existing->isActive()) {
+            throw new DomainError($existing->organization_id === $order->organization_id ? 'domain_already_registered' : 'domain_taken', "{$fqdn} is already managed at ONhost; there is nothing to transfer.", 409);
+        }
+        $item->forceFill(['state' => 'provisioning', 'config' => array_merge($config, ['awaiting_transfer_code' => now()->toIso8601String()])])->save();
+        $this->audit->record($context->withScope($order->organization_id), 'domain.transfer_awaiting_code', 'succeeded', ['fqdn' => $fqdn, 'order' => $order->number, 'order_item_id' => $item->id], 'order', $order->id);
+    }
+
+    /** The paid transfer line the code belongs to: the organization's own, for this name, still waiting for its code. */
+    private function paidTransferLine(Organization $organization, string $fqdn, string $itemId): OrderItem
+    {
+        $item = OrderItem::query()->find($itemId);
+        $order = $item === null ? null : Order::query()->find($item->order_id);
+        if ($item === null || $order === null || $order->organization_id !== $organization->id || ! $item->isDomain() || ($item->config['action'] ?? 'register') !== 'transfer') {
+            throw DomainError::notFound('order line');
+        }
+        $ordered = (string) ($item->config['fqdn'] ?? '');
+        if ($ordered !== $fqdn) {
+            throw new DomainError('transfer_order_mismatch', "The paid order line is for {$ordered}, not {$fqdn}.", 422, ['field' => 'fqdn']);
+        }
+        if ($item->state === 'provisioning' && ! empty($item->config['awaiting_transfer_code'])) {
+            return $item;
+        }
+        if ($item->state === 'pending') {
+            throw new DomainError('transfer_order_not_paid', "Order {$order->number} is not paid (or not processed) yet; the transfer code is accepted once it is.", 409, ['order' => $order->number]);
+        }
+        if (in_array($item->state, ['failed', 'cancelled', 'refunded'], true)) {
+            throw new DomainError('transfer_line_closed', "This order line is {$item->state}; order the transfer again.", 409);
+        }
+
+        throw new DomainError('transfer_already_submitted', 'The transfer code of this order line was already handed over.', 409);
+    }
+
+    /**
+     * A paid transfer whose code never came (TASK-0058): after the waiting period the line fails, so the order settles and the
+     * reservation goes back to the customer (OrderSettlement), instead of the money staying held for ever. Nightly, with the
+     * unpaid-order expiry (CommerceHousekeeping::expireUnpaid).
+     */
+    public function expireAwaitingTransfers(?int $days = null): int
+    {
+        $cutoff = now()->subDays(max(1, $days ?? (int) config('onhost.domains.transfer_code_wait_days', 30)));
+        $expired = 0;
+        $candidates = OrderItem::query()->where('product_key', 'domain')->where('state', 'provisioning')->whereNull('operation_id')->whereNull('domain_id')->orderBy('created_at')->limit(500)->get();
+        foreach ($candidates as $candidate) {
+            $since = $candidate->config['awaiting_transfer_code'] ?? null;
+            if (! is_string($since) || Carbon::parse($since)->greaterThan($cutoff)) {
+                continue;
+            }
+            $item = DB::transaction(function () use ($candidate) {
+                $item = OrderItem::query()->whereKey($candidate->id)->lockForUpdate()->first();
+                if ($item === null || $item->state !== 'provisioning' || empty($item->config['awaiting_transfer_code'])) {
+                    return null; // the code came in the meantime
+                }
+                $config = array_diff_key((array) $item->config, ['awaiting_transfer_code' => true]);
+                $item->forceFill(['state' => 'failed', 'config' => $config + ['transfer_code_expired_at' => now()->toIso8601String()]])->save();
+
+                return $item;
+            });
+            if ($item === null) {
+                continue;
+            }
+            $order = Order::query()->find($item->order_id);
+            $context = CommandContext::system('transfer code never came')->withScope($order?->organization_id);
+            $this->audit->record($context, 'domain.transfer_code_expired', 'failed', ['fqdn' => $item->config['fqdn'] ?? null, 'order' => $order?->number, 'order_item_id' => $item->id], 'order', $item->order_id);
+            $this->fulfilment->recheck($item->order_id, $context);
+            $expired++;
+        }
+
+        return $expired;
     }
 
     /** Outbound transfer: the registrar mails the AUTH-ID to the registrant. Step-up + critical policy + transfer lock (§46.5). */

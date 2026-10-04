@@ -114,10 +114,14 @@ final class DomainController extends ApiController
         return $this->command($request, $model, 'holder', ['holder' => array_filter($data, fn ($v) => $v !== null)]);
     }
 
+    /**
+     * A customer hands over the transfer code of a PAID transfer line (`order_item_id`, TASK-0058); without one the transfer is
+     * refused with 422 `transfer_needs_order` (DomainService::transferIn) — a transfer renews the name and is bought in the cart.
+     */
     public function transferIn(Request $request): JsonResponse
     {
         $organization = $this->api->organization($request);
-        $data = $request->validate(['fqdn' => ['required', 'string', 'max:253'], 'auth_info' => ['required', 'string', 'max:64'], 'registrant_contact_id' => ['nullable', 'string'], 'registrant' => ['nullable', 'array'], 'nameservers' => ['nullable', 'array'], 'period' => ['nullable', 'integer', 'min:1', 'max:10'], 'consent' => ['required', 'array'], 'consent.person' => ['required', 'string', 'max:190']]);
+        $data = $request->validate(['fqdn' => ['required', 'string', 'max:253'], 'order_item_id' => ['nullable', 'string', 'max:40'], 'auth_info' => ['required', 'string', 'max:64'], 'registrant_contact_id' => ['nullable', 'string'], 'registrant' => ['nullable', 'array'], 'nameservers' => ['nullable', 'array'], 'period' => ['nullable', 'integer', 'min:1', 'max:10'], 'consent' => ['required', 'array'], 'consent.person' => ['required', 'string', 'max:190']]);
 
         return $this->send($request, $organization, 'transfer_in', null, $data, 202);
     }
