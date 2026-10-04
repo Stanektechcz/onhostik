@@ -955,6 +955,17 @@
         load: function (s2, kind, path) { return dload(cmp, s2, kind, path); }, forget: forget, rerender: rerender, flash: flash, since: since }) || panel;
     } catch (e) { return panel; }
   }
+  /* the list renewal price of the domain's TLD for one year (window.ONHOST_PANEL.tlds, from the catalogue), longest suffix first
+   * ("co.uk" before "uk"); null when the price list does not know it — the confirmation then names no amount (TASK-0064) */
+  function renewPrice(sel) {
+    var tlds = (window.ONHOST_PANEL && window.ONHOST_PANEL.tlds) || [], name = String((sel && sel.name) || '').toLowerCase(), best = null;
+    tlds.forEach(function (t) {
+      var tld = String(t.tld || '').toLowerCase();
+      if (tld && name.slice(-(tld.length + 1)) === '.' + tld && (!best || tld.length > best.tld.length) && t.renew != null) best = { tld: tld, renew: t.renew, currency: t.currency || 'CZK' };
+    });
+    if (!best) return null;
+    return Number(best.renew).toLocaleString('cs-CZ', { maximumFractionDigits: 2 }) + ' ' + (best.currency === 'CZK' ? 'Kč' : best.currency);
+  }
   function domainBuildCore(cmp, sel, tab, _, X) {
     var H = X.H, cell = H.cell, A = H.act, F = H.F, s = H.s, infoPanel = X.infoPanel;
     var info = dinfo(cmp, sel), d = info && !info.__error ? info : null;
@@ -977,7 +988,7 @@
       if (auth) pairs.push([_('AUTH-ID (zobrazeno jednorázově)', 'AUTH-ID (shown once)'), auth.code + (auth.expires_at ? ' · ' + _('platí do ', 'valid until ') + dateOf(auth.expires_at) : '')]);
       var p1 = infoPanel(_('Registrace a expirace · ', 'Registration and expiry · ') + sel.name, _('obnovujeme 14 dní před expirací z kreditu; držitelem jste vy a AUTH-ID pro převod vydáme na požádání po druhém ověření', 'we renew 14 days before expiry from credit; you are the registrant and the AUTH-ID for a transfer is issued on request after a second verification'), pairs);
       p1.extra = [
-        { label: _('Prodloužit o 1 rok', 'Renew by 1 year'), primary: true, on: function () { if (window.confirm(_('Prodloužit ' + sel.name + ' o 1 rok? Cena se strhne z kreditu.', 'Renew ' + sel.name + ' by 1 year? The price is taken from credit.'))) dpost(cmp, sel, '/renew', { years: 1 }, ['domain'], _('Prodloužení zadáno', 'Renewal submitted'), _('Po potvrzení registru uvidíte nové datum expirace; vyúčtování najdete ve Fakturaci.', 'Once the registry confirms you will see the new expiry; the statement is under Billing.')); } },
+        { label: _('Prodloužit o 1 rok', 'Renew by 1 year'), primary: true, on: function () { var price = renewPrice(sel); if (window.confirm(price ? _('Prodloužit ' + sel.name + ' o 1 rok za ' + price + ' bez DPH (ceník)? Částka se strhne z kreditu.', 'Renew ' + sel.name + ' by 1 year for ' + price + ' excl. VAT (price list)? The amount is taken from credit.') : _('Prodloužit ' + sel.name + ' o 1 rok? Cena podle ceníku se strhne z kreditu.', 'Renew ' + sel.name + ' by 1 year? The list price is taken from credit.'))) dpost(cmp, sel, '/renew', { years: 1 }, ['domain'], _('Prodloužení zadáno', 'Renewal submitted'), _('Po potvrzení registru uvidíte nové datum expirace; vyúčtování najdete ve Fakturaci.', 'Once the registry confirms you will see the new expiry; the statement is under Billing.')); } },
         { label: d.auto_renew ? _('Vypnout automatickou obnovu', 'Turn auto-renew off') : _('Zapnout automatickou obnovu', 'Turn auto-renew on'), on: function () { dpost(cmp, sel, '/auto-renew', { enabled: !d.auto_renew }, ['domain'], _('Uloženo', 'Saved'), d.auto_renew ? _('Doménu už neobnovíme automaticky; napíšeme 30, 14 a 3 dny před expirací.', 'We will not renew automatically any more; we write 30, 14 and 3 days before expiry.') : _('Doménu obnovíme 14 dní před expirací z kreditu.', 'We renew 14 days before expiry from credit.')); } },
         { label: d.transfer_lock ? _('Povolit vydání převodního kódu', 'Allow the transfer code') : _('Zamknout vydání převodního kódu', 'Lock the transfer code'), on: function () { dpost(cmp, sel, '/transfer-lock', { locked: !d.transfer_lock }, ['domain'], _('Uloženo', 'Saved'), d.transfer_lock ? _('Převodní kód (AUTH-ID) si teď můžete nechat poslat; nezapomeňte zámek znovu zapnout.', 'You can now have the transfer code (AUTH-ID) sent; remember to lock it again.') : _('Dokud je zámek zapnutý, ONhost převodní kód (AUTH-ID) nevydá. Registr o tomto zámku neví: kód vydaný dříve, nebo vyžádaný přímo u registru, platí dál.', 'While the lock is on, ONhost does not hand out the transfer code (AUTH-ID). The registry does not know about this lock: a code issued earlier, or requested from the registry directly, stays valid.')); } },
         { label: _('Vyžádat AUTH-ID', 'Request AUTH-ID'), on: function () {

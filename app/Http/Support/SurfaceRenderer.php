@@ -26,6 +26,21 @@ final class SurfaceRenderer
 
     private const BOOT = '<!--__ONHOST_BOOT__-->';
 
+    /**
+     * Audit P1-6 (C2): the VAT rate of the tax rules as the public page reads it (ONHOST_DATA.vat(), SurfacePricing::vat()); the
+     * statutory 21 % only while the platform has no active rule set (the server logs that).
+     */
+    private const VAT_JS = "((window.ONHOST_DATA && typeof window.ONHOST_DATA.vat === 'function' && typeof window.ONHOST_DATA.vat() === 'number') ? window.ONHOST_DATA.vat() : 0.21)";
+
+    /** The panel's copy of the same rate (window.ONHOST_PANEL.vat from SurfaceDataController::panelPricing). */
+    private const PANEL_VAT_JS = "((window.ONHOST_PANEL && typeof window.ONHOST_PANEL.vat === 'number') ? window.ONHOST_PANEL.vat : 0.21)";
+
+    /** The rate as the label prints it ("21", "25,5"), Czech or English. */
+    private static function vatPercentJs(string $cs): string
+    {
+        return "((window.ONHOST_DATA && typeof window.ONHOST_DATA.vatPercent === 'function' && window.ONHOST_DATA.vatPercent({$cs})) || '21')";
+    }
+
     public function __construct(private readonly string $root) {}
 
     public function root(): string
@@ -573,7 +588,7 @@ HTML;
                     "      webPlans: ((window.ONHOST_DATA && window.ONHOST_DATA.webPlans && window.ONHOST_DATA.webPlans(cs)) || (cs ? [\n        ['Start', 89,",
                     "      ])).map((p, i) => ({\n        name: p[0], price: this.czk(p[1]), per: cs ? '/měs' : '/mo', desc: p[2], feats: p[3], badge: p[4],",
                     "      this.addToCart(name, price || 0, (window.OnhostSvcPages && window.OnhostSvcPages.sku(name, price)) || '');\n    };\n  }",
-                    "    const gameSlots = (((window.ONHOST_DATA && window.ONHOST_DATA.gameSlots && (window.ONHOST_DATA.gameSlots(cs) || []).length) ? window.ONHOST_DATA.gameSlots(cs) : null) || [\n      { p: 149, cs: ['Squad', '',",
+                    "    const gameSlots = (((window.ONHOST_DATA && window.ONHOST_DATA.gameSlots && (window.ONHOST_DATA.gameSlots(cs) || []).length) ? window.ONHOST_DATA.gameSlots(cs) : (window.ONHOST_DATA ? [] : null)) || [\n      { p: 149, cs: ['Squad', '',", // no game offer: no cards, never the prototype's slot prices
                     "'Support within 10 min']] }\n    ]);\n\n    const cfgBase",
                 ],
                 $html,
@@ -590,6 +605,7 @@ HTML;
         //     product pages' extra blocks (complete parameters, add-ons, configurator) — data from onhost-cart.api.js / onhost-svc-pages.api.js
         if ($surface === 'public' && ! $demo) {
             $html = self::cartSeams($html);
+            $html = self::priceSeams($html, $surface); // audit P1-6: currencies with a fresh CNB rate, VAT from the tax rules
             $html = self::checkoutSeams($html);
         }
 
@@ -672,6 +688,7 @@ HTML;
 
         // 5. panel: services/servers from window.ONHOST_PANEL, live simulation off by default
         if ($surface === 'panel' && ! $demo) {
+            $html = self::priceSeams($html, $surface); // audit P1-6: currencies with a fresh CNB rate only
             $html = self::swapRe('~(\n\s+services: )\{(\n\s+domain: \[)~', '$1(window.ONHOST_PANEL && window.ONHOST_PANEL.services) || {$2', $html, 1);
             $html = self::swapRe('~(\n\s+servers: )\[(\n\s+\{ id: \'app-prod\')~', '$1(window.ONHOST_PANEL && window.ONHOST_PANEL.servers) || [$2', $html, 1);
             // the desk's state views (SurfaceDataController::stateGroups, listed through OnhostPanelNav.cats) hold the
@@ -811,7 +828,7 @@ HTML;
                 ],
                 $html,
                 'once',
-                ["const bonus = base >= 5000 ? Math.round(base * 0.1) : 0;", "this.money(this.state.credit), '+10 %',", "this.money(totalSpend), '+6 %',"], // the top-up form and the wizard, the billing and the overview strip
+                ['const bonus = base >= 5000 ? Math.round(base * 0.1) : 0;', "this.money(this.state.credit), '+10 %',", "this.money(totalSpend), '+6 %',"], // the top-up form and the wizard, the billing and the overview strip
             );
             // billing widgets/usage/quick cards and the narrated "cost by project" ledger; overview cards and the recent-events
             // strip (api/onhost-panel-overview.api.js reads the organization's notifications)
@@ -921,8 +938,7 @@ HTML;
                 ],
                 $html,
                 'once',
-                ["          on: () => this.flash(a[0], a[1])
-        })),"], // both thread action rows
+                ["          on: () => this.flash(a[0], a[1])\n        })),"], // both thread action rows
             );
         }
 
@@ -1008,7 +1024,7 @@ HTML;
                     "...(({$order} && {$order}.summary) ? {$order}.summary(this, md, [[_('Systém', 'System'), md.os]]) : [[_('Systém', 'System'), md.os]]),",
                     "choice(_('Velikost', 'Size'), _('měnitelná za provozu', 'changeable live'), 'size', orderSizes.map(x => [x[0], x[1], x[3] != null ? x[3] : this.money(x[2]) + _(' / měsíc', ' / month')])),",
                     "[md.type === 'domain' ? _('Cena bez DPH', 'Price excl. VAT') : _('Cena měsíčně bez DPH', 'Monthly price excl. VAT'), ({$order} && {$order}.priceLabel) ? {$order}.priceLabel(this, md, orderSize) : this.money(orderSize[2])],\n                ...({$real} ? [[_('Souhlas', 'Consent'), _('VOP, ochrana údajů, DPA a SLA · potvrzením souhlasíte se zahájením ihned', 'terms, privacy, DPA and SLA · confirming starts the service at once')]] : []),",
-                    "{$real} ? [_('Platba', 'Payment'), ({$order} && {$order}.payLabel ? {$order}.payLabel(this, md, orderSize) : (this.state.credit >= orderSize[2] * 1.21 ? _('z kreditu · zůstatek ', 'from credit · balance ') + this.money(this.state.credit) : _('zálohovou fakturou (převodem), nebo nejdřív dobijte kredit', 'by proforma (bank transfer), or top up credit first'))), true] : [_('Dnes zaplatíte (poměrná část)', 'Charged today (pro rata)'), this.money(Math.round(orderSize[2] * 0.23)), true]",
+                    "{$real} ? [_('Platba', 'Payment'), ({$order} && {$order}.payLabel ? {$order}.payLabel(this, md, orderSize) : (this.state.credit >= orderSize[2] * (1 + ".self::PANEL_VAT_JS.") ? _('z kreditu · zůstatek ', 'from credit · balance ') + this.money(this.state.credit) : _('zálohovou fakturou (převodem), nebo nejdřív dobijte kredit', 'by proforma (bank transfer), or top up credit first'))), true] : [_('Dnes zaplatíte (poměrná část)', 'Charged today (pro rata)'), this.money(Math.round(orderSize[2] * 0.23)), true]",
                     "footNote: {$real} ? _('Účtujeme celé období dopředu (' + (({$order} && {$order}.period) ? {$order}.period(this, md) : 'měsíc') + '). Kredit ' + this.money(s.credit) + ' se použije první; bez kreditu vystavíme zálohovou fakturu.', 'We charge the whole period (a ' + (({$order} && {$order}.period) ? {$order}.period(this, md) : 'month') + ') up front. Your ' + this.money(s.credit) + ' credit is used first; without credit we issue a proforma.') : _('Poměrnou část účtujeme jen za zbytek měsíce. Kredit ' + this.money(s.credit) + ' se použije první.', 'We charge pro rata for the rest of the month only. Your ' + this.money(s.credit) + ' credit is used first.'),",
                     "              if ({$order}) { this.setState({ modal: null, mStep: 0 }); {$order}.place(this, { type: md.type, size: md.size || (orderSize && orderSize[0]), region: md.region, os: md.os, name: name, pay: md.pay || '' }, orderType, orderSize); return; }\n              this.setState(st => ({\n                modal: null, mStep: 0, tab: 'servers', selected: null,",
                     "ledgers: [d.ledger, d.ledgerB, d.ledgerC, d.ledgerD].filter(Boolean).filter(L => !{$real} || L.real === true).map(L => {",
@@ -1117,6 +1133,43 @@ HTML;
         );
     }
 
+    /**
+     * Audit P1-6 (C2): the currency table and the VAT wording read the platform. The prototype's `CUR` rates (1/25, 0,04 …) are gone:
+     * CZK always, another currency only with a fresh ČNB rate (SurfacePricing::currencies — the public ONHOST_DATA, the panel's
+     * ONHOST_PANEL), so a currency without a rate is not in the switcher at all. The VAT labels print the tax rules' rate.
+     */
+    private static function priceSeams(string $html, string $surface): string
+    {
+        $czkOnly = "{ czk: { rate: 1, sym: 'Kč', dec: 0, after: true, name: 'Česká koruna' } }";
+        if ($surface === 'panel') {
+            return self::swap(
+                "  CUR = {\n    czk: { sym: 'Kč', rate: 1, dec: 0, after: true, name: 'Česká koruna' },\n    eur: { sym: '€', rate: 0.04, dec: 2, after: false, name: 'Euro' },\n    usd: { sym: '$', rate: 0.044, dec: 2, after: false, name: 'US dollar' },\n    pln: { sym: 'zł', rate: 0.17, dec: 2, after: true, name: 'Polski złoty' },\n    gbp: { sym: '£', rate: 0.034, dec: 2, after: false, name: 'Pound sterling' }\n  }\n",
+                "  CUR = (window.ONHOST_PANEL && window.ONHOST_PANEL.currencies) || {$czkOnly}\n",
+                $html,
+            );
+        }
+
+        return self::swap(
+            [
+                "  CUR = {\n    czk: { rate: 1, sym: 'Kč', dec: 0, after: true },\n    eur: { rate: 1 / 25, sym: '€', dec: 2, after: true },\n    usd: { rate: 1 / 23, sym: '$', dec: 2, after: false },\n    pln: { rate: 1 / 5.9, sym: 'zł', dec: 2, after: true },\n    gbp: { rate: 1 / 29, sym: '£', dec: 2, after: false }\n  };\n",
+                "['gbp', 'GBP', cs ? 'Britská libra' : 'Pound sterling']].map(c => ({",
+                "coVat: 'DPH 21 %',",
+                "coVat: 'VAT 21%',",
+                "footVat: 'Všechny ceny včetně DPH 21 %'",
+                "footVat: 'All prices include 21% VAT'",
+            ],
+            [
+                "  CUR = (window.ONHOST_DATA && typeof window.ONHOST_DATA.currencies === 'function' && window.ONHOST_DATA.currencies()) || {$czkOnly};\n",
+                "['gbp', 'GBP', cs ? 'Britská libra' : 'Pound sterling']].filter(c => !!this.CUR[c[0]]).map(c => ({",
+                "coVat: 'DPH ' + ".self::vatPercentJs('true')." + ' %',",
+                "coVat: 'VAT ' + ".self::vatPercentJs('false')." + '%',",
+                "footVat: 'Všechny ceny včetně DPH ' + ".self::vatPercentJs('true')." + ' %'",
+                "footVat: 'All prices include ' + ".self::vatPercentJs('false')." + '% VAT'",
+            ],
+            $html,
+        );
+    }
+
     public static function cartSeams(string $html): string
     {
         $html = self::swap(
@@ -1156,7 +1209,7 @@ HTML;
                 '  get COMMITS() { return window.OnhostCart ? window.OnhostCart.commits() : [[1, 0], [12, 0], [24, 0]]; }',
                 "      const d = window.OnhostCart ? window.OnhostCart.discount(it) : (this.COMMITS.find(c => c[0] === it.commit) || [1, 0])[1];\n      net += window.OnhostCart ? window.OnhostCart.lineNet(it, d) : it.price * it.qty * (1 - d);",
                 '    const promoOff = window.OnhostCart ? window.OnhostCart.promoOff(this.state, items) : (this.state.promoOk ? net * 0.1 : 0);',
-                "    const __quoted = window.OnhostCart && window.OnhostCart.totals ? window.OnhostCart.totals(this) : null;\n    if (__quoted) return __quoted;\n    return { count: items.reduce((a, x) => a + x.qty, 0), net: after, promoOff, vat: after * 0.21, total: after * 1.21, commitOff: window.OnhostCart ? window.OnhostCart.commitOff(items) : 0, addonsOff: window.OnhostCart ? window.OnhostCart.addonsTotal(items) : 0 };",
+                "    const __quoted = window.OnhostCart && window.OnhostCart.totals ? window.OnhostCart.totals(this) : null;\n    if (__quoted) return __quoted;\n    const __vat = ".self::VAT_JS.";\n    return { count: items.reduce((a, x) => a + x.qty, 0), net: after, promoOff, vat: after * __vat, total: after * (1 + __vat), commitOff: window.OnhostCart ? window.OnhostCart.commitOff(items) : 0, addonsOff: window.OnhostCart ? window.OnhostCart.addonsTotal(items) : 0 };",
                 "    const items = (s.cartItems || []).map(it => {\n      const __row = window.OnhostCart ? window.OnhostCart.cartRow(it, this, _) : null;\n      if (__row) return __row;\n      const d = window.OnhostCart ? window.OnhostCart.discount(it) : (this.COMMITS.find(c => c[0] === it.commit) || [1, 0])[1];\n      const line = window.OnhostCart ? window.OnhostCart.lineNet(it, d) : it.price * it.qty * (1 - d);",
                 "        meta: (it.commit === 1 ? _('měsíčně, bez závazku', 'monthly, no commitment') : (window.OnhostCart && window.OnhostCart.termLabel ? window.OnhostCart.termLabel(it, d, _) : (d ? _('závazek ' + it.commit + ' měsíců · sleva ' + Math.round(d * 100) + ' %', it.commit + '-month term · ' + Math.round(d * 100) + '% off') : _('závazek ' + it.commit + ' měsíců', it.commit + '-month term')))),",
                 "      promoOffLabel: _('Sleva ' + String(s.promo || '').toUpperCase(), String(s.promo || '').toUpperCase() + ' discount'),",
@@ -1177,9 +1230,9 @@ HTML;
                 "      upsellTitle: upsells.length ? _('Přidat k objednávce', 'Add to your order') : '',",
                 // ↓ replacements of the money and term anchors above (the order of the pairs must match)
                 "  mny(n) {\n    const c = this.CUR[this.state.currency] || this.CUR.czk;\n    const __x = Math.round(n * c.rate * 100) / 100, __d = Number.isInteger(__x) ? c.dec : Math.max(c.dec, 2);\n    const v = new Intl.NumberFormat(this.state.lang === 'cs' ? 'cs-CZ' : 'en-US', { minimumFractionDigits: __d, maximumFractionDigits: __d }).format(__x);",
-                "  czk(n) {\n    const c = this.CUR[this.state.currency] || this.CUR.czk;\n    const __x = Math.round(n * 1.21 * c.rate * 100) / 100, __d = Number.isInteger(__x) ? c.dec : Math.max(c.dec, 2);\n    const v = new Intl.NumberFormat(this.state.lang === 'cs' ? 'cs-CZ' : 'en-US', { minimumFractionDigits: __d, maximumFractionDigits: __d }).format(__x);",
+                "  czk(n) {\n    const c = this.CUR[this.state.currency] || this.CUR.czk;\n    const __x = Math.round(n * (1 + ".self::VAT_JS.") * c.rate * 100) / 100, __d = Number.isInteger(__x) ? c.dec : Math.max(c.dec, 2);\n    const v = new Intl.NumberFormat(this.state.lang === 'cs' ? 'cs-CZ' : 'en-US', { minimumFractionDigits: __d, maximumFractionDigits: __d }).format(__x);",
                 'step: 1, commit: 1, co: {',
-                "      netLabel: _('Bez DPH', 'Excl. VAT'), vatLabel: _('DPH 21 %', 'VAT 21%'), totalLabel: (window.OnhostCart && window.OnhostCart.totalLabel) ? window.OnhostCart.totalLabel(s, cs) : _('Celkem měsíčně', 'Monthly total'),",
+                "      netLabel: _('Bez DPH', 'Excl. VAT'), vatLabel: _('DPH ' + ".self::vatPercentJs('true')." + ' %', 'VAT ' + ".self::vatPercentJs('false')." + '%'), totalLabel: (window.OnhostCart && window.OnhostCart.totalLabel) ? window.OnhostCart.totalLabel(s, cs) : _('Celkem měsíčně', 'Monthly total'),",
                 "      const __term =(!st.cartItems || !st.cartItems.length) && st.period === 'year' ? 12 : (st.commit || 1);\n      if (i >= 0) items[i] = Object.assign({}, items[i], { qty: items[i].qty + 1 });\n      else items.push({ id, name: name, price: price || 0, qty: 1, commit: __term, meta: meta || '' });\n      return { cartItems: items, commit: __term, cartOpen: true, menu: null, langOpen: false, orderDone: null, step: st.orderDone ? 1 : st.step };",
                 '          on: () => this.setState(st => ({ commit: c[0], cartItems: st.cartItems.map(x => (window.OnhostCart && window.OnhostCart.isDomain(x)) ? x : Object.assign({}, x, { commit: c[0] })) }))',
             ],
@@ -1221,8 +1274,8 @@ HTML;
                 "cof: { email: '', name: '', ico: '', dic: '', terms: false }",
             ],
             [
-                "        ['card', 'Karta', 'Visa, Mastercard · platební brána'], ['bank', 'Bankovní převod', 'QR platba, zálohová faktura'],\n        ['wallet', 'Apple Pay / Google Pay', 'Jedním dotykem']\n",
-                "        ['card', 'Card', 'Visa, Mastercard · payment gateway'], ['bank', 'Bank transfer', 'QR payment, pro forma invoice'],\n        ['wallet', 'Apple Pay / Google Pay', 'One tap']\n",
+                "        ['card', 'Karta', 'Visa, Mastercard · platební brána'], ['bank', 'Bankovní převod', 'QR platba, zálohová faktura']\n", // R13: tiles the bridge cannot pay (Apple/Google Pay, PayPal, crypto, SEPA) are gone
+                "        ['card', 'Card', 'Visa, Mastercard · payment gateway'], ['bank', 'Bank transfer', 'QR payment, pro forma invoice']\n",
                 "coEta: (window.OnhostCart && window.OnhostCart.eta) ? window.OnhostCart.eta(this.state, true) : 'Server běží za ~90 sekund od zaplacení',",
                 "coEta: (window.OnhostCart && window.OnhostCart.eta) ? window.OnhostCart.eta(this.state, false) : 'Your server runs ~90 seconds after payment',",
                 "cof: Object.assign({ email: '', name: '', ico: '', dic: '', terms: false }, (window.OnhostCart && window.OnhostCart.prefill) ? window.OnhostCart.prefill() : {})",
@@ -1243,7 +1296,7 @@ HTML;
                 ."      lblCompany: cs ? 'Název firmy' : 'Company name', lblAddress: cs ? 'Fakturační adresa' : 'Billing address', lblStreet: cs ? 'Ulice a číslo popisné' : 'Street and number', lblCity: cs ? 'Město' : 'City', lblZip: cs ? 'PSČ' : 'Postal code',\n"
                 ."      hasDoneRows: !!(window.OnhostCart && window.__onhostOrder && window.OnhostCart.doneRows(window.__onhostOrder, this, cs).length), doneRows: (window.OnhostCart && window.__onhostOrder) ? window.OnhostCart.doneRows(window.__onhostOrder, this, cs) : [],\n"
                 ."      onEmail: setF('email'), onName: setF('name'), onIco: setF('ico'), onDic: setF('dic'), onTerms: setF('terms'),",
-                "        const __o = s.orderDone && window.__onhostOrder && window.__onhostOrder.total != null ? window.__onhostOrder : null;\n        return __o ? { rows: window.OnhostCart ? window.OnhostCart.orderSummaryRows(__o, this, cs) : rows, net: this.mny(((__o.subtotal || 0) - (__o.discount || 0)) / 100), vat: this.mny((__o.tax || 0) / 100), total: this.mny(__o.total / 100) } : { rows, net: this.mny(net), vat: this.mny(net * 0.21), total: this.mny(net * 1.21 + s.credit) };",
+                "        const __o = s.orderDone && window.__onhostOrder && window.__onhostOrder.total != null ? window.__onhostOrder : null;\n        return __o ? { rows: window.OnhostCart ? window.OnhostCart.orderSummaryRows(__o, this, cs) : rows, net: this.mny(((__o.subtotal || 0) - (__o.discount || 0)) / 100), vat: this.mny((__o.tax || 0) / 100), total: this.mny(__o.total / 100) } : { rows, net: this.mny(net), vat: this.mny(net * ".self::VAT_JS.'), total: this.mny(net * (1 + '.self::VAT_JS.') + s.credit) };',
                 "      doneKicker: (window.OnhostCart && window.__onhostOrder) ? window.OnhostCart.doneCopy(window.__onhostOrder, cs).kicker : (cs ? 'Objednávka přijata' : 'Order received'),\n"
                 ."      doneTitle: (window.OnhostCart && window.__onhostOrder) ? window.OnhostCart.doneCopy(window.__onhostOrder, cs).title : (cs ? 'Server startuje' : 'Your server is starting'),\n"
                 ."      doneLead: (window.OnhostCart && window.__onhostOrder) ? window.OnhostCart.doneCopy(window.__onhostOrder, cs).lead : (cs ? 'Fakturu a přihlašovací údaje jsme poslali na váš e-mail. Průběh vidíte v klientském panelu, obvykle do devadesáti sekund je hotovo.' : 'The invoice and credentials are in your inbox. Progress shows in the client panel — usually done within ninety seconds.'),",
@@ -1661,7 +1714,7 @@ HTML;
             [
                 "      gcx: window.OnhostGameConfig ? window.OnhostGameConfig.view(this, cs) : { has: false },\n      games: (window.OnhostGameConfig && window.OnhostGameConfig.labels(cs).length) ? window.OnhostGameConfig.labels(cs) : ['Minecraft', 'CS2',",
                 "      products: prods.filter(p => (s.filter === 'all' && !p.sub) || (p.cat === s.filter && !(s.filter === 'game' && p.game && !p.sub))).map(p => {",
-                "price: (p.game ? (cs ? 'od ' : 'from ') + this.czk(Math.round(p.price * 1.21) / 1.21) : this.czk(p.price)), go: (e) => { e.preventDefault(); if (p.game) { nav('game')(e); if (p.egg && window.OnhostGameConfig) window.OnhostGameConfig.select(this, p.group, p.egg); return; } this.setState({ view: 'pricing' }); window.scrollTo(0, 0); } };",
+                "price: (p.game ? (cs ? 'od ' : 'from ') + this.czk(Math.round(p.price * (1 + ".self::VAT_JS.')) / (1 + '.self::VAT_JS.")) : this.czk(p.price)), go: (e) => { e.preventDefault(); if (p.game) { nav('game')(e); if (p.egg && window.OnhostGameConfig) window.OnhostGameConfig.select(this, p.group, p.egg); return; } this.setState({ view: 'pricing' }); window.scrollTo(0, 0); } };",
                 "gmCta1: 'Vybrat hru',",
                 '<a href="#" onClick="{{ gcx.goOffer }}" class="btn btn-primary" style="font-size:15px;padding:15px 22px">{{ t.gmCta1 }}</a>',
                 "gmCta1: 'Pick a game',",
