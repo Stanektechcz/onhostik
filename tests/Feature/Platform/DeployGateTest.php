@@ -939,7 +939,7 @@ function deployGateInstall(array $box, array $env): array
         'SITE' => 'staging.test', 'APP_DIR' => $box['APP'], 'PHP' => $box['posix'].'/bin/php', 'ENV_DIR' => $box['posix'].'/etc',
         'RUN_USER' => $box['USER'], 'DEPLOY_STATE_DIR' => $box['posix'].'/state', 'SYSTEMD_DIR' => $box['posix'].'/systemd',
         'DEPLOY_WORK_DIR' => $box['posix'].'/work/staging.test', 'DEPLOY_SAFE_PATH' => $box['posix'].'/bin:/usr/bin:/bin',
-        'DEPLOY_OWNER_UID' => $box['UID'], 'QUEUES' => 'default mails',
+        'DEPLOY_OWNER_UID' => $box['UID'], 'QUEUES' => 'default mails', 'USRANALYSE_PRELOAD_FILE' => $box['posix'].'/etc/ld.so.preload',
         'INSTALL_REPAIR' => '1', 'START_UNITS' => false, 'REF' => false, 'EXPECTED_SHA' => false, 'BRANCH' => false,
     ], $env));
     $process->setTimeout(60);
@@ -987,6 +987,18 @@ it('repairs an installed site without starting its units, without following a li
 
     $started = deployGateInstall($box, ['START_UNITS' => '1']);   // starting is an explicit choice
     expect($started['rc'])->toBe(0, $started['out'])->and($started['stub'])->toContain('systemctl enable --now onhost-scheduler.service');
+
+    // E0 (TASK-0082): no usranalyse, no drop-in and no word about it; preloaded, install.sh says so and writes
+    // ProtectSystem=no for the two units it renders (the module segfaults www under ProtectSystem=, staging rc 7)
+    $dropIn = fn (string $unit) => $box['dir'].'/systemd/'.$unit.'.d/10-aapanel-usranalyse.conf';
+    expect($repair['out'])->not->toContain('usranalyse')->and(is_file($dropIn('onhost-scheduler.service')))->toBeFalse();
+    file_put_contents($box['dir'].'/etc/ld.so.preload', "/usr/local/usranalyse/lib/libusranalyse.so\n");
+    $preloaded = deployGateInstall($box, []);
+    expect($preloaded['rc'])->toBe(0, $preloaded['out'])->and($preloaded['out'])->toContain('usranalyse')->toContain('ProtectSystem=no')
+        ->and($preloaded['stub'])->not->toContain('systemctl enable')->not->toContain('systemctl start');
+    foreach (['onhost-queue@.service', 'onhost-scheduler.service'] as $unit) {
+        expect((string) @file_get_contents($dropIn($unit)))->toContain("[Service]\nProtectSystem=no\n");
+    }
 });
 
 it('does not call a release good when a drained unit does not come back: all of them stop again and the site stays down', function () {
@@ -1306,7 +1318,7 @@ it('keeps bash syntax valid and never ignores the doctor again', function () {
     if ($bash === null) {
         getenv('CI') ? throw new RuntimeException('bash is required in CI') : test()->markTestSkipped('no bash');
     }
-    foreach (['deploy.sh', 'install.sh', 'install-deployer.sh', 'relay-install.sh', 'ci/deploy-sandbox.sh', 'ci/deploy-e2e.sh'] as $script) {
+    foreach (['deploy.sh', 'install.sh', 'install-deployer.sh', 'relay-install.sh', 'staging.sh', 'ci/deploy-sandbox.sh', 'ci/deploy-e2e.sh', 'ci/staging-sandbox.sh'] as $script) {
         $p = new Process([$bash, '-n', deployGatePosix(base_path('infra/aapanel/'.$script))]);
         $p->run();
         expect($p->getExitCode())->toBe(0, $script.': '.$p->getErrorOutput());
@@ -1558,4 +1570,242 @@ it('holds every set key of the environment to a line of the spec once the spec s
     }
     expect($noAllowList['out'])->toContain("no '*UNLISTED=' line")
         ->and($proxy['out'])->toContain('UNLISTED https_proxy')->not->toContain('pRoXy');
+});
+
+// ── E0 (TASK-0082): staging.sh survives aaPanel ─────────────────────────────────────────────────────────────────────
+// Staging 2026-09-28: aaPanel's /etc/ld.so.preload (libusranalyse.so) segfaulted every process of www that systemd
+// started under ProtectSystem= (deploy rc 7); public/ is root's, so `npm run build` as www could not write public/build;
+// a failed release left nothing that said so; `setup` deployed VERSION instead of the development tip and a re-run
+// parked its own unfinished install (audit 2026-10 P0-5, P0-6, P1-16). The cases run infra/aapanel/staging.sh against
+// stubs in infra/aapanel/ci/staging-sandbox.sh.
+
+/** @return array{dir:string, posix:string, SHA_A:string, SHA_B:string, TIP:string, APP:string, ENV:string, UID:string, USER:string} */
+function stagingSandbox(): array
+{
+    $bash = deployGateBash();
+    if ($bash === null) {
+        if (getenv('CI')) {
+            throw new RuntimeException('bash is required for the staging script tests in CI');
+        }
+        test()->markTestSkipped('no bash (Git Bash on Windows) — the staging script cases run in CI');
+    }
+    $dir = deployGateTempDir();
+    $process = new Process([$bash, deployGatePosix(base_path('infra/aapanel/ci/staging-sandbox.sh')), deployGatePosix($dir)], null, [
+        'REPO_ROOT' => deployGatePosix(base_path()),
+    ]);
+    $process->setTimeout(120);
+    $process->run();
+    if (! $process->isSuccessful()) {
+        throw new RuntimeException('staging sandbox: '.$process->getErrorOutput().$process->getOutput());
+    }
+    $box = ['dir' => $dir, 'posix' => deployGatePosix($dir)];
+    foreach (preg_split('/\R/', trim($process->getOutput())) ?: [] as $line) {
+        [$key, $value] = array_pad(explode('=', $line, 2), 2, '');
+        $box[$key] = $value;
+    }
+
+    return $box;
+}
+
+/**
+ * Runs infra/aapanel/staging.sh (or ONHOST_STAGING_SCRIPT) in the sandbox, stubs first on PATH. With $prelude the
+ * script is sourced instead and `$prelude; main <args>` runs (the test replaces the steps it does not exercise).
+ *
+ * @param  list<string>  $args
+ * @param  array<string, string|false>  $env
+ * @param  array<string, string>  $stub
+ * @return array{rc:int, out:string, stub:string}
+ */
+function stagingRun(array $box, array $args, array $env = [], array $stub = [], ?string $prelude = null): array
+{
+    @unlink($box['dir'].'/stub.log');
+    $knobs = "STUB_LOG='{$box['posix']}/stub.log'\n";
+    foreach ($stub as $key => $value) {
+        $knobs .= $key."='".str_replace("'", "'\\''", $value)."'\n";
+    }
+    file_put_contents($box['dir'].'/bin/stub.env', $knobs);
+    $script = getenv('ONHOST_STAGING_SCRIPT') ?: base_path('infra/aapanel/staging.sh');
+    $command = $prelude === null
+        ? 'PATH="$STUB_BIN:$PATH" exec bash "$STAGING" "$@"'
+        : 'PATH="$STUB_BIN:$PATH"; . "$STAGING"; '.$prelude.'; main "$@"';
+    $process = new Process(array_merge([(string) deployGateBash(), '-c', $command, 'staging'], $args), null, array_merge([
+        'STUB_BIN' => $box['posix'].'/bin', 'STAGING' => deployGatePosix((string) $script),
+        'APP_DIR' => $box['APP'], 'DEPLOY_STATE_DIR' => $box['posix'].'/state', 'ENV_DIR' => $box['posix'].'/etc',
+        'SYSTEMD_DIR' => $box['posix'].'/systemd', 'USRANALYSE_PRELOAD_FILE' => $box['posix'].'/etc/ld.so.preload',
+        'DEPLOYER_BIN' => $box['posix'].'/sbin/onhost-deploy', 'RUN_USER' => $box['USER'], 'DEPLOY_OWNER_UID' => $box['UID'],
+        'DEPLOY_WORK_DIR' => $box['posix'].'/work/staging', 'DEPLOY_SAFE_PATH' => $box['posix'].'/bin:/usr/bin:/bin',
+        'REPO' => $box['posix'].'/origin.git', 'PHP' => $box['posix'].'/bin/php', 'PHP_FPM_RELOAD' => $box['posix'].'/bin/fpm-reload',
+        'DEPLOY_OPERATOR' => 'test-operator', 'REF' => false, 'EXPECTED_SHA' => false,
+    ], $env));
+    $process->setTimeout(120);
+    $process->run();
+
+    return ['rc' => (int) $process->getExitCode(), 'out' => $process->getOutput().$process->getErrorOutput(), 'stub' => (string) @file_get_contents($box['dir'].'/stub.log')];
+}
+
+/** The key=value lines of a park marker or the setup record ([] when the file is missing). */
+function stagingRecord(string $path): array
+{
+    $values = [];
+    foreach (preg_split('/\R/', trim((string) @file_get_contents($path))) ?: [] as $line) {
+        [$key, $value] = array_pad(explode('=', $line, 2), 2, '');
+        if ($key !== '') {
+            $values[$key] = $value;
+        }
+    }
+
+    return $values;
+}
+
+it('writes the ProtectSystem=no drop-ins only while aaPanel preloads usranalyse, and takes them away once it is gone', function () {
+    $box = $this->deployBox = stagingSandbox();
+    $dropIns = array_map(fn (string $unit) => $box['dir'].'/systemd/'.$unit.'.d/10-aapanel-usranalyse.conf', ['onhost-queue@.service', 'onhost-scheduler.service', 'php-fpm-85.service']);
+
+    $first = stagingRun($box, ['harden']);
+    expect($first['rc'])->toBe(0, $first['out'])->and($first['stub'])->toContain('systemctl daemon-reload')
+        ->and($first['out'])->toContain('usranalyse');
+    foreach ($dropIns as $file) {
+        expect(is_file($file))->toBeTrue($file)->and((string) file_get_contents($file))->toContain("[Service]\nProtectSystem=no\n");
+    }
+
+    $again = stagingRun($box, ['harden']);   // nothing changed: no reload
+    expect($again['rc'])->toBe(0, $again['out'])->and($again['stub'])->not->toContain('daemon-reload');
+
+    file_put_contents($box['dir'].'/etc/ld.so.preload', "# /usr/local/usranalyse/lib/libusranalyse.so (switched off)\n");
+    $gone = stagingRun($box, ['harden']);
+    expect($gone['rc'])->toBe(0, $gone['out'])->and($gone['stub'])->toContain('systemctl daemon-reload');
+    foreach ($dropIns as $file) {
+        expect(is_file($file))->toBeFalse($file);
+    }
+});
+
+it('hands public/build to the run user, keeps the code root\'s and app.env root:www 0640, and refuses a linked build directory', function () {
+    $box = $this->deployBox = stagingSandbox();
+    $user = $box['USER'];
+
+    $r = stagingRun($box, ['harden']);
+    expect($r['rc'])->toBe(0, $r['out'])
+        ->and(is_dir($box['dir'].'/app/public/build'))->toBeTrue()
+        ->and($r['stub'])->toContain("chown -h {$user}:{$user} {$box['APP']}/public/build")
+        ->toContain("chown root:{$user} {$box['posix']}/etc {$box['posix']}/etc/app.env")
+        ->toContain("chmod 0750 {$box['posix']}/etc")->toContain("chmod 0640 {$box['posix']}/etc/app.env");
+
+    if (PHP_OS_FAMILY !== 'Windows') { // NTFS keeps no group/other write bit for Git Bash to find, and no symlink unprivileged
+        chmod($box['dir'].'/app/config/app.php', 0666);
+        $writable = stagingRun($box, ['harden']);
+        expect($writable['rc'])->toBe(0, $writable['out'])->and($writable['stub'])->toContain('chmod go-w ./app.php');
+
+        File::deleteDirectory($box['dir'].'/app/public/build');
+        File::ensureDirectoryExists($box['dir'].'/elsewhere');
+        symlink($box['dir'].'/elsewhere', $box['dir'].'/app/public/build');
+        $linked = stagingRun($box, ['harden']);
+        expect($linked['rc'])->not->toBe(0, $linked['out'])->and($linked['out'])->toContain('public/build is a symlink')
+            ->and($linked['stub'])->not->toContain('public/build');
+    }
+
+    // app.env is re-moded and re-owned, never read: the function that does it opens no file
+    $source = (string) file_get_contents(base_path('infra/aapanel/staging.sh'));
+    expect(preg_match('/^env_file_mode\(\) \{.*?^\}$/ms', $source, $m))->toBe(1)
+        ->and($m[0])->not->toMatch('/\b(cat|grep|awk|sed|head|source)\b|<\s*"/');
+});
+
+it('parks a release the deployer refuses or fails, keeps the last good release current and exits with the deployer\'s code', function () {
+    $box = $this->deployBox = stagingSandbox();
+    $marker = $box['dir'].'/state/releases/'.$box['SHA_B'].'.parked';
+
+    foreach ([5, 2] as $rc) {
+        $r = stagingRun($box, ['deploy', $box['SHA_B']], [], ['STUB_DEPLOY_RC' => (string) $rc]);
+        $park = stagingRecord($marker);
+        expect($r['rc'])->toBe($rc, $r['out'])
+            ->and($r['stub'])->toContain('onhost-deploy REF='.$box['SHA_B'].' EXPECTED_SHA='.$box['SHA_B'].' OPERATOR=test-operator')
+            ->not->toContain('npm ')
+            ->and($park['sha'] ?? null)->toBe($box['SHA_B'])->and($park['rc'] ?? null)->toBe((string) $rc)
+            ->and($park['stage'] ?? null)->toBe('deployer')->and($park['previous'] ?? null)->toBe($box['SHA_A'])
+            ->and($park['operator'] ?? null)->toBe('test-operator')
+            ->and(is_file($box['dir'].'/state/releases/current'))->toBeFalse()
+            ->and($r['out'])->toContain('PARKED')->toContain('deploy '.$box['SHA_A']);
+    }
+    // rc 5 switched the tree in place (VERSION names B): the last good release is still A, never what VERSION says
+    expect((string) file_get_contents($box['dir'].'/app/VERSION'))->toStartWith($box['SHA_B']);
+
+    $bad = stagingRun($box, ['deploy', 'not-a-sha']);
+    expect($bad['rc'])->toBe(2)->and($bad['stub'])->not->toContain('onhost-deploy');
+});
+
+it('records a good release as current, clears its earlier park, and builds the frontend as the run user', function () {
+    $box = $this->deployBox = stagingSandbox();
+    $releases = $box['dir'].'/state/releases';
+    $failed = stagingRun($box, ['deploy', $box['SHA_B']], [], ['STUB_DEPLOY_RC' => '7']);
+    // the drop-ins are written and loaded before the deployer drains and restarts the units
+    expect($failed['rc'])->toBe(7, $failed['out'])->and(is_file($releases.'/'.$box['SHA_B'].'.parked'))->toBeTrue()
+        ->and(deployGateAt($failed['stub'], 'systemctl daemon-reload'))->toBeLessThan(deployGateAt($failed['stub'], 'onhost-deploy'));
+
+    $r = stagingRun($box, ['deploy', $box['SHA_B']]);
+    expect($r['rc'])->toBe(0, $r['out'])
+        ->and(trim((string) @file_get_contents($releases.'/current')))->toBe($box['SHA_B'])
+        ->and(is_file($releases.'/'.$box['SHA_B'].'.parked'))->toBeFalse()
+        ->and(glob($releases.'/'.$box['SHA_B'].'.parked-*.cleared'))->toHaveCount(1)
+        ->and($r['stub'])->toContain('setpriv --reuid='.$box['USER'].' --regid='.$box['USER'])->toContain('npm ci')->toContain('npm run build')
+        // public/build is the run user's before vite writes it
+        ->and(deployGateAt($r['stub'], '/public/build'))->toBeLessThan(deployGateAt($r['stub'], 'npm run build'));
+
+    // the deployer answered 0 but the tree does not hold the release: not good, parked
+    $other = stagingRun($box, ['deploy', $box['SHA_A']], [], ['STUB_DEPLOY_VERSION' => str_repeat('c', 40)]);
+    expect($other['rc'])->not->toBe(0, $other['out'])->and(is_file($releases.'/'.$box['SHA_A'].'.parked'))->toBeTrue()
+        ->and(trim((string) file_get_contents($releases.'/current')))->toBe($box['SHA_B']);
+});
+
+it('parks a release whose frontend bundle cannot be built and exits non-zero (the pages need public/build)', function () {
+    $box = $this->deployBox = stagingSandbox();
+
+    $r = stagingRun($box, ['deploy', $box['SHA_B']], [], ['STUB_NPM_BUILD_EXIT' => '1']);
+    $park = stagingRecord($box['dir'].'/state/releases/'.$box['SHA_B'].'.parked');
+    expect($r['rc'])->toBe(8, $r['out'])->and($park['stage'] ?? null)->toBe('frontend')->and($park['previous'] ?? null)->toBe($box['SHA_A'])
+        ->and(is_file($box['dir'].'/state/releases/current'))->toBeFalse();
+
+    file_put_contents($box['dir'].'/bin/node', "#!/usr/bin/env bash\necho v22.1.0\n");   // no Node 24: a failure now, no longer a skipped step
+    $noNode = stagingRun($box, ['deploy', $box['SHA_B']]);
+    expect($noNode['rc'])->toBe(8, $noNode['out'])->and($noNode['out'])->toContain('Node 24');
+});
+
+it('sets up the tip of development, records and prints that commit, and never parks its own unfinished install on a re-run', function () {
+    $box = $this->deployBox = stagingSandbox();
+    $steps = $box['posix'].'/steps.log';
+    // the host steps are replaced by recorders; setup's own order, target and records are what is under test
+    $prelude = 'for f in check contain park db install_app deployer start deploy; do eval "$f() { printf \'%s %s\\n\' $f \"\${1:-}\" >> \''.$steps.'\'; }"; done';
+    $tip = $box['TIP'];
+
+    // an old staging tree (no marker of ours): contained and parked first, then installed at the development tip
+    $first = stagingRun($box, ['setup'], [], [], $prelude);
+    $record = stagingRecord($box['dir'].'/state/setup-sha');
+    expect($first['rc'])->toBe(0, $first['out'])
+        ->and($first['out'])->toContain('setup target: '.$tip)->toContain('deployed commit '.$tip)
+        ->and($record['target'] ?? null)->toBe($tip)->and($record['deployed'] ?? null)->toBe($tip)->and($record['operator'] ?? null)->toBe('test-operator')
+        ->and((string) file_get_contents($box['dir'].'/steps.log'))->toBe("check \ncontain \npark \ninstall_app {$tip}\ndeployer {$tip}\nstart \ndeploy {$tip}\n");
+
+    // the re-run after a cut-short install finds its own record: nothing is parked (the db password stays in app.env)
+    unlink($box['dir'].'/steps.log');
+    $given = str_repeat('d', 40);
+    $again = stagingRun($box, ['setup', $given], [], [], $prelude);
+    expect($again['rc'])->toBe(0, $again['out'])->and($again['out'])->toContain('setup target: '.$given)
+        ->and((string) file_get_contents($box['dir'].'/steps.log'))->not->toContain('contain')->not->toContain('park')
+        ->toContain("deploy {$given}")
+        ->and(stagingRecord($box['dir'].'/state/setup-sha')['target'] ?? null)->toBe($given);
+
+    // a failing step parks the target and setup exits non-zero
+    $failing = stagingRun($box, ['setup', $given], [], [], $prelude.'; deployer() { return 3; }');
+    $park = stagingRecord($box['dir'].'/state/releases/'.$given.'.parked');
+    expect($failing['rc'])->toBe(3, $failing['out'])->and($park['stage'] ?? null)->toBe('deployer')->and($failing['out'])->toContain('PARKED');
+});
+
+it('keeps the staging script in step with install.sh and the deployer where they share a function', function () {
+    foreach (['tree_is_real', 'repair_ownership', 'as_run'] as $name) {
+        expect(deployGateShellFunction('staging.sh', $name))->not->toBe('')->toBe(deployGateShellFunction('deploy.sh', $name));
+    }
+    expect(deployGateShellLine('staging.sh', 'usranalyse_loaded'))->not->toBe('')->toBe(deployGateShellLine('install.sh', 'usranalyse_loaded'))
+        ->and(deployGateShellFunction('staging.sh', 'usranalyse_dropins'))->not->toBe('')->toBe(deployGateShellFunction('install.sh', 'usranalyse_dropins'));
+    $source = (string) file_get_contents(base_path('infra/aapanel/staging.sh'));
+    expect($source)->not->toMatch('#chown -R#')->not->toMatch('#chmod -R#')
+        // setup deploys the commit it resolved once, never whatever VERSION says
+        ->and(preg_match('/^setup\(\) \{.*?^\}$/ms', $source, $m))->toBe(1)->and($m[0])->not->toContain('VERSION');
 });
