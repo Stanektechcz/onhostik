@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Web;
 use App\Http\Controllers\Controller;
 use App\Http\Navigation\StaffNavigation;
 use App\Http\Support\CurrentOrganization;
+use App\Http\Support\PublicApiDocs;
 use App\Http\Support\SurfaceRenderer;
 use Illuminate\Http\Request;
 use Onhost\Domain\Identity\Authorization\Authorizer;
@@ -114,6 +115,14 @@ final class SurfaceController extends Controller
                 ],
                 (string) file_get_contents($file),
             );
+
+            return response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=300', 'X-Content-Type-Options' => 'nosniff']);
+        }
+        // the public /api and /dokumentace pages (audit 2026-10 D3): the limits, headers, endpoints, errors, webhook retry and the
+        // two API guides come from the routes, the config and the dispatcher; the prototype's story stays in demo mode only
+        if (in_array($path, ['onhost-public.js', 'onhost-docs.js'], true) && ! config('onhost.ui.demo', false)) {
+            $original = (string) file_get_contents($file);
+            $js = $path === 'onhost-public.js' ? PublicApiDocs::publicScript($original) : (PublicApiDocs::docsModule($original) ?? $original);
 
             return response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=300', 'X-Content-Type-Options' => 'nosniff']);
         }

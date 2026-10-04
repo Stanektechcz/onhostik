@@ -616,6 +616,14 @@ HTML;
             $html = self::swapRe('~</helmet>~', self::BOOT."\n</helmet>", $html, 1);
         }
 
+        // 4a. public /api page (audit 2026-10 D3): the sentences that quote the API base URL, the page size and the webhook retry
+        //     come from the config and the dispatcher (PublicApiDocs), not from the prototype's story; the page's data is replaced
+        //     by the asset route of onhost-public.js (SurfaceController::asset)
+        if ($surface === 'public' && ! $demo) {
+            $copy = PublicApiDocs::pageCopy();
+            $html = self::swap(array_keys($copy), array_values($copy), $html);
+        }
+
         // 4b. public checkout: the order number comes from the control plane (bridge sets window.__onhostOrder before the prototype's handler runs);
         //     the ".cz domain" upsell needs a checked domain name, so it is not pre-selected (domains are ordered in the panel)
         if ($surface === 'public' && ! $demo) {
