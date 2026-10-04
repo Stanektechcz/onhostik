@@ -35,6 +35,9 @@ function dmoRun(array $options = [], ?string $password = DMO_SHARED_PHRASE): int
     $pending = test()->artisan('onhost:demo:accounts', [DMO_FLAG => true] + $options);
     if ($password !== null) {
         $pending->expectsQuestion(DMO_PROMPT, $password);
+        if ($password !== '') {
+            $pending->expectsQuestion('Repeat the shared demo password', $password);
+        }
     }
 
     return $pending->run();
@@ -191,4 +194,25 @@ it('disables the demo accounts with --remove: no sign-in, partners suspended, no
     expect(dmoRun(['--reset-password' => true]))->toBe(0);
     expect(dmoUser('zakaznik')->state)->toBe('active')->and(dmoPartnerOf('reseller')->state)->toBe('active');
     $this->postJson('/v1/auth/login', ['email' => 'zakaznik@demo.onhost.cz', 'password' => DMO_SHARED_PHRASE])->assertOk();
+});
+
+it('lets the customer and partner demo accounts sign in with the shared password; staff are asked to enrol MFA', function () {
+    dmoRun();
+    foreach (['zakaznik', 'reseller', 'affil', 'partner'] as $local) {
+        auth()->forgetGuards();
+        $this->postJson('/v1/auth/login', ['email' => "{$local}@demo.onhost.cz", 'password' => DMO_SHARED_PHRASE])->assertOk();
+        $this->postJson('/v1/auth/logout')->assertOk();
+    }
+    foreach (['podpora', 'admin'] as $local) {
+        auth()->forgetGuards();
+        $this->postJson('/v1/auth/login', ['email' => "{$local}@demo.onhost.cz", 'password' => DMO_SHARED_PHRASE])->assertStatus(403)->assertSee('mfa_enrolment_required');
+    }
+});
+
+it('refuses when the repeated password differs and makes nothing', function () {
+    $this->artisan('onhost:demo:accounts', [DMO_FLAG => true])
+        ->expectsQuestion(DMO_PROMPT, DMO_SHARED_PHRASE)
+        ->expectsQuestion('Repeat the shared demo password', DMO_SHARED_PHRASE.'x')
+        ->expectsOutputToContain('differ')->assertExitCode(1);
+    expect(User::query()->whereIn('email', dmoEmails())->count())->toBe(0);
 });
