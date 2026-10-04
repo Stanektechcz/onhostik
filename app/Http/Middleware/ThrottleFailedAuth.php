@@ -23,11 +23,6 @@ final class ThrottleFailedAuth
         if ($request->bearerToken() === null) {
             return $next($request);
         }
-        // only a request that PRESENTED a bearer token can be a guess: a logged-out SPA polling /me with no credentials (or an expired
-        // session cookie) answers 401 all day and must not lock its own address out
-        if ($request->bearerToken() === null) {
-            return $next($request);
-        }
         $key = 'auth-failed:'.$request->ip();
         $max = (int) config('onhost.api.failed_auth_per_minute', 30);
         if (RateLimiter::tooManyAttempts($key, $max)) {
