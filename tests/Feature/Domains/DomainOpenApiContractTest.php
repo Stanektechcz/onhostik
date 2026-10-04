@@ -35,7 +35,7 @@ it('documents the holder route and the paid order line of a transfer', function 
     $paths = domainOpenApiFresh()['paths'];
 
     expect($paths)->toHaveKey('/domains/{domain}/holder')
-        ->and($paths['/domains/{domain}/holder']['post']['operationId'])->toBe('domainHolder');
+        ->and($paths['/domains/{domain}/holder']['post']['operationId'])->toBe('postDomainsByDomainHolder');
     $body = data_get($paths, '/domains/transfer-in.post.requestBody.content.application/json.schema');
     expect($body['properties'])->toHaveKeys(['fqdn', 'order_item_id', 'auth_info', 'consent'])
         ->and($body['required'])->toContain('fqdn', 'auth_info', 'consent')->not->toContain('order_item_id');

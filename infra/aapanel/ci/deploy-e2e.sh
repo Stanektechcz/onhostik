@@ -156,7 +156,7 @@ check() { # $1 = sha expected live
   grep -q "\"sha\":\"$1\"" "$box/state/last-good.json" || fail "last-good.json is not $1"
   [ ! -f "$app/storage/framework/down" ] || fail "the site is still in maintenance"
   [ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/up")" = 200 ] || fail "public /up is not 200"
-  [ -z "$(rgit status --porcelain --untracked-files=all -- . ':(exclude)contracts/openapi/onhost-v1.yaml' ':(exclude)VERSION')" ] || fail "the tree is not clean"
+  [ -z "$(rgit status --porcelain --untracked-files=all -- . ':(exclude)VERSION')" ] || fail "the tree is not clean (a deploy must not rewrite the committed contract)"
 }
 
 echo "── deploy A (first gated release)";  deploy "$sha_a" || fail "deploy A rc=$?"; check "$sha_a"
