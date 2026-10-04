@@ -9,6 +9,7 @@
 (function () {
   if (window.OnhostPanelWorkbench) return; // the prototype runtime executes helmet scripts twice
   var API = window.OnhostApi;
+  var SELF_SRC = (typeof document !== 'undefined' && document.currentScript && document.currentScript.src) || ''; // where this file came from: the domains module is loaded beside it when the renderer did not inject it
   var state = { features: {}, resources: {}, ops: {}, summary: {}, pending: {}, tick: 0 };
 
   function cs(cmp) { return !cmp || !cmp.state || cmp.state.lang !== 'en'; }
@@ -148,9 +149,8 @@
     if (!real(sel)) return null;
     var fam = family(sel), all = SV[sel.type] || SV.web;
     if (!fam) return null;
-    if (fam === 'domain') { // domains are not services: DNS tabs only when the zone lives at ONhost, registration and DNSSEC always
-      var wantD = ['reg', 'soa', 'sec', 'noc'];
-      if (sel.dns_provider === 'onhost') wantD.push('dns');
+    if (fam === 'domain') { // domains are not services: registration, nameservers, DNSSEC and the DNS tab always (without an ONhost zone it lists the organization's zones, TASK-0056)
+      var wantD = ['reg', 'soa', 'sec', 'noc', 'dns'];
       var outD = all.filter(function (t) { return wantD.indexOf(t.id) >= 0; });
       return outD.length ? outD : all.slice(0, 1);
     }
@@ -779,7 +779,27 @@
     return r === undefined ? null : r;
   }
   function dinfo(cmp, sel) { return dload(cmp, sel, 'domain', '/domains/' + encodeURIComponent(sel.id)); }
-  function dzone(cmp, sel) { return sel.dns_provider === 'onhost' ? dload(cmp, sel, 'zone', '/domains/' + encodeURIComponent(sel.fqdn || sel.name) + '/zone') : null; }
+  /* the domain's own zone, or on the DNS tab the zone the customer opened from "Moje zóny" (OnhostPanelDomains.activeZone) */
+  function zoneOverride(sel, tab) { var D = window.OnhostPanelDomains; return tab === 'dns' && D ? D.activeZone(sel) : null; }
+  function dzone(cmp, sel, tab) {
+    var over = zoneOverride(sel, tab);
+    if (over) return dload(cmp, sel, 'zone:' + over, '/dns/zones/' + encodeURIComponent(over));
+    return sel.dns_provider === 'onhost' ? dload(cmp, sel, 'zone', '/domains/' + encodeURIComponent(sel.fqdn || sel.name) + '/zone') : null;
+  }
+  /* the screens the core panels leave out (holder contact, transfer in, zone versions and rollback, zones) live in onhost-panel-domains.api.js:
+   * the renderer may inject it; otherwise it is loaded here once, beside this file */
+  var domainsModule = { requested: false };
+  function loadDomainsModule(cmp) {
+    if (window.OnhostPanelDomains || domainsModule.requested || typeof document === 'undefined') return;
+    domainsModule.requested = true;
+    var self = SELF_SRC;
+    var el = document.createElement('script');
+    el.src = self ? self.replace(/onhost-panel-workbench\.api\.js/, 'onhost-panel-domains.api.js') : '/surfaces/api/onhost-panel-domains.api.js';
+    el.onload = function () { rerender(cmp); };
+    el.onerror = function () { domainsModule.requested = false; };
+    document.head.appendChild(el);
+  }
+  function errText(cmp, e) { var D = window.OnhostPanelDomains; return D ? D.errorText(cmp, e) : ((e && e.message) || T(cmp)('Zkuste to prosím znovu.', 'Please try again.')); }
   /* Sensitive domain actions need a fresh second factor: ask for the authenticator code and retry once. */
   function stepUp(cmp, err) {
     var _ = T(cmp), b = err && err.body;
@@ -798,7 +818,7 @@
       cmp.setState({ wbF: { a: '', b: '', c: '' } });
       [1500, 6000].forEach(function (ms) { setTimeout(function () { forget(sel, kinds || ['domain', 'zone']); rerender(cmp); }, ms); });
       return d;
-    }).catch(function (e) { flash(cmp, _('Akce neproběhla', 'Action failed'), (e && e.message) || _('Zkuste to prosím znovu.', 'Please try again.')); throw e; });
+    }).catch(function (e) { flash(cmp, _('Akce neproběhla', 'Action failed'), errText(cmp, e)); throw e; });
   }
   function zpost(cmp, sel, zone, path, body, okTitle, okBody) {
     var _ = T(cmp);
@@ -806,19 +826,28 @@
     return run().catch(function (e) { return stepUp(cmp, e).then(run); }).then(function (r) {
       flash(cmp, okTitle || _('Změna připravena', 'Change staged'), okBody || _('Připravené změny publikujte tlačítkem; do té doby zóna běží beze změny.', 'Publish the staged changes with the button; until then the zone runs unchanged.'));
       cmp.setState({ wbF: { a: '', b: '', c: '' } });
-      [800, 4000].forEach(function (ms) { setTimeout(function () { forget(sel, ['zone', 'domain']); rerender(cmp); }, ms); });
+      [800, 4000].forEach(function (ms) { setTimeout(function () { forget(sel, ['zone', 'zone:' + zone.name, 'domain']); rerender(cmp); }, ms); });
       return r.data || r;
-    }).catch(function (e) { flash(cmp, _('Akce neproběhla', 'Action failed'), (e && e.message) || _('Zkuste to prosím znovu.', 'Please try again.')); throw e; });
+    }).catch(function (e) { flash(cmp, _('Akce neproběhla', 'Action failed'), errText(cmp, e)); throw e; });
   }
   var DOMAIN_OPS = { 'domain-create': ['Registrace', 'Registration'], 'domain-renew': ['Prodloužení', 'Renewal'], 'domain-update-ns': ['Změna jmenných serverů', 'Nameserver change'], 'domain-transfer': ['Transfer k nám', 'Transfer in'], 'domain-send-auth-info': ['AUTH-ID', 'AUTH-ID'], 'domain-update-keyset': ['DNSSEC u registru', 'DNSSEC at the registry'], 'contact-create': ['Kontakt držitele', 'Registrant contact'], 'nsset-create': ['Sada jmenných serverů', 'Nameserver set'] };
   function domainBuild(cmp, sel, tab, _, X) {
+    var panel = domainBuildCore(cmp, sel, tab, _, X), D = window.OnhostPanelDomains;
+    if (!D) { loadDomainsModule(cmp); return panel; }
+    var H = X.H;
+    try {
+      return D.enhance(cmp, sel, tab, _, panel, { H: H, s: H.s, F: H.F, infoPanel: X.infoPanel, onhostDns: sel.dns_provider === 'onhost', info: function () { return dinfo(cmp, sel); }, zone: function () { return dzone(cmp, sel, 'dns'); },
+        load: function (s2, kind, path) { return dload(cmp, s2, kind, path); }, forget: forget, rerender: rerender, flash: flash, since: since }) || panel;
+    } catch (e) { return panel; }
+  }
+  function domainBuildCore(cmp, sel, tab, _, X) {
     var H = X.H, cell = H.cell, A = H.act, F = H.F, s = H.s, infoPanel = X.infoPanel;
     var info = dinfo(cmp, sel), d = info && !info.__error ? info : null;
-    var z = dzone(cmp, sel), zone = z && !z.__error ? z : null;
+    var z = dzone(cmp, sel, tab), zone = z && !z.__error ? z : null;
     var yes = _('zapnuto', 'on'), no = _('vypnuto', 'off');
     var dateOf = function (iso) { return iso ? String(iso).slice(0, 10) : '—'; };
     var errorPanel = function (title, msg) { return { key: 'real:err', title: title, note: _('Nepodařilo se načíst: ', 'Could not load: ') + msg, state: 'error', head: [], rows: [] }; };
-    var onhostDns = sel.dns_provider === 'onhost';
+    var onhostDns = sel.dns_provider === 'onhost' || !!zoneOverride(sel, tab);
 
     if (tab === 'reg') {
       if (!d) return info && info.__error ? errorPanel(sel.name, info.__error) : X.loading;
@@ -885,7 +914,7 @@
         extra: [
           { label: _('Publikovat změny', 'Publish changes') + (changes.length ? ' (' + changes.length + ')' : ''), primary: true, on: function () { if (!changes.length) { flash(cmp, _('Nic k publikování', 'Nothing to publish'), ''); return; } zpost(cmp, sel, zone, '/commit', {}, _('Zóna publikována', 'Zone published'), _('Nová verze zóny je na jmenných serverech; rozšíření po internetu trvá až TTL.', 'The new zone version is on the nameservers; propagation takes up to the TTL.')); } },
           { label: _('Zahodit změny', 'Discard changes'), on: function () { if (changes.length) zpost(cmp, sel, zone, '/discard', {}, _('Změny zahozeny', 'Changes discarded'), ''); } },
-          { label: _('Obnovit', 'Refresh'), on: function () { forget(sel, ['zone']); rerender(cmp); } }
+          { label: _('Obnovit', 'Refresh'), on: function () { forget(sel, ['zone', 'zone:' + zone.name]); rerender(cmp); } }
         ].concat(drift ? [{ label: _('Publikovat zónu znovu', 'Publish the zone again'), primary: true, on: function () {
           if (!window.confirm(_('Poskytovatel DNS dostane přesně to, co je v této zóně: chybějící záznamy se doplní, neznámé se odeberou. Pokračovat?', 'The DNS provider will get exactly what this zone holds: missing records are added, unknown ones removed. Continue?'))) return;
           zpost(cmp, sel, zone, '/republish', {}, _('Zóna publikována znovu', 'Zone published again'), _('Poskytovatel DNS teď vrací to, co je v zóně.', 'The DNS provider now serves what the zone holds.'));

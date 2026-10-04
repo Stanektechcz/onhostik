@@ -556,6 +556,80 @@ final class DomainService
         return $contact;
     }
 
+    /** Fields of the holder's contact the platform changes at the registrar; the identity of the holder (name, company, IČO, DIČ) is not among them. */
+    public const HOLDER_CONTACT_FIELDS = ['email', 'phone', 'street', 'city', 'postal_code', 'country'];
+
+    /**
+     * Change the holder's contact details at the registrar (e-mail, phone, address), then in the platform.
+     *
+     * A change of the holder himself — another name, company or IČO — is a transfer of the domain to another person, which
+     * registries handle as a trade with documents; it is refused here, never sent to the registrar as an "update". The
+     * registrar is asked first: a refusal leaves the platform's copy as it was. A contact shared with other domains of the
+     * organization changes for all of them (one handle at the registrar), and the answer says how many.
+     *
+     * @param  array<string,mixed>  $changes  the fields of HOLDER_CONTACT_FIELDS (plus identity fields, to be refused)
+     * @return array{domain_id:string, contact_id:string, changed:list<string>, domains_affected:int, registrar_updated:bool}
+     */
+    public function updateHolderContact(Domain $domain, array $changes, CommandContext $context): array
+    {
+        $this->assertNotMirrored($domain, 'holder_change');
+        $this->assertActionAllowed($domain, 'holder_change', $context);
+        if (! in_array($domain->state, [DomainStateMachine::ACTIVE, DomainStateMachine::EXPIRED, DomainStateMachine::GRACE], true)) {
+            throw new DomainError('domain_holder_not_changeable', "{$domain->fqdn_ascii} is {$domain->state}; the holder's contact can be changed on an active domain.", 409);
+        }
+        $current = $domain->registrant_contact_id ? RegistrarContact::query()->find($domain->registrant_contact_id) : null;
+        if ($current === null || $current->organization_id !== $domain->organization_id) {
+            throw new DomainError('contact_not_found', 'The domain has no holder contact to change.', 404);
+        }
+        foreach (['name', 'organization_name', 'ico', 'dic'] as $field) {
+            if (array_key_exists($field, $changes) && trim((string) $changes[$field]) !== trim((string) $current->{$field})) {
+                throw new DomainError('domain_holder_identity_change', 'Changing the holder (name, company, IČO) is a transfer of the domain to another person and is done through support, not here.', 422, ['field' => $field]);
+            }
+        }
+        $new = [];
+        foreach (self::HOLDER_CONTACT_FIELDS as $field) {
+            if (! array_key_exists($field, $changes)) {
+                continue;
+            }
+            $value = trim((string) $changes[$field]);
+            if ($field === 'country') {
+                $value = strtoupper($value);
+            }
+            if ($value === (string) ($current->{$field} ?? '')) {
+                continue;
+            }
+            if ($value === '' && $field !== 'phone') {
+                throw new DomainError('contact_incomplete', "Holder contact field {$field} cannot be empty.", 422, ['field' => $field]);
+            }
+            $new[$field] = $value === '' ? null : $value;
+        }
+        if (isset($new['email']) && filter_var($new['email'], FILTER_VALIDATE_EMAIL) === false) {
+            throw new DomainError('contact_email_invalid', 'Registrant e-mail is invalid.', 422, ['field' => 'email']);
+        }
+        if (isset($new['country']) && ! preg_match('/^[A-Z]{2}$/', $new['country'])) {
+            throw new DomainError('contact_country_invalid', 'Country must be a two-letter code.', 422, ['field' => 'country']);
+        }
+        if ($new === []) {
+            throw new DomainError('domain_holder_unchanged', 'Nothing differs from the contact the registrar already has.', 422);
+        }
+        $contact = $current->registrar_provider === $domain->registrar_provider ? $current : $current->siblingFor((string) $domain->registrar_provider);
+        $updated = false;
+        if ($contact->isSynced()) {
+            $payload = (clone $contact)->forceFill($new)->toProviderContact($domain->tld);
+            $this->registrar->mutate('contact-update', $domain, $payload, fn (RegistrarProvider $a, string $clTrid) => $a->updateContact((string) $contact->remote_id, $payload, $clTrid), null, $domain->organization_id);
+            $updated = true;
+        }
+        $contact->forceFill($new)->save();
+        if ($contact->id !== $current->id) { // the copy for the holding registrar becomes the domain's; the organization's own contact keeps the new details too
+            $current->forceFill($new)->save();
+            $domain->forceFill(['registrant_contact_id' => $contact->id])->save();
+        }
+        $affected = Domain::query()->where('organization_id', $domain->organization_id)->where(fn ($q) => $q->where('registrant_contact_id', $contact->id)->orWhere('admin_contact_id', $contact->id))->count();
+        $this->audit->record($context->withScope($domain->organization_id), 'domain.holder_update', 'succeeded', ['fqdn' => $domain->fqdn_ascii, 'fields' => array_keys($new), 'registrar_updated' => $updated, 'domains_affected' => $affected], 'domain', $domain->id, stepUp: $context->stepUpMethod, approvalIds: $context->approvalIds);
+
+        return ['domain_id' => $domain->id, 'contact_id' => $contact->id, 'changed' => array_keys($new), 'domains_affected' => $affected, 'registrar_updated' => $updated];
+    }
+
     // ── registry truth ───────────────────────────────────────────────────────
 
     /** How many domains one reconciliation asks the registry about one by one (those a status-less listing cannot explain). */

@@ -101,6 +101,19 @@ final class DomainController extends ApiController
         return $this->command($request, $model, 'publish_ds', []);
     }
 
+    /**
+     * The holder's contact details (e-mail, phone, address) at the registrar. HIGH (step-up) under `domain.registrant.change`;
+     * the holder himself (name, company, IČO) cannot be changed here, only his way of being reached (DomainService::updateHolderContact).
+     * Route: POST /v1/domains/{domain}/holder — registered in routes/api.php beside the other domain writes.
+     */
+    public function holder(Request $request, string $domain): JsonResponse
+    {
+        $model = $this->resolve($request, $domain);
+        $data = $request->validate(['email' => ['nullable', 'email', 'max:190'], 'phone' => ['nullable', 'string', 'max:40'], 'street' => ['nullable', 'string', 'max:190'], 'city' => ['nullable', 'string', 'max:120'], 'postal_code' => ['nullable', 'string', 'max:20'], 'country' => ['nullable', 'string', 'size:2'], 'name' => ['nullable', 'string', 'max:190'], 'organization_name' => ['nullable', 'string', 'max:190'], 'ico' => ['nullable', 'string', 'max:20'], 'dic' => ['nullable', 'string', 'max:20']]);
+
+        return $this->command($request, $model, 'holder', ['holder' => array_filter($data, fn ($v) => $v !== null)]);
+    }
+
     public function transferIn(Request $request): JsonResponse
     {
         $organization = $this->api->organization($request);

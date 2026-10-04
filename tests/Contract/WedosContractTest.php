@@ -170,3 +170,28 @@ it('reads credit, lists account movements and consumes the poll queue with expli
     expect($adapter->pollRequest())->toBeNull();
     Http::assertSent(fn (Request $r) => wapiCommand($r) === 'poll-ack' && json_decode((string) $r['request'], true)['request']['data']['id'] === 'n-1');
 });
+
+// ── TASK-0056: updateContact — what a customer's change of the holder's contact ends in (DomainService::updateHolderContact) ──
+
+it('sends WEDOS contact-update with the tld and handle, only the fields that were given, and the clTRID', function () {
+    $sent = [];
+    wapiFake(function (string $command, array $data, array $payload) use (&$sent) {
+        $sent[] = [$command, $data, $payload['clTRID'] ?? null];
+
+        return ['data' => []];
+    });
+    $result = wedosAdapter()->updateContact('cz:ONH-ABC123', ['email' => 'nova@example.cz', 'phone' => '+420.777123456', 'street' => 'Nová 5', 'city' => 'Brno', 'postal_code' => '602 00', 'country' => 'CZ', 'first_name' => 'Jana', 'last_name' => 'Nováková'], 'onhost:v4:contact-update:op_1');
+
+    expect($result->completed)->toBeTrue()->and($result->ref?->remoteId)->toBe('cz:ONH-ABC123');
+    expect($sent)->toHaveCount(1);
+    [$command, $data, $clTrid] = $sent[0];
+    expect($command)->toBe('contact-update')->and($clTrid)->toBe('onhost:v4:contact-update:op_1');
+    expect($data)->toBe(['tld' => 'cz', 'cname' => 'ONH-ABC123', 'email' => 'nova@example.cz', 'phone' => '+420.777123456', 'addr_street' => 'Nová 5', 'addr_city' => 'Brno', 'addr_zip' => '602 00', 'addr_country' => 'CZ']);
+    // the holder's identity is not sent as an "update": a name change is a transfer of the domain
+    expect($data)->not->toHaveKey('fname')->and($data)->not->toHaveKey('lname')->and($data)->not->toHaveKey('company');
+});
+
+it('maps a WEDOS refusal of contact-update to a provider exception instead of pretending it worked', function () {
+    wapiFake(fn () => ['code' => 2201, 'result' => 'Contact is locked']);
+    expect(fn () => wedosAdapter()->updateContact('cz:ONH-ABC123', ['email' => 'nova@example.cz'], 'onhost:v4:contact-update:op_2'))->toThrow(ProviderException::class);
+});
