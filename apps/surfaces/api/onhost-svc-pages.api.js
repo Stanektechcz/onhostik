@@ -54,6 +54,77 @@
     return pages;
   }
 
+  /* ── prices only from the catalogue (owner decision R14, audit 2026-10 P1-6) ───────────────────────────────────────
+   * After the overlay, a plan may show a price only when a catalogue SKU stands behind it. A narrated plan with a price and no
+   * SKU (gpu, inference, colocation, git, ci, the solution pages, managed, storage, enterprise …) says "Připravujeme": no price,
+   * no order button (price 0 → the prototype's contact action), and the page loses what would still price it — the hourly
+   * rates, the prototype configurator (it adds made-up prices to the cart), the ROI calculator without a catalogue base and the
+   * amounts written into its copy. A page the platform marks `coming` (e.g. the free migration) is treated so as a whole. */
+  var AMOUNT = /\d[\d\s .,]*\s?(Kč|CZK|EUR|€|zł|PLN|USD|GBP|£)|(€|\$|£)\s?\d/;
+  function priced(v, strict) {
+    if (typeof v !== 'string') return false;
+    var m = v.match(AMOUNT);
+    return !!m && (strict || /[1-9]/.test(m[0])); // "0 Kč" (free) is no price claim unless the whole page is not on offer
+  }
+  function pricedDeep(v, strict) {
+    if (typeof v === 'string') return priced(v, strict);
+    if (Array.isArray(v)) return v.some(function (x) { return pricedDeep(x, strict); });
+    if (v && typeof v === 'object') return Object.keys(v).some(function (k) { return pricedDeep(v[k], strict); });
+    return false;
+  }
+  function scrubText(v, strict) { // drops the " · " segments that name an amount
+    if (!priced(v, strict)) return v;
+    return String(v).split(' · ').filter(function (seg) { return !priced(seg, strict); }).join(' · ');
+  }
+  function keepRows(list, strict) { return Array.isArray(list) ? list.filter(function (r) { return !pricedDeep(r, strict); }) : list; }
+  function comingCopy(cs, o) {
+    var _ = function (a, b) { return cs ? a : b; };
+    return {
+      label: (o && o.label) || _('Připravujeme', 'Coming soon'),
+      note: (o && o.note) || _('Tuto službu zatím neprodáváme. Napište nám a dáme vám vědět, jakmile bude v nabídce.', 'This service is not sold yet. Get in touch and we will tell you when it is available.'),
+      cta: (o && o.cta) || _('Napsat nám', 'Get in touch'),
+      kicker: (o && o.kicker) || _('Připravujeme', 'In preparation')
+    };
+  }
+  function comingPlan(p, copy) {
+    var out = Object.assign({}, p, { price: 0, priceLabel: copy.label, priceNote: '', ctaLabel: copy.cta, sku: null });
+    delete out.goto; delete out.unitYear;
+    return out;
+  }
+  function honest(pages, ov, cs) {
+    Object.keys(pages).forEach(function (slug) {
+      var page = pages[slug], o = ov[slug] || null;
+      if (!page || (o && o.withdrawn) || page.docs) return;
+      var plans = page.plans || [];
+      var whole = !!(o && o.coming);
+      var copy = comingCopy(cs, whole ? o : null), converted = 0;
+      page.plans = plans.map(function (p) {
+        if (whole || (Number(p.price) > 0 && !p.sku)) { converted++; return comingPlan(p, copy); }
+        return p;
+      });
+      var product = !!o || converted > 0;
+      if (!product) return; // company pages (about, careers, partners …) sell nothing: their numbers stay as authored
+      var fromCatalogue = !!(o && o.plans && o.plans.length); // the domains page prices its catalogue TLDs in labels, not in `price`
+      var strict = whole || !!(o && o.unavailable) || (!fromCatalogue && !page.plans.some(function (p) { return Number(p.price) > 0; }));
+      if (converted && !fromCatalogue) { page.plansNote = copy.note; if (strict) page.kicker = copy.kicker; }
+      page.config = false; // the prototype configurator prices with its own unit prices; the catalogue configurator is extra().builder
+      if (strict) { page.roi = false; delete page.hourly; }
+      if (!(o && o.cmp && o.cmp.rows && o.cmp.rows.length) && page.cmp) page.cmp = { cols: page.cmp.cols, rows: keepRows(page.cmp.rows, strict) };
+      page.kpis = keepRows(page.kpis, strict);
+      page.faq = keepRows(page.faq, strict);
+      if (!(o && o.chips && o.chips.length)) page.chips = keepRows(page.chips, strict);
+      if (page.panels) page.panels = page.panels.map(function (x) { return [x[0], scrubText(x[1], strict), keepRows(x[2], strict)]; });
+      if (page.sla && page.sla.rows) page.sla = Object.assign({}, page.sla, { rows: keepRows(page.sla.rows, strict) });
+      if (page.bench) page.bench = page.bench.map(function (b) { return Object.assign({}, b, { note: scrubText(b.note, strict) }); });
+      if (page.cases) page.cases = page.cases.map(function (c) { return c && typeof c === 'object' && !Array.isArray(c) ? Object.assign({}, c, { m: scrubText(c.m, strict) }) : c; });
+      if (page.feats) page.feats = page.feats.map(function (f) { return Array.isArray(f) ? f.map(function (t) { return scrubText(t, strict); }) : f; });
+      page.kicker = scrubText(page.kicker, strict); page.lead = scrubText(page.lead, strict); page.title = scrubText(page.title, strict);
+    });
+    return pages;
+  }
+  /* the VAT rate of the tax rules (ONHOST_DATA.vat, audit P1-6); the statutory rate only when the platform has no active rule set */
+  function vatRate() { var D = window.ONHOST_DATA, v = D && typeof D.vat === 'function' ? D.vat() : null; return typeof v === 'number' ? v : 0.21; }
+
   /* ── extra blocks ──────────────────────────────────────────────────────── */
   function money(cmp, v) { return cmp && typeof cmp.mny === 'function' ? cmp.mny(v) : (Math.round(v).toLocaleString('cs-CZ') + ' Kč'); }
   function chip(active) {
@@ -103,7 +174,7 @@
       title: _('Poskládejte si tarif na míru', 'Build your own plan'), lead: b.lead || '',
       summary: _('Souhrn konfigurace', 'Configuration summary'), baseLabel: _('Základ tarifu', 'Plan base'), basePrice: money(cmp, Number(b.base_price) || 0),
       sliders: sliders, hasToggles: toggles.length > 0, toggles: toggles, togglesLabel: _('Volitelné funkce', 'Optional features'), hasSelects: selects.length > 0, selects: selects, rows: rows,
-      price: money(cmp, total), unit: _('/ měsíc', '/ month'), vat: _('s DPH ', 'incl. VAT ') + money(cmp, total * 1.21),
+      price: money(cmp, total), unit: _('/ měsíc', '/ month'), vat: _('s DPH ', 'incl. VAT ') + money(cmp, total * (1 + vatRate())),
       note: _('Cena vychází z ceníku parametrů a přepočítává se okamžitě. Konfiguraci změníte kdykoli v panelu, účtujeme měsíčně a bez závazku.', 'The price follows the parameter price list and updates instantly. Change the configuration any time in the panel; billed monthly with no commitment.'),
       cta: _('Objednat tarif na míru', 'Order the custom plan'),
       buy: function (e) { if (e && e.preventDefault) e.preventDefault(); cmp.addToCart(name, Math.round(total * 100) / 100, { product_key: b.product_key, plan_key: b.plan_key, config: { options: options } }); }
@@ -141,7 +212,7 @@
 
   window.OnhostSvcPages = {
     /* wraps a prototype page module (`webPages(cs)` …) so its pages carry catalogue plans */
-    wrap: function (fn) { return function (cs) { var pages = fn(cs) || {}; try { return apply(pages, overlay(cs)); } catch (e) { return pages; } }; },
+    wrap: function (fn) { return function (cs) { var pages = fn(cs) || {}; var ov = overlay(cs); try { apply(pages, ov); } catch (e) { /* the overlay failed: the honesty pass below still runs */ } try { return honest(pages, ov, cs); } catch (e) { return pages; } }; },
     /* SKU of a cart line added from a product page (`crumb · plan`), used by the checkout bridge */
     sku: function (name, price) { var k = String(name || '').toLowerCase(); return registry[k + '|' + Math.round(price || 0)] || registry[k] || null; },
     /* comparison, complete parameters, add-ons and the configurator of one product page */
