@@ -1463,7 +1463,9 @@ final class ServiceService
             return;
         }
         $ttl = max(1, (int) config('onhost.provisioning.console_token_ttl_seconds', 120));
-        Cache::put($key, $descriptor + ['organization_id' => $service->organization_id, 'issued_to' => $context->actorType === 'user' ? ($context->onBehalfOfUserId ?? $context->actorId) : null, 'issued_at' => now()->toIso8601String()], $ttl); // issued_at: TASK-0044, a kill since refuses it (ConsoleSessions)
+        // issued_at: TASK-0044, a kill since refuses it; issued_to_account: TASK-0067, a pipeline's console ends with its service account (ConsoleSessions)
+        Cache::put($key, $descriptor + ['organization_id' => $service->organization_id, 'issued_to' => $context->actorType === 'user' ? ($context->onBehalfOfUserId ?? $context->actorId) : null,
+            'issued_to_account' => $context->actorType === 'service_account' ? $context->actorId : null, 'issued_at' => now()->toIso8601String()], $ttl);
     }
 
     public function usage(Service $service): Usage

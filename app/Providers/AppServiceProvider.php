@@ -55,5 +55,8 @@ final class AppServiceProvider extends ServiceProvider
         RateLimiter::for('payment-callbacks', fn (Request $request) => Limit::perMinute(120)->by('pay:'.$request->ip()));
         RateLimiter::for('probes', fn (Request $request) => Limit::perMinute(600)->by('probe:'.substr((string) $request->bearerToken(), 0, 16).':'.$request->ip()));
         RateLimiter::for('domain-check', fn (Request $request) => Limit::perMinute(30)->by(($request->user() ? 'user:'.$request->user()->getAuthIdentifier() : 'ip:'.$request->ip())));
+        // TASK-0067: the relay asks whether a console may stay open every ONHOST_CONSOLE_ALIVE_SECONDS (15, never below 5 = 12 a
+        // minute); 30 a minute per console is room for that and nothing for a loop. A 429 counts as one failed check in the relay
+        RateLimiter::for('console-alive', fn (Request $request) => Limit::perMinute(30)->by('console-alive:'.(string) $request->route('token')));
     }
 }

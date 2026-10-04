@@ -103,6 +103,7 @@ final class TokenScopes
         'staff.service.manage' => null,
         'staff.service.delete' => null,
         'staff.chargeback.decide' => null, // B6 (TASK-0043)
+        'staff.inbox.read' => null, // TASK-0067
         'staff.console' => null,
         'support.customer_impersonate' => null,
         'provisioning.operation.read' => null,

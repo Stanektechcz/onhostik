@@ -98,7 +98,7 @@ final class StaffNavigation
             new N('dash', 'overview', 10, 'gauge', ['cs' => 'Přehled', 'en' => 'Overview'], N::SCREEN_VIEW, 'dash', [
                 N::get('staff/orders', 'staff.order.manage'), N::get('staff/tickets', $tickets), N::get('staff/incidents', 'incident.manage'),
                 N::get('staff/maintenance', 'maintenance.manage'), N::get('staff/customers', 'staff.customer.read'),
-                N::get('staff/outbox', 'notification.template.manage'), N::get('notifications', 'staff.customer.read'),
+                N::get('staff/outbox', 'notification.template.manage'), N::get('notifications', ['staff.customer.read', 'staff.inbox.read']),
             ]),
             // ── support ──
             new N('queue', 'support', 10, 'inbox', ['cs' => 'Fronta tiketů', 'en' => 'Ticket queue'], N::SCREEN_VIEW, 'queue', [
