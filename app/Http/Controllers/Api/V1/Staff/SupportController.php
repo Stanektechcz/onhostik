@@ -12,6 +12,7 @@ use Illuminate\Http\Request;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Support\Assistant\AssistantService;
 use Onhost\Domain\Support\Assistant\TicketReplyDrafter;
+use Onhost\Domain\Support\Commands\TicketStaffCommand;
 use Onhost\Domain\Support\Commands\WorkOfferStaffCommand;
 use Onhost\Domain\Support\Models\SupportMacro;
 use Onhost\Domain\Support\Models\SupportQueue;
@@ -85,66 +86,81 @@ final class SupportController extends ApiController
         return response()->json(['data' => $drafter->draft($this->find($ticket), $this->api->user($request), $this->api->context($request), $data['locale'] ?? 'cs', $data['hint'] ?? null)]);
     }
 
-    public function reply(Request $request, TicketService $tickets, string $ticket): JsonResponse
+    /** A public answer (`visibility: internal` keeps it among staff), optionally prefixed by a macro whose state action follows. */
+    public function reply(Request $request, string $ticket): JsonResponse
     {
-        $this->api->authorize($request, 'support.ticket.manage', CommandScope::global());
-        $model = $this->find($ticket);
+        $this->api->authorize($request, 'support.ticket.manage', CommandScope::global()); // asked again by the bus
         $data = $request->validate(['body' => ['required', 'string', 'max:20000'], 'visibility' => ['nullable', 'in:public,internal'], 'macro' => ['nullable', 'string', 'max:60']]);
-        $body = $data['body'];
-        $macro = isset($data['macro']) ? SupportMacro::query()->where('key', $data['macro'])->first() : null;
-        if ($macro !== null) {
-            $body = trim(($macro->body['cs'] ?? '')."\n\n".$body);
-        }
-        $user = $this->api->user($request);
-        $tickets->reply($model, 'staff', $user->id, $user->name, $body, $this->api->context($request), $data['visibility'] ?? 'public');
-        if ($macro !== null && ! empty($macro->actions['state']) && TicketStateMachine::machine()->canTransition($model->fresh()->state, (string) $macro->actions['state'])) {
-            $tickets->transition($model->fresh(), (string) $macro->actions['state'], $this->api->context($request));
-        }
 
-        return response()->json(['data' => CustomerSupportController::ticket($model->fresh(), true)]);
+        return $this->onTicket($request, $ticket, 'reply', ['body' => $data['body'], 'visibility' => $data['visibility'] ?? 'public', 'macro' => $data['macro'] ?? null], true);
     }
 
-    public function transition(Request $request, TicketService $tickets, string $ticket): JsonResponse
+    /** An internal note: never shown to the customer, no clock is touched, nothing is published. */
+    public function note(Request $request, string $ticket): JsonResponse
     {
-        $this->api->authorize($request, 'support.ticket.manage', CommandScope::global());
-        $data = $request->validate(['to' => ['required', 'string'], 'note' => ['nullable', 'string', 'max:2000']]);
-        $model = $tickets->transition($this->find($ticket), strtoupper($data['to']), $this->api->context($request), $data['note'] ?? null);
+        $this->api->authorize($request, 'support.ticket.manage', CommandScope::global()); // asked again by the bus
+        $data = $request->validate(['body' => ['required', 'string', 'max:20000']]);
 
-        return response()->json(['data' => CustomerSupportController::ticket($model)]);
+        return $this->onTicket($request, $ticket, 'note', ['body' => $data['body']], true);
     }
 
-    public function assign(Request $request, TicketService $tickets, string $ticket): JsonResponse
+    /**
+     * Move the ticket to another state. The console sends `{state}`, the API documented `{to}`: both are read (`to` wins), so
+     * closing and reopening from the console stopped answering 422 (readiness audit 2026-10, P1-2). The note is internal
+     * unless `note_visibility: public`.
+     */
+    public function transition(Request $request, string $ticket): JsonResponse
     {
-        $this->api->authorize($request, 'support.ticket.assign', CommandScope::global());
-        $data = $request->validate(['assignee_id' => ['nullable', 'string'], 'priority' => ['nullable', 'in:p1,p2,p3,p4'], 'queue' => ['nullable', 'string', 'max:40']]);
-        $model = $this->find($ticket);
-        if (array_key_exists('assignee_id', $data)) {
-            $tickets->assign($model, $data['assignee_id'] ?: null, $this->api->context($request));
-        }
-        $patch = [];
-        if (! empty($data['priority'])) {
-            $patch['priority'] = $data['priority'];
-        }
-        if (! empty($data['queue'])) {
-            $queue = SupportQueue::query()->where('key', $data['queue'])->first();
-            if ($queue === null) {
-                throw DomainError::notFound('queue');
-            }
-            $patch['queue_id'] = $queue->id;
-        }
-        if ($patch !== []) {
-            $model->forceFill($patch)->save();
-        }
+        $this->api->authorize($request, 'support.ticket.manage', CommandScope::global()); // asked again by the bus
+        $states = implode(',', array_keys(TicketStateMachine::machine()->toArray()));
+        $request->merge(array_map(fn ($v) => is_string($v) ? strtoupper($v) : $v, $request->only(['to', 'state'])));
+        $data = $request->validate(['to' => ['required_without:state', 'nullable', 'string', 'in:'.$states], 'state' => ['required_without:to', 'nullable', 'string', 'in:'.$states], 'note' => ['nullable', 'string', 'max:2000'], 'note_visibility' => ['nullable', 'in:public,internal']]);
 
-        return response()->json(['data' => CustomerSupportController::ticket($model->fresh())]);
+        return $this->onTicket($request, $ticket, 'transition', ['to' => $data['to'] ?? $data['state'], 'note' => $data['note'] ?? null, 'note_visibility' => $data['note_visibility'] ?? 'internal']);
     }
 
-    public function escalate(Request $request, TicketService $tickets, string $ticket): JsonResponse
+    /** Owner, priority and queue (support.ticket.assign). `assignee_id: null` takes the ticket from its owner; an assignee must be active support staff (422). */
+    public function assign(Request $request, string $ticket): JsonResponse
     {
-        $this->api->authorize($request, 'support.ticket.manage', CommandScope::global());
+        $this->api->authorize($request, 'support.ticket.assign', CommandScope::global()); // asked again by the bus
+        $data = $request->validate(['assignee_id' => ['nullable', 'string', 'max:40'], 'priority' => ['nullable', 'in:p1,p2,p3,p4'], 'queue' => ['nullable', 'string', 'max:40']]);
+        $payload = ['priority' => $data['priority'] ?? null, 'queue' => $data['queue'] ?? null];
+        if ($request->exists('assignee_id')) {
+            $payload['assignee_id'] = $data['assignee_id'] ?? null;
+        }
+
+        return $this->onTicket($request, $ticket, 'assign', $payload);
+    }
+
+    public function escalate(Request $request, string $ticket): JsonResponse
+    {
+        $this->api->authorize($request, 'support.ticket.manage', CommandScope::global()); // asked again by the bus
         $data = $request->validate(['reason' => ['required', 'string', 'min:5', 'max:250']]);
 
-        return response()->json(['data' => CustomerSupportController::ticket($tickets->escalate($this->find($ticket), $this->api->context($request), $data['reason']))]);
+        return $this->onTicket($request, $ticket, 'escalate', ['reason' => $data['reason']]);
+    }
+
+    /**
+     * One ticket write through the bus (TicketStaffCommand). Without an `Idempotency-Key` the key carries the ticket's present
+     * version: a double click on the same ticket is one write, the next deliberate change on a changed ticket is a new one.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function onTicket(Request $request, string $ticket, string $op, array $payload, bool $withMessages = false): JsonResponse
+    {
+        $model = $this->find($ticket);
+        $header = $request->headers->get('Idempotency-Key');
+        $prefix = "ticket.{$op}:{$model->id}".(is_string($header) && $header !== '' ? '' : ':'.$this->versionOf($model));
+        $command = new TicketStaffCommand($this->idempotencyKey($request, $prefix), ['op' => $op, 'ticket_id' => $model->id] + $payload);
+        $this->api->assertTokenScope($request, $command->permission());
+        $this->bus->dispatch($command, $this->api->context($request));
+
+        return response()->json(['data' => CustomerSupportController::ticket($model->fresh() ?? $model, $withMessages)]);
+    }
+
+    private function versionOf(Ticket $ticket): string
+    {
+        return substr(hash('sha256', implode('|', [$ticket->state, $ticket->priority, $ticket->queue_id, $ticket->assignee_id, $ticket->escalation_level, $ticket->updated_at?->format('U.u'), $ticket->messages()->count()])), 0, 16);
     }
 
     /** Offers of paid work on a ticket (H29). */
