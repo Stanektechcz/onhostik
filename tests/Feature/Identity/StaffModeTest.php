@@ -286,7 +286,6 @@ it('reads is_staff only where the allow-list says: every other decision asks Sta
         'app/Http/Controllers/Api/V1/NotificationController.php' => 1, // which inbox a person reads by default
         'app/Http/Controllers/Api/V1/Staff/ApprovalController.php' => 1, // only staff decide approvals (staff route)
         'app/Http/Controllers/Web/SurfaceController.php' => 2,       // which surface a person sees
-        'app/Http/Controllers/Web/SystemSettingsController.php' => 6, // staff-only settings pages
         'app/Http/Presenters/Presenters.php' => 2,                   // shows the flag
         'domains/Compliance/ComplianceService.php' => 1,             // an erasure keeps a staff account
         'domains/Identity/Authorization/ApprovalService.php' => 1,   // approvers are staff
