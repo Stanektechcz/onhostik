@@ -29,7 +29,9 @@ final class RoleCatalog
             'cloud_operator' => self::role('Cloud operator', 'VPS/VDS lifecycle, snapshots, firewall, backups', 'organization', false, array_merge($customerRead, ['service.manage', 'service.console', 'compute.vm.manage', 'compute.vm.delete', 'backup.restore', 'backup.download', 'support.ticket.write', 'support.chat.use'])),
             'game_operator' => self::role('Game operator', 'Game servers, console, mods, backups', 'organization', false, array_merge($customerRead, ['service.manage', 'service.console', 'game.manage', 'backup.restore', 'backup.download', 'support.ticket.write', 'support.chat.use'])),
             'mail_manager' => self::role('Mail manager', 'Mail domains, mailboxes, DKIM/SPF/DMARC', 'organization', false, array_merge($customerRead, ['mail.manage', 'backup.download', 'dns.zone.write', 'support.ticket.write'])),
-            'security_auditor' => self::role('Security auditor', 'Read-only incl. audit log and security settings', 'organization', false, array_merge($customerRead, ['security.settings.manage'])),
+            // B6 (audit 2026-10 "nekonzistence rolí"; TASK-0043): an auditor reads — it held the HIGH write `security.settings.manage`
+            // (which no endpoint asks for yet, PermissionCatalog::DORMANT); a read key for security settings comes with their screen
+            'security_auditor' => self::role('Security auditor', 'Read-only, including the audit log', 'organization', false, $customerRead),
             'support_contact' => self::role('Support contact', 'Open and read tickets, use chat', 'organization', false, ['organization.read', 'service.read', 'support.ticket.read', 'support.ticket.write', 'support.chat.use']),
             'viewer' => self::role('Viewer', 'Read-only', 'organization', false, $customerRead),
             // Somebody a service was shared with (a freelancer, an agency): a member of the organization who sees NOTHING of it by
@@ -38,14 +40,26 @@ final class RoleCatalog
 
             // ── capabilities on ONE service (resource scope; handed out by Services\Access\ServiceAccessService, never as an organization or project role) ──
             'svc_view' => self::role('Service: view', 'State, metrics, logs, backups list', 'resource', false, ['service.read', 'backup.read']),
-            'svc_manage' => self::role('Service: manage', 'Actions and settings: restart, PHP, databases, cron, files, deploys, mailboxes — without backup deletion and without logins that open a shell', 'resource', false, ['service.read', 'service.manage']),
+            // TASK-0043 (permission program S1-03, D4, ruling #15): the narrow level the access wizard offers first — keeping the service
+            // running without code: nothing it does writes a file, a cron job, a database or a login, or opens a shell
+            'svc_operate' => self::role('Service: operate', 'Restart, PHP version, caches, certificates — no files, cron, databases, logins or shell', 'resource', false, ['service.read', 'service.operate']),
+            // unchanged in what it may do (PresetsUnchangedTest); its description now says what the program relabelled it to: it runs code
+            'svc_manage' => self::role('Service: manage', 'Actions and settings: restart, PHP, databases, cron, files, deploys, mailboxes, deleting them too — this runs code on the service; without backup deletion and without logins that open a shell', 'resource', false, ['service.read', 'service.manage']),
             // a console is more than managing, never less (H334): whoever gets a shell on the service manages it. Root access, rescue
             // mode and game sub-users are the console too (TASK-0029, C13-H1b): each of them hands over the server itself
             'svc_console' => self::role('Service: console', 'Terminal, SSH keys and root access, rescue mode, VNC, game console and its sub-users and console schedules', 'resource', false, ['service.read', 'service.manage', 'service.console']),
+            // TASK-0043 (S1-03, audit SE-1): deleting data inside the service is a tick of its own, next to operate; copies are not data here
+            // (backup.delete and its kin stay the owner's and the operators', D29.2)
+            'svc_data_delete' => self::role('Service: delete data', 'Delete sites, databases, files, mailboxes and game data inside the service — never its backups', 'resource', false, ['service.read', 'service.data.delete']),
             'svc_backups' => self::role('Service: backups', 'Download backup archives', 'resource', false, ['service.read', 'backup.read', 'backup.download']),
             'svc_restore' => self::role('Service: restore', 'Restore the service from a backup', 'resource', false, ['service.read', 'backup.read', 'backup.restore']),
             'svc_assistant' => self::role('Service: assistant', 'Use the AI assistant for the shared service', 'resource', false, ['service.read', 'support.chat.use']),
             // ── staff roles ──────────────────────────────────────────────────
+            // B6 role hygiene (audit 2026-10, decision R8; TASK-0043): SS-7 — `support.customer_impersonate` is withdrawn from the
+            // support manager until impersonation runs through the bus with four eyes; the support manager reads the operations board
+            // it sends tickets to (`provisioning.operation.read`); a chargeback decision is `staff.chargeback.decide` (support desk),
+            // no longer every holder of `staff.service.manage`. The content team stays without `staff.customer.read` (Customer 360):
+            // AssistantScopeTest pins that staff without the customer view do not reach a customer's account (open decision, B6).
             // TASK-0037 (program IF-18): the support, finance and backup roles gain the staff read keys (staff.support.ticket.read,
             // staff.billing.read, staff.backup.read) NEXT TO the customer keys they held — expand only; P0-15 removes the customer
             // keys once the shadow log shows nothing still needs them
@@ -70,10 +84,10 @@ final class RoleCatalog
             'compliance_legal' => self::role('ComplianceLegal', 'Regulatory cases/evidence', 'global', true, ['compliance.case.manage', 'compliance.legal_hold.manage', 'abuse.case.manage', 'audit.read.global', 'staff.customer.read', 'report.read']),
             'billing_finance_admin' => self::role('BillingFinanceAdmin', 'Invoice config/tax/reconciliation', 'global', true, ['staff.billing.read', 'billing.invoice.read', 'billing.invoice.manage', 'billing.refund.execute', 'billing.refund.execute_large', 'billing.credit.adjust', 'billing.credit.adjust_mass', 'billing.tax_rule.manage', 'billing.reconcile', 'billing.dunning.manage', 'billing.credit_line.manage', 'sla.credit.manage', 'partner.manage', 'staff.customer.manage', 'catalog.manage', 'report.read', 'staff.customer.read', 'iam.approval.decide', 'billing.limit_raise.waive']),
             'billing_operator' => self::role('BillingOperator', 'Invoice ops; limited refunds', 'global', true, ['staff.billing.read', 'billing.invoice.read', 'billing.invoice.manage', 'billing.refund.execute', 'billing.reconcile', 'billing.dunning.manage', 'report.read', 'staff.customer.read']),
-            'support_manager' => self::role('SupportManager', 'Queues/SLA/escalations', 'global', true, ['staff.support.ticket.read', 'support.ticket.read', 'support.ticket.assign', 'support.ticket.manage', 'support.queue.manage', 'support.kb.manage', 'support.customer_impersonate', 'staff.customer.read', 'staff.order.manage', 'incident.manage', 'report.read', 'ai.ops.read', 'iam.jit.request']),
+            'support_manager' => self::role('SupportManager', 'Queues/SLA/escalations', 'global', true, ['staff.support.ticket.read', 'support.ticket.read', 'support.ticket.assign', 'support.ticket.manage', 'support.queue.manage', 'support.kb.manage', 'staff.customer.read', 'staff.order.manage', 'incident.manage', 'report.read', 'ai.ops.read', 'iam.jit.request', 'provisioning.operation.read', 'staff.chargeback.decide']),
             'support_l1' => self::role('SupportL1', 'Read basics + safe actions', 'global', true, ['staff.support.ticket.read', 'support.ticket.read', 'support.ticket.manage', 'staff.customer.read', 'provisioning.operation.read', 'support.chat.use']),
-            'support_l2' => self::role('SupportL2', 'Deeper diagnostics + service actions', 'global', true, ['staff.support.ticket.read', 'support.ticket.read', 'support.ticket.manage', 'support.ticket.assign', 'staff.customer.read', 'staff.service.manage', 'staff.order.manage', 'provisioning.operation.read', 'provisioning.operation.retry', 'staff.console', 'support.chat.use', 'iam.jit.request']),
-            'support_l3' => self::role('SupportL3', 'Engineering escalation', 'global', true, ['staff.support.ticket.read', 'support.ticket.read', 'support.ticket.manage', 'support.ticket.assign', 'staff.customer.read', 'staff.service.manage', 'staff.order.manage', 'provisioning.operation.read', 'provisioning.operation.retry', 'provisioning.drift.resolve', 'staff.console', 'provider.instance.read', 'incident.manage', 'iam.jit.request']),
+            'support_l2' => self::role('SupportL2', 'Deeper diagnostics + service actions', 'global', true, ['staff.support.ticket.read', 'support.ticket.read', 'support.ticket.manage', 'support.ticket.assign', 'staff.customer.read', 'staff.service.manage', 'staff.order.manage', 'provisioning.operation.read', 'provisioning.operation.retry', 'staff.console', 'support.chat.use', 'iam.jit.request', 'staff.chargeback.decide']),
+            'support_l3' => self::role('SupportL3', 'Engineering escalation', 'global', true, ['staff.support.ticket.read', 'support.ticket.read', 'support.ticket.manage', 'support.ticket.assign', 'staff.customer.read', 'staff.service.manage', 'staff.order.manage', 'provisioning.operation.read', 'provisioning.operation.retry', 'provisioning.drift.resolve', 'staff.console', 'provider.instance.read', 'incident.manage', 'iam.jit.request', 'staff.chargeback.decide']),
             'sales' => self::role('Sales', 'Quotes/CRM without infra admin', 'global', true, ['staff.customer.read', 'staff.order.manage', 'report.read']),
             'marketing_content' => self::role('MarketingContent', 'Public content only', 'global', true, ['content.manage']),
             'product_manager' => self::role('ProductManager', 'Catalogue, plan versions and prices, notification templates, feature flags; no customer data beyond the overview', 'global', true, ['catalog.manage', 'notification.template.manage', 'feature_flag.manage', 'content.manage', 'report.read', 'staff.customer.read']),
@@ -120,10 +134,25 @@ final class RoleCatalog
     public const PARTNER_PORTAL = ['partner.portal.read'];
     // ── end TASK-0040 ──
 
+    // ── TASK-0043 (permission program S1-03, principle 11) ──
+    /**
+     * What `service.manage` was split into. A role that holds `service.manage` holds both, whatever its line lists, so the actions
+     * that ask for them now (ServiceActionCommand::PERMISSIONS) stay exactly where they were for every existing preset and every
+     * stored `svc_*` share — frozen by PresetsUnchangedTest against the task base. Only the new presets hold one without the other.
+     */
+    public const MANAGE_SPLIT = ['service.operate', 'service.data.delete'];
+
+    /** @param list<string> $permissions @return list<string> */
+    private static function withManageSplit(array $permissions): array
+    {
+        return in_array('service.manage', $permissions, true) ? [...$permissions, ...self::MANAGE_SPLIT] : $permissions;
+    }
+    // ── end TASK-0043 ──
+
     /** @param list<string> $permissions */
     private static function role(string $name, string $description, string $scope, bool $staff, array $permissions): array
     {
-        return ['name' => $name, 'description' => $description, 'scope' => $scope, 'staff' => $staff, 'permissions' => array_values(array_unique($permissions))];
+        return ['name' => $name, 'description' => $description, 'scope' => $scope, 'staff' => $staff, 'permissions' => array_values(array_unique(self::withManageSplit($permissions)))];
     }
 
     public static function exists(string $key): bool

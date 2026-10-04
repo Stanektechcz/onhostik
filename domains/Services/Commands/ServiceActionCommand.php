@@ -31,10 +31,16 @@ final class ServiceActionCommand extends OrganizationCommand implements RiskAwar
      * somebody who decided what it is, or it does not run (ServiceActionPermissionMapTest keeps both lists equal).
      */
     public const PERMISSIONS = [
+        // TASK-0043 (permission program S1-03, D4; audit PA-05/G3, SE-1): two narrower asks were split off `service.manage` —
+        // `service.operate` (keeping the service running: power, PHP version, cache, CDN purge, certificate, HTTPS; nothing that
+        // writes a file, a cron job, a database or a login) and `service.data.delete` (deleting data objects inside the service:
+        // a site, a database, a file, a mailbox, a game database or file, a staging copy; copies stay with backup.delete & co.).
+        // Every role holding `service.manage` holds both (RoleCatalog::MANAGE_SPLIT), so no existing preset or share reaches more
+        // or less; the presets svc_operate / svc_data_delete hold one each (PresetsUnchangedTest, CapabilityMatrixTest).
         // ── the service itself ───────────────────────────────────────────────────────────────────
         'terminate' => 'service.delete', 'purge' => 'service.delete',
-        'power' => 'service.manage', 'suspend' => 'service.manage', 'resume' => 'service.manage', 'resize' => 'service.manage', 'reinstall' => 'service.manage',
-        'rename' => 'service.manage', 'site.create' => 'service.manage', 'site.delete' => 'service.manage',
+        'power' => 'service.operate', 'suspend' => 'service.manage', 'resume' => 'service.manage', 'resize' => 'service.manage', 'reinstall' => 'service.manage',
+        'rename' => 'service.manage', 'site.create' => 'service.manage', 'site.delete' => 'service.data.delete',
         // ── copies: making one is managing, bringing one back overwrites what is there now ──────────────
         'backup' => 'service.manage', 'snapshot' => 'service.manage', 'restore.test' => 'service.manage', // a restore test goes into a database of its own; the site is not touched
         'restore' => 'backup.restore', 'rollback_snapshot' => 'backup.restore', 'archive.restore' => 'backup.restore',
@@ -65,32 +71,32 @@ final class ServiceActionCommand extends OrganizationCommand implements RiskAwar
         // sets its password (owner decision 15; left open by TASK-0007). Services\Access\OwnerOnlyActions checks the owner too.
         'panel.password' => 'service.panel_account.manage',
         // ── managing: FTP and database logins give what managing already gives (D29.3) ───────────────────
-        'php.set' => 'service.manage', 'php.settings' => 'service.manage', 'security.set' => 'service.manage', 'http3.set' => 'service.manage',
-        'database.create' => 'service.manage', 'database.delete' => 'service.manage', 'database.export' => 'service.manage', 'database.import' => 'service.manage', 'database.access' => 'service.manage',
+        'php.set' => 'service.operate', 'php.settings' => 'service.manage', 'security.set' => 'service.manage', 'http3.set' => 'service.manage',
+        'database.create' => 'service.manage', 'database.delete' => 'service.data.delete', 'database.export' => 'service.manage', 'database.import' => 'service.manage', 'database.access' => 'service.manage',
         'dbuser.create' => 'service.manage', 'dbuser.password' => 'service.manage', 'dbuser.delete' => 'service.manage',
         'ftp.create' => 'service.manage', 'ftp.delete' => 'service.manage', 'ftp.password' => 'service.manage',
         'cron.create' => 'service.manage', 'cron.delete' => 'service.manage', 'cron.update' => 'service.manage', 'cron.run' => 'service.manage',
-        'file.mkdir' => 'service.manage', 'file.delete' => 'service.manage', 'file.save' => 'service.manage', 'file.rename' => 'service.manage', 'file.copy' => 'service.manage',
+        'file.mkdir' => 'service.manage', 'file.delete' => 'service.data.delete', 'file.save' => 'service.manage', 'file.rename' => 'service.manage', 'file.copy' => 'service.manage',
         'file.chmod' => 'service.manage', 'file.archive' => 'service.manage', 'file.extract' => 'service.manage',
         'subdomain.add' => 'service.manage', 'subdomain.remove' => 'service.manage', 'redirect.set' => 'service.manage', 'index.set' => 'service.manage',
         'proxy.create' => 'service.manage', 'proxy.delete' => 'service.manage', 'proxies.set' => 'service.manage',
-        'ssl.issue' => 'service.manage', 'ssl.upload' => 'service.manage', 'ssl.wildcard' => 'service.manage', 'https.force' => 'service.manage',
+        'ssl.issue' => 'service.operate', 'ssl.upload' => 'service.manage', 'ssl.wildcard' => 'service.manage', 'https.force' => 'service.operate',
         'errpages.set' => 'service.manage', 'directives.set' => 'service.manage', 'folder.protect' => 'service.manage', 'folder.unprotect' => 'service.manage', 'stats.set' => 'service.manage',
         'node.create' => 'service.manage', 'node.action' => 'service.manage', 'app.install' => 'service.manage',
         'firewall.apply' => 'service.manage', 'rdns.set' => 'service.manage',
         // mail
-        'mailbox.create' => 'service.manage', 'mailbox.update' => 'service.manage', 'mailbox.delete' => 'service.manage', 'alias.create' => 'service.manage', 'alias.delete' => 'service.manage',
+        'mailbox.create' => 'service.manage', 'mailbox.update' => 'service.manage', 'mailbox.delete' => 'service.data.delete', 'alias.create' => 'service.manage', 'alias.delete' => 'service.manage',
         'sending.set' => 'service.manage', 'forward.create' => 'service.manage', 'forward.delete' => 'service.manage', 'catchall.set' => 'service.manage', 'autoresponder.set' => 'service.manage',
         'spam.policy' => 'service.manage', 'spam.list.add' => 'service.manage', 'spam.list.delete' => 'service.manage', 'filter.create' => 'service.manage', 'filter.delete' => 'service.manage',
         'list.create' => 'service.manage', 'list.delete' => 'service.manage', 'fetchmail.create' => 'service.manage', 'fetchmail.delete' => 'service.manage',
         // game
-        'variable.set' => 'service.manage', 'image.set' => 'service.manage', 'gamedb.create' => 'service.manage', 'gamedb.rotate' => 'service.manage', 'gamedb.delete' => 'service.manage',
-        'gfile.save' => 'service.manage', 'gfile.upload' => 'service.manage', 'gfile.delete' => 'service.manage', 'gfile.mkdir' => 'service.manage', 'gfile.rename' => 'service.manage',
+        'variable.set' => 'service.manage', 'image.set' => 'service.manage', 'gamedb.create' => 'service.manage', 'gamedb.rotate' => 'service.manage', 'gamedb.delete' => 'service.data.delete',
+        'gfile.save' => 'service.manage', 'gfile.upload' => 'service.manage', 'gfile.delete' => 'service.data.delete', 'gfile.mkdir' => 'service.manage', 'gfile.rename' => 'service.manage',
         'allocation.add' => 'service.manage', 'allocation.primary' => 'service.manage', 'allocation.remove' => 'service.manage',
         // platform workflows around the site
-        'staging.create' => 'service.manage', 'staging.refresh' => 'service.manage', 'staging.push' => 'service.manage', 'staging.delete' => 'service.manage',
-        'deploy.run' => 'service.manage', 'deploy.rollback' => 'service.manage', 'wp.install' => 'service.manage', 'wp.update' => 'service.manage', 'wp.cache' => 'service.manage', 'wp.plugin' => 'service.manage',
-        'import.run' => 'service.manage', 'cdn.enable' => 'service.manage', 'cdn.disable' => 'service.manage', 'cdn.purge' => 'service.manage',
+        'staging.create' => 'service.manage', 'staging.refresh' => 'service.manage', 'staging.push' => 'service.manage', 'staging.delete' => 'service.data.delete',
+        'deploy.run' => 'service.manage', 'deploy.rollback' => 'service.manage', 'wp.install' => 'service.manage', 'wp.update' => 'service.manage', 'wp.cache' => 'service.operate', 'wp.plugin' => 'service.manage',
+        'import.run' => 'service.manage', 'cdn.enable' => 'service.manage', 'cdn.disable' => 'service.manage', 'cdn.purge' => 'service.operate',
     ];
 
     /**
@@ -264,7 +270,11 @@ final class ServiceActionCommand extends OrganizationCommand implements RiskAwar
      * a restore, a copy deleted, the owner's panel password: staff reach it only as staff reach (shadow-logged, CRITICAL where
      * the catalogue says so) or as a member, never with more than the customer route gives (StaffActor::may asks the staff key).
      */
-    public const STAFF_PERMISSIONS = ['service.manage' => 'staff.service.manage', 'service.delete' => self::STAFF_DELETE, self::STAFF_DELETE => self::STAFF_DELETE];
+    public const STAFF_PERMISSIONS = [
+        'service.manage' => 'staff.service.manage', 'service.delete' => self::STAFF_DELETE, self::STAFF_DELETE => self::STAFF_DELETE,
+        // TASK-0043 (S1-03): the two keys split off `service.manage` keep its staff key — a support restart asks what it asked before
+        'service.operate' => 'staff.service.manage', 'service.data.delete' => 'staff.service.manage',
+    ];
 
     public function staffPermission(): string
     {

@@ -109,7 +109,9 @@ it('names only real actions in every list of actions', function () {
 it('offers staff bulk only plain management, never a console or a deletion', function () {
     // BulkActionService runs every action under staff.service.manage: whatever it lists must be what that permission stands for
     foreach (BulkActionService::ACTIONS as $action) {
-        expect(ServiceActionCommand::permissionFor($action))->toBe('service.manage', "{$action} is more than managing")
+        // TASK-0043: `service.operate` is the narrow part of managing (same staff key); `service.data.delete` is not offered in bulk
+        expect(ServiceActionCommand::permissionFor($action))->toBeIn(['service.manage', 'service.operate'], "{$action} is more than managing")
+            ->and(ServiceActionCommand::STAFF_PERMISSIONS[ServiceActionCommand::permissionFor($action)] ?? null)->toBe('staff.service.manage')
             ->and(in_array($action, ServiceActionCommand::HIGH_RISK, true))->toBeFalse("{$action} is a high-risk action")
             ->and(ServiceActionCommand::needsFreshStepUp($action))->toBeFalse();
     }

@@ -15,6 +15,8 @@ use Onhost\Platform\Commands\GlobalCommand;
  */
 final class ChargebackStaffCommand extends GlobalCommand implements RiskAwareCommand
 {
+    public const DECIDE = 'staff.chargeback.decide';
+
     public function op(): string
     {
         return (string) $this->get('op');
@@ -22,7 +24,13 @@ final class ChargebackStaffCommand extends GlobalCommand implements RiskAwareCom
 
     public function permission(): ?string
     {
-        return $this->op() === 'settings' ? 'billing.credit.adjust' : 'staff.service.manage';
+        // B6 (audit 2026-10; TASK-0043): a decision is the support desk's (`staff.chargeback.decide`), no longer every role that may
+        // restart any service; the clustering run (`analyse`) stays with the service teams
+        return match ($this->op()) {
+            'settings' => 'billing.credit.adjust',
+            'decide' => self::DECIDE,
+            default => 'staff.service.manage',
+        };
     }
 
     public function name(): string

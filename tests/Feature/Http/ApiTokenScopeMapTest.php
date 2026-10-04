@@ -512,8 +512,10 @@ it('decides a token scope for every permission the service action map can ask', 
         'compute.vm.delete' => TokenScopes::SERVICES_POWER,
         'game.manage' => TokenScopes::SERVICES_POWER,
         'service.console' => TokenScopes::SERVICES_CONSOLE,
+        'service.data.delete' => TokenScopes::SERVICES_POWER, // TASK-0043: split off service.manage, its scope kept
         'service.delete' => TokenScopes::SERVICES_POWER, // HIGH with a fresh step-up
         'service.manage' => TokenScopes::SERVICES_POWER,
+        'service.operate' => TokenScopes::SERVICES_POWER, // TASK-0043: split off service.manage, its scope kept
         'service.panel_account.manage' => null, // owner only, portal only
     ]);
 });

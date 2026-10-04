@@ -36,6 +36,7 @@ use Onhost\Domain\Support\Models\KnowledgeArticle;
 use Onhost\Domain\Support\Models\Ticket;
 use Onhost\Domain\Support\TicketService;
 use Onhost\Domain\Support\TicketStateMachine;
+use Onhost\Domain\Support\TicketVisibility;
 use Onhost\Domain\Support\Triage;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditRecorder;
@@ -371,7 +372,8 @@ final class AssistantService
                     .' · '.($domain->usesOnhostDns() ? ($cs ? 'DNS u ONhost' : 'DNS at ONhost') : ($cs ? 'DNS jinde' : 'external DNS')).($domain->auto_renew ? ($cs ? ' · auto-obnova' : ' · auto-renew') : '')];
             }
         }
-        $tickets = $sees('tickets') ? Ticket::query()->where('organization_id', $organization->id)->whereNotIn('state', [TicketStateMachine::RESOLVED, TicketStateMachine::CLOSED])->orderByDesc('updated_at')->limit(3)->get() : collect();
+        // TASK-0043 (permission program S1-09): a member lists the tickets they may read (TicketVisibility), staff the organization's
+        $tickets = $sees('tickets') ? ($scope !== null && ! $scope->staff ? app(TicketVisibility::class)->query($scope->user, (string) $organization->id) : Ticket::query()->where('organization_id', $organization->id))->whereNotIn('state', [TicketStateMachine::RESOLVED, TicketStateMachine::CLOSED])->orderByDesc('updated_at')->limit(3)->get() : collect();
         foreach ($tickets as $ticket) {
             $out[] = ['k' => ($cs ? 'Tiket ' : 'Ticket ').$ticket->number, 'v' => $ticket->subject.' · '.$ticket->state];
         }

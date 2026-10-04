@@ -229,7 +229,7 @@ it('shares managing a service without handing over a shell', function () {
         ->and(ServiceActionCommand::permissionFor('shell.delete'))->toBe('service.console')
         ->and(ServiceActionCommand::permissionFor('command.send'))->toBe('service.console')
         // …and what the role does promise is untouched
-        ->and(ServiceActionCommand::permissionFor('php.set'))->toBe('service.manage')
+        ->and(ServiceActionCommand::permissionFor('php.set'))->toBe('service.operate') // TASK-0043: split off service.manage, which keeps it
         ->and(ServiceActionCommand::permissionFor('database.create'))->toBe('service.manage')
         ->and(ServiceActionCommand::permissionFor('file.save'))->toBe('service.manage')
         ->and(ServiceActionCommand::permissionFor('terminate'))->toBe('service.delete');
