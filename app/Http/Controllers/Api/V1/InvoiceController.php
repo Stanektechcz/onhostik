@@ -65,7 +65,8 @@ final class InvoiceController extends ApiController
             'bank' => 'pay_by_bank', 'card' => 'pay_by_card', default => 'pay_from_wallet'
         };
 
-        return $this->dispatch(new InvoiceCommand($model->organization_id, $this->idempotencyKey($request, 'invoice.pay:'.$op), ['op' => $op, 'invoice_id' => $model->id, 'return_urls' => $data['return_urls'] ?? []]), $this->api->context($request, Organization::query()->find($model->organization_id)));
+        // the key names the invoice (TASK-0063 finding): one header for two invoices of an organization is two payments
+        return $this->dispatch(new InvoiceCommand($model->organization_id, $this->idempotencyKey($request, 'invoice.pay:'.$op.':'.$model->id), ['op' => $op, 'invoice_id' => $model->id, 'return_urls' => $data['return_urls'] ?? []]), $this->api->context($request, Organization::query()->find($model->organization_id)));
     }
 
     public function creditNote(Request $request, string $invoice): JsonResponse

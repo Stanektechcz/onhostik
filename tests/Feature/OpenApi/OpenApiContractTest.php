@@ -94,7 +94,7 @@ it('offers the Idempotency-Key header exactly where the idempotency middleware r
     $operations = openApiOperations();
     $wrong = [];
     foreach (openApiRouteSet() as $key => ['route' => $route, 'method' => $method]) {
-        $runs = in_array($method, ['POST', 'PUT', 'PATCH'], true) && in_array(IdempotencyKey::class, $router->gatherRouteMiddleware($route), true);
+        $runs = in_array($method, ['POST', 'PUT', 'PATCH', 'DELETE'], true) && in_array(IdempotencyKey::class, $router->gatherRouteMiddleware($route), true);
         $refs = array_column($operations[$key]['parameters'] ?? [], '$ref');
         if (in_array('#/components/parameters/IdempotencyKey', $refs, true) !== $runs) {
             $wrong[] = $key;
