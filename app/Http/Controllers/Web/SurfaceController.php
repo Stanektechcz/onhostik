@@ -140,7 +140,7 @@ final class SurfaceController extends Controller
             if ($user === null) {
                 return redirect('/prihlaseni?next='.urlencode($request->getRequestUri()));
             }
-            if (! ($user instanceof User && $user->is_staff)) { // the same test as the staff console below
+            if (! ($user instanceof User && StaffActor::account($user))) { // the same test as the staff console below
                 return redirect('/panel');
             }
         }
