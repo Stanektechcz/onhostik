@@ -740,6 +740,12 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
     // list them with `operator:tokens:unbound --dry-run`, notify the owners, then switch it on
     'token_organization_required' => (bool) env('ONHOST_TOKEN_ORGANIZATION_REQUIRED', false),
     // ── end TASK-0039 ──
+    // TASK-0044 (owner decision R9, audit 2026-10): every new personal API token ends — after default_days unless it asks for
+    // less, never later than max_days (the operator's cap; the default follows a lower cap). Older tokens are not changed
+    'tokens' => [
+        'default_days' => (int) env('ONHOST_TOKEN_DEFAULT_DAYS', 365),
+        'max_days' => (int) env('ONHOST_TOKEN_MAX_DAYS', 365),
+    ],
     // ── TASK-0042 grants follow one policy and access can be restored (permission program S1-01, S1-02, D21) ──
     'grants' => [
         // I6: the active grants of somebody who lost the right to give them (removed, demoted) are only RECORDED while this is off

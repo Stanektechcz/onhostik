@@ -22,4 +22,13 @@ final class ServiceAccount extends Model
     {
         return $this->state === 'active';
     }
+
+    /**
+     * TASK-0044: the Authorizer asks every principal for its identifier the way it asks a user (bindings, cache keys). A service
+     * account had none, so deciding anything for one — a pipeline inviting a member, a grantor's backing — failed with an error.
+     */
+    public function getAuthIdentifier(): string
+    {
+        return (string) $this->getKey();
+    }
 }

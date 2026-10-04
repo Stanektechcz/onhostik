@@ -34,6 +34,7 @@ use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceAccessGrant;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\Models\SshKeyGrant;
+use Onhost\Domain\Support\Models\Ticket;
 use Onhost\Platform\Audit\AuditEvent;
 use Onhost\Platform\Commands\CommandBus;
 use Onhost\Platform\Commands\CommandContext;
@@ -107,8 +108,28 @@ function arxMails(string $template): array
 }
 
 /** The staff route of the owner recovery, asked by `$staff`; with `$approvalId` the request is repeated after a second person approved it. */
+/**
+ * TASK-0044: an owner recovery names a ticket OF the organization (OwnerRecoveries::ticketOf). The `T-48xx` references these tests
+ * always used become such a ticket — the same number for the same organization, so the approval's payload hash stays the same.
+ */
+function arxTicketRef(Organization $org, string $ref): string
+{
+    $existing = Ticket::query()->where('number', $ref)->first();
+    if ($existing !== null && $existing->organization_id !== $org->id) {
+        $ref .= '-'.substr(md5($org->id), 0, 6);
+        $existing = Ticket::query()->where('number', $ref)->first();
+    }
+    $existing ??= Ticket::query()->create(['number' => $ref, 'organization_id' => $org->id, 'email' => 'owner@example.test', 'subject' => 'Ztracený přístup vlastníka']);
+
+    return (string) $existing->number;
+}
+
 function arxRecovery(User $staff, Organization $org, array $body, ?string $approvalId = null)
 {
+    if (isset($body['ticket_ref']) && is_string($body['ticket_ref'])) {
+        $body['ticket_ref'] = arxTicketRef($org, $body['ticket_ref']);
+    }
+
     return test()->flushHeaders()->actingAs($staff, 'sanctum')->withHeader('Idempotency-Key', (string) Str::ulid())
         ->postJson("/v1/staff/customers/{$org->id}/owner-recovery", $body + ($approvalId !== null ? ['approval_ids' => [$approvalId]] : []));
 }
@@ -330,7 +351,7 @@ it('recovers a lost owner only after a second person, a week of notice to everyb
 
     // any organization admin stops it
     app(StepUpService::class)->grant($admin, 'totp', null, '127.0.0.1');
-    $this->flushHeaders()->actingAs($admin, 'sanctum')->withHeader('Idempotency-Key', (string) Str::ulid())->postJson("/v1/organizations/{$org->id}/owner-recovery/cancel")
+    $this->flushHeaders()->actingAs($admin, 'sanctum')->withHeader('Idempotency-Key', (string) Str::ulid())->postJson("/v1/organizations/{$org->id}/owner-recovery/cancel", ['reason' => 'Vlastník je v pořádku, telefon má u sebe']) // TASK-0044: says why
         ->assertOk()->assertJsonPath('recovery.state', 'cancelled');
     $this->travel(8)->days();
     app(StepUpService::class)->grant($iam, 'totp', null, '127.0.0.1');
@@ -358,7 +379,10 @@ it('recovers an organization whose owner is gone by handing it to a member, afte
     $this->travel(7)->days();
     $this->travel(2)->minutes();
     app(StepUpService::class)->grant($iam, 'totp', null, '127.0.0.1');
-    $this->flushHeaders()->actingAs($iam, 'sanctum')->withHeader('Idempotency-Key', (string) Str::ulid())->postJson("/v1/staff/customers/{$org->id}/owner-recovery/complete")->assertOk();
+    $this->flushHeaders()->actingAs($iam, 'sanctum')->withHeader('Idempotency-Key', (string) Str::ulid())->postJson("/v1/staff/customers/{$org->id}/owner-recovery/complete")->assertOk()->assertJsonPath('recovery.phase', 'offered');
+    // TASK-0044: the heir is offered the organization and accepts it in person, with a fresh step-up
+    expect($org->fresh()->owner_user_id)->toBe($owner->id);
+    app(CommandBus::class)->dispatch(new OwnershipCommand($org->id, 'arx-own-'.Str::ulid(), ['op' => 'accept']), arxContext($admin, $org));
 
     expect($org->fresh()->owner_user_id)->toBe($admin->id)
         // S1-07 red team: the previous owner leaves (takeOutPreviousOwner) — restorable from the snapshot by the new owner
@@ -369,7 +393,7 @@ it('recovers an organization whose owner is gone by handing it to a member, afte
 
 it('refuses iam.mfa.reset on a customer owner — the owner recovery is the only way — and resets anybody else', function () {
     [$owner, $org] = $this->customerWithOrganization();
-    $member = arxMember($org, 'developer');
+    $member = arxMember($org, 'viewer'); // TASK-0044: a developer holds consoles — a second person (RecoveryHardeningTest)
     foreach ([$owner, $member] as $person) {
         $person->forceFill(['totp_secret' => 'JBSWY3DPEHPK3PXP', 'totp_confirmed_at' => now()])->save();
     }
@@ -415,7 +439,7 @@ it('reaches every organization an MFA reset of an owner reaches: all are told, a
 
     // …and an admin of the large organization stops the whole recovery
     app(StepUpService::class)->grant($largeAdmin, 'totp', null, '127.0.0.1');
-    $this->flushHeaders()->actingAs($largeAdmin, 'sanctum')->withHeader('Idempotency-Key', (string) Str::ulid())->postJson("/v1/organizations/{$large->id}/owner-recovery/cancel")
+    $this->flushHeaders()->actingAs($largeAdmin, 'sanctum')->withHeader('Idempotency-Key', (string) Str::ulid())->postJson("/v1/organizations/{$large->id}/owner-recovery/cancel", ['reason' => 'Vlastník je v pořádku, telefon má u sebe']) // TASK-0044: says why
         ->assertOk()->assertJsonPath('recovery.state', 'cancelled');
     expect(OwnerRecovery::query()->where('state', OwnerRecovery::PENDING)->count())->toBe(0);
     $this->travel(8)->days();
@@ -441,7 +465,7 @@ it('completes an MFA recovery only while it still reaches every organization the
 it('asks a second person before resetting the MFA of a staff account or an organization admin, and tells their organizations', function () {
     [$owner, $org] = $this->customerWithOrganization();
     $admin = arxMember($org, 'org_admin');
-    $developer = arxMember($org, 'developer');
+    $developer = arxMember($org, 'viewer'); // TASK-0044: a member holding no HIGH key and no console (a developer now takes a second person too)
     $colleague = User::factory()->staff()->create();
     foreach ([$admin, $developer, $colleague] as $person) {
         $person->forceFill(['totp_secret' => 'JBSWY3DPEHPK3PXP', 'totp_confirmed_at' => now()])->save();
@@ -500,7 +524,7 @@ it('keeps one owner recovery and one ownership offer per organization even when 
                 'mode' => 'mfa_reset', 'state' => 'pending', 'reason' => 'the other request', 'ticket_ref' => 'T-0', 'not_before' => now()->addDays(7), 'created_at' => now(), 'updated_at' => now()]);
         }
     });
-    arxRefuses(fn () => app(OwnerRecoveries::class)->open($org, 'mfa_reset', null, 'Vlastník ztratil telefon, ověřeno', 'T-4805', $staff), 'owner_recovery_pending');
+    arxRefuses(fn () => app(OwnerRecoveries::class)->open($org, 'mfa_reset', null, 'Vlastník ztratil telefon, ověřeno', arxTicketRef($org, 'T-4805'), $staff), 'owner_recovery_pending');
 
     OwnershipTransfer::creating(function (OwnershipTransfer $transfer) use ($owner, $heir): void {
         if (DB::table('ownership_transfers')->where('organization_id', $transfer->organization_id)->doesntExist()) {
@@ -657,7 +681,8 @@ it('hands an organization whose owner is gone to the heir and takes the old owne
     $this->travel(2)->minutes();
     app(StepUpService::class)->grant($owner, 'totp', 'hijacked-session', '127.0.0.1'); // whoever holds the old owner's account has a fresh step-up
     app(StepUpService::class)->grant($iam, 'totp', null, '127.0.0.1');
-    $this->flushHeaders()->actingAs($iam, 'sanctum')->withHeader('Idempotency-Key', (string) Str::ulid())->postJson("/v1/staff/customers/{$org->id}/owner-recovery/complete")->assertOk();
+    $this->flushHeaders()->actingAs($iam, 'sanctum')->withHeader('Idempotency-Key', (string) Str::ulid())->postJson("/v1/staff/customers/{$org->id}/owner-recovery/complete")->assertOk()->assertJsonPath('recovery.phase', 'offered');
+    app(CommandBus::class)->dispatch(new OwnershipCommand($org->id, 'arx-own-'.Str::ulid(), ['op' => 'accept']), arxContext($heir, $org)); // TASK-0044: the heir accepts in person
     app(OutboxPublisher::class)->relayPending();
 
     expect($org->fresh()->owner_user_id)->toBe($heir->id)
