@@ -2904,6 +2904,8 @@ paths:
           schema:
             type: string
         -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
           $ref: '#/components/parameters/Organization'
       responses:
         200:
@@ -5310,6 +5312,8 @@ paths:
           schema:
             type: string
         -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
           $ref: '#/components/parameters/Organization'
       responses:
         200:
@@ -5779,6 +5783,8 @@ paths:
           required: true
           schema:
             type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
         -
           $ref: '#/components/parameters/Organization'
       responses:
@@ -7015,6 +7021,8 @@ paths:
           required: true
           schema:
             type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
         -
           $ref: '#/components/parameters/Organization'
       responses:
@@ -8874,6 +8882,8 @@ paths:
           schema:
             type: string
         -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
           $ref: '#/components/parameters/Organization'
       responses:
         200:
@@ -8939,6 +8949,8 @@ paths:
           required: true
           schema:
             type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
         -
           $ref: '#/components/parameters/Organization'
       responses:
@@ -9148,6 +9160,8 @@ paths:
           required: true
           schema:
             type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
         -
           $ref: '#/components/parameters/Organization'
       responses:
@@ -9880,6 +9894,8 @@ paths:
           required: true
           schema:
             type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
         -
           $ref: '#/components/parameters/Organization'
       responses:
@@ -11210,6 +11226,8 @@ paths:
       summary: 'DELETE /partner/payout-account/pending'
       parameters:
         -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
           $ref: '#/components/parameters/Organization'
       responses:
         200:
@@ -11561,6 +11579,8 @@ paths:
           required: true
           schema:
             type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
         -
           $ref: '#/components/parameters/Organization'
       responses:
@@ -12301,6 +12321,8 @@ paths:
           required: true
           schema:
             type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
         -
           $ref: '#/components/parameters/Organization'
       responses:
@@ -13265,6 +13287,8 @@ paths:
           schema:
             type: string
         -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
           $ref: '#/components/parameters/Organization'
       responses:
         200:
@@ -14116,6 +14140,8 @@ paths:
           required: true
           schema:
             type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
         -
           $ref: '#/components/parameters/Organization'
       responses:
@@ -15157,6 +15183,8 @@ paths:
           required: true
           schema:
             type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
         -
           $ref: '#/components/parameters/Organization'
       responses:
@@ -19396,6 +19424,8 @@ paths:
           required: true
           schema:
             type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
         -
           $ref: '#/components/parameters/Organization'
       responses:
@@ -24353,6 +24383,8 @@ paths:
           schema:
             type: string
         -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
           $ref: '#/components/parameters/Organization'
       responses:
         200:
@@ -26086,6 +26118,8 @@ paths:
           schema:
             type: string
         -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
           $ref: '#/components/parameters/Organization'
       responses:
         200:
@@ -26389,6 +26423,8 @@ paths:
           schema:
             type: string
         -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
           $ref: '#/components/parameters/Organization'
       responses:
         200:
@@ -26517,6 +26553,8 @@ paths:
           required: true
           schema:
             type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
         -
           $ref: '#/components/parameters/Organization'
       responses:
@@ -26873,6 +26911,8 @@ paths:
           required: true
           schema:
             type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
         -
           $ref: '#/components/parameters/Organization'
       responses:
@@ -30595,6 +30635,8 @@ paths:
           schema:
             type: string
         -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
           $ref: '#/components/parameters/Organization'
       responses:
         200:
@@ -30845,6 +30887,8 @@ paths:
           schema:
             type: string
         -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
           $ref: '#/components/parameters/Organization'
       responses:
         200:
@@ -31094,6 +31138,8 @@ paths:
           required: true
           schema:
             type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
         -
           $ref: '#/components/parameters/Organization'
       responses:
@@ -33699,6 +33745,8 @@ paths:
           schema:
             type: string
         -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
           $ref: '#/components/parameters/Organization'
       responses:
         200:
@@ -34468,6 +34516,8 @@ paths:
           required: true
           schema:
             type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
         -
           $ref: '#/components/parameters/Organization'
       responses:
