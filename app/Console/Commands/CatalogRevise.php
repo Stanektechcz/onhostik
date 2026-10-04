@@ -13,7 +13,7 @@ use Onhost\Platform\Errors\DomainError;
  * Applies the catalogue revisions defined in code (`Onhost\Domain\Catalog\CatalogRevisions`) as new plan versions. Without
  * `--apply` it only shows what would be published, who keeps the current version and what would not carry over; with it, each
  * plan is one audited `CatalogCommand plan.publish` (prices unchanged) and finance hears about every new version. Existing
- * versions, services and subscriptions are never touched. Runs as the system actor: shell access to the server is the gate,
+ * versions, services and subscriptions are never touched; a priced option a revision withdraws is gone for new orders only. Runs as the system actor: shell access to the server is the gate,
  * and the content of a revision is reviewed as code (docs/runbooks/pricing.md, "Catalogue revisions").
  */
 final class CatalogRevise extends Command
@@ -83,6 +83,12 @@ final class CatalogRevise extends Command
 
                 continue;
             }
+            if ($row['kind'] === 'option') { // a price for new orders: what an order already bought stays with its service
+                $this->line("  withdraw option {$row['target']} (grants {$row['entitlement']}, which the product's server cannot deliver): no longer offered to new orders");
+                $this->line("    {$row['services']} service(s) that ordered it keep it and its price; four eyes in the console, the system actor here");
+
+                continue;
+            }
             $changes = array_merge(
                 $row['drop'] === [] ? [] : ['− '.implode(', ', array_map(fn (string $key, string $bag) => "{$bag}.{$key}", array_keys($row['drop']), $row['drop']))],
                 array_map(fn (string $key, array $set) => "{$key} {$set['from']} → {$set['to']}", array_keys($row['set']), $row['set']),
@@ -112,6 +118,7 @@ final class CatalogRevise extends Command
             $this->line(match ($row['kind']) {
                 'plan' => "  published {$row['target']} v{$row['from']} → v{$row['to']}",
                 'create' => "  created product {$row['target']}",
+                'option' => "  withdrew option {$row['target']}",
                 default => "  described product {$row['target']}",
             });
         }

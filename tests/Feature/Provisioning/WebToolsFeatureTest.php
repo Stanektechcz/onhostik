@@ -4,18 +4,23 @@ declare(strict_types=1);
 
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Notifications\Models\MailOutbox;
 use Onhost\Domain\Notifications\Models\Notification;
+use Onhost\Domain\Provisioning\Jobs\RunOperation;
 use Onhost\Domain\Provisioning\Models\Operation;
+use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Services\Models\BackupPolicy;
 use Onhost\Domain\Services\Models\Deployment;
 use Onhost\Domain\Services\Models\DeploySource;
 use Onhost\Domain\Services\Models\UptimeIncident;
 use Onhost\Domain\Services\Models\UptimeMonitor as MonitorModel;
+use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Domain\Services\Web\UptimeMonitor;
 use Onhost\Domain\Support\TicketService;
 use Onhost\Platform\Commands\CommandContext;
+use Onhost\Platform\Errors\ProviderException;
 use Onhost\Platform\Outbox\OutboxMessage;
 use Onhost\Platform\Outbox\OutboxPublisher;
 use Onhost\Providers\AaPanel\AaPanelWebProvider;
@@ -194,4 +199,69 @@ it('runs the toolkit on an aaPanel-backed site: terminal, PHP settings, monitori
     $sso = ['ticket_id' => $ticket->id, 'reason' => 'Kontrola nastavení webu podle tiketu zákazníka.'];
     $approval = (string) $this->postJson("/v1/staff/services/{$service->id}/panel-login", $sso)->assertForbidden()->assertJsonPath('error', 'approval_required')->json('approval_id');
     $this->postJson("/v1/staff/services/{$service->id}/panel-login", $sso + ['approval_ids' => [secondPersonApproves($approval)]])->assertStatus(409)->assertJsonPath('error', 'panel_login_unavailable');
+});
+
+/*
+ * Owner decision R2 (audit 2026-10, O1 / PA-03): on an aaPanel node several customers share, the terminal and Node projects
+ * run beside every other tenant (Node projects as the node's common `www`). Once the operator closed the node
+ * (`operator:aapanel:tenancy --apply`) neither is offered: the feature list says why, the actions are refused before an
+ * operation exists, and an operation queued before the node was closed does not reach the node either.
+ */
+it('withholds the terminal and Node projects on an aaPanel node several customers share, and says why', function () {
+    [$user, $org] = $this->customerWithOrganization();
+    $service = featureWebService($org, 'aapanel');
+    $shell = new ScriptedShell(['/^id -u /' => [0, "1042\n"], '/ls -la/' => [0, "index.php\n"]]);
+    AaPanelWebProvider::$shellFactory = fn () => $shell;
+    Http::fake(function ($request) {
+        $q = (string) parse_url($request->url(), PHP_URL_QUERY);
+
+        return match (true) {
+            str_contains($q, 'GetSiteRunPath') => Http::response(['runPath' => '/']),
+            str_contains($q, 'table=sites') => Http::response(['data' => [['id' => 41, 'name' => 'shop.cz', 'path' => '/www/wwwroot/shop.cz', 'status' => '1']], 'page' => '']),
+            str_contains($request->url(), 'get_project_list') => Http::response(['data' => [['name' => 'app', 'path' => '/www/wwwroot/shop.cz/app', 'run' => true]]]),
+            default => Http::response(['status' => true, 'msg' => 'ok']),
+        };
+    });
+    $this->actingAs($user, 'sanctum');
+    $base = "/v1/services/{$service->id}";
+    $action = fn (string $action, array $params, string $key) => $this->postJson("{$base}/actions", ['action' => $action, 'params' => $params], ['Idempotency-Key' => $key]);
+    $close = function () use ($service) {
+        $instance = ProviderInstance::query()->findOrFail($service->provider_instance_id);
+        $instance->forceFill(['options' => array_merge((array) $instance->options, ['tenancy' => ['closed' => true]])])->save();
+    };
+
+    // a node nobody closed: both are offered, as before
+    $open = $this->getJson("{$base}/features")->assertOk()->json('data');
+    expect($open['features']['terminal']['enabled'])->toBeTrue()->and($open['features']['node_projects']['enabled'])->toBeTrue()
+        ->and($open['actions'])->toContain('command.run', 'node.create', 'node.action');
+    // a command accepted while the node was open, still waiting in the queue when the operator closes it
+    Queue::fake();
+    $queued = Operation::query()->findOrFail($action('command.run', ['command' => 'ls -la'], 'shared-term-queued')->assertAccepted()->json('operation_id'));
+    expect($queued->state)->toBe(Operation::PENDING);
+
+    $close();
+    $features = $this->getJson("{$base}/features")->assertOk()->json('data');
+    expect($features['features']['terminal'])->toBe(['enabled' => false, 'reason' => 'shared_node'])
+        ->and($features['features']['node_projects'])->toBe(['enabled' => false, 'reason' => 'shared_node'])
+        ->and($features['actions'])->not->toContain('command.run')->not->toContain('node.create')->not->toContain('node.action')
+        ->and($features['features']['ftp']['enabled'])->toBeTrue() // SFTP/FTP stays
+        ->and(json_encode($features))->not->toMatch('/aapanel/i');
+    // the command queued before the node was closed: the worker picks it up now, and the node never runs it
+    app()->call([new RunOperation($queued->id), 'handle']); // the worker picks it up after the node was closed
+    expect($queued->fresh()->state)->not->toBe(Operation::SUCCEEDED)
+        ->and(collect($shell->calls)->contains(fn ($c) => str_contains($c['command'], 'ls -la')))->toBeFalse(); // the node never ran it
+
+    $action('command.run', ['command' => 'ls -la'], 'shared-term')->assertUnprocessable()->assertJsonPath('error', 'feature_unavailable');
+    $action('node.create', ['name' => 'api', 'script' => 'server.js', 'port' => 3000], 'shared-node-create')->assertUnprocessable()->assertJsonPath('error', 'feature_unavailable');
+    $action('node.action', ['remote_id' => 'app', 'op' => 'restart'], 'shared-node-restart')->assertUnprocessable()->assertJsonPath('error', 'feature_unavailable');
+
+    // the adapter refuses a new project or a start on its own, for whatever reaches it (staff tools, an older queued step)
+    $adapter = app(ServiceFeatures::class)->adapterFor($service);
+    $ref = app(ServiceFeatures::class)->refFor($service);
+    expect(fn () => $adapter->createNodeProject($ref, ['name' => 'api', 'script' => 'server.js', 'port' => 3000]))->toThrow(ProviderException::class, 'shared')
+        ->and(fn () => $adapter->nodeProjectAction($ref, 'app', 'start'))->toThrow(ProviderException::class, 'shared');
+    Http::assertNotSent(fn ($r) => str_contains($r->url(), 'create_project') || str_contains($r->url(), 'start_project') || str_contains($r->url(), 'restart_project'));
+    // the ways out stay: a project that already runs can still be stopped
+    $adapter->nodeProjectAction($ref, 'app', 'stop');
+    Http::assertSent(fn ($r) => str_contains($r->url(), 'stop_project'));
 });

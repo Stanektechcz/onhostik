@@ -63,6 +63,7 @@ use Onhost\Providers\Contracts\AsyncHandle;
 use Onhost\Providers\Contracts\AsyncStatus;
 use Onhost\Providers\Contracts\BackupCapable;
 use Onhost\Providers\Contracts\ComputeProvider;
+use Onhost\Providers\Contracts\ExplainsWithheldFeatures;
 use Onhost\Providers\Contracts\GameProvider;
 use Onhost\Providers\Contracts\GameToolsProvider;
 use Onhost\Providers\Contracts\InfrastructureProvider;
@@ -495,6 +496,11 @@ final class ServiceActionWorkflow implements Workflow
                     // ── tools on top of the panel (WebToolsProvider) ──────────────────────────────────────────
                     'command.run' => (function () use ($context, $ref, $p) {
                         $tools = $this->capability($context, WebToolsProvider::class);
+                        // asked again here, not only when the command was accepted: a command still queued when the operator closed a
+                        // shared node must not reach that node (owner decision R2)
+                        if ($tools instanceof ExplainsWithheldFeatures && isset($tools->withheldFeatures()['terminal'])) {
+                            throw new ProviderException('web', ProviderErrorCode::VALIDATION, 'This server is shared with other customers, so the terminal is no longer available on it. Nothing was run.');
+                        }
                         if (! $tools->shellAvailable($ref)) { // first use on a jailed panel: create the agent user, the customer re-runs the command
                             $agent = $tools->ensureAgent($ref);
                             if ($agent->isAsync()) {

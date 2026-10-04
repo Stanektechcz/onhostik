@@ -10,6 +10,7 @@ use Onhost\Domain\Catalog\Models\Plan;
 use Onhost\Domain\Catalog\Models\PlanVersion;
 use Onhost\Domain\Catalog\Models\Price;
 use Onhost\Domain\Catalog\Models\Product;
+use Onhost\Domain\Catalog\Models\ProductOption;
 use Onhost\Domain\Provisioning\Scheduling\PlacementRules;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
@@ -35,8 +36,13 @@ use Onhost\Platform\Errors\DomainError;
  *  - `reason`: kept with every version it publishes (finance and the audit read it);
  *  - `plans`: 'product/plan' => keys the new version drops (from `entitlements` or `limits`, wherever the current version has them);
  *  - `drop_undelivered` (optional): keys the new version drops from EVERY plan whose current version sells them where the platform
- *    cannot deliver them (`undeliverable()`: today `php_workers_dedicated` on a panel without a PHP pool per site, PlacementRules)
- *    — a plan list the code cannot know in advance (TASK-0027);
+ *    cannot deliver them (`undeliverable()`: `php_workers_dedicated` on a panel without a PHP pool per site, PlacementRules; a key
+ *    of `ExecutorDelivery::WEB_FEATURES` on a web executor that does not declare its feature, R4) — a plan list the code cannot know
+ *    in advance (TASK-0027);
+ *  - `withdraw_undelivered_options` (optional): entitlement keys whose priced options (`ProductOption.meta.entitlement.key`) are
+ *    withdrawn (`CatalogCommand option.delete`) from every product whose executor cannot deliver them (R4). An option is a price
+ *    for new orders only: what an order already bought stays in its service's entitlements and its subscription's price;
+ *  - `wording` (optional): a regex for features lines that still repeat what this revision withdraws (the preview warns);
  *  - `rewrite`: key => [old value => new value], applied to every plan whose current version still carries the old value;
  *  - `products`: product key => ['match' => regex on the current description, 'description' => {cs, en}] — replaced only while
  *    the current description still says what the revision withdraws, so a text staff wrote since is left alone;
@@ -80,6 +86,16 @@ final class CatalogRevisions
             'products' => [],
             'create' => ['limit-raise'],
         ],
+        // owner decision R4 (audit 2026-10, P1-15): the e-shop plans (aaPanel, `mail: false`) and the dedicated IPv4 option of the web products
+        '2026-10-deliverable-web-plans' => [
+            'reason' => 'Rozhodnutí vlastníka R4 (audit 2026-10): tarif nabízí jen to, co jeho server dodá. Schránky v e-shop tarifech (server bez pošty) a dedikovaná IPv4 u webových produktů (žádný webový server ji webu nepřidělí) se stahují z prodeje — nové verze bez schránek, volba IPv4 končí; ceny beze změny, stávající smlouvy a objednané volby beze změny.',
+            'plans' => [],
+            'rewrite' => [],
+            'products' => [],
+            'drop_undelivered' => ['mailboxes'],
+            'withdraw_undelivered_options' => ['ipv4'],
+            'wording' => '/schrán|mailbox|IPv4/iu',
+        ],
     ];
 
     /**
@@ -108,7 +124,7 @@ final class CatalogRevisions
     /**
      * What is still to do, per revision (only revisions with something pending).
      *
-     * @return array<string, array{plans: array<string, array{version: int, drop: array<string,string>, set: array<string, array{bag: string, from: mixed, to: mixed}>}>, products: array<string, array{cs: string, en: string}>, create?: list<string>}>
+     * @return array<string, array{plans: array<string, array{version: int, drop: array<string,string>, set: array<string, array{bag: string, from: mixed, to: mixed}>}>, products: array<string, array{cs: string, en: string}>, create?: list<string>, options?: array<string, string>}>
      */
     public function pending(?string $id = null): array
     {
@@ -117,8 +133,9 @@ final class CatalogRevisions
             $plans = $this->pendingPlans($revision);
             $products = $this->pendingProducts($revision);
             $create = $this->pendingCreates($revision);
-            if ($plans !== [] || $products !== [] || $create !== []) {
-                $out[$revision] = ['plans' => $plans, 'products' => $products] + ($create === [] ? [] : ['create' => $create]);
+            $options = $this->pendingOptions($revision);
+            if ($plans !== [] || $products !== [] || $create !== [] || $options !== []) {
+                $out[$revision] = ['plans' => $plans, 'products' => $products] + ($create === [] ? [] : ['create' => $create]) + ($options === [] ? [] : ['options' => $options]);
             }
         }
 
@@ -168,7 +185,16 @@ final class CatalogRevisions
                 // promo prices of the current version: a revision carries them into the new one (`keep_promos`), the preview says so
                 'promos' => Price::query()->where('plan_version_id', $version->id)->where('state', 'active')->whereNotNull('promo_amount_minor')->get()
                     ->map(fn (Price $p) => $p->currency.'/'.$p->period)->sort()->values()->all(),
-                'features' => self::withdrawnWording($version),
+                'features' => self::withdrawnWording($version, (string) (self::definition($id)['wording'] ?? self::WITHDRAWN_WORDING)),
+            ];
+        }
+        foreach ($pending['options'] ?? [] as $target => $entitlement) {
+            [$product, $option] = explode('#', $target, 2);
+            $rows[] = [
+                'kind' => 'option', 'target' => $target, 'entitlement' => $entitlement,
+                // who ordered it keeps it: the choice is in the service's entitlements, its price in the subscription
+                'services' => Service::query()->where('product_key', $product)->whereNotIn('state', [ServiceStateMachine::TERMINATED, ServiceStateMachine::FAILED])
+                    ->get(['id', 'entitlements'])->filter(fn (Service $service) => ! empty(data_get($service->entitlements, 'options.'.$option)))->count(),
             ];
         }
         foreach ($pending['products'] as $key => $description) {
@@ -223,6 +249,17 @@ final class CatalogRevisions
                     $done[] = ['kind' => 'plan', 'target' => $target, 'from' => $change['version'], 'error' => $e->error.': '.$e->getMessage()];
                 }
             }
+            foreach ($pending['options'] ?? [] as $target => $entitlement) { // a price for new orders only, through the bus (four eyes in the console, the system actor here)
+                [$product, $option] = explode('#', $target, 2);
+                $optionId = (string) ProductOption::query()->where('product_id', Product::query()->where('key', $product)->value('id'))->where('key', $option)->value('id');
+                try {
+                    // the option's id in the key: an option staff put back later is a new row, and a new run withdraws it again
+                    $bus->dispatch(new CatalogCommand(mb_substr('catalog.revise:'.$revision.':option:'.$target.':'.$optionId, 0, 190), ['op' => 'option.delete', 'product_key' => $product, 'key' => $option, 'reason' => $reason]), $context);
+                    $done[] = ['kind' => 'option', 'target' => $target];
+                } catch (DomainError $e) {
+                    $done[] = ['kind' => 'option', 'target' => $target, 'error' => $e->error.': '.$e->getMessage()];
+                }
+            }
             foreach ($pending['products'] as $key => $description) {
                 $payload = ['op' => 'product.describe', 'product_key' => $key, 'description' => $description];
                 try {
@@ -240,7 +277,7 @@ final class CatalogRevisions
     /**
      * One line for the doctor: 'revision: product/plan (−key, ~key), product key'.
      *
-     * @param  array<string, array{plans: array<string, array{drop: array<string,string>, set: array<string,mixed>}>, products: array<string,mixed>, create?: list<string>}>  $pending
+     * @param  array<string, array{plans: array<string, array{drop: array<string,string>, set: array<string,mixed>}>, products: array<string,mixed>, create?: list<string>, options?: array<string,string>}>  $pending
      */
     public static function summary(array $pending): string
     {
@@ -256,6 +293,9 @@ final class CatalogRevisions
             }
             foreach ($p['create'] ?? [] as $product) {
                 $items[] = 'new product '.$product;
+            }
+            foreach (array_keys($p['options'] ?? []) as $option) {
+                $items[] = 'option '.$option.' withdrawn';
             }
             $parts[] = $revision.': '.implode(', ', $items);
         }
@@ -275,7 +315,7 @@ final class CatalogRevisions
     /**
      * A revision as the code reads it (the constant's literal types are narrower than what a revision may hold).
      *
-     * @return array{reason: string, plans: array<string, list<string>>, rewrite: array<string, array<string, mixed>>, products: array<string, array{match: string, description: array{cs: string, en: string}}>, create?: list<string>, drop_undelivered?: list<string>}
+     * @return array{reason: string, plans: array<string, list<string>>, rewrite: array<string, array<string, mixed>>, products: array<string, array{match: string, description: array{cs: string, en: string}}>, create?: list<string>, drop_undelivered?: list<string>, withdraw_undelivered_options?: list<string>, wording?: string}
      */
     private static function definition(string $revision): array
     {
@@ -306,8 +346,10 @@ final class CatalogRevisions
             }
             $bags = ['entitlements' => (array) $version->entitlements, 'limits' => (array) ($version->limits ?? [])];
             $drop = [];
-            $executor = (string) Product::query()->where('key', explode('/', $target, 2)[0])->value('executor');
-            $keys = array_merge($definition['plans'][$target] ?? [], array_values(array_filter($undelivered, fn (string $key) => self::undeliverable($key, $executor, $bags['entitlements']))));
+            $product = Product::query()->where('key', explode('/', $target, 2)[0])->first(['executor', 'family']);
+            $executor = (string) $product?->executor;
+            $family = (string) $product?->family;
+            $keys = array_merge($definition['plans'][$target] ?? [], array_values(array_filter($undelivered, fn (string $key) => self::undeliverable($key, $executor, $bags['entitlements'], $family, $bags['limits']))));
             foreach (array_unique($keys) as $key) {
                 foreach ($bags as $bag => $values) {
                     if (array_key_exists($key, $values)) {
@@ -340,12 +382,37 @@ final class CatalogRevisions
      *
      * @param  array<string,mixed>  $entitlements
      */
-    private static function undeliverable(string $key, string $executor, array $entitlements): bool
+    private static function undeliverable(string $key, string $executor, array $entitlements, string $family = '', array $limits = []): bool
     {
         return match ($key) {
             'php_workers_dedicated' => PlacementRules::undelivered($executor, $entitlements), // decision 7: no PHP pool per site on this panel
-            default => false,
+            default => in_array($key, ExecutorDelivery::undelivered($family, $executor, array_merge($limits, $entitlements)), true), // R4: a feature the site's server does not have
         };
+    }
+
+    /**
+     * Options a revision withdraws: every priced option, of any product, whose entitlement key the revision names and whose
+     * product's executor cannot deliver it (R4). Stateless like the rest: an option staff already removed is not pending.
+     *
+     * @return array<string, string> 'product#option' => the entitlement key it grants
+     */
+    private function pendingOptions(string $revision): array
+    {
+        $keys = array_values(array_map('strval', (array) (self::definition($revision)['withdraw_undelivered_options'] ?? [])));
+        if ($keys === []) {
+            return [];
+        }
+        $out = [];
+        foreach (Product::query()->get() as $product) {
+            foreach (ProductOption::query()->where('product_id', $product->id)->orderBy('sort')->get() as $option) {
+                foreach (array_intersect(PlanPromises::optionUndelivered((array) $option->meta, (string) $product->family, (string) $product->executor), $keys) as $key) {
+                    $out[$product->key.'#'.$option->key] = $key;
+                }
+            }
+        }
+        ksort($out);
+
+        return $out;
     }
 
     /** @return list<string> products of `PRODUCTS` this revision creates that the catalogue does not have yet */
@@ -400,12 +467,12 @@ final class CatalogRevisions
     }
 
     /** @return list<string> the version's own bullet lines (any locale) that still name a withdrawn promise */
-    private static function withdrawnWording(PlanVersion $version): array
+    private static function withdrawnWording(PlanVersion $version, string $wording = self::WITHDRAWN_WORDING): array
     {
         $lines = [];
         foreach ((array) ($version->features ?? []) as $bag) {
             foreach ((array) $bag as $line) {
-                if (preg_match(self::WITHDRAWN_WORDING, (string) $line) === 1) {
+                if (preg_match($wording, (string) $line) === 1) {
                     $lines[] = (string) $line;
                 }
             }

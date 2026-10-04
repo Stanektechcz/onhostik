@@ -15,6 +15,7 @@ use Onhost\Providers\Contracts\ActionPlan;
 use Onhost\Providers\Contracts\ActualState;
 use Onhost\Providers\Contracts\AsyncHandle;
 use Onhost\Providers\Contracts\AsyncStatus;
+use Onhost\Providers\Contracts\ExplainsWithheldFeatures;
 use Onhost\Providers\Contracts\Naming;
 use Onhost\Providers\Contracts\ProviderHealth;
 use Onhost\Providers\Contracts\ProviderResult;
@@ -32,7 +33,7 @@ use Onhost\Providers\Contracts\WebToolsProvider;
  * responses that are sometimes `{status,msg}`, sometimes a bare string or a list.
  * Reachable only from the provisioning subnet; every response is redacted.
  */
-final class AaPanelWebProvider implements SelfProbing, WebHostingProvider, WebToolsProvider
+final class AaPanelWebProvider implements ExplainsWithheldFeatures, SelfProbing, WebHostingProvider, WebToolsProvider
 {
     use AaPanelTools;
 
@@ -415,7 +416,8 @@ final class AaPanelWebProvider implements SelfProbing, WebHostingProvider, WebTo
         // a link can replace) and no one-click apps (the panel unpacks them as root into the site; review round 1). No git
         // deploy (the deploy key is written and chowned as root through the panel, old releases pruned as root) and no
         // staging copy (root rsync into the site, the copy's upload as root) — review round 2. SFTP/FTP, backups and
-        // restores, and cron listings stay. The terminal and Node projects: owner decision, see TASK-0034.
+        // restores, and cron listings stay. The terminal and Node projects (owner decision R2, audit 2026-10, O1 / PA-03): a
+        // command or an app beside every other tenant — Node projects run as the node's common `www` — so they are off there too.
         $shared = AaPanelTenancyGate::closed($this->instance);
 
         return [
@@ -424,9 +426,17 @@ final class AaPanelWebProvider implements SelfProbing, WebHostingProvider, WebTo
             // extended tabs: file manager, rewrite rules, site password and one-click apps come from the panel API; no per-site DB users or statistics
             'errpages' => false, 'directives' => true, 'protected' => true, 'db_users' => false, 'stats' => false, 'ssl_upload' => true, 'files' => ! $shared, 'apps' => ! $shared, 'db_admin' => (bool) $this->instance->option('phpmyadmin_url'),
             // tools (WebToolsProvider): the panel API plus the node shell — terminal/WP-CLI instead of SSH keys, restore, exports, security rules, HTTP/3, Node projects
-            'terminal' => true, 'php_settings' => ! $shared, 'security' => true, 'rate_limit' => true, 'http3' => true, 'cron_edit' => true, 'cron_logs' => true, 'db_export' => true, 'db_access' => true,
-            'backup_download' => true, 'backup_delete' => true, 'backup_on_demand' => true, 'files_advanced' => ! $shared, 'quotas' => true, 'node_projects' => true, 'staging' => ! $shared, 'deploy' => ! $shared, 'wordpress' => true, 'hsts' => true, 'panel_login' => false, 'proxy' => true, 'default_docs' => true,
+            'terminal' => ! $shared, 'php_settings' => ! $shared, 'security' => true, 'rate_limit' => true, 'http3' => true, 'cron_edit' => true, 'cron_logs' => true, 'db_export' => true, 'db_access' => true,
+            'backup_download' => true, 'backup_delete' => true, 'backup_on_demand' => true, 'files_advanced' => ! $shared, 'quotas' => true, 'node_projects' => ! $shared, 'staging' => ! $shared, 'deploy' => ! $shared, 'wordpress' => true, 'hsts' => true, 'panel_login' => false, 'proxy' => true, 'default_docs' => true,
         ];
+    }
+
+    /** The features a closed shared node withholds (`siteFeatures()` above), each with the reason the panel shows. */
+    public const SHARED_NODE_WITHHOLDS = ['file_manager', 'files', 'apps', 'php_settings', 'files_advanced', 'staging', 'deploy', 'terminal', 'node_projects'];
+
+    public function withheldFeatures(): array
+    {
+        return AaPanelTenancyGate::closed($this->instance) ? array_fill_keys(self::SHARED_NODE_WITHHOLDS, self::SHARED_NODE) : [];
     }
 
     /** What this panel really answers (SelfProbing): the backup table behind restores and database exports, and the file API behind "pack the whole site". */

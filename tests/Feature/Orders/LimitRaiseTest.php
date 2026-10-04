@@ -528,10 +528,10 @@ it('leaves an add-on sold today alone in dunning while the add-on renewals switc
 
         return app(DunningService::class)->open($org->id, $invoice->id, $addon->id, $invoice->due_at);
     };
+    config()->set('onhost.addon_renewals', false); // an add-on sold while renewals were off (the default before owner decision R12)
     $today = $sellMailAddon();
     $todayCase = $openCase($today);
 
-    expect(config('onhost.addon_renewals'))->toBeFalse();
     app(DunningService::class)->tick();
     expect($todayCase->actions()->where('action', 'terminate_addon')->exists())->toBeFalse() // an existing add-on is not ended by this change
         ->and(data_get($today->fresh()->tags, 'addon.revoked_at'))->toBeNull();
@@ -729,7 +729,7 @@ it('tells the customer, and lets the operator list the raises and push one that 
         ->and(LimitRaises::problems())->toBe([]);
     $this->artisan('onhost:limit-raise', ['action' => 'push', 'addon' => $parent->id])->assertFailed(); // only a raise is pushed
 });
-it('renews the other add-ons only once the owner switches it on: nothing changes for an add-on sold today', function () {
+it('renews the other add-ons only with the switch on (the default since owner decision R12): an add-on sold while it was off stays paid once', function () {
     Event::fake(['onhost.order.paid']);
     Http::fake(fn () => Http::response(['status' => true, 'msg' => 'ok']));
     [, $org] = $this->customerWithOrganization();
@@ -747,7 +747,7 @@ it('renews the other add-ons only once the owner switches it on: nothing changes
         return app(ServiceService::class)->createFromOrderItem(OrderItem::query()->where('order_id', $order->id)->sole(), $order, $context);
     };
 
-    expect(config('onhost.addon_renewals'))->toBeFalse();
+    config()->set('onhost.addon_renewals', false); // ONHOST_ADDON_RENEWALS=false: the default before owner decision R12 (now on)
     $today = $mailAddon();
     expect(Subscription::query()->where('service_id', $today->id)->exists())->toBeFalse(); // as before: paid once
 

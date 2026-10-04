@@ -241,6 +241,11 @@ final class Doctor extends Command
         $promises = PlanPromises::onSaleProblems($read);
         $this->add('catalog', 'no plan on sale promises a number nothing applies', $promises === [],
             $promises === [] ? 'every number is enforced, applied, measured, or declared fair use' : implode(' · ', array_map(fn (string $plan, array $keys) => $plan.': '.implode(', ', $keys), array_keys($promises), $promises)), false);
+        // a plan (or a priced option) that sells what its own server cannot make at all — mailboxes on a panel without mail, an
+        // address no web panel assigns (owner decision R4, audit 2026-10): the customer pays for something that never arrives
+        $undeliverable = PlanPromises::undeliverableOnSale();
+        $this->add('catalog', 'every plan on sale is one its own server can deliver', $undeliverable === [],
+            $undeliverable === [] ? 'every web plan and option sells only what its product\'s server declares' : implode(' · ', array_map(fn (string $target, array $keys) => $target.': '.implode(', ', $keys), array_keys($undeliverable), $undeliverable)).' — php artisan onhost:catalog:revise (dry run), then --apply; or take it off sale', false);
         // the honest, tracked backlog (audit §5ad, brain card H278): every gap here is a documented promise nothing
         // yet keeps. It is a standing WARN — never hidden, never blocking a deploy by itself — until the list shrinks.
         $knownGaps = PlanPromises::knownGapKeys();
