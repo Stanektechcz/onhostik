@@ -609,6 +609,7 @@ trait AaPanelTools
 
     public function createNodeProject(ResourceRef $site, array $spec): ProviderResult
     {
+        $this->assertNodeProjectsOpen(); // owner decision R2: no new app as the common `www` on a node several customers share
         $root = $this->sitePath($site);
         $path = rtrim($root.'/'.trim(str_replace('\\', '/', (string) ($spec['path'] ?? '')), '/'), '/');
         if (str_contains($path, '..')) {
@@ -625,6 +626,9 @@ trait AaPanelTools
 
     public function nodeProjectAction(ResourceRef $site, string $remoteId, string $action): ProviderResult
     {
+        if (in_array($action, ['start', 'restart'], true)) { // stopping and deleting are the ways out, and stay open
+            $this->assertNodeProjectsOpen();
+        }
         if (collect($this->nodeProjects($site))->firstWhere('remote_id', $remoteId) === null) {
             throw new ProviderException('aapanel', ProviderErrorCode::NOT_FOUND, 'The Node project does not belong to this site');
         }
@@ -635,6 +639,23 @@ trait AaPanelTools
         $this->post('/project/nodejs/'.$endpoint, ['project_name' => $remoteId], 'node.'.$action, true);
 
         return ProviderResult::completed($action === 'delete' ? null : new ResourceRef('node_project', $remoteId, $this->instance->key, [], $site->serviceId), ['action' => $action]);
+    }
+
+    /** Customer-facing words for a Node project refused on a closed shared node; the panel's name is never in them. */
+    private const NODE_PROJECTS_CLOSED = 'This server is shared with other customers, so Node.js projects can no longer be created or started on it. A project that runs can still be stopped or deleted.';
+
+    /**
+     * The adapter's own gate (owner decision R2), for whatever reaches it after the feature check — an operation queued before
+     * the operator closed the node, a staff tool. Read from the row every time (`AaPanelTenancyGate`); an unreadable row is
+     * "try again", never "allowed".
+     */
+    private function assertNodeProjectsOpen(): void
+    {
+        $closed = AaPanelTenancyGate::isClosed($this->instance);
+        if ($closed === true) {
+            throw new ProviderException('aapanel', ProviderErrorCode::VALIDATION, self::NODE_PROJECTS_CLOSED);
+        }
+        AaPanelTenancyGate::refuseUnlessOpen($closed);
     }
 
     /** Reverse proxies through the panel (GetProxyList / CreateProxy / RemoveProxy); the customer sees name, path and upstream, never the vhost file. */

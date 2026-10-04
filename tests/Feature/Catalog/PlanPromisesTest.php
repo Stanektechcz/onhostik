@@ -6,6 +6,8 @@ use App\Http\Support\CatalogPresentation;
 use Database\Seeders\CatalogSeeder;
 use Illuminate\Support\Facades\Http;
 use Onhost\Domain\Catalog\CatalogRevisions;
+use Onhost\Domain\Catalog\Commands\CatalogCommand;
+use Onhost\Domain\Catalog\ExecutorDelivery;
 use Onhost\Domain\Catalog\Models\Plan;
 use Onhost\Domain\Catalog\PlanPromises;
 use Onhost\Domain\Catalog\PlanVersioning;
@@ -13,7 +15,9 @@ use Onhost\Domain\Provisioning\Scheduling\PlacementRules;
 use Onhost\Domain\Services\Metering\MetricRegistry;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Domain\Services\UsageWatch;
+use Onhost\Platform\Commands\CommandBus;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
 
@@ -239,4 +243,32 @@ it('sells dedicated PHP workers only where a pool per site keeps them, once the 
             ->and(PlacementRules::undelivered((string) $plan->product->executor, $entitlements))->toBeFalse("{$plan->product->key}/{$plan->key} sells dedicated PHP workers on a node-wide pool");
     }
     expect($sold)->toBe(['web-hosting/profi']);
+});
+
+/*
+ * Owner decision R4 (audit 2026-10): a plan on sale — or a priced option of its product — sells only what the product's own
+ * server delivers. The e-shop plans sold mailboxes on aaPanel, which creates none, and every web product offered a dedicated
+ * IPv4 no web panel assigns. Once the revisions are applied nothing on sale does, and a version or an option staff publish
+ * later that sells one again is named by the guard (and by the doctor) instead of being sold quietly.
+ */
+it('sells nothing on a web plan or option that the product\'s own server cannot deliver', function () {
+    expect(PlanPromises::undeliverableOnSale())->toBe([]);
+
+    $context = $this->contextFor($this->staff('platform_owner'), null, 'totp');
+    // a version can only lose a key (a new one comes with the code that reads it), so mailboxes return with a rollback to v1
+    app(PlanVersioning::class)->activate('eshop', 'shop-start', 1, ['reason' => 'návrat na v1'], $context);
+    app(CommandBus::class)->dispatch(new CatalogCommand('opt-ipv4-again', ['op' => 'option.upsert', 'product_key' => 'wordpress', 'option' => ['key' => 'dedicated_ipv4', 'kind' => 'addon', 'label' => ['cs' => 'Dedikovaná IPv4'], 'price_czk' => 49, 'entitlement' => ['key' => 'ipv4', 'value' => 1]]]), CommandContext::system('test'));
+
+    expect(PlanPromises::undeliverableOnSale())->toBe(['eshop/shop-start' => ['mailboxes'], 'wordpress#dedicated_ipv4' => ['ipv4']]);
+});
+
+it('judges delivery by what the servers themselves declare', function () {
+    [, $org] = $this->customerWithOrganization();
+    $features = app(ServiceFeatures::class);
+    foreach (['aapanel', 'ispconfig'] as $executor) {
+        $site = $features->adapterFor(featureWebService($org, $executor))->siteFeatures();
+        foreach (ExecutorDelivery::WEB_FEATURES as $key => $feature) {
+            expect((bool) (ServiceFeatures::declaredSite($executor)[$feature] ?? false))->toBe((bool) ($site[$feature] ?? false), "{$executor}: {$feature} (sells {$key})");
+        }
+    }
 });

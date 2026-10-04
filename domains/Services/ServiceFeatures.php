@@ -38,6 +38,7 @@ use Onhost\Platform\Errors\ProviderException;
 use Onhost\Providers\Contracts\BackupCapable;
 use Onhost\Providers\Contracts\ComputeProvider;
 use Onhost\Providers\Contracts\ConsoleCapable;
+use Onhost\Providers\Contracts\ExplainsWithheldFeatures;
 use Onhost\Providers\Contracts\GameProvider;
 use Onhost\Providers\Contracts\GameToolsProvider;
 use Onhost\Providers\Contracts\KubernetesProvider;
@@ -127,6 +128,8 @@ final class ServiceFeatures
 
     public const REASON_PERMISSION = 'permission'; // this person may see the service, not do this to it
 
+    public const REASON_SHARED_NODE = ExplainsWithheldFeatures::SHARED_NODE; // the server is shared with other customers and was closed to this tool (R2, TASK-0034)
+
     /**
      * What the service can do. With `$actor` the answer is what **that person** can do with it: a collaborator who was
      * given read-only access used to be shown every button and learnt the truth only as a 403 when they pressed one
@@ -181,13 +184,13 @@ final class ServiceFeatures
         switch ($service->family) {
             case 'web':
             case 'managed':
-                $site = $adapter instanceof WebHostingProvider ? $adapter->siteFeatures() : self::fallbackSite($executor);
+                $site = $adapter instanceof WebHostingProvider ? $adapter->siteFeatures() : self::declaredSite($executor);
                 $flag = fn (string $k) => (bool) ($site[$k] ?? false);
                 $mailTools = $flag('mail') && (int) ($ent['mailboxes'] ?? 0) > 0 && $adapter instanceof MailToolsProvider;
                 $out += [
                     'site' => $on(true), 'php' => $on($flag('php')), 'databases' => $on($flag('databases'), (int) ($ent['databases'] ?? 1)), 'ftp' => $on($flag('ftp'), (int) ($ent['ftp_accounts'] ?? 5)),
                     'ssl' => $on($flag('ssl')), 'https' => $on($flag('https')), 'cron' => $on($flag('cron'), (int) ($ent['cron_jobs'] ?? 10)), 'logs' => $on($flag('logs')),
-                    'backups' => $on($flag('backups'), (int) ($ent['backup_days'] ?? 7)), 'restore' => $on($flag('restore')), 'subdomains' => $on($flag('subdomains'), (int) ($ent['aliases'] ?? 0) ?: null),
+                    'backups' => $on($flag('backups'), (int) ($ent['backup_days'] ?? 7)), 'restore' => $on($flag('restore')), 'subdomains' => $on($flag('subdomains'), (int) ($ent['subdomains'] ?? 0) ?: null), // the plan's own number, not its mail aliases (C5)
                     // „10 webů“ on the price list means ten SITES of their own, not ten names on one site (`ServiceSites`)
                     'sites' => $on(ServiceSites::limit($service) > 1 && ! IncludedServices::isIncluded($service), ServiceSites::limit($service)),
                     'redirects' => $on($flag('redirects')), 'ssh' => $on($flag('ssh') && ! empty($ent['ssh'])), 'mail' => $on($flag('mail') && (int) ($ent['mailboxes'] ?? 0) > 0, (int) ($ent['mailboxes'] ?? 0)),
@@ -216,6 +219,14 @@ final class ServiceFeatures
                     'cdn' => $on((string) config('onhost.cdn.cloudflare.secret_ref', '') !== '' && (str_contains(strtolower((string) ($ent['waf'] ?? '')), 'cdn') || ! empty($ent['cdn']))), 'import' => $on($flag('files_advanced')),
                     'panel_login' => $on($flag('panel_login')),
                 ];
+                // a tool the executor withholds for a reason of its own says which: a closed shared aaPanel node (R2, TASK-0034)
+                if ($adapter instanceof ExplainsWithheldFeatures) {
+                    foreach ($adapter->withheldFeatures() as $feature => $reason) {
+                        if (isset($out[$feature]) && empty($out[$feature]['enabled'])) {
+                            $out[$feature] = ['enabled' => false, 'reason' => $reason];
+                        }
+                    }
+                }
                 break;
             case 'cloud':
             case 'data':
@@ -655,7 +666,7 @@ final class ServiceFeatures
      */
     public static function securitySupports(string $executor): array
     {
-        return self::supportsFor((bool) (self::fallbackSite($executor)['rate_limit'] ?? false));
+        return self::supportsFor((bool) (self::declaredSite($executor)['rate_limit'] ?? false));
     }
 
     /** @return list<string> */
@@ -721,7 +732,14 @@ final class ServiceFeatures
             'rate' => $rate, 'waf' => $waf, 'level' => WafLevels::levelOf($waf), 'promised' => WafLevels::promised($waf), 'delivered' => array_values(array_intersect(WafLevels::promised($waf), $supports)), 'missing' => WafLevels::missing($waf, $supports)];
     }
 
-    private static function fallbackSite(string $executor): array
+    /**
+     * What a site on an executor can have, as the executor declares it, without an instance at hand: the feature list when no
+     * adapter can be built, and what the catalogue checks a plan against before it is sold (`ExecutorDelivery`, owner decision
+     * R4). `PlanPromisesTest` keeps the keys the catalogue relies on equal to the adapters' own `siteFeatures()`.
+     *
+     * @return array<string, bool>
+     */
+    public static function declaredSite(string $executor): array
     {
         return match ($executor) {
             'aapanel' => ['php' => true, 'rate_limit' => true, 'databases' => true, 'ftp' => true, 'ssl' => true, 'https' => true, 'cron' => true, 'logs' => true, 'backups' => true, 'restore' => false, 'subdomains' => true, 'redirects' => true, 'ssh' => false, 'mail' => false, 'file_manager' => true, 'usage' => true, 'errpages' => false, 'directives' => true, 'protected' => true, 'db_users' => false, 'stats' => false, 'ssl_upload' => true, 'files' => true, 'apps' => true, 'db_admin' => false],

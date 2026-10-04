@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Database\Seeders\CatalogSeeder;
+use Database\Seeders\LegalEntitySeeder;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 use Onhost\Domain\Billing\Models\Subscription;
@@ -12,6 +13,8 @@ use Onhost\Domain\Catalog\Models\Plan;
 use Onhost\Domain\Catalog\Models\PlanVersion;
 use Onhost\Domain\Catalog\Models\Price;
 use Onhost\Domain\Catalog\Models\Product;
+use Onhost\Domain\Catalog\Models\ProductOption;
+use Onhost\Domain\Catalog\PlanPromises;
 use Onhost\Domain\Catalog\PlanVersioning;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Services\Models\Service;
@@ -99,11 +102,11 @@ it('previews the revision without publishing anything: the plans, the keys each 
         ->expectsOutputToContain('1 service(s) and 1 subscription(s) keep v1')
         ->expectsOutputToContain('promo price CZK/month carried over')
         // two revisions change shop-peak: the preview counts each from today's version, --apply publishes them in turn (review round 1)
-        ->expectsOutputToContain('eshop/shop-peak is changed by 2 revisions: --apply publishes them one after another (v1 → v2 → v3)')
+        ->expectsOutputToContain('eshop/shop-peak is changed by 3 revisions: --apply publishes them one after another (v1 → v2 → v3 → v4)')
         ->expectsOutputToContain('Dry run: nothing was published');
 
     expect(PlanVersion::query()->count())->toBe($versions)
-        ->and(app(CatalogRevisions::class)->pendingKeys())->toEqualCanonicalizing(['pitr_days', 'connections', 'dedicated_outbound_ip', 'dedicated_db', 'php_workers_dedicated']);
+        ->and(app(CatalogRevisions::class)->pendingKeys())->toEqualCanonicalizing(['pitr_days', 'connections', 'dedicated_outbound_ip', 'dedicated_db', 'php_workers_dedicated', 'mailboxes']); // mailboxes: the e-shop plans (R4)
 });
 
 it('publishes new versions without the promises, with the prices of the old ones, and leaves every customer on the version they bought', function () {
@@ -136,9 +139,10 @@ it('publishes new versions without the promises, with the prices of the old ones
     expect($m->version)->toBe(2)->and($m->entitlements)->not->toHaveKeys(['pitr_days', 'connections'])
         ->and($mail->entitlements)->toBe(array_diff_key((array) $previous($mail)->entitlements, ['dedicated_outbound_ip' => 1]))
         ->and($woo->entitlements)->toBe(array_replace(array_diff_key((array) $previous($woo)->entitlements, ['dedicated_db' => 1]), ['backup_frequency' => 'hourly']))
-        ->and($growth->entitlements)->toBe(array_replace((array) $previous($growth)->entitlements, ['backup_frequency' => 'hourly']))
-        // every revision ran: 2026-09-shared-php-workers (TASK-0027) took the dedicated PHP workers off on top of it
-        ->and($peak->entitlements)->toBe(array_diff_key((array) $previous($peak)->entitlements, ['dedicated_db' => 1, 'php_workers_dedicated' => 1]))
+        // every revision ran: 2026-10-deliverable-web-plans (R4) took the mailboxes of the e-shop plans off on top of them
+        ->and($growth->entitlements)->toBe(array_replace(array_diff_key((array) $previous($growth)->entitlements, ['mailboxes' => 1]), ['backup_frequency' => 'hourly']))
+        // …and 2026-09-shared-php-workers (TASK-0027) the dedicated PHP workers
+        ->and($peak->entitlements)->toBe(array_diff_key((array) $previous($peak)->entitlements, ['dedicated_db' => 1, 'php_workers_dedicated' => 1, 'mailboxes' => 1]))
         ->and($peak->entitlements['backup_frequency'])->toBe('15m') // only the value the scheduler never knew is corrected
         ->and(catalogRevisionPrices($peak))->toBe(catalogRevisionPrices($previous($peak)));
     // a plan the revision does not name keeps its version
@@ -257,7 +261,7 @@ it('withdraws dedicated PHP workers from every plan whose panel has no pool per 
     $this->artisan('onhost:catalog:revise', ['--apply' => true, '--yes' => true])->assertSuccessful();
 
     $now = $peak->refresh()->currentVersion();
-    expect($now->version)->toBe(3)->and($now->entitlements)->toBe(array_diff_key($sold, ['dedicated_db' => 1, 'php_workers_dedicated' => 1]))
+    expect($now->version)->toBe(4)->and($now->entitlements)->toBe(array_diff_key($sold, ['dedicated_db' => 1, 'php_workers_dedicated' => 1, 'mailboxes' => 1])) // three revisions, the last one R4
         ->and($now->entitlements['php_workers'])->toBe(24)
         ->and(catalogRevisionPrices($now))->toBe(catalogRevisionPrices($v1->fresh()))
         ->and($v1->fresh()->entitlements)->toBe($sold) // the version a customer holds is never edited
@@ -270,4 +274,64 @@ it('withdraws dedicated PHP workers from every plan whose panel has no pool per 
     $eshop = json_decode($m[1] ?? '{}', true)['cs']['pages']['eshop'];
     expect($eshop['plans'][2]['specs'])->toContain('Sdílené PHP workery')->not->toContain('24 PHP workerů (dedikované)')
         ->and(collect($eshop['cmp']['rows'])->keyBy(0)->get('PHP workery'))->toBe(['PHP workery', 'sdílené', 'sdílené', 'sdílené']);
+});
+
+/*
+ * Owner decision R4 (audit 2026-10): a web plan sells only what the server it runs on delivers. The e-shop plans run on aaPanel,
+ * which creates no mailboxes (its sites declare `mail: false`), and sold 20 to 500 of them; every web product offered a dedicated
+ * IPv4 that neither web panel assigns to a site. The revision `2026-10-deliverable-web-plans` publishes e-shop versions without
+ * the mailboxes and withdraws the IPv4 option from the products whose server cannot deliver it — through the same audited,
+ * four-eyes catalogue path as every revision. Prices do not change, and everybody keeps what they bought.
+ */
+it('withdraws what the web plans sell and their server cannot deliver: e-shop mailboxes and the dedicated IPv4 option', function () {
+    $this->seed([LegalEntitySeeder::class]);
+    [, $org] = $this->customerWithOrganization();
+    $start = catalogRevisionPlan('eshop', 'shop-start');
+    $v1 = $start->currentVersion();
+    $sold = (array) $v1->entitlements;
+    catalogRevisionHolder($org, $v1);
+    $standard = catalogRevisionPlan('web-hosting', 'standard')->currentVersion();
+    // the guard sees it before the revision: every e-shop plan, every IPv4 option of a web product
+    expect(PlanPromises::undeliverableOnSale())->toBe([
+        'eshop#dedicated_ipv4' => ['ipv4'], 'eshop/shop-growth' => ['mailboxes'], 'eshop/shop-peak' => ['mailboxes'], 'eshop/shop-start' => ['mailboxes'],
+        'web-custom#dedicated_ipv4' => ['ipv4'], 'web-hosting#dedicated_ipv4' => ['ipv4'], 'wordpress#dedicated_ipv4' => ['ipv4'],
+    ]);
+    $doctor = function (): array { // one doctor run per call: the command's output is read once
+        Artisan::call('onhost:doctor', ['--json' => true]);
+
+        return (array) collect(json_decode(trim(Artisan::output()), true, 512, JSON_THROW_ON_ERROR)['checks'])->firstWhere('check', 'every plan on sale is one its own server can deliver');
+    };
+    $row = $doctor();
+    expect($row['status'])->toBe('WARN')->and($row['detail'])->toContain('eshop/shop-start: mailboxes')->toContain('web-hosting#dedicated_ipv4: ipv4');
+
+    $this->artisan('onhost:catalog:revise', ['revision' => '2026-10-deliverable-web-plans'])->assertSuccessful()
+        ->expectsOutputToContain('eshop/shop-start v1 → v2: − entitlements.mailboxes')
+        ->expectsOutputToContain('eshop/shop-growth v1 → v2: − entitlements.mailboxes')
+        ->expectsOutputToContain('eshop/shop-peak v1 → v2: − entitlements.mailboxes')
+        ->expectsOutputToContain('withdraw option web-hosting#dedicated_ipv4')
+        ->expectsOutputToContain('withdraw option eshop#dedicated_ipv4')
+        ->expectsOutputToContain('Dry run: nothing was published');
+    $pending = app(CatalogRevisions::class)->pending('2026-10-deliverable-web-plans')['2026-10-deliverable-web-plans'];
+    expect(array_keys($pending['plans']))->toBe(['eshop/shop-growth', 'eshop/shop-peak', 'eshop/shop-start']) // web hosting runs on a server with mail
+        ->and($pending['options'])->toBe(['eshop#dedicated_ipv4' => 'ipv4', 'web-custom#dedicated_ipv4' => 'ipv4', 'web-hosting#dedicated_ipv4' => 'ipv4', 'wordpress#dedicated_ipv4' => 'ipv4']);
+
+    $this->artisan('onhost:catalog:revise', ['revision' => '2026-10-deliverable-web-plans', '--apply' => true, '--yes' => true])->assertSuccessful()
+        ->expectsOutputToContain('withdrew option web-hosting#dedicated_ipv4');
+
+    $now = $start->refresh()->currentVersion();
+    expect($now->version)->toBe(2)->and($now->entitlements)->toBe(array_diff_key($sold, ['mailboxes' => 1]))
+        ->and(catalogRevisionPrices($now))->toBe(catalogRevisionPrices($v1->fresh())) // a revision never changes a price
+        ->and($v1->fresh()->entitlements)->toBe($sold) // the customer on v1 keeps what was sold
+        ->and(catalogRevisionPlan('web-hosting', 'standard')->currentVersion()->id)->toBe($standard->id)
+        ->and(ProductOption::query()->where('key', 'dedicated_ipv4')->count())->toBe(0)
+        ->and(ProductOption::query()->where('key', 'priority_support')->count())->toBe(4) // only the undeliverable option goes
+        ->and(PlanPromises::undeliverableOnSale())->toBe([])
+        ->and(app(CatalogRevisions::class)->pending('2026-10-deliverable-web-plans'))->toBe([]);
+    // the bus, audited, four-eyes like every catalogue change (the CLI runs as the system actor)
+    expect(AuditEvent::query()->where('action', 'catalog.option.delete')->where('result', 'succeeded')->where('actor_type', 'system')->count())->toBe(4)
+        ->and((new CatalogCommand('x', ['op' => 'option.delete']))->requiresApproval())->toBeTrue();
+    expect($doctor()['status'])->toBe('OK');
+    // what the customer holding v1 bought is named for support: mailboxes the server never created
+    expect(PlanPromises::grandfatheredGaps(PlanPromises::readInSource()))->toHaveKey('eshop/shop-start@v1')
+        ->and(PlanPromises::grandfatheredGaps(PlanPromises::readInSource())['eshop/shop-start@v1'])->toContain('mailboxes');
 });

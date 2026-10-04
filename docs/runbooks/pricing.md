@@ -147,6 +147,30 @@ suspension stage (a payment then keeps it) and ends at the termination stage, li
 prepaid raise that ends early — its service terminated, or the customer ending it — is not credited for the unused days. `onhost:limit-raise list` shows the raises, `onhost:limit-raise push {raise} --apply` repeats a panel push
 that was refused; the doctor row *every limit raise is billed or approved* names both kinds of problem.
 
+**`2026-10-deliverable-web-plans`** (owner decision R4, audit 2026-10 P1-15): a web plan sells only what the server its
+product runs on delivers (`ExecutorDelivery`: `mailboxes` needs a site feature `mail`, `ipv4` a feature `dedicated_ipv4`,
+read from what the executor declares, `ServiceFeatures::declaredSite()`). The e-shop plans run on aaPanel, which creates no
+mailboxes, and sold 20–500 of them: every plan of a web or managed product that sells `mailboxes` where its executor has no
+mail gets a new version without them (`drop_undelivered`, found at run time — today `eshop/shop-start`, `shop-growth`,
+`shop-peak`; `web-hosting` on ISPConfig keeps them). The priced option `dedicated_ipv4` (entitlement `ipv4`) that no web
+panel assigns is withdrawn from every product whose executor cannot deliver it (`withdraw_undelivered_options`: one
+`CatalogCommand option.delete` per option through the bus — four eyes in the console, the system actor on the CLI; today
+`web-hosting`, `web-custom`, `wordpress`, `eshop`). An option is a price for new orders only: a service that ordered it keeps
+its entitlement and its subscription keeps its price; the dry run counts them. Run with every revision, `shop-peak` goes
+v1 → v2 → v3 → v4. Afterwards `PlanPromises::undeliverableOnSale()` is empty, and the doctor row *every plan on sale is one
+its own server can deliver* names any plan or option staff put back on sale (a rollback to an old version, a new option);
+*no customer holds a version promising an unkept number* also lists the e-shop versions customers hold with mailboxes.
+
+## Add-ons renew with their service (owner decision R12, audit 2026-10)
+
+`ONHOST_ADDON_RENEWALS` is **on by default**: an add-on ordered from now on (ipv4, backups, mail, CDN) gets a renewing
+subscription of its own at the order, and each renewal is a line (`<product>-renewal`) on its renewal document. Ending it
+(cancel at the period end) or ending the service it belongs to stops the renewals (`SubscriptionService::tick`); an add-on
+whose parent is failed or unpaid waits a day at a time. An add-on sold while the switch was off keeps its one payment and is
+never billed by the switch. Ending an add-on still only takes its entitlement back from the parent — the panel or edge is
+not changed by it (TASK-0022 findings). `false` restores the old behaviour for new orders. Proven by
+`tests/Feature/Billing/AddonRenewalTest.php`.
+
 ## The configurator ("Tarif na míru")
 
 Product `web-custom` (family web, executor ISPConfig) has one base plan (`custom`, 49 Kč: 1 site, 5 GB, 3 mailboxes,

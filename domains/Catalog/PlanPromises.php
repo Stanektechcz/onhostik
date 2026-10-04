@@ -8,6 +8,7 @@ use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Catalog\Models\Plan;
 use Onhost\Domain\Catalog\Models\PlanVersion;
 use Onhost\Domain\Catalog\Models\Product;
+use Onhost\Domain\Catalog\Models\ProductOption;
 use Onhost\Domain\Services\Metering\MetricRegistry;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
@@ -45,6 +46,13 @@ use Onhost\Domain\Services\Models\ServiceStateMachine;
  * versions customers already hold keep the promises they were sold (a version is never edited): `grandfatheredGaps()` lists
  * them so support can answer honestly. `products` (the e-shop product count) became fair use: a recommendation, worded
  * "Doporučeno do N produktů" (decision 5).
+ *
+ * A second question, independent of the first (owner decision R4, audit 2026-10): can the server the plan runs on deliver it?
+ * A key that is measured on one panel is still nothing on a panel that cannot create the thing at all — the e-shop plans sold
+ * mailboxes on aaPanel, which makes none, and every web product offered a dedicated IPv4 no web panel assigns.
+ * `undeliverableOnSale()` checks every plan on sale and every priced option (`ProductOption.meta.entitlement`) against its
+ * product's executor (`ExecutorDelivery`); the revision `2026-10-deliverable-web-plans` withdrew what it found, and the doctor
+ * and `PlanPromisesTest` name anything that is put back on sale.
  */
 final class PlanPromises
 {
@@ -230,6 +238,69 @@ final class PlanPromises
     }
 
     /**
+     * Plans on sale and priced options of products on sale that sell something their product's executor cannot deliver
+     * (owner decision R4, `ExecutorDelivery`). A plan is named 'product/plan', an option 'product#option'.
+     *
+     * @return array<string, list<string>> target => the keys the executor cannot deliver
+     */
+    public static function undeliverableOnSale(): array
+    {
+        $out = [];
+        foreach (Product::query()->where('state', 'active')->get() as $product) {
+            $family = (string) $product->family;
+            $executor = (string) $product->executor;
+            foreach (Plan::query()->where('product_id', $product->id)->where('state', 'active')->get() as $plan) {
+                $version = $plan->currentVersion();
+                $keys = $version === null ? [] : self::undelivered($version, $family, $executor);
+                if ($keys !== []) {
+                    $out[$product->key.'/'.$plan->key] = $keys;
+                }
+            }
+            foreach (ProductOption::query()->where('product_id', $product->id)->orderBy('sort')->get() as $option) {
+                $keys = self::optionUndelivered((array) $option->meta, $family, $executor);
+                if ($keys !== []) {
+                    $out[$product->key.'#'.$option->key] = $keys;
+                }
+            }
+        }
+        ksort($out);
+
+        return $out;
+    }
+
+    /**
+     * The keys of one plan version its product's executor cannot deliver.
+     *
+     * @return list<string>
+     */
+    public static function undelivered(PlanVersion $version, ?string $family = null, ?string $executor = null): array
+    {
+        if ($family === null || $executor === null) {
+            $product = Plan::query()->with('product')->find($version->plan_id)?->product;
+            $family ??= (string) $product?->family;
+            $executor ??= (string) $product?->executor;
+        }
+
+        return ExecutorDelivery::undelivered($family, $executor, array_merge((array) $version->entitlements, (array) ($version->limits ?? [])));
+    }
+
+    /**
+     * What one priced option grants (`meta.entitlement`: `key` and `value`, or a slider's own number) that the executor cannot deliver.
+     *
+     * @param  array<string,mixed>  $meta
+     * @return list<string>
+     */
+    public static function optionUndelivered(array $meta, string $family, string $executor): array
+    {
+        $key = (string) data_get($meta, 'entitlement.key', '');
+        if ($key === '') {
+            return [];
+        }
+
+        return ExecutorDelivery::undelivered($family, $executor, [$key => data_get($meta, 'entitlement.value', 1)]); // a slider grants what the customer picks: sold
+    }
+
+    /**
      * The promises a version customers still hold makes and the version on sale no longer does: a revision (or staff) took a
      * number off the plan because the platform does not keep it, and the customers who bought the old version keep it on
      * paper (a version is never edited). Held = a service on it that has not ended, or an active/past-due subscription.
@@ -249,7 +320,10 @@ final class PlanPromises
                 continue;
             }
             $current = $plan->currentVersion();
-            $gaps = array_values(array_diff(self::rawUnkept($version, $read), $current === null ? [] : self::rawUnkept($current, $read)));
+            // a number nothing keeps, or a thing the plan's server cannot deliver at all (R4: e-shop mailboxes on aaPanel)
+            $held = array_unique(array_merge(self::rawUnkept($version, $read), self::undelivered($version)));
+            $now = $current === null ? [] : array_merge(self::rawUnkept($current, $read), self::undelivered($current));
+            $gaps = array_values(array_diff($held, $now));
             if ($gaps !== []) {
                 $out[($plan->product->key ?? '?').'/'.$plan->key.'@v'.$version->version] = $gaps;
             }

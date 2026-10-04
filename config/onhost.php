@@ -681,8 +681,10 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
         // v1: no cloud or data — a resize has no node-capacity check yet (and neither vds nor database sells an option)
         'families' => ['web', 'managed', 'mail', 'game'],
     ],
-    // every other add-on (ipv4, backups, mail, CDN) renews too — off until the owner decides: see TASK-0022 findings (ending one does not reach the panel/edge)
-    'addon_renewals' => (bool) env('ONHOST_ADDON_RENEWALS', false),
+    // every other add-on (ipv4, backups, mail, CDN) renews too, with its service (owner decision R12, audit 2026-10; proven by
+    // tests/Feature/Billing/AddonRenewalTest.php). New orders only: an add-on sold before keeps its one payment. Ending one still
+    // only takes its entitlement back from the parent (TASK-0022 findings: the panel/edge is not changed by it).
+    'addon_renewals' => (bool) env('ONHOST_ADDON_RENEWALS', true),
 
     // ── TASK-0023 metering-core (owner decisions 9 and 12) ──────────────────────────────────────────────────────────
     // usage samples (service_usage_samples): null = not measured, never 0; retention raw 45 d, daily 400 d, monthly for ever
