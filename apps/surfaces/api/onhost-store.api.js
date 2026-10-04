@@ -58,9 +58,22 @@
   function log(who, text) { db.log.unshift({ at: Date.now(), who: who, text: text }); db.log = db.log.slice(0, 200); }
   /* audit 2026-10 B3: a refused read (403) is remembered per kind, so the console says "Nemáte přístup" instead of an empty list */
   var refused = {};
-  function all(path, limit, kind) {
-    return A.get(path + (path.indexOf('?') >= 0 ? '&' : '?') + 'limit=' + (limit || 100)).then(function (r) { if (kind) delete refused[kind]; return r.data || []; })
-      .catch(function (e) { if (kind && e && e.status === 403) refused[kind] = true; return []; });
+  /* TASK-0063 (C4): a read that failed for another reason (5xx, network) is remembered too, with its message, and the list keeps
+   * what it had: a failure is never shown as an empty list. Lists are read page by page to X-Total-Count (the API caps a page). */
+  var failed = {};
+  function all(path, kind) {
+    return (A.all ? A.all(path) : A.get(path + (path.indexOf('?') >= 0 ? '&' : '?') + 'limit=200')).then(function (r) { if (kind) { delete refused[kind]; delete failed[kind]; } return r.data || []; })
+      .catch(function (e) {
+        if (kind && e && e.status === 403) refused[kind] = true;
+        else if (kind) failed[kind] = (e && e.message) || 'error';
+        return null; // the caller keeps the rows it had
+      });
+  }
+  /* a list as the views read it: still an array, carrying __error when its last read failed and __denied when it was refused */
+  function tagged(kind, list) {
+    if (failed[kind]) list.__error = failed[kind];
+    if (refused[kind]) list.__denied = true;
+    return list;
   }
   /* staff hydrate only the reads their navigation lists (ONHOST_BOOT.user.nav, narrowed by the server to what they may call) */
   var NAV = staff && me && Array.isArray(me.nav) ? me.nav : null;
@@ -71,7 +84,7 @@
     var p = norm(path);
     return NAV.some(function (it) { return (it.api || []).some(function (a) { return (a.method || 'GET') === 'GET' && new RegExp('^' + norm(a.path).replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\{[^}]+\}/g, '[^/]+') + '$').test(p); }); });
   }
-  function skip(kind) { refused[kind] = true; return Promise.resolve([]); }
+  function skip(kind) { refused[kind] = true; return Promise.resolve(null); }
 
   /* ---------- mapping API → prototype rows ---------- */
   function mapOrder(o) {
@@ -113,15 +126,16 @@
   /* ---------- hydration ---------- */
   var hydrated = null;
   function hydrate() {
-    var read = function (path, kind) { return navAllows(path) ? all(path, 100, kind) : skip(kind); };
+    var read = function (path, kind) { return navAllows(path) ? all(path, kind) : skip(kind); };
     var jobs = [
-      read(staff ? '/staff/orders' : '/orders', 'orders').then(function (l) { db.orders = l.map(mapOrder); }),
-      read(staff ? '/staff/tickets' : '/tickets', 'tickets').then(function (l) { db.tickets = l.map(mapTicket); }),
-      read(staff ? '/staff/incidents' : '/incidents', 'incidents').then(function (l) { db.incidents = l.map(mapIncident); }),
-      (navAllows('/notifications') ? A.get(staff ? '/notifications?audience=internal&limit=60' : '/notifications?limit=60').then(function (r) { delete refused.notifs; db.notifs = (r.data || []).map(mapNotif); }).catch(function (e) { if (e && e.status === 403) refused.notifs = true; db.notifs = []; }) : skip('notifs').then(function () { db.notifs = []; }))
+      read(staff ? '/staff/orders' : '/orders', 'orders').then(function (l) { if (l) db.orders = l.map(mapOrder); }),
+      read(staff ? '/staff/tickets' : '/tickets', 'tickets').then(function (l) { if (l) db.tickets = l.map(mapTicket); }),
+      read(staff ? '/staff/incidents' : '/incidents', 'incidents').then(function (l) { if (l) db.incidents = l.map(mapIncident); }),
+      // the bell shows the latest 60, on purpose not every page
+      (navAllows('/notifications') ? A.get(staff ? '/notifications?audience=internal&limit=60' : '/notifications?limit=60').then(function (r) { delete refused.notifs; delete failed.notifs; db.notifs = (r.data || []).map(mapNotif); }).catch(function (e) { if (e && e.status === 403) refused.notifs = true; else failed.notifs = (e && e.message) || 'error'; }) : skip('notifs'))
     ];
-    if (!staff) jobs.push(all('/invoices', 100, 'invoices').then(function (l) { db.invoices = l.map(mapInvoice); overdue(); }));
-    if (staff) jobs.push(read('/staff/outbox', 'mails').then(function (l) { db.mails = l.map(mapMail); }));
+    if (!staff) jobs.push(all('/invoices', 'invoices').then(function (l) { if (l) { db.invoices = l.map(mapInvoice); overdue(); } }));
+    if (staff) jobs.push(read('/staff/outbox', 'mails').then(function (l) { if (l) db.mails = l.map(mapMail); }));
     hydrated = Promise.all(jobs).then(function () { emit(); return API; });
     return hydrated;
   }
@@ -150,7 +164,7 @@
       var l = db.orders.slice().sort(function (a, b) { return b.at - a.at; });
       if (filter && filter.email) l = l.filter(function (o) { return o.email === filter.email; });
       if (filter && filter.state) l = l.filter(function (o) { return o.state === filter.state; });
-      return l;
+      return tagged('orders', l);
     },
     order: function (id) { return idx().o[id] || null; },
     createOrder: function (p) {
@@ -196,7 +210,7 @@
       var l = db.tickets.slice().sort(function (a, b) { return b.at - a.at; });
       if (filter && filter.email) l = l.filter(function (t) { return t.email === filter.email; });
       if (filter && filter.state) l = l.filter(function (t) { return t.state === filter.state; });
-      return l;
+      return tagged('tickets', l);
     },
     ticket: function (id) { return idx().t[id] || null; },
     createTicket: function (p) {
@@ -244,7 +258,7 @@
     incidents: function (filter) {
       var l = db.incidents.slice().sort(function (a, b) { return b.at - a.at; });
       if (filter && filter.open) l = l.filter(function (i) { return i.state !== 'vyreseno'; });
-      return l;
+      return tagged('incidents', l);
     },
     incident: function (id) { return idx().i[id] || null; },
     createIncident: function (p) {
@@ -275,13 +289,13 @@
       if (filter && filter.state) l = l.filter(function (i) { return i.state === filter.state; });
       if (filter && filter.order) l = l.filter(function (i) { return i.order === filter.order; });
       if (filter && filter.unpaid) l = l.filter(function (i) { return i.state === 'vystavena' || i.state === 'po_splatnosti'; });
-      return l;
+      return tagged('invoices', l);
     },
     invoice: function (id) { return idx().v[id] || null; },
     issueInvoice: function () { return null; }, /* documents are issued by the control plane on payment/renewal */
     payInvoice: function (id, method) {
       var i = this.invoice(id); if (!i || i.state === 'zaplacena' || i.state === 'stornovana') return null;
-      var req = staff ? A.post('/invoices/' + i.apiId + '/mark-paid', { method: method || 'bank', reference: 'panel' }, A.key()) : A.post('/invoices/' + i.apiId + '/pay', { method: method || 'wallet' }, A.key());
+      var req = staff ? A.post('/invoices/' + i.apiId + '/mark-paid', { method: method || 'bank', reference: 'panel' }, A.key()) : A.post('/invoices/' + i.apiId + '/pay', { method: method || 'wallet' }, A.key('invoice.pay:' + i.apiId, method || 'wallet'));
       req.then(function (r) { var d = r.data || r; if (d && d.redirect_url) location.href = d.redirect_url; return refresh(); }).catch(function (e) { log('fakturace', id + ': ' + e.message); emit(); });
       log('fakturace', i.id + ' — platba odeslána (' + (method || 'wallet') + ')');
       emit();
@@ -321,7 +335,7 @@
     },
 
     /* --- notifications --- */
-    notifs: function (aud) { return db.notifs.filter(function (n) { return !aud || n.aud === aud; }).sort(function (a, b) { return b.at - a.at; }); },
+    notifs: function (aud) { return tagged('notifs', db.notifs.filter(function (n) { return !aud || n.aud === aud; }).sort(function (a, b) { return b.at - a.at; })); },
     unread: function (aud) { return this.notifs(aud).filter(function (n) { return !n.read; }).length; },
     markRead: function (aud, id) {
       var ids = [];
@@ -331,7 +345,7 @@
     },
 
     /* --- mail outbox (staff) --- */
-    mails: function () { return db.mails.slice().sort(function (a, b) { return b.at - a.at; }); },
+    mails: function () { return tagged('mails', db.mails.slice().sort(function (a, b) { return b.at - a.at; })); },
     queueMail: function () { /* transactional mail is queued by the control plane from domain events */ },
     sendMail: function (id) {
       var m = db.mails.filter(function (x) { return x.id === id; })[0]; if (!m) return null;
@@ -371,6 +385,8 @@
     },
     /* whether the API refused a kind of read (orders, tickets, incidents, notifs, mails, invoices) with 403 or the navigation does not offer it */
     denied: function (kind) { return !!refused[kind]; },
+    /* the message of a read that failed for another reason (5xx, network), null when the last read worked — never an empty list instead */
+    error: function (kind) { return failed[kind] || null; },
     ready: function (fn) { var p = hydrated || hydrate(); return fn ? p.then(function () { try { fn(API); } catch (e) {} }) : p; },
     /* the web-order banner asks whether fulfilment of an order waits on a node (GET /v1/orders → provisioning.stalled) */
     orderStalled: function (number) { var o = (db.orders || []).filter(function (x) { return x.id === number || x.apiId === number; })[0]; return !!(o && o.stalled); },

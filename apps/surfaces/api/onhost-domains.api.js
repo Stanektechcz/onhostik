@@ -15,6 +15,8 @@
   var STATUS = { ACTIVE: 'active', PENDING_REGISTRATION: 'pending', PENDING_TRANSFER: 'transfer', EXPIRING: 'expiring', EXPIRED: 'expired', REDEMPTION: 'expired', TRANSFERRED_OUT: 'gone', CANCELLED: 'gone' };
 
   var DOMAINS = [], zones = {}, credit = null, nssets = [];
+  var failure = null, refusedList = false; // TASK-0063: the message of a domain list read that failed (5xx, network) — the list keeps what it had and says so
+  function tagged(list, error, refused) { if (error) list.__error = error; if (refused) list.__denied = true; return list; }
   function mapDomain(d) {
     return { name: d.fqdn, unicode: d.unicode, tld: d.tld, owner: d.organization_name || d.organization_id || '', status: STATUS[d.state] || String(d.state || '').toLowerCase(), state: d.state,
       expires: day(d.expires_at), expDays: typeof d.days_to_expiry === 'number' ? d.days_to_expiry : 9999, autorenew: !!d.auto_renew, lock: !!d.transfer_lock, dnssec: !!d.dnssec, dns: d.dns_provider, ns: d.nameservers || [], critical: !!d.critical, id: d.id };
@@ -28,13 +30,14 @@
       var d = r.data || r; var Z = z(name);
       Z.rows = (d.records || d.rows || []).map(function (x) { return { id: x.id, type: x.type, host: x.name === '@' ? '' : x.name, data: x.content, ttl: x.ttl, prio: x.prio }; });
       Z.serial = d.serial || (d.version && d.version.serial) || null; Z.committedAt = d.committed_at || null; Z.loaded = true; Z.dnssec = d.dnssec || null;
-      emit(); return Z;
-    }).catch(function () { return z(name); });
+      delete Z.error; delete Z.denied; emit(); return Z;
+    }).catch(function (e) { var Z = z(name); Z.error = (e && e.message) || 'error'; Z.denied = !!(e && e.status === 403); emit(); return Z; });
   }
   var hydrated = null;
   function hydrate() {
     hydrated = Promise.all([
-      A.get(A.staff() ? '/staff/domains?limit=500' : '/domains?limit=500').then(function (r) { DOMAINS = (r.data || []).map(mapDomain); }).catch(function () { DOMAINS = []; }),
+      (A.all ? A.all(A.staff() ? '/staff/domains' : '/domains') : A.get(A.staff() ? '/staff/domains?limit=200' : '/domains?limit=200')).then(function (r) { DOMAINS = (r.data || []).map(mapDomain); failure = null; refusedList = false; }) // every page, not the first 500 the API never sent (it caps a page at 200)
+        .catch(function (e) { failure = (e && e.message) || 'error'; refusedList = !!(e && e.status === 403); }),
       A.staff() ? A.get('/staff/integrations').then(function (r) { var w = (r.data || []).filter(function (i) { return i.provider === 'wedos'; })[0]; credit = w && w.health ? w.health.credit || null : null; }).catch(function () {}) : Promise.resolve()
     ]).then(function () { emit(); return API; });
     return hydrated;
@@ -56,17 +59,19 @@
   var API = {
     domains: function (f) {
       f = f || {};
-      return DOMAINS.filter(function (d) {
+      return tagged(DOMAINS.filter(function (d) {
         if (f.q) { var q = String(f.q).toLowerCase(); if (d.name.indexOf(q) < 0 && d.owner.toLowerCase().indexOf(q) < 0) return false; }
         if (f.status && d.status !== f.status) return false;
         if (f.expiring && d.expDays > 30) return false;
         if (f.pending && !z(d.name).pending.length) return false;
         return true;
-      });
+      }), failure, refusedList);
     },
+    /* the message of the last failed domain list read, null when it worked (TASK-0063) */
+    error: function () { return failure; },
     domain: function (name) { return DOMAINS.filter(function (d) { return d.name === name; })[0] || DOMAINS[0] || null; },
-    zone: function (name) { var Z = z(name); if (!Z.loaded) loadZone(name); return Z.rows.slice(); },
-    zoneMeta: function (name) { var Z = z(name); return { serial: Z.serial, committedAt: Z.committedAt, pending: Z.pending.length, dnssec: Z.dnssec }; },
+    zone: function (name) { var Z = z(name); if (!Z.loaded && !Z.error) loadZone(name); return tagged(Z.rows.slice(), Z.error, Z.denied); },
+    zoneMeta: function (name) { var Z = z(name); return { serial: Z.serial, committedAt: Z.committedAt, pending: Z.pending.length, dnssec: Z.dnssec, error: Z.error || null }; },
     pending: function (name) { return z(name).pending.slice(); },
     addRow: function (name, row, who, why) { z(name).pending.push({ op: 'add', row: Object.assign({ id: 'Rnew' + Date.now() }, row), who: who || 'panel', why: why || '' }); emit(); return true; },
     updateRow: function (name, id, row, who, why) { z(name).pending.push({ op: 'update', id: id, row: row, who: who || 'panel', why: why || '' }); emit(); return true; },
@@ -92,7 +97,7 @@
         pending: Object.keys(zones).filter(function (k) { return zones[k].pending.length; }).length, credit: credit };
     },
     nssets: function () { return nssets.slice(); },
-    refresh: hydrate,
+    refresh: function () { Object.keys(zones).forEach(function (k) { delete zones[k].error; }); return hydrate(); }, // a zone that failed is read again on refresh, not on every render
     ready: function (fn) { var p = hydrated || hydrate(); return fn ? p.then(function () { try { fn(API); } catch (e) {} }) : p; },
     on: function (fn) { subs.push(fn); return function () { subs = subs.filter(function (f) { return f !== fn; }); }; }
   };
