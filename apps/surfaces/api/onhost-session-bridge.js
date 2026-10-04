@@ -75,6 +75,96 @@
       for (var k in (extra || {})) h[k] = extra[k];
       return h;
     }
+    /* One Idempotency-Key per user intent (TASK-0063, C4). A key used to be new on every click, so a double click, a retry
+     * after a network error or a second press after a 5xx sent the same top-up, payment or payout under two keys — and the
+     * server, which recognises a repeat by its key, saw two requests. Now:
+     *   · key(scope, input) is the key of one intent: the same scope with the same input gives the same key until the
+     *     server has answered it for good; another input (the form changed) gives a new key;
+     *   · key() without a scope says "the intent is this request": the key is resolved when the request is sent, from its
+     *     method, path and body — so every existing caller of key() is stable per intent without knowing it;
+     *   · an intent is settled when the server keeps its answer (2xx, or 4xx other than 401/403/429, the answers the
+     *     Idempotency-Key middleware stores): the next press is a new intent with a new key. A network error, a 5xx, a
+     *     step-up or a throttle keep the key, so the retry is recognised as the same request;
+     *   · the same request already on the wire is not sent again: a double click gets the first request's answer.
+     * Keys live in memory only (never in storage): a reload starts afresh, as the server's own 24 h replay covers it. */
+    var intents = {}, issued = {}, issuedCount = 0, inflight = {};
+    function freshKey() { return 'ui-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10); }
+    function fingerprint(input) {
+      if (input === undefined || input === null) return '';
+      if (typeof FormData !== 'undefined' && input instanceof FormData) return null; // a file is not compared: every upload is its own intent
+      var s;
+      try { s = typeof input === 'string' ? input : JSON.stringify(input); } catch (e) { return null; }
+      var h = 5381;
+      for (var i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+      return (h >>> 0).toString(36) + '.' + s.length;
+    }
+    function intentKey(scope, input) {
+      var fp = fingerprint(input);
+      if (fp === null) return freshKey();
+      var held = intents[scope];
+      if (held && held.fp === fp) return held.key;
+      intents = Object.assign({}, intents);
+      intents[scope] = { fp: fp, key: freshKey() };
+      return intents[scope].key;
+    }
+    function issueKey() {
+      if (issuedCount > 500) { issued = {}; issuedCount = 0; } // keys handed out and never sent (a cancelled confirm) do not pile up
+      var k = freshKey();
+      issued[k] = true; issuedCount++;
+      return k;
+    }
+    function settle(key) {
+      var next = {};
+      for (var s in intents) { if (intents[s].key !== key) next[s] = intents[s]; }
+      intents = next;
+    }
+    function keyHeaders(key) { return key ? (typeof key === 'object' ? key : { 'Idempotency-Key': key }) : undefined; }
+    function withKey(key) { // writes other than POST always carry a key: the caller's, or one for this request
+      var h = Object.assign({}, keyHeaders(key) || {});
+      if (!h['Idempotency-Key']) h['Idempotency-Key'] = issueKey();
+      return h;
+    }
+    /* the key the request goes out with: a key from key() without a scope becomes the key of this request's intent */
+    function resolveKey(method, path, body, extra) {
+      var k = extra && extra['Idempotency-Key'];
+      if (!k || !issued[k]) return extra;
+      delete issued[k]; issuedCount--;
+      return Object.assign({}, extra, { 'Idempotency-Key': intentKey(method + ' ' + path, body) });
+    }
+    function send(method, path, body, extra) {
+      extra = resolveKey(method, path, body, extra);
+      var key = extra && extra['Idempotency-Key'];
+      if (!key) return call(method, path, body, extra);
+      var flight = method + ' ' + path + ' ' + key;
+      if (inflight[flight]) return inflight[flight];
+      var p = call(method, path, body, extra);
+      inflight[flight] = p;
+      var done = function () { delete inflight[flight]; };
+      p.then(done, done);
+      return p;
+    }
+    /* every page of a list: ?limit=&offset= until X-Total-Count rows are in (the API caps a page at 200) */
+    var PAGE = 200, MAX_PAGES = 50;
+    function all(path, extra) {
+      var parts = String(path).split('?'), rows = [];
+      var keep = (parts[1] || '').split('&').filter(function (p) { return p && !/^(limit|offset)=/.test(p); });
+      var head = parts[0] + '?' + (keep.length ? keep.join('&') + '&' : '');
+      var lead = null;
+      function page(n) {
+        return call('GET', head + 'limit=' + PAGE + '&offset=' + rows.length, undefined, extra).then(function (r) {
+          if (n === 0 && !(r && Array.isArray(r.data))) return r; // not a list (an overview object): the answer as it came
+          var got = (r && Array.isArray(r.data)) ? r.data : [];
+          var total = r.__total || 0, first = got.length ? JSON.stringify(got[0]) : null;
+          if (n > 0 && first !== null && first === lead) got = []; // the endpoint ignores offset: the same page again is not more rows
+          lead = first;
+          rows = rows.concat(got);
+          // a list without X-Total-Count reports its own length as the total, so it stops after the first page
+          if (!got.length || rows.length >= total || n + 1 >= MAX_PAGES) return { data: rows, __total: Math.max(total, rows.length) };
+          return page(n + 1);
+        });
+      }
+      return page(0);
+    }
     function call(method, path, body, extra, retried) {
       var opts = { method: method, credentials: 'same-origin', headers: headers(extra) };
       var guarded = method === 'POST' && /^\/(leads|tender\/request|reseller\/apply)(\?|$)/.test(path); // §5r-6: the public forms carry the Turnstile token too
@@ -86,6 +176,8 @@
       return fetch(base + path, opts).then(function (r) {
         return r.text().then(function (t) {
           var j = null; try { j = t ? JSON.parse(t) : null; } catch (e) { j = { raw: t }; }
+          var sentKey = opts.headers['Idempotency-Key'];
+          if (sentKey && (r.ok || (r.status < 500 && [401, 403, 429].indexOf(r.status) < 0))) settle(sentKey); // the server keeps this answer: the intent is done
           if (!r.ok && r.status === 403 && j && j.error === 'step_up_required' && !retried && B.user) {
             return stepUpDialog().then(function () { return call(method, path, body, extra, true); });
           }
@@ -145,15 +237,17 @@
     return {
       base: base,
       stepUp: stepUpDialog,
-      get: function (p) { return call('GET', p); },
-      post: function (p, b, key) { return call('POST', p, b || {}, key ? (typeof key === 'object' ? key : { 'Idempotency-Key': key }) : undefined); }, // key: an Idempotency-Key or a header map
-      upload: function (p, form) { return call('POST', p, form); },
-      put: function (p, b, extra) { return call('PUT', p, b || {}, extra); },
-      patch: function (p, b) { return call('PATCH', p, b || {}); },
-      del: function (p) { return call('DELETE', p); },
+      get: function (p, extra) { return call('GET', p, undefined, extra); }, // extra: headers such as X-Organization for a staff read of a customer's service
+      all: all, // every page of a list (X-Total-Count), {data, __total}
+      // key: an Idempotency-Key (from key()) or a header map; POST sends one only when given, PUT / PATCH / DELETE always
+      post: function (p, b, key) { return send('POST', p, b || {}, keyHeaders(key)); },
+      upload: function (p, form) { return send('POST', p, form); }, // a file is its own intent every time; a key, when wanted, goes through post()
+      put: function (p, b, key) { return send('PUT', p, b || {}, withKey(key)); },
+      patch: function (p, b, key) { return send('PATCH', p, b || {}, withKey(key)); },
+      del: function (p, key) { return send('DELETE', p, undefined, withKey(key)); },
       staff: function () { return !!(B.user && B.user.staff); },
       user: function () { return B.user || null; },
-      key: function () { return 'ui-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+      key: function (scope, input) { return scope ? intentKey(String(scope), input) : issueKey(); }
     };
   })();
 

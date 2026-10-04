@@ -78,7 +78,8 @@
       }]);
       else if (a.kind === 'restart' && a.service_id) out.push([a.label, function () {
         if (!window.confirm((cs ? 'Restartovat ' : 'Restart ') + a.label.replace(/^(Restartovat|Restart) /, '') + '?')) return;
-        A().post('/services/' + encodeURIComponent(a.service_id) + '/power', { power_action: a.power_action || 'reboot' }, A().key())
+        // the canonical action route (the /power shorthand is only an alias of it); power_action takes the bus values start|stop|shutdown|reboot|reset|kill
+        A().post('/services/' + encodeURIComponent(a.service_id) + '/actions', { action: 'power', params: { power_action: a.power_action || 'reboot' } }, A().key())
           .then(function () { if (cmp.flash) cmp.flash(cs ? 'Restart spuštěn' : 'Restart started', cs ? 'Průběh uvidíte v detailu služby.' : 'Follow it in the service detail.'); })
           .catch(function (e) { if (cmp.flash) cmp.flash(cs ? 'Nepodařilo se' : 'Failed', (e && e.message) || ''); });
       }]);

@@ -155,7 +155,7 @@
     if (!window.confirm('Provést na účtu zákazníka: ' + a.label + '?')) return;
     state.busy = true; render();
     // staff confirm it as staff (TASK-0039 review round 1): on the customer route a suspend the assistant proposed was the customer's own pause
-    A().post('/staff/services/' + encodeURIComponent(a.service_id) + '/actions', { action: a.action, params: a.params || {}, reason: 'AI asistent · potvrzeno obsluhou' }, Object.assign({}, A().key(), { 'X-Organization': state.id })).then(function () {
+    A().post('/staff/services/' + encodeURIComponent(a.service_id) + '/actions', { action: a.action, params: a.params || {}, reason: 'AI asistent · potvrzeno obsluhou' }, { 'Idempotency-Key': A().key(), 'X-Organization': state.id }).then(function () {
       state.busy = false; ai.actions = ai.actions.filter(function (x) { return x !== a; });
       ai.msgs.push({ who: 'bot', text: 'Spuštěno: ' + a.label + '. Průběh uvidíte mezi operacemi služby.' }); render();
     }).catch(function (e) { state.busy = false; ai.msgs.push({ who: 'bot', text: 'Nepodařilo se spustit: ' + ((e && e.message) || 'chyba') }); render(); });
@@ -202,7 +202,10 @@
       var sum = window.prompt('Přijatá částka pro ' + o.number + ' (VS ' + vs + '):', String(amt(o.total)));
       if (sum == null) return;
       state.busy = true; render();
-      A().post('/staff/payments/bank/lines', { variable_symbol: vs, amount: Number(String(sum).replace(',', '.')), currency: o.currency || 'CZK', external_id: 'console-' + o.number + '-' + Date.now(), message: 'Potvrzeno v konzoli' }, A().key())
+      // one confirmation is one bank line: the line id and the request key come from the same intent (this order, this amount),
+      // so a retry after an error is the same line — the unique external_id refuses a second one — and a new amount is a new line
+      var paid = Number(String(sum).replace(',', '.')), lineKey = A().key('staff.bank-line:' + o.id, { vs: vs, amount: paid });
+      A().post('/staff/payments/bank/lines', { variable_symbol: vs, amount: paid, currency: o.currency || 'CZK', external_id: 'console-' + o.number + '-' + lineKey, message: 'Potvrzeno v konzoli' }, lineKey)
         .then(function () { state.busy = false; state.msg = ['ok', 'Platba zapsána — objednávka ' + o.number + ' se spáruje a zřídí.']; load(); }).catch(fail);
       return;
     }

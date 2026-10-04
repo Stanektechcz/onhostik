@@ -48,7 +48,7 @@ it('generates catalogue-driven plans, comparison tables and SKUs for the public 
     // cart rules, per-line add-ons, confirmation with payment instructions, billing address (seam #24)
     expect($html)->toContain('get COMMITS() { return window.OnhostCart')->toContain('coItemAddons: window.OnhostCart')->toContain('window.OnhostCart.doneCopy(window.__onhostOrder, cs).title')->toContain('{{ co.doneRows }}')->toContain('{{ co.lblAddress }}')->toContain('Alespoň 12 znaků, písmena i číslice.')->toContain('/surfaces/api/onhost-cart.api.js');
     // payment methods the platform really takes, an honest ETA per method, and the signed-in customer's identity pre-filled
-    expect($html)->toContain("['card', 'Karta', 'Visa, Mastercard · platební brána'], ['bank', 'Bankovní převod', 'QR platba, zálohová faktura'],")->not->toContain("['paypal', 'PayPal'")->not->toContain("['sepa', 'SEPA inkaso'")
+    expect($html)->toContain("['card', 'Karta', 'Visa, Mastercard · platební brána'], ['bank', 'Bankovní převod', 'QR platba, zálohová faktura']\n")->not->toContain("['wallet', 'Apple Pay")->not->toContain("['paypal', 'PayPal'")->not->toContain("['sepa', 'SEPA inkaso'")
         ->toContain('window.OnhostCart.eta(this.state, true)')->toContain('window.OnhostCart.prefill() : {})');
     $cart = (string) file_get_contents((string) $this->get('/surfaces/api/onhost-cart.api.js')->assertOk()->baseResponse->getFile());
     expect($cart)->toContain('window.OnhostCart = {')->toContain('registrace na ')->toContain('obnova ')->toContain('prefill: function ()')->toContain('po připsání platby');
@@ -68,7 +68,7 @@ it('generates catalogue-driven plans, comparison tables and SKUs for the public 
     expect($cart)->toContain('totals: totals')->toContain("A().post('/cart/quote', {}")->toContain('X-Cart-Token')->toContain('platba na rok předem')->toContain('Celkem za rok');
     // amounts keep their haléře when they have them (2 286,90 Kč), whole crowns stay whole — in mny() and czk()
     expect($html)->toContain('const __x = Math.round(n * c.rate * 100) / 100, __d = Number.isInteger(__x) ? c.dec : Math.max(c.dec, 2);')
-        ->toContain('const __x = Math.round(n * 1.21 * c.rate * 100) / 100, __d = Number.isInteger(__x) ? c.dec : Math.max(c.dec, 2);')
+        ->toContain("const __x = Math.round(n * (1 + ((window.ONHOST_DATA && typeof window.ONHOST_DATA.vat === 'function' && typeof window.ONHOST_DATA.vat() === 'number') ? window.ONHOST_DATA.vat() : 0.21)) * c.rate * 100) / 100, __d = Number.isInteger(__x) ? c.dec : Math.max(c.dec, 2);") // VAT from the tax rules (TASK-0064)
         ->not->toContain('{ minimumFractionDigits: c.dec, maximumFractionDigits: c.dec }).format(n * c.rate);');
 });
 

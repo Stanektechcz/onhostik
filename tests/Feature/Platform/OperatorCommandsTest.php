@@ -67,7 +67,7 @@ it('overlays both game pages with the catalogue plans and the templates the pane
     ProviderInstance::query()->where('key', 'pterodactyl-games01')->firstOrFail()->forceFill(['options' => ['eggs' => ['minecraft-paper' => ['nest' => 1, 'egg' => 1], 'minecraft-bedrock' => ['nest' => 1, 'egg' => 30], 'cs2' => ['nest' => 5, 'egg' => 17, 'required' => [['env' => 'STEAM_GSLT', 'rules' => 'required|size:32', 'editable' => true]]], 'dayz' => ['nest' => 5, 'egg' => 18, 'required' => [['env' => 'STEAM_USER', 'rules' => 'required', 'editable' => false]]]]]])->save();
     $pages = (fn () => $this->pageRows('cs'))->call(app(SurfaceDataController::class));
     expect($pages['minecraft']['plans'][0]['sku']['product_key'])->toBe('game')->and($pages['minecraft']['chips'])->toBe(['Paper', 'Bedrock'])->and($pages['minecraft']['kpi_games'][0])->toBe('2');
-    expect($pages['gamehosting']['chips'])->toBe(['Counter-Strike 2'])->and($pages['gamehosting']['kicker'])->toBe('Counter-Strike 2'); // DayZ waits for the operator's Steam account
+    expect($pages['games']['chips'])->toBe(['Counter-Strike 2'])->and($pages['games']['kicker'])->toBe('Counter-Strike 2'); // DayZ waits for the operator's Steam account
     expect((string) file_get_contents(base_path('apps/surfaces/api/onhost-svc-pages.api.js')))->toContain('page.chips = o.chips');
 });
 
