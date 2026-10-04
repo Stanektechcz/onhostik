@@ -105,6 +105,8 @@ Smí (pouze datové seamy, žádný vzhled):
    přepínač jazyka ho drží v souladu; jeden `:where(…):focus-visible` obrys (nulová specificita — každý focus styl
    návrhu má přednost) pro ovládací prvky, které žádný nemají; sdílený český plurál `window.OnhostI18n` v session bridge.
 
+8. veřejná dokumentace API (audit 2026-10 D3), vše mimo soubory prototypu: `onhost-public.js` a `onhost-docs.js` se pro `/surfaces/…` doplňují v `SurfaceController::asset` daty z `PublicApiDocs` (limity, hlavičky, koncové body ověřené proti routám, chyby, opakování webhooků, dva návody; v demo režimu zůstává příběh prototypu), věty s čísly v `Onhost.dc.html` mění kotvy v `SurfaceRenderer` (sleduje je `SeamAnchorTest`) a `/dokumentace/api` je samostatná stránka (`ApiDocsController`, vendorovaný Redoc v `public/vendor/redoc`, vlastní CSP bez `unsafe-eval`).
+
 Nesmí: typografie, barevné tokeny, radius/shadows, spacing, navigační charakter, formulářové komponenty,
 tabulky/karty, responsivní chování (blueprint §59.2). Nová komponenta vzniká jen podle §59.4 a musí být
 nejdřív ukázána v `Onhost-widgets.dc.html`.

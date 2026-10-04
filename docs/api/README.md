@@ -62,3 +62,21 @@ Contract: `contracts/openapi/onhost-v1.yaml` (generated — `php artisan onhost:
 | `/abuse/reports`, `/abuse-cases`, `/data-requests` | public / panel | DSA notices, complaints, GDPR/Data Act requests |
 | `/partner/*` | partner portal | overview, clients, commissions, payouts (self-billing), white-label, assets |
 | `/staff/*` | admin | customers, orders, services, integrations, provisioning queue, drift, freeze, reports, tickets, outbox, templates, incidents, maintenance, probes, SLO, SLA credits, security, compliance, abuse, data requests, partners, leads, content |
+
+## The contract, the documentation pages and how they stay true
+
+* `php artisan onhost:openapi` writes `contracts/openapi/onhost-v1.yaml` from the routes; `php artisan onhost:openapi --check`
+  writes nothing and exits 1 when the committed file differs from what the routes generate (CI and the deploy scripts run it).
+  Every operation carries `x-token-scope`: the scope an API token needs for it, taken from `TokenRouteScope` itself (an
+  operation without it is not reachable with a token — the portal's own session only).
+* `/dokumentace/api` renders the contract with a vendored Redoc (`public/vendor/redoc`, no CDN, its own CSP without
+  `unsafe-eval`) beside a guide, the header and limit tables, the webhook delivery description, the error-slug index (every
+  slug found in `new DomainError('slug', …)`, anchored as `#slug-with-hyphens` — the form `DomainError::toProblem()` puts into
+  `help` — and as the raw slug) and `docs/api/CHANGELOG.md`.
+* `/api` and `/dokumentace` (the public surface) take their numbers from the same class: `App\Http\Support\PublicApiDocs`
+  (limits and page size from `onhost.api.*`, the idempotency key length, the webhook retry from
+  `WebhookDispatcher::BACKOFF_MINUTES`, the endpoint list checked against the router). The prototype files stay byte-identical;
+  the replacement happens in `SurfaceController::asset` (`onhost-public.js`, `onhost-docs.js`) and in `SurfaceRenderer` (the
+  sentences in `Onhost.dc.html`). `tests/Feature/Http/ApiDocsTest.php` holds all of it against the code.
+* A change a client can notice (a header, a limit, a renamed operation, a new error code) gets an entry in
+  `docs/api/CHANGELOG.md`; the guide "first call in five minutes" is `docs/api/FIRST-CALL.md`.

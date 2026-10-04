@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\Api\V1\ArchiveController;
+use App\Http\Controllers\Web\ApiDocsController;
 use App\Http\Controllers\Web\AuthPagesController;
 use App\Http\Controllers\Web\CalendarFeedController;
 use App\Http\Controllers\Web\ConsoleRelayController;
@@ -69,6 +70,9 @@ Route::get('console/check/{token}', [ConsoleRelayController::class, 'check'])->m
 // the archive of a cancelled service as one compressed file: the signed link is the credential (audit §5ab)
 Route::get('archiv/{organization}/{backup}', [ArchiveController::class, 'file'])->middleware('signed')->name('archive.file');
 Route::get('calendar/{organization}.ics', [CalendarFeedController::class, 'feed'])->where('organization', '[A-Za-z0-9_-]+')->middleware('signed')->name('calendar.feed');
+
+// the API documentation: guide, limits, error index and the Redoc reference (before the public surface's catch-all, which owns /dokumentace)
+Route::get('dokumentace/api', [ApiDocsController::class, 'show'])->name('docs.api');
 
 // the prototype links surfaces by file name (Onhost-app.dc.html …); keep those links working
 foreach (['Onhost.dc.html' => '/', 'Onhost-app.dc.html' => '/panel', 'Onhost-admin.dc.html' => '/sprava', 'Onhost-partner.dc.html' => '/partner', 'Onhost-mobil.dc.html' => '/m', 'Onhost-widgets.dc.html' => '/widgets'] as $file => $target) {
