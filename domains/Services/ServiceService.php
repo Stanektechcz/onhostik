@@ -1196,10 +1196,14 @@ final class ServiceService
 
                 return ['name' => $need('name', '/^[a-z0-9][a-z0-9_-]{1,30}$/i', 'name may contain letters, digits, dashes and underscores (2–31)'), 'path' => trim(preg_replace('~[^\w\/.-]~', '', str_replace('\\', '/', (string) ($params['path'] ?? ''))) ?? '', '/'), 'script' => $need('script', '/^[^\r\n]{1,300}$/', 'script (start command or entry file) is required'), 'port' => $port, 'version' => isset($params['version']) ? preg_replace('/[^\d.v]/', '', (string) $params['version']) : null, 'domains' => $domains, 'env' => $env];
             })(),
-            'node.action' => ['remote_id' => $remote(), 'op' => (function () use ($params, $action) {
+            'node.action' => ['remote_id' => $remote(), 'op' => (function () use ($params, $action, $service) {
                 $op = (string) ($params['op'] ?? '');
                 if (! in_array($op, ['start', 'stop', 'restart', 'delete'], true)) {
                     throw new DomainError('action_param_invalid', "{$action}: op must be start, stop, restart or delete.", 422, ['field' => 'op']);
+                }
+                // on a closed shared node only the ways out (stop, delete) are offered, through `node_projects_exit` (TASK-0071)
+                if (in_array($op, ['start', 'restart'], true) && empty(app(ServiceFeatures::class)->features($service)['node_projects']['enabled'])) {
+                    throw new DomainError('feature_unavailable', "{$action}: a Node project can no longer be started or restarted on this server.", 422, ['action' => $action, 'op' => $op]);
                 }
 
                 return $op;

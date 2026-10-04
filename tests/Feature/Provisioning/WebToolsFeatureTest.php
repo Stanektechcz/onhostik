@@ -243,7 +243,7 @@ it('withholds the terminal and Node projects on an aaPanel node several customer
     $features = $this->getJson("{$base}/features")->assertOk()->json('data');
     expect($features['features']['terminal'])->toBe(['enabled' => false, 'reason' => 'shared_node'])
         ->and($features['features']['node_projects'])->toBe(['enabled' => false, 'reason' => 'shared_node'])
-        ->and($features['actions'])->not->toContain('command.run')->not->toContain('node.create')->not->toContain('node.action')
+        ->and($features['actions'])->not->toContain('command.run')->not->toContain('node.create')->toContain('node.action') // node.action stays for the ways out (stop, delete); start and restart are refused below
         ->and($features['features']['ftp']['enabled'])->toBeTrue() // SFTP/FTP stays
         ->and(json_encode($features))->not->toMatch('/aapanel/i');
     // the command queued before the node was closed: the worker picks it up now, and the node never runs it
@@ -254,6 +254,14 @@ it('withholds the terminal and Node projects on an aaPanel node several customer
     $action('command.run', ['command' => 'ls -la'], 'shared-term')->assertUnprocessable()->assertJsonPath('error', 'feature_unavailable');
     $action('node.create', ['name' => 'api', 'script' => 'server.js', 'port' => 3000], 'shared-node-create')->assertUnprocessable()->assertJsonPath('error', 'feature_unavailable');
     $action('node.action', ['remote_id' => 'app', 'op' => 'restart'], 'shared-node-restart')->assertUnprocessable()->assertJsonPath('error', 'feature_unavailable');
+    $action('node.action', ['remote_id' => 'app', 'op' => 'start'], 'shared-node-start')->assertUnprocessable()->assertJsonPath('error', 'feature_unavailable');
+    // the ways out stay open through the customer API: a project that already runs can be stopped and deleted
+    foreach (['stop', 'delete'] as $op) {
+        $id = $action('node.action', ['remote_id' => 'app', 'op' => $op], "shared-node-{$op}")->assertAccepted()->json('operation_id');
+        app()->call([new RunOperation($id), 'handle']); // one operation at a time per service: the worker finishes it before the next
+        expect(Operation::query()->findOrFail($id)->state)->toBe(Operation::SUCCEEDED);
+    }
+    Http::assertSent(fn ($r) => str_contains($r->url(), 'remove_project'));
 
     // the adapter refuses a new project or a start on its own, for whatever reaches it (staff tools, an older queued step)
     $adapter = app(ServiceFeatures::class)->adapterFor($service);

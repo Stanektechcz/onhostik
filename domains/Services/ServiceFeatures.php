@@ -74,7 +74,7 @@ final class ServiceFeatures
         // tools on top of the panels (WebToolsProvider): terminal, PHP settings, security rules, HTTP/3, cron editing, database transfers and access, backups, files, Node projects, wildcard certificates
         'terminal' => ['command.run'], 'php_settings' => ['php.settings'], 'security' => ['security.set'], 'http3' => ['http3.set'], 'cron_edit' => ['cron.update', 'cron.run'],
         'db_export' => ['database.export', 'database.import'], 'db_access' => ['database.access'], 'backup_delete' => ['backup.delete'], 'files_advanced' => ['file.rename', 'file.copy', 'file.chmod', 'file.archive', 'file.extract'],
-        'node_projects' => ['node.create', 'node.action'], 'proxy' => ['proxy.create', 'proxy.delete', 'proxies.set'], 'default_docs' => ['index.set'], 'ssl_wildcard' => ['ssl.wildcard'],
+        'node_projects' => ['node.create', 'node.action'], 'node_projects_exit' => ['node.action'], 'proxy' => ['proxy.create', 'proxy.delete', 'proxies.set'], 'default_docs' => ['index.set'], 'ssl_wildcard' => ['ssl.wildcard'],
         // platform features around the site (workflows of their own): staging, git deploy, WordPress toolkit, CDN, imports
         'staging' => ['staging.create', 'staging.refresh', 'staging.push', 'staging.delete'], 'deploy' => ['deploy.run', 'deploy.rollback'], 'wordpress' => ['wp.install', 'wp.update', 'wp.cache', 'wp.plugin'],
         'cdn' => ['cdn.enable', 'cdn.disable', 'cdn.purge'], 'import' => ['import.run'], 'sites' => ['site.create', 'site.delete'],
@@ -225,6 +225,12 @@ final class ServiceFeatures
                         if (isset($out[$feature]) && empty($out[$feature]['enabled'])) {
                             $out[$feature] = ['enabled' => false, 'reason' => $reason];
                         }
+                        // the ways out of a closed shared node stay open (TASK-0071): a Node project that already runs there can still be
+                        // stopped or deleted, never created, started or restarted. `node_projects_exit` grants node.action and the listing;
+                        // ServiceService::featureParams refuses start and restart while `node_projects` itself is off.
+                        if ($feature === 'node_projects' && $reason === ExplainsWithheldFeatures::SHARED_NODE && ($ent['node_projects'] ?? true) !== false) {
+                            $out['node_projects_exit'] = $on(true);
+                        }
                     }
                 }
                 break;
@@ -320,7 +326,8 @@ final class ServiceFeatures
             'mail_forwards' => 'forwards', 'mail_catchall' => 'catchall', 'mail_autoresponder' => 'autoresponder', 'mail_spam' => 'spam', 'mail_spam_lists' => 'spam', 'mail_filters' => 'mail_filters', 'mail_lists' => 'mailing_lists', 'mail_fetchmail' => 'fetchmail', 'mail_backups' => 'mail_backups', 'mail_usage' => 'mail_usage',
             'status' => 'game_status', 'server_detail' => 'game_settings', 'startup' => 'startup', 'schedules' => 'schedule_tools', 'game_databases' => 'game_databases', 'subusers' => 'subusers', 'game_files' => 'game_files', 'allocations' => 'allocations', 'panel_access' => 'panel_access',
         ][$kind] ?? null;
-        if ($gate !== null && empty($this->features($service)[$gate]['enabled'])) {
+        $gateFeatures = $gate !== null ? $this->features($service) : [];
+        if ($gate !== null && empty($gateFeatures[$gate]['enabled']) && ! ($gate === 'node_projects' && ! empty($gateFeatures['node_projects_exit']['enabled']))) {
             throw new DomainError('feature_unavailable', 'This listing is not available for the service.', 422, ['kind' => $kind]);
         }
         $reveal = ! empty($params['reveal']);
