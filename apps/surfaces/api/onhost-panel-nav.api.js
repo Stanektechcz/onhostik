@@ -7,6 +7,11 @@
  * the optional links. Every entry is a real, working view: overview, services per category, the order wizard, tickets,
  * knowledge base, status page, billing and the account settings.
  *
+ * TASK-0053 (Phase B B7): the sidebar follows the member's role too. `nav.links` already carry the staff switch AND the
+ * permissions of the view's endpoints, `nav.areas` the fixed entries (order wizard, tickets, billing, top-up, domains, calendar),
+ * `nav.requires` names what each needs. An entry the member could open only to a refusal is not listed and its deep link is not
+ * allowed; a guest sees the overview, the services shared with them, the knowledge base, the status page and their own settings.
+ *
  * Group definitions keep the prototype's shape: [key, label, badge, subs?, handler?]; subs are [label, tab, patch, count?, handler?].
  * A handler (5th element) replaces the default tab switch — used for the order wizard and for external pages.
  */
@@ -20,6 +25,7 @@
   function L(cmp, o) { return o ? (isCs(cmp) ? (o.cs || o.en || '') : (o.en || o.cs || '')) : ''; }
   function visible() { var n = nav(); return n ? n.categories.filter(function (c) { return c.visible; }) : []; }
   function links() { var n = nav(); return (n && n.links) || {}; }
+  function areas() { var n = nav(); return (n && n.areas) || {}; }
 
   /* The wizard opens from the sidebar with the first orderable product preselected (api/onhost-panel-overview.api.js). */
   function openWizard(cmp) {
@@ -49,8 +55,8 @@
     if (!n) return null;
     h = h || {};
     var cats = visible().map(function (c) { return [L(cmp, c.label), 'svcdesk', { svcCat: c.key }, h.count ? h.count(c.key) : 0]; });
-    var lk = links();
-    var support = [[_('Tikety', 'Tickets'), 'tickets', {}]];
+    var lk = links(), ar = areas();
+    var support = ar.tickets !== false ? [[_('Tikety', 'Tickets'), 'tickets', {}]] : [];
     if (lk.kb !== false) support.push([_('Znalostní báze', 'Knowledge base'), 'kb', {}, 0, external('/napoveda')]);
     if (lk.status !== false) support.push([_('Stav služeb', 'Service status'), 'status', {}, 0, external('/stav')]);
     var settings = [
@@ -67,22 +73,23 @@
     var infra = [['overview', _('Přehled', 'Overview'), ''], services];
     if (lk.monitoring !== false) infra.push(['monitoring', _('Monitoring', 'Monitoring'), '']);
     if (lk.backups !== false) infra.push(['backups', _('Zálohy', 'Backups'), '']);
-    var account = [['billing', _('Fakturace', 'Billing'), due ? String(due) : '']];
+    var account = ar.billing !== false ? [['billing', _('Fakturace', 'Billing'), due ? String(due) : '']] : [];
     if (lk.costs !== false) account.push(['costs', _('Náklady', 'Costs'), '']);
     if (lk.audit !== false) account.push(['audit', _('Oznámení a audit', 'Notifications and audit'), '']);
     if (lk.windows !== false) account.push(['windows', _('Servisní okna', 'Maintenance windows'), '']);
     if (lk.privacy !== false) account.push(['privacy', _('Osobní údaje', 'Personal data'), '']);
     account.push(['settings', _('Nastavení', 'Settings'), '', settings]);
-    return [
-      ['infra', _('Provoz', 'Operations'), infra],
-      ['market', _('Objednat', 'Order'), [
-        ['order', _('Nová služba', 'New service'), '', null, openWizard]
-      ]],
-      ['support', _('Podpora', 'Support'), [
-        ['tickets', _('Podpora', 'Support'), h.openTickets ? String(h.openTickets) : '', support]
-      ]],
-      ['account', _('Účet a správa', 'Account and administration'), account]
-    ];
+    /* without the ticket desk the support group lists the knowledge base and the status page on their own (both open outside) */
+    var supportEntries = ar.tickets !== false
+      ? [['tickets', _('Podpora', 'Support'), h.openTickets ? String(h.openTickets) : '', support]]
+      : support.map(function (s) { return [s[1], s[0], '', null, s[4]]; });
+    var out = [['infra', _('Provoz', 'Operations'), infra]];
+    if (ar.order !== false) out.push(['market', _('Objednat', 'Order'), [
+      ['order', _('Nová služba', 'New service'), '', null, openWizard]
+    ]]);
+    if (supportEntries.length) out.push(['support', _('Podpora', 'Support'), supportEntries]);
+    out.push(['account', _('Účet a správa', 'Account and administration'), account]);
+    return out;
   }
 
   /* The service desk's category list: the listed categories first; the prototype falls back to the second entry for an
@@ -101,27 +108,28 @@
   function serviceGroups() { var d = data(); return (d && d.services) || {}; }
   function catOf(id) { var g = serviceGroups(), out = null; Object.keys(g).forEach(function (k) { if ((g[k] || []).some(function (x) { return x.id === id; })) out = k; }); return out; }
   function actions(cmp) {
-    var cs = isCs(cmp), O = window.OnhostPanelOverview, lk = links();
+    var cs = isCs(cmp), O = window.OnhostPanelOverview, lk = links(), ar = areas();
+    var when = function (ok, row) { return ok ? row : null; };
     var go = function (patch) { return function () { cmp.setState(Object.assign({ query: '', selected: null, userOpen: false, notifOpen: false }, patch)); }; };
     var out = [
-      [cs ? 'Nová služba' : 'New service', cs ? 'webhosting, WordPress, server nebo doména z katalogu' : 'hosting, WordPress, a server or a domain from the catalogue', function () { cmp.setState({ query: '' }); openWizard(cmp); }, 'objednat order koupit'],
-      [cs ? 'Přidat doménu' : 'Add a domain', cs ? 'registrace s ověřením dostupnosti' : 'registration with an availability check', function () { cmp.setState({ query: '' }); if (O && O.order) O.order(cmp, 'domain'); else openWizard(cmp); }, 'domena registrace dns'],
-      [cs ? 'Dobít kredit' : 'Top up credit', cs ? 'převodem nebo kartou, čerpá se jako první' : 'by transfer or card, drawn first', function () { cmp.setState({ query: '' }); if (O && O.topUp) O.topUp(cmp); else go({ tab: 'billing' })(); }, 'kredit platba dobit topup penize'],
-      [cs ? 'Nový tiket' : 'New ticket', cs ? 'napsat podpoře' : 'message support', go({ tab: 'tickets' }), 'podpora support pomoc problem'],
-      [cs ? 'Faktury a doklady' : 'Invoices and documents', cs ? 'fakturace, platby, historie kreditu' : 'billing, payments, credit history', go({ tab: 'billing' }), 'faktura fakturace doklad platba'],
+      when(ar.order !== false, [cs ? 'Nová služba' : 'New service', cs ? 'webhosting, WordPress, server nebo doména z katalogu' : 'hosting, WordPress, a server or a domain from the catalogue', function () { cmp.setState({ query: '' }); openWizard(cmp); }, 'objednat order koupit']),
+      when(ar.order !== false, [cs ? 'Přidat doménu' : 'Add a domain', cs ? 'registrace s ověřením dostupnosti' : 'registration with an availability check', function () { cmp.setState({ query: '' }); if (O && O.order) O.order(cmp, 'domain'); else openWizard(cmp); }, 'domena registrace dns']),
+      when(ar.topup !== false, [cs ? 'Dobít kredit' : 'Top up credit', cs ? 'převodem nebo kartou, čerpá se jako první' : 'by transfer or card, drawn first', function () { cmp.setState({ query: '' }); if (O && O.topUp) O.topUp(cmp); else go({ tab: 'billing' })(); }, 'kredit platba dobit topup penize']),
+      when(ar.tickets !== false, [cs ? 'Nový tiket' : 'New ticket', cs ? 'napsat podpoře' : 'message support', go({ tab: 'tickets' }), 'podpora support pomoc problem']),
+      when(ar.billing !== false, [cs ? 'Faktury a doklady' : 'Invoices and documents', cs ? 'fakturace, platby, historie kreditu' : 'billing, payments, credit history', go({ tab: 'billing' }), 'faktura fakturace doklad platba']),
       [cs ? 'Moje služby' : 'My services', cs ? 'seznam služeb a jejich správa' : 'the service list and its tools', go({ tab: 'svcdesk' }), 'sluzby servery weby'],
-      [cs ? 'Domény a DNS' : 'Domains and DNS', cs ? 'záznamy, obnovy, přesměrování' : 'records, renewals, forwarding', go({ tab: 'svcdesk', svcCat: 'domain' }), 'dns zaznamy domeny'],
+      when(ar.domains !== false, [cs ? 'Domény a DNS' : 'Domains and DNS', cs ? 'záznamy, obnovy, přesměrování' : 'records, renewals, forwarding', go({ tab: 'svcdesk', svcCat: 'domain' }), 'dns zaznamy domeny']),
       [cs ? 'Nastavení účtu' : 'Account settings', cs ? 'fakturační údaje, jazyk, oznámení' : 'billing details, language, notifications', go({ tab: 'settings', sub: 'account' }), 'ucet profil nastaveni'],
       [cs ? 'Zabezpečení a 2FA' : 'Security and 2FA', cs ? 'heslo, dvoufázové ověření, relace' : 'password, two-factor, sessions', go({ tab: 'settings', sub: 'security' }), 'heslo 2fa bezpecnost relace'],
       [cs ? 'Stav služeb' : 'Service status', cs ? 'incidenty a plánované odstávky' : 'incidents and planned maintenance', external('/stav'), 'stav status incident odstavka'],
       [cs ? 'Znalostní báze' : 'Knowledge base', cs ? 'návody a postupy' : 'guides and how-tos', external('/napoveda'), 'navod napoveda dokumentace'],
       [cs ? 'Zeptat se AI asistenta' : 'Ask the AI assistant', cs ? 'stav účtu, návody, zálohy a akce nad službami' : 'account, guides, backups and service actions', function () { cmp.setState({ query: '', chatOpen: true, userOpen: false, notifOpen: false }); }, 'ai asistent chat zeptat'],
-      [cs ? 'Odebírat kalendář (ICS)' : 'Subscribe to the calendar (ICS)', cs ? 'obnovy, expirace domén, splatnosti a údržby ve vašem kalendáři' : 'renewals, domain expiries, due dates and maintenance in your calendar', function () {
+      when(ar.calendar !== false, [cs ? 'Odebírat kalendář (ICS)' : 'Subscribe to the calendar (ICS)', cs ? 'obnovy, expirace domén, splatnosti a údržby ve vašem kalendáři' : 'renewals, domain expiries, due dates and maintenance in your calendar', function () {
         cmp.setState({ query: '' });
         if (!window.OnhostApi) return;
         window.OnhostApi.get('/calendar/feed').then(function (r) { var url = r && r.data && r.data.url; if (url) window.open(url, '_blank', 'noopener'); }).catch(function () {});
-      }, 'kalendar ics obnova expirace splatnost udrzba calendar']
-    ];
+      }, 'kalendar ics obnova expirace splatnost udrzba calendar'])
+    ].filter(Boolean);
     if (lk.team !== false) out.push([cs ? 'Tým a práva' : 'Team and roles', cs ? 'pozvánky a role' : 'invitations and roles', go({ tab: 'team' }), 'tym kolegove pozvanka']);
     if (lk.api !== false) out.push([cs ? 'API klíče a webhooky' : 'API keys and webhooks', cs ? 'klíče, webhooky, Discord' : 'keys, webhooks, Discord', go({ tab: 'api' }), 'api klic webhook discord token']);
     if (lk.projects !== false) out.push([cs ? 'Projekty' : 'Projects', cs ? 'rozdělení služeb, útrata po projektech, role v projektu' : 'service partitioning, spend per project, project roles', go({ tab: 'projects', projSel: null }), 'projekt projekty rozpocet utrata role']);
@@ -195,8 +203,9 @@
   /* Tabs a deep link (#/slug) may open: the ones the sidebar offers. The prototype's narrated areas are not among them. */
   function allows(tab) {
     if (!nav()) return true;
-    var lk = links();
-    var open = ['overview', 'svcdesk', 'order', 'tickets', 'billing', 'settings'];
+    var lk = links(), ar = areas();
+    var open = ['overview', 'svcdesk', 'settings'];
+    ['order', 'tickets', 'billing'].forEach(function (k) { if (ar[k] !== false) open.push(k); });
     if (lk.team !== false) open.push('team');
     if (lk.api !== false) open.push('api');
     if (lk.projects !== false) open.push('projects');
