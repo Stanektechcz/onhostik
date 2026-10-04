@@ -30,6 +30,7 @@ use App\Http\Controllers\Api\V1\ProjectController;
 use App\Http\Controllers\Api\V1\RegistrarConnectionController;
 use App\Http\Controllers\Api\V1\RewardsController;
 use App\Http\Controllers\Api\V1\ServiceAccessController;
+use App\Http\Controllers\Api\V1\ServiceAccountController;
 use App\Http\Controllers\Api\V1\ServiceController;
 use App\Http\Controllers\Api\V1\Staff\ApprovalController;
 use App\Http\Controllers\Api\V1\Staff\ChargebackController;
@@ -184,6 +185,15 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
     Route::get('tokens', [MeController::class, 'tokens']);
     Route::post('tokens', [MeController::class, 'createToken']);
     Route::delete('tokens/{token}', [MeController::class, 'revokeToken']);
+    // ── TASK-0079 (D6): the organization's service accounts — owner only, every write HIGH with step-up; closed to API tokens ──
+    Route::get('service-accounts', [ServiceAccountController::class, 'index']);
+    Route::post('service-accounts', [ServiceAccountController::class, 'store']);
+    Route::get('service-accounts/{account}', [ServiceAccountController::class, 'show']);
+    Route::patch('service-accounts/{account}', [ServiceAccountController::class, 'update']);
+    Route::delete('service-accounts/{account}', [ServiceAccountController::class, 'destroy']);
+    Route::post('service-accounts/{account}/tokens', [ServiceAccountController::class, 'issueToken']);
+    Route::delete('service-accounts/{account}/tokens/{token}', [ServiceAccountController::class, 'revokeToken']);
+    // ── end TASK-0079 ──
     // TASK-0070: the browser's own — open web sessions (list, end one, end every other) and the organization it works in
     Route::get('me/sessions', [WebSessionController::class, 'index']);
     Route::post('me/sessions/end-others', [WebSessionController::class, 'endOthers']);

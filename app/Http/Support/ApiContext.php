@@ -14,6 +14,7 @@ use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Authorization\PermissionCatalog;
 use Onhost\Domain\Identity\Authorization\TokenScopes;
 use Onhost\Domain\Identity\Models\PersonalAccessToken;
+use Onhost\Domain\Identity\Models\ServiceAccount;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Organizations\Models\Organization;
@@ -39,6 +40,9 @@ final class ApiContext
     public function user(Request $request): User
     {
         $user = $request->user();
+        if ($user instanceof ServiceAccount) { // TASK-0079: a pipeline's token reaches the organization's endpoints, never a person's
+            throw new DomainError('person_required', 'This endpoint acts for a signed-in person; a service account token cannot use it.', 403);
+        }
         if (! $user instanceof User) {
             throw new DomainError('unauthenticated', 'Sign in to continue.', 401);
         }
@@ -48,6 +52,9 @@ final class ApiContext
 
     public function organization(Request $request, bool $required = true): ?Organization
     {
+        if ($request->user() instanceof ServiceAccount) {
+            return $this->serviceAccountOrganization($request);
+        }
         $user = $this->user($request);
         $id = $request->headers->get('X-Organization') ?: $request->query('organization');
         $id = self::tokenOrganization($request, is_string($id) ? $id : null) ?? $id;
@@ -80,8 +87,9 @@ final class ApiContext
         $user = $request->user();
         $sessionId = $this->sessionId($request);
         $stepUp = $user instanceof User ? $this->stepUp->activeGrant($user, $sessionId)?->method : null;
-        $token = $user instanceof User ? $user->currentAccessToken() : null;
-        $actorType = $token instanceof PersonalAccessToken ? 'user' : 'user';
+        // TASK-0079: a service account acts as itself — the bus loads it as the principal (IdentityCommandAuthorizer), decides on its
+        // own bindings and never lets it past a step-up; it was named `user` with the account's id, which no person has
+        $actorType = $user instanceof ServiceAccount ? 'service_account' : 'user';
 
         return new CommandContext(
             $actorType, $user?->getAuthIdentifier() !== null ? (string) $user->getAuthIdentifier() : null, $organization?->id, null,
@@ -139,7 +147,7 @@ final class ApiContext
         // that fresh session id would stand in for `token:<id>` — StepUpService then matched a session-less grant and a HIGH
         // action ran through a token (TASK-0030 review round 1). A token is a token, whatever headers it is sent with.
         $user = $request->user();
-        $token = $user instanceof User ? $user->currentAccessToken() : null;
+        $token = $user instanceof User || $user instanceof ServiceAccount ? $user->currentAccessToken() : null;
         if ($token instanceof PersonalAccessToken) {
             return 'token:'.$token->getKey();
         }
@@ -219,8 +227,30 @@ final class ApiContext
     {
         $user = $request->user();
 
-        return $user instanceof Authenticatable && $this->authorizer->can($user, $permission, $scope);
+        return ($user instanceof Authenticatable || $user instanceof ServiceAccount) && $this->authorizer->can($user, $permission, $scope);
     }
+
+    // ── TASK-0079 (audit 2026-10, D6) ──
+    /**
+     * The organization a service account's token acts for: the account's own, nothing else — another one named in the request is
+     * refused as for any token (tokenOrganization). A disabled account opens nothing, whatever token it still has. Membership is not
+     * asked: the account is the organization's, and what it may do there is its own bindings (Authorizer).
+     */
+    private function serviceAccountOrganization(Request $request): Organization
+    {
+        $account = $request->user();
+        if (! $account instanceof ServiceAccount || ! $account->isActive() || $account->organization_id === null) {
+            throw new DomainError('unauthenticated', 'This service account is disabled.', 401);
+        }
+        $named = $request->headers->get('X-Organization') ?: $request->query('organization');
+        $id = self::tokenOrganization($request, is_string($named) ? $named : null) ?? (string) $account->organization_id;
+        if ($id !== (string) $account->organization_id) {
+            throw new DomainError('token_organization_mismatch', 'This API token belongs to another organization; use a token of the organization you address.', 403);
+        }
+
+        return Organization::query()->find($id) ?? throw DomainError::notFound('organization');
+    }
+    // ── end TASK-0079 ──
 
     private function tokenAllows(Request $request, string $permission): bool
     {

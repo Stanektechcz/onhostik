@@ -37,8 +37,8 @@ final class TokenRouteScope
         'documents' => [TokenScopes::INVOICES_READ, null],
         'wallet' => [TokenScopes::WALLET_READ, null],
         'tickets' => [TokenScopes::TICKETS_WRITE, TokenScopes::TICKETS_WRITE],
-        'dns' => [TokenScopes::DNS_WRITE, TokenScopes::DNS_WRITE],
-        'zones' => [TokenScopes::DNS_WRITE, TokenScopes::DNS_WRITE],
+        'dns' => [TokenScopes::DNS_READ, TokenScopes::DNS_WRITE], // TASK-0079 (D6): reading a zone is dns:read (dns:write carries it)
+        'zones' => [TokenScopes::DNS_READ, TokenScopes::DNS_WRITE],
         'domains' => [TokenScopes::DOMAINS_READ, null],
     ];
 
@@ -64,6 +64,11 @@ final class TokenRouteScope
         $family = ($segments[0] ?? '') === 'v1' ? ($segments[1] ?? '') : ($segments[0] ?? '');
         if ($family === 'me' && $request->isMethod('GET') && count($segments) <= 2) {
             return $next($request); // a token may ask who it is — and nothing else about the account
+        }
+        // TASK-0079 (D6): `/v1/domains/{zone}/zone[/changes|/commit]` are the DNS routes under another name (the handoff aliases of
+        // DnsController) — they asked domains:read for a read and refused every write, while the canonical routes asked dns:write
+        if ($family === 'domains' && ($segments[($segments[0] ?? '') === 'v1' ? 3 : 2] ?? '') === 'zone') {
+            $family = 'dns';
         }
         $sub = $family === 'services' ? ($segments[($segments[0] ?? '') === 'v1' ? 3 : 2] ?? '') : '';
         if ($sub === 'access') {

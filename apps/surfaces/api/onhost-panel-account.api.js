@@ -10,7 +10,7 @@
   'use strict';
   if (window.OnhostPanelAccount) return;
   var S = { tokens: null, sessions: null, org: null, webhooks: null, discord: null, totp: null, lastToken: null, recovery: null, pw: false, prefilled: false, busy: {} };
-  var SCOPES = { 'services:read': ['čtení služeb', 'read services'], 'services:power': ['start a restart služeb', 'power services'], 'invoices:read': ['čtení faktur', 'read invoices'], 'tickets:write': ['zakládání tiketů', 'write tickets'], 'dns:write': ['zápis DNS', 'write DNS'], 'domains:read': ['čtení domén', 'read domains'], 'wallet:read': ['čtení kreditu', 'read wallet'], 'services:console': ['konzole, terminál a příkazy', 'consoles, terminal and commands'] };
+  var SCOPES = { 'services:read': ['čtení služeb', 'read services'], 'services:power': ['start a restart služeb', 'power services'], 'invoices:read': ['čtení faktur', 'read invoices'], 'tickets:write': ['zakládání tiketů', 'write tickets'], 'dns:write': ['zápis DNS (včetně čtení)', 'write DNS (reading included)'], 'dns:read': ['čtení DNS', 'read DNS'], 'domains:read': ['čtení domén', 'read domains'], 'wallet:read': ['čtení kreditu', 'read wallet'], 'services:console': ['konzole, terminál a příkazy', 'consoles, terminal and commands'] };
   /* A console is neither a read nor a restart (C13-H2c): no preset carries it, the customer ticks it on purpose. */
   var EXPLICIT_ONLY = ['services:console'];
   /* Every customer preset of RoleCatalog (TASK-0035, IF-17: the list showed nine of fourteen). `partner` is commission only —

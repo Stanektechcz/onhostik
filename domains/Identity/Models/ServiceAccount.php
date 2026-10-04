@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Identity\Models;
 
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Laravel\Sanctum\HasApiTokens;
 use Onhost\Platform\Eloquent\Model;
@@ -30,5 +31,15 @@ final class ServiceAccount extends Model
     public function getAuthIdentifier(): string
     {
         return (string) $this->getKey();
+    }
+
+    /**
+     * TASK-0079: the account's tokens as ONhost tokens (organization, revocation) — Sanctum's `tokens()` is typed with its own model.
+     *
+     * @return MorphMany<PersonalAccessToken, $this>
+     */
+    public function accessTokens(): MorphMany
+    {
+        return $this->morphMany(PersonalAccessToken::class, 'tokenable');
     }
 }
