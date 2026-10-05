@@ -1449,6 +1449,10 @@ final class ServiceService
         $relay = rtrim((string) config('onhost.console.relay_url', ''), '/');
         $access['socket'] = $relay === '' || ! is_string($access['token'] ?? null) ? null : preg_replace('~^http~', 'ws', $relay).'/ws/'.$access['token'];
         $this->recordConsoleIssuer((string) ($access['token'] ?? ''), $service, $context);
+        unset($access['meta']['node']); // the hypervisor's node name is the platform's own, not part of the answer to whoever opens a console (E4)
+        if (isset($access['meta']) && $access['meta'] === []) {
+            unset($access['meta']);
+        }
         $this->audit->record($context->withScope($service->organization_id), 'service.console', 'succeeded', ['kind' => $access['kind'], 'expires_at' => $access['expires_at']], 'service', $service->id);
 
         return $access;
