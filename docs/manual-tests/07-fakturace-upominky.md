@@ -221,6 +221,51 @@ spouštějí po jménu, brána a hostingový panel jsou náhrada). Body a kredit
 
 ---
 
+## F7-08b Uplatnění věrnostních bodů jako slevy (G3, rozhodnutí vlastníka G-R2)
+
+**Pravidlo (G-R2, `docs/audit/2026-10-full-readiness/ROZHODNUTI.md`):** body se uplatní jen tehdy, když o to zákazník sám požádá,
+a vždy jako **samostatný řádek** objednávky i dokladu. 1 bod = 1 Kč slevy **bez DPH** (EUR kurzem ČNB), nejméně 100 bodů,
+všechny slevy na zlevnitelných řádcích dohromady nejvýš **20 % ceny bez DPH** (promo kód se s body nad strop nesčítá).
+Doména, změna tarifu a dobití kreditu se body nezlevňují. Body propadají 24 měsíců po připsání; upozornění přijde 30 dní předem.
+
+**Předpoklady:** přihlášený zákazník s 500 body (`GET /v1/account/rewards` → `points`, `redeem.available`), kredit na účtu.
+
+**Kroky**
+
+1. Do košíku dát webhosting Standard na 12 měsíců (1 890 Kč bez DPH). V košíku se pod slevovým kódem ukáže řádek
+   „Věrnostní body: k dispozici …“.
+2. Zadat **99** bodů a Uplatnit; pak **600** (víc, než je volných); pak **300** (`POST /v1/cart/loyalty`).
+3. Podívat se na souhrn košíku (`POST /v1/cart/quote`); pak zadat všech 500 bodů, pak k tomu ještě kód `ONHOST10`.
+4. Kód odebrat, nastavit znovu 300 bodů, objednat a zaplatit z kreditu (`POST /v1/orders`, `payment.mode = wallet`).
+5. Otevřít doklad objednávky v `/panel/fakturace` (`GET /v1/invoices/{invoice}`) a historii bodů (`GET /v1/account/rewards`).
+6. Finance vystaví dobropis na polovinu řádku webhostingu (`POST /v1/invoices/{invoice}/credit-note`, `amounts`, `return_to_credit`).
+7. Druhá objednávka se 100 body převodem (`payment.mode = bank`), pak ji zákazník před zaplacením zruší (`POST /v1/orders/{order}/transition`, `to: cancelled`).
+8. Do košíku dát jen doménu a uplatnit body.
+
+**Očekávaný výsledek**
+
+- Krok 2: 99 bodů → 422 `loyalty_below_minimum` („Uplatnit lze nejméně 100 bodů“); 600 → 422 `loyalty_points_unavailable` (s počtem volných bodů); 300 → přijato.
+- Krok 3: v souhrnu je řádek **„Sleva za věrnostní body (300 bodů)“ −300 Kč** bez DPH a −63 Kč DPH; webhosting zůstává za 1 890 Kč;
+  obnova je za ceníkovou cenu. Z 500 bodů se uplatní jen **378** (20 % z 1 890 Kč) a košík řekne proč; s kódem `ONHOST10` (−189 Kč)
+  jen **189** bodů — slevy dohromady nejvýš 378 Kč.
+- Krok 4: objednávka je zaplacená, body klesnou o 300 (řádek historie „Uplatněno na objednávku …“), přijde upozornění
+  „Věrnostní body uplatněny: 300“ (událost `loyalty.redeemed`). Volba bodů v košíku zmizí: další objednávka je bez bodů.
+- Krok 5: doklad má **samostatný řádek** `loyalty-redeem` se zápornou cenou a DPH; úroveň věrnostního programu se nesnížila.
+- Krok 6: na kredit se vrátí polovina toho, co za webhosting **skutečně zaplatil** (polovina ceny minus polovina slevy:
+  1 143,45 − 181,50 = 961,95 Kč) a **150 bodů** se vrátí (událost `loyalty.points_returned`, „Uplatněné body se vrátily: 150“). Body se nikdy nemění v kredit.
+- Krok 7: po objednání ukazuje `redeem.reserved` 100 a `redeem.available` o 100 méně; po zrušení je rezervace pryč a body jsou volné.
+  Dvě objednávky tytéž body neutratí: druhá dostane 409 `loyalty_points_unavailable` a obnoví košík.
+- Doplněk (např. CDN k webhostingu, i poslaný bez webhostingu) ani navýšení limitu se body nezlevňují a nejsou v základu stropu 20 %.
+- Dluh bodů: když dobropis bere zpět body, které už drží nezaplacená objednávka, zůstatek po zaplacení zůstane **0** a v `GET /v1/account/rewards` je `debt`; další připsané body ho splatí jako první (řádky historie „Splátka dluhu bodů“). Dokud dluh trvá, `redeem.available` je zůstatek − rezervace − dluh.
+- Krok 8: domény se body nezlevňují — košík řekne „domény a dobití kreditu se body nezlevňují“, cena domény je ceníková.
+- Propadnutí (QA na stagingu, `php artisan onhost:loyalty:expire`, denně 05:35): 30 dní před propadnutím přijde upozornění v panelu
+  a e-mail „Věrnostní body propadnou …“ (`loyalty.expiring`, jednou za měsíc propadnutí); v den propadnutí odejdou nevyčerpané body
+  připsané před 24 měsíci (`loyalty.expired`); body rezervované nezaplacenou objednávkou nepropadnou; úroveň zůstává.
+
+Automaticky: [`G3RedeemTest`](../../tests/Feature/Loyalty/G3RedeemTest.php) a E2E [`LoyaltyRedeemFlowTest`](../../tests/Feature/E2E/LoyaltyRedeemFlowTest.php).
+
+---
+
 ## F7-09 Kredit se v hotovosti nevrací; zakoupený kredit se čerpá první
 
 **Pravidlo (G-R4):** kredit se **nikdy nevyplácí** v hotovosti, na bankovní účet ani na kartu. Vrácený kredit (z dobropisu,
@@ -388,4 +433,5 @@ oznámení „Nový doklad …“ v `/panel/fakturace`. Pro srovnání faktura n
 | F7-06 (nezaplacená) | „lets the credit note of an unpaid invoice end its dunning case and the suspension it caused — and offers no other way to cancel one“ |
 | F7-07 | „states the VAT of a renewal invoice in euro in crowns at the bank rate of the supply day, and its credit note at the rate of the invoice“ |
 | F7-08, F7-09 | mimo E2E; viz `LoyaltyClawbackTest`, `G4NoCashRefundTest`, `RefundableBalanceTest` |
+| F7-08b | `LoyaltyRedeemFlowTest`: „redeems points in the cart, spends them with the card payment, shows them on the document and gives them back with a credit note“ |
 | F7-13, F7-14 | mimo E2E; viz `PaidInvoiceWordingTest`, `ReinstateDoctorTest` (G6) |

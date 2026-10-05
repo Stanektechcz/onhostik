@@ -10,6 +10,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Onhost\Domain\Billing\WithdrawalPolicy;
 use Onhost\Domain\Catalog\Models\PromoCode;
+use Onhost\Domain\Loyalty\Commands\RedeemPointsCommand;
+use Onhost\Domain\Loyalty\LoyaltyRedemptions;
 use Onhost\Domain\Orders\CheckoutService;
 use Onhost\Domain\Orders\Models\Cart;
 use Onhost\Domain\Orders\QuoteService;
@@ -75,7 +77,7 @@ final class CartController extends ApiController
         $customer = $organization !== null
             ? VatStanding::taxCustomer($organization)
             : ['country' => strtoupper((string) ($customer['country'] ?? 'CZ')), 'customer_class' => $customer['customer_class'] ?? 'b2c', 'vat_status' => 'unknown', 'ip_country' => null];
-        $quote = $quotes->quote((array) $cart->items, $cart->currency ?? 'CZK', $customer, (int) ($cart->commit_months ?? 1), $cart->promo_code, $organization, (string) $request->query('locale', 'cs'));
+        $quote = $quotes->quote((array) $cart->items, $cart->currency ?? 'CZK', $customer, (int) ($cart->commit_months ?? 1), $cart->promo_code, $organization, (string) $request->query('locale', 'cs'), null, LoyaltyRedemptions::requestedOn($cart, $organization));
         // the VIES evidence and finance's review flag stay with the quote, the order and staff (TASK-0031 review round 1); the
         // customer keeps the tax explanation it always had, less the note that finance will look at who holds the number
         $versions = array_diff_key((array) $quote->versions, ['vat' => true, 'vat_review' => true]);
@@ -85,7 +87,22 @@ final class CartController extends ApiController
             'quote_id' => $quote->id, 'valid_until' => $quote->valid_until?->toIso8601String(), 'currency' => $quote->currency, 'lines' => Presenters::quoteLines((array) $quote->lines), 'subtotal' => $quote->subtotal_minor, 'discount' => $quote->discount_minor, 'tax' => $quote->tax_minor, 'total' => $quote->total_minor, 'renewal_total' => $quote->renewal_total_minor, 'versions' => $versions,
             'required_documents' => $organization ? app(CheckoutService::class)->requiredDocuments($quote, $organization) : null,
             'withdrawal_notice' => WithdrawalPolicy::checkoutNotice((array) $quote->lines, (string) $customer['customer_class']), // TASK-0025: a consumer hears before the order that a registered domain cannot be withdrawn
+            'loyalty' => $versions['loyalty'] ?? null, // G3: the points asked for, how many apply and why not more (cap, minimum, balance)
         ]]);
+    }
+
+    /**
+     * G3 (owner decision G-R2): the signed-in customer chooses to redeem loyalty points on their cart — an explicit action through
+     * the command bus (`loyalty.redeem`, NORMAL, the permission to order). 0 removes the choice. The next quote shows the discount
+     * as a line of its own; the order reserves the points, the payment spends them.
+     */
+    public function loyalty(Request $request): JsonResponse
+    {
+        $data = $request->validate(['points' => ['required', 'integer', 'min:0', 'max:10000000']]);
+        $organization = $this->api->organization($request);
+        $cart = $this->cart($request);
+
+        return $this->dispatch(new RedeemPointsCommand($organization->id, $this->eachRequestKey($request, 'loyalty.redeem'), ['cart_id' => $cart->id, 'points' => (int) $data['points']]), $this->api->context($request, $organization));
     }
 
     private function cart(Request $request): Cart
@@ -104,6 +121,6 @@ final class CartController extends ApiController
 
     private function present(Cart $cart): array
     {
-        return ['id' => $cart->id, 'token' => $cart->session_token, 'items' => $cart->items ?? [], 'commit_months' => $cart->commit_months, 'currency' => $cart->currency, 'promo_code' => $cart->promo_code, 'expires_at' => $cart->expires_at?->toIso8601String()];
+        return ['id' => $cart->id, 'token' => $cart->session_token, 'items' => $cart->items ?? [], 'commit_months' => $cart->commit_months, 'currency' => $cart->currency, 'promo_code' => $cart->promo_code, 'loyalty_points' => $cart->loyalty_points !== null ? (int) $cart->loyalty_points : null, 'expires_at' => $cart->expires_at?->toIso8601String()];
     }
 }

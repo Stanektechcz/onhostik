@@ -12,6 +12,7 @@ use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Invoicing\Models\InvoiceLine;
 use Onhost\Domain\Invoicing\Models\LegalEntity;
+use Onhost\Domain\Loyalty\RedemptionShare;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\Organizations\Models\Organization;
@@ -479,6 +480,11 @@ final class InvoiceService
                     'period_from' => (is_array($ask) ? ($ask['period_from'] ?? null) : null) ?? $l->period_from?->toDateString(), 'period_to' => (is_array($ask) ? ($ask['period_to'] ?? null) : null) ?? $l->period_to?->toDateString(),
                     'service_id' => $l->service_id, 'order_item_id' => $l->order_item_id, 'corrects_line_id' => $l->id,
                 ];
+            }
+            // G3 (G-R2): a document with a loyalty-points line gives back that line's share with the lines it discounted, so the
+            // money returned is what those lines cost after points (and the points come back), never their list price
+            if ($named !== null && ($share = RedemptionShare::companion($original->lines()->get(), $lines, $before)) !== null) {
+                $lines[] = $share;
             }
             if ($lines === []) {
                 throw new DomainError('invoice_nothing_to_credit', 'Nothing is left to credit on this document.', 409, ['number' => $original->number]);

@@ -7,6 +7,8 @@ namespace Onhost\Domain\Orders;
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Invoicing\Models\Invoice;
+use Onhost\Domain\Loyalty\LoyaltyRedemptions;
+use Onhost\Domain\Loyalty\RedemptionShare;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\WalletLedger\Models\WalletHold;
@@ -57,6 +59,9 @@ final class OrderSettlement
                 return $order?->meta['settlement'] ?? null;
             }
             $items = OrderItem::query()->where('order_id', $order->id)->get();
+            // G3 (G-R2): a points discount is a line of its own that is applied, not delivered; its share follows the lines it discounted
+            $redemption = $items->first(fn (OrderItem $i) => LoyaltyRedemptions::isRedemption($i));
+            $items = $items->reject(fn (OrderItem $i) => LoyaltyRedemptions::isRedemption($i))->values();
             if ($items->isEmpty() || $items->contains(fn (OrderItem $i) => in_array($i->state, self::OPEN, true))) {
                 return null;
             }
@@ -65,11 +70,16 @@ final class OrderSettlement
             $undelivered = $items->where('state', 'failed');
             $captured = (int) $delivered->sum('total_minor');
             $returned = (int) $undelivered->sum('total_minor');
+            $share = $redemption !== null ? RedemptionShare::settle($redemption, $items, $undelivered) : null;
+            if ($share !== null) { // what was delivered is charged after its share of the points, what goes back goes back after its own
+                $captured -= $share['kept'];
+                $returned -= $share['back'];
+            }
             $postpaid = $order->payment_mode === 'postpaid';
             $hold = $order->wallet_hold_id !== null ? WalletHold::query()->find($order->wallet_hold_id) : null;
 
             if (! $postpaid && $hold !== null) {
-                $this->takeDelivered($order, $hold, $delivered->all(), $captured, $context);
+                $this->takeDelivered($order, $hold, $delivered->all(), $captured, $context, $share);
             } elseif ($postpaid && $hold !== null && $captured === 0 && $hold->isActive()) {
                 $this->wallets->release($hold, "order {$order->number}: nothing was delivered", $context);
             }
@@ -124,8 +134,11 @@ final class OrderSettlement
         return $settled;
     }
 
-    /** @param list<OrderItem> $delivered */
-    private function takeDelivered(Order $order, WalletHold $hold, array $delivered, int $captured, CommandContext $context): void
+    /**
+     * @param  list<OrderItem>  $delivered
+     * @param  array{back:int, back_tax:int, kept:int, kept_tax:int, eligible:list<string>}|null  $share  the points discount that stays with the delivered lines (G3)
+     */
+    private function takeDelivered(Order $order, WalletHold $hold, array $delivered, int $captured, CommandContext $context, ?array $share = null): void
     {
         if ($captured === 0) {
             if ($hold->isActive()) {
@@ -134,12 +147,17 @@ final class OrderSettlement
 
             return;
         }
-        $tax = Money::minor((int) array_sum(array_map(fn (OrderItem $i) => (int) $i->tax_minor, $delivered)), $order->currency);
+        $tax = Money::minor((int) array_sum(array_map(fn (OrderItem $i) => (int) $i->tax_minor, $delivered)) - (int) ($share['kept_tax'] ?? 0), $order->currency);
         $split = [];
+        $discounted = []; // the revenue of the delivered lines the points discounted, per family (a domain never is one)
         foreach ($delivered as $item) {
             $family = (string) ($item->config['family'] ?? ($item->isDomain() ? 'domain' : 'services'));
             $split[$family] = ($split[$family] ?? 0) + ((int) $item->total_minor - (int) $item->tax_minor);
+            if (in_array((string) $item->id, $share['eligible'] ?? [], true)) {
+                $discounted[$family] = ($discounted[$family] ?? 0) + ((int) $item->total_minor - (int) $item->tax_minor);
+            }
         }
+        $split = self::lessDiscount($split, $discounted, (int) ($share['kept'] ?? 0) - (int) ($share['kept_tax'] ?? 0));
         $amount = Money::minor($captured, $order->currency);
         if ($hold->isActive()) {
             $this->wallets->capture($hold, (string) array_key_first($split), $context, $amount, $tax, "Objednávka {$order->number}", $split);
@@ -157,6 +175,33 @@ final class OrderSettlement
             $this->outbox->publish(GenericEvent::of('order.settlement_failed', 'order', $order->id, ['number' => $order->number, 'amount' => $amount, 'reason' => $e->error], $order->organization_id));
             $this->audit->record($context, 'order.settle', 'failed', ['number' => $order->number, 'amount' => $captured, 'reason' => $e->error], 'order', $order->id);
         }
+    }
+
+    /**
+     * The revenue of the delivered families less the points discount that stays with them (G3): taken from the families of the lines
+     * the points discounted, in proportion to their revenue; the last one takes the remainder, so the split still adds up to the
+     * captured net (WalletService trusts only a split that does).
+     *
+     * @param  array<string,int>  $split  revenue per family of every delivered line
+     * @param  array<string,int>  $discounted  revenue per family of the delivered lines the points discounted
+     * @return array<string,int>
+     */
+    private static function lessDiscount(array $split, array $discounted, int $net): array
+    {
+        $discounted = array_filter($discounted, fn (int $v) => $v > 0);
+        $base = (int) array_sum($discounted);
+        if ($net <= 0 || $base <= 0) {
+            return $split;
+        }
+        $left = $net;
+        $keys = array_keys($discounted);
+        foreach ($keys as $n => $family) {
+            $cut = $n === count($keys) - 1 ? $left : intdiv($discounted[$family] * $net, $base);
+            $split[$family] -= $cut;
+            $left -= $cut;
+        }
+
+        return $split;
     }
 
     /** @param list<string> $itemIds */

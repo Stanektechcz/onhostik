@@ -41,7 +41,7 @@ final class WebhookCommandHandler implements CommandHandler
             'create' => $this->create($command, $context),
             'disable' => $this->disable($this->endpoint($command)),
             'enable' => $this->enable($this->endpoint($command)),
-            'rotate_secret' => $this->rotate($this->endpoint($command)),
+            'rotate_secret' => $this->rotate($this->endpoint($command), $command->get('overlap') !== false),
             'redeliver' => $this->redeliver($command),
             'ping' => $this->ping($this->endpoint($command, lock: true)),
             default => throw new DomainError('webhook_op_unknown', 'Unknown webhook operation.', 422),
@@ -93,14 +93,22 @@ final class WebhookCommandHandler implements CommandHandler
         return WebhookView::endpointResult($endpoint);
     }
 
-    /** @return array<string, mixed> takes effect at once: every attempt from now on, retries included, is signed with the new secret */
-    private function rotate(WebhookEndpoint $endpoint): array
+    /**
+     * The new secret signs every attempt from now on, retries included. G7 (TASK-0115): the secret it replaces still signs
+     * X-ONhost-Signature-Previous for `onhost.webhooks.secret_overlap_minutes` (0 = not at all), so the receiver can switch without
+     * losing a delivery; a rotation inside the window keeps only the secret it replaced. The old secret is never shown again.
+     *
+     * @return array<string, mixed>
+     */
+    private function rotate(WebhookEndpoint $endpoint, bool $withOverlap = true): array
     {
         $this->assertNotDisabled($endpoint);
         $secret = self::newSecret();
-        $endpoint->forceFill(['secret' => $secret])->save();
+        $overlap = $withOverlap ? (int) config('onhost.webhooks.secret_overlap_minutes', 60) : 0; // `overlap: false` — a leaked secret ends now
+        $until = $overlap > 0 ? now()->addMinutes($overlap) : null;
+        $endpoint->forceFill(['secret' => $secret, 'previous_secret' => $until === null ? null : (string) $endpoint->secret, 'previous_secret_expires_at' => $until])->save();
 
-        return WebhookView::endpointResult($endpoint) + ['secret' => $secret];
+        return WebhookView::endpointResult($endpoint) + ['secret' => $secret, 'previous_secret_valid_until' => $until?->toIso8601String()];
     }
 
     /** @return array<string, mixed> */

@@ -392,7 +392,7 @@ it('ends every side door when a member is removed: session, API token, open cons
     // the browser session, the API key and the open console end at once; the ticket that was still waiting opens nothing
     e2eShareActAs($this, $admin['user']);
     e2eShareCall($this, 'GET', '/v1/services', $org, 'gone-list')->assertNotFound(); // X-Organization of an organization they left: not found (F12a)
-    e2eShareCall($this, 'GET', "/v1/organizations/{$org->id}", $org, 'gone-org')->assertForbidden();
+    e2eShareCall($this, 'GET', "/v1/organizations/{$org->id}", $org, 'gone-org')->assertNotFound(); // G7: the organization they left answers them as a missing one (was 403)
     e2eShareCall($this, 'POST', "/v1/services/{$games->id}/console-token", $org, 'gone-console')->assertNotFound(); // a stranger to the organization: 404, as for a missing id (TASK-0098)
     expect(collect(e2eShareCall($this, 'GET', '/v1/me', $admin['org'], 'gone-me')->assertOk()->json('data.organizations'))->pluck('id')->all())->not->toContain($org->id);
     e2eShareBearer($this, $token, $org, '/v1/services')->assertUnauthorized();

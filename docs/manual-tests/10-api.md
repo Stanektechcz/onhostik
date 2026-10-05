@@ -734,6 +734,102 @@ curl -s "$ONHOST_API/services?limit=1" -H "Authorization: Bearer $ONHOST_TOKEN_R
 Nakonec smažte cookie soubory (`rm -f "$JAR" "$JAR_ADMIN"`), zrušte i klíč `jen-cteni` (v panelu: Účet → API klíče) a zrušte `unset`
 proměnných s tajemstvími.
 
+## 12. Věrnostní body v košíku (G3)
+
+Body se uplatní jako sleva jen na výslovnou žádost zákazníka (rozhodnutí vlastníka G-R2): `POST /v1/cart/loyalty` je akce
+přihlášeného panelu (klíč se nepřijímá), příkaz `loyalty.redeem` jde přes bus s oprávněním objednávat. 1 bod = 1 Kč slevy bez DPH,
+nejméně 100 bodů, nejvýš 20 % ceny bez DPH zlevnitelných řádků; doména se nezlevňuje. Na stagingu potřebujete organizaci
+s **500 body** (připíše je podpora: `POST /v1/staff/loyalty/award`) a ceník s webhostingem Standard.
+
+Kolik bodů máte a kolik jich můžete uplatnit:
+
+```bash
+# arrange: catalog
+# arrange: loyalty_points=500
+# expect: 200
+# scope: none
+# expect-json: data.redeem.available=500
+# expect-json: data.redeem.min_points=100
+curl -s "$ONHOST_API/account/rewards" -b "$JAR" -c "$JAR" -H "Referer: $ONHOST_BASE" -H "Accept: application/json"
+```
+
+Košík s webhostingem na rok (1 890 Kč bez DPH, strop je tedy 378 bodů):
+
+```bash
+export KEY_CART=$(uuidgen)
+# expect: 200
+# scope: any
+curl -s -X PUT "$ONHOST_API/cart" -b "$JAR" -c "$JAR" -H "Referer: $ONHOST_BASE" -H "X-XSRF-TOKEN: $XSRF" -H "Accept: application/json" -H "Content-Type: application/json" -H "Idempotency-Key: $KEY_CART" -d '{"items":[{"product_key":"web-hosting","plan_key":"standard"}],"commit_months":12,"currency":"CZK"}'
+```
+
+Méně než 100 bodů se neuplatní:
+
+```bash
+export KEY_MIN=$(uuidgen)
+# expect: 422
+# scope: none
+# expect-error: loyalty_below_minimum
+curl -s -X POST "$ONHOST_API/cart/loyalty" -b "$JAR" -c "$JAR" -H "Referer: $ONHOST_BASE" -H "X-XSRF-TOKEN: $XSRF" -H "Accept: application/json" -H "Content-Type: application/json" -H "Idempotency-Key: $KEY_MIN" -d '{"points":99}'
+```
+
+Víc, než máte volných, také ne (odpověď říká, kolik jich volných je):
+
+```bash
+export KEY_MANY=$(uuidgen)
+# expect: 422
+# scope: none
+# expect-error: loyalty_points_unavailable
+# expect-json: available=500
+curl -s -X POST "$ONHOST_API/cart/loyalty" -b "$JAR" -c "$JAR" -H "Referer: $ONHOST_BASE" -H "X-XSRF-TOKEN: $XSRF" -H "Accept: application/json" -H "Content-Type: application/json" -H "Idempotency-Key: $KEY_MANY" -d '{"points":600}'
+```
+
+Klíč tuhle akci nepřijímá — body uplatňuje člověk v panelu:
+
+```bash
+export KEY_TOKEN_REDEEM=$(uuidgen)
+# expect: 403
+# scope: none
+curl -s -X POST "$ONHOST_API/cart/loyalty" -H "Authorization: Bearer $ONHOST_TOKEN_READ" -H "Accept: application/json" -H "Content-Type: application/json" -H "Idempotency-Key: $KEY_TOKEN_REDEEM" -d '{"points":300}'
+```
+
+300 bodů:
+
+```bash
+export KEY_REDEEM=$(uuidgen)
+# expect: 200
+# scope: none
+# expect-json: points=300
+# expect-json: cap_pct=20
+curl -s -X POST "$ONHOST_API/cart/loyalty" -b "$JAR" -c "$JAR" -H "Referer: $ONHOST_BASE" -H "X-XSRF-TOKEN: $XSRF" -H "Accept: application/json" -H "Content-Type: application/json" -H "Idempotency-Key: $KEY_REDEEM" -d '{"points":300}'
+```
+
+Nabídka má slevu jako **samostatný řádek** `loyalty-redeem` (−300 Kč bez DPH, DPH z ní zvlášť) a v poli `loyalty` říká, kolik
+bodů se uplatnilo a proč ne víc (`max_points` je strop 20 %):
+
+```bash
+export KEY_QUOTE=$(uuidgen)
+# expect: 200
+# scope: any
+# expect-contains: loyalty-redeem
+# expect-json: data.loyalty.applied=300
+# expect-json: data.loyalty.max_points=378
+# expect-json: data.discount=30000
+curl -s -X POST "$ONHOST_API/cart/quote" -b "$JAR" -c "$JAR" -H "Referer: $ONHOST_BASE" -H "X-XSRF-TOKEN: $XSRF" -H "Accept: application/json" -H "Content-Type: application/json" -H "Idempotency-Key: $KEY_QUOTE" -d '{}'
+```
+
+`0` volbu zruší; další nabídka je bez bodů:
+
+```bash
+export KEY_NONE=$(uuidgen)
+# expect: 200
+# scope: none
+# expect-json: points=0
+curl -s -X POST "$ONHOST_API/cart/loyalty" -b "$JAR" -c "$JAR" -H "Referer: $ONHOST_BASE" -H "X-XSRF-TOKEN: $XSRF" -H "Accept: application/json" -H "Content-Type: application/json" -H "Idempotency-Key: $KEY_NONE" -d '{"points":0}'
+```
+
+Objednávka s nabídkou body zarezervuje, zaplacení je spotřebuje, zrušení nezaplacené objednávky je vrátí, dobropis vrátí jejich
+poměrnou část (ruční test F7-08b v `07-fakturace-upominky.md`). Když body mezitím uplatnila jiná objednávka, `POST /v1/orders`
+odpoví `409 loyalty_points_unavailable` a košík je třeba obnovit.
 ## Kontrolní seznam
 
 - [ ] 1: `/status` odpoví bez klíče a nese `X-API-Version`
@@ -745,3 +841,4 @@ proměnných s tajemstvími.
 - [ ] 8: chyba má `error`, `message`, `status` a `help`
 - [ ] 9: webhook jen na `https` 443/8443, podpis `v1=HMAC` sedí, duplicita podle `X-ONhost-Delivery`, po 20 neúspěších `suspended`
 - [ ] 10: servisní účet jen vlastník, `/me` s ním řekne `type: service_account` s rolí a rozsahy, po zrušení klíče `401`
+- [ ] 12: body jen z panelu, nejméně 100, ne víc než volných; nabídka má řádek `loyalty-redeem` a strop 20 % (`max_points`)

@@ -6,7 +6,9 @@
  *  - a longer term is not a discount in itself: the cart shows exactly the percentage staff approved (none by default),
  *  - domains are cart lines of their own (whole years, at least one, no term discount, a TLD discount only if set),
  *  - every cart line carries its own add-ons (priced options of the product, add-on products staff allow next to it),
- *  - promo codes are validated by the API, the availability search asks the registrars.
+ *  - promo codes are validated by the API, the availability search asks the registrars,
+ *  - a signed-in customer may redeem loyalty points (G3, owner decision G-R2): a box under the promo code asks the API
+ *    (`POST /cart/loyalty`, the command `loyalty.redeem`) and the quote shows the discount as a line of its own.
  * The checkout bridge turns the same state into the order (`OnhostCart.orderItems`). Loaded after onhost-data.js. */
 (function () {
   'use strict';
@@ -123,7 +125,7 @@
   var quote = { sig: null, data: null, pending: null, failed: null, timer: null, map: {} };
   function commitOf(state) { var c = state && state.commit; return c === 'yearly' || Number(c) === 12 ? 12 : (Number(c) === 24 ? 24 : 1); }
   function cartToken() { try { return sessionStorage.getItem('onhost.cart.token') || null; } catch (e) { return null; } }
-  function quoteSig(state) { var o = orderItems({ items: (state && state.cartItems) || [] }); return JSON.stringify({ i: o.items, c: commitOf(state), p: state && state.promoOk ? (state.promo || null) : null }); }
+  function quoteSig(state) { var o = orderItems({ items: (state && state.cartItems) || [] }); return JSON.stringify({ i: o.items, c: commitOf(state), p: state && state.promoOk ? (state.promo || null) : null, l: loyalty.points || 0 }); }
   function quoteWanted(state) { return !!(state && state.cartOpen) || /^#\/(kosik|checkout)/.test(String(location.hash || '')); }
   function refreshQuote(cmp) {
     var items = (cmp.state.cartItems || []);
@@ -342,6 +344,7 @@
   function summaryRows(cmp, cs) {
     var _ = function (a, b) { return cs ? a : b; }, rows = [];
     cmpRef = cmp;
+    var points = loyaltyLine(cmp.state);
     (cmp.state.cartItems || []).forEach(function (it) {
       var ql = quoteLines(it);
       if (ql && ql.length) { quoteRows(ql, rows, cmp, cs); return; }
@@ -357,7 +360,108 @@
       optionDefs(it).forEach(function (d) { if (!(d.key in sel)) return; var q = optionQty(d, sel[d.key]); if (q > 0) rows.push({ k: '+ ' + d.label + (d.kind === 'slider' ? ' ' + sel[d.key] + (d.unit ? ' ' + d.unit : '') : ''), v: '+ ' + money(cmp, q * d.price * qty * m) }); });
       productDefs(it).forEach(function (p) { var pl = prods[p.key] ? planOf(p, prods[p.key]) : null; if (pl) rows.push({ k: '+ ' + p.name + ' ' + pl.name, v: '+ ' + money(cmp, planMonthly(pl) * qty * m) }); });
     });
+    if (points) rows.push({ k: points.name, v: '− ' + money(cmp, Math.abs(Number(points.net) || 0) / 100) }); // a line of its own, never folded into a price (G-R2)
     return rows;
+  }
+
+  /* ── loyalty points (G3, owner decision G-R2) ─────────────────────────────
+   * Only a signed-in customer has points. The box under the promo code shows what may be redeemed (GET /account/rewards),
+   * sends the choice to the API (POST /cart/loyalty → the command `loyalty.redeem`) and asks for a new quote; the quote says
+   * how many points apply and why not more (the 20 % cap, the minimum, the balance). Domains and credit top-ups are never
+   * discounted; the next order starts without points. */
+  var loyalty = { points: 0, info: null, asked: false, msg: '', busy: false, value: '' };
+  var PROMO_INPUT = 'input[placeholder="Slevový kód"], input[placeholder="Promo code"]';
+  function signedIn() { return !!(window.ONHOST && window.ONHOST.user); }
+  function loyaltyLine(state) { var q = state ? currentQuote(state) : null; return q ? ((q.lines || []).filter(function (l) { return l.product_key === 'loyalty'; })[0] || null) : null; }
+  function loyaltyInfo() {
+    if (!loyalty.asked && signedIn() && A()) {
+      loyalty.asked = true;
+      A().get('/account/rewards').then(function (r) { var d = r.data || r; loyalty.info = d && d.redeem ? d.redeem : null; loyaltyRender(); }).catch(function () { loyalty.info = null; });
+    }
+    return loyalty.info;
+  }
+  function loyaltyStatus(cs) {
+    var _ = function (a, b) { return cs ? a : b; }, st = cmpRef && cmpRef.state, q = st ? currentQuote(st) : null, l = q && q.loyalty;
+    if (loyalty.msg) return loyalty.msg;
+    if (!l || !loyalty.points) return '';
+    if (l.applied > 0) return _('Uplatněno ' + l.applied + ' bodů — sleva ' + money(cmpRef, (Number(l.value) || 0) / 100) + ' bez DPH', l.applied + ' points redeemed — ' + money(cmpRef, (Number(l.value) || 0) / 100) + ' off before VAT');
+    var why = {
+      cap: _('na tuto objednávku lze uplatnit nejvýš ' + l.max_points + ' bodů (' + l.cap_pct + ' % ceny bez DPH)', 'at most ' + l.max_points + ' points apply to this order (' + l.cap_pct + '% of the price before VAT)'),
+      nothing_eligible: _('domény a dobití kreditu se body nezlevňují', 'domains and credit top-ups are not discounted by points'),
+      unavailable: _('tolik volných bodů nemáte', 'you do not have that many points free'),
+      rate_unknown: _('kurz ČNB zatím není známý', 'the national bank rate is not known yet'),
+      below_minimum: _('uplatnit lze nejméně ' + l.min_points + ' bodů', 'at least ' + l.min_points + ' points')
+    }[l.reason] || '';
+    return _('Body se neuplatnily', 'No points redeemed') + (why ? ': ' + why : '');
+  }
+  function loyaltyApply(n) {
+    if (!A() || loyalty.busy) return;
+    loyalty.busy = true;
+    A().post('/cart/loyalty', { points: n }).then(function () {
+      loyalty.busy = false; loyalty.points = n; loyalty.msg = '';
+      if (cmpRef) cmpRef.setState({ quoteAt: Date.now() }); // a new quote with (or without) the points
+      loyaltyRender();
+    }).catch(function (e) {
+      loyalty.busy = false;
+      loyalty.msg = (e && e.body && e.body.message) || (isCs() ? 'Body se nepodařilo uplatnit.' : 'The points could not be redeemed.');
+      loyaltyRender();
+    });
+  }
+  function button(label, onClick) {
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'btn btn-secondary'; b.style.cssText = 'white-space:nowrap;font-size:13px'; b.textContent = label;
+    b.addEventListener('click', function (e) { e.preventDefault(); onClick(); });
+    return b;
+  }
+  function loyaltyBox(cs) {
+    var _ = function (a, b) { return cs ? a : b; }, info = loyalty.info, unit = money(cmpRef, (Number(info.point_value && info.point_value.minor) || 100) / 100);
+    var box = document.createElement('div');
+    box.setAttribute('data-onhost-loyalty', '1');
+    box.style.cssText = 'margin:0 0 12px;font-size:13px';
+    var head = document.createElement('div');
+    head.textContent = _('Věrnostní body: k dispozici ' + info.available + ' (1 bod = ' + unit + ' bez DPH, nejméně ' + info.min_points + ', nejvýš ' + info.cap_pct + ' % ceny)', 'Loyalty points: ' + info.available + ' available (1 point = ' + unit + ' before VAT, at least ' + info.min_points + ', at most ' + info.cap_pct + '% of the price)');
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:10px;margin-top:6px';
+    var input = document.createElement('input');
+    input.type = 'number'; input.min = '0'; input.step = '1'; input.value = loyalty.value || (loyalty.points ? String(loyalty.points) : ''); input.placeholder = _('Počet bodů', 'Points');
+    input.style.cssText = 'width:100%;border:2px solid var(--fg,#201e1d);background:var(--field,#f8f4f4);padding:11px 12px;font-family:var(--font-body);font-size:14px;color:var(--fg,#201e1d);outline:none';
+    input.addEventListener('input', function () { loyalty.value = input.value; });
+    row.appendChild(input);
+    row.appendChild(button(loyalty.points ? _('Změnit', 'Change') : _('Uplatnit', 'Redeem'), function () { loyaltyApply(Math.max(0, Math.floor(Number(input.value) || 0))); }));
+    if (loyalty.points) row.appendChild(button(_('Zrušit', 'Remove'), function () { loyalty.value = ''; loyaltyApply(0); }));
+    var note = document.createElement('div');
+    note.style.cssText = 'margin-top:4px;color:var(--accInk,#ae1800)';
+    note.textContent = loyaltyStatus(cs);
+    box.appendChild(head); box.appendChild(row); box.appendChild(note);
+    return box;
+  }
+  /* placed under the promo code row of the cart drawer; the page re-renders the drawer, so the box is put back when it is gone */
+  function loyaltyRender() {
+    if (typeof document.querySelectorAll !== 'function') return;
+    var old = document.querySelectorAll('[data-onhost-loyalty]');
+    for (var i = 0; i < old.length; i++) if (old[i].parentNode) old[i].parentNode.removeChild(old[i]);
+    var st = cmpRef && cmpRef.state, items = (st && st.cartItems) || [];
+    if (!items.length) { loyalty.points = 0; loyalty.msg = ''; loyalty.value = ''; return; } // an emptied cart (the order was placed) starts again without points
+    var info = loyaltyInfo();
+    if (!signedIn() || !info || ((Number(info.available) || 0) < (Number(info.min_points) || 100) && !loyalty.points)) return;
+    var promo = document.querySelector(PROMO_INPUT), anchor = promo && promo.parentNode;
+    if (!anchor || !anchor.parentNode) return;
+    anchor.parentNode.insertBefore(loyaltyBox(isCs()), anchor.nextSibling);
+  }
+  if (typeof MutationObserver === 'function' && document.body && typeof document.querySelector === 'function') {
+    var loyaltyQueued = false;
+    new MutationObserver(function () {
+      if (loyaltyQueued || !signedIn() || document.querySelector('[data-onhost-loyalty]') || !document.querySelector(PROMO_INPUT)) return;
+      loyaltyQueued = true;
+      setTimeout(function () { loyaltyQueued = false; loyaltyRender(); }, 0);
+    }).observe(document.body, { childList: true, subtree: true });
+  }
+  /* the label of the drawer's discount row: what the discount is made of (a promo code, points) */
+  function discountLabel(state, cs) {
+    var _ = function (a, b) { return cs ? a : b; }, parts = [], code = String((state && state.promoOk && state.promo) || '').toUpperCase();
+    if (code) parts.push(code);
+    if (loyaltyLine(state)) parts.push(_('věrnostní body', 'loyalty points'));
+    return parts.length ? _('Sleva ', 'Discount ') + parts.join(' + ') : _('Sleva', 'Discount');
   }
 
   /* ── domain search on the home page: real availability from the registrars ─ */
@@ -470,6 +574,7 @@
     totals: totals, termLabel: termLabel, totalLabel: totalLabel, months: months, periodPrice: periodPrice,
     cartRow: cartRow, itemAddons: itemAddons, summaryRows: summaryRows, upsells: upsells,
     applyPromo: applyPromo, promoOff: promoOff, promoState: promoState, doneCopy: doneCopy, doneRows: doneRows, orderSummaryRows: orderSummaryRows,
+    discountLabel: discountLabel, loyaltyStatus: loyaltyStatus, loyaltyRender: loyaltyRender,
     searchDomains: searchDomains,
     orderItems: orderItems, domainTlds: domainTlds, isDomain: isDomain, sku: sku,
     guestDetails: function () { return Object.assign({}, guest); },

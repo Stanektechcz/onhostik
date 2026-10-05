@@ -52,6 +52,7 @@ use Onhost\Domain\Invoicing\Listeners\SettleInvoicePayment;
 use Onhost\Domain\Loyalty\Commands\AccountLoyaltyCommand;
 use Onhost\Domain\Loyalty\Commands\LoyaltyCommand;
 use Onhost\Domain\Loyalty\Commands\LoyaltyCommandHandler;
+use Onhost\Domain\Loyalty\Commands\RedeemPointsCommand;
 use Onhost\Domain\Loyalty\LoyaltyRouter;
 use Onhost\Domain\Marketplace\Commands\MarketplaceCommand;
 use Onhost\Domain\Marketplace\Commands\MarketplaceCommandHandler;
@@ -142,6 +143,7 @@ final class DomainServiceProvider extends ServiceProvider
         LoyaltyCommand::class => LoyaltyCommandHandler::class,
         WebhookCommand::class => WebhookCommandHandler::class, // TASK-0077 (D4) customer webhooks
         AccountLoyaltyCommand::class => LoyaltyCommandHandler::class,
+        RedeemPointsCommand::class => LoyaltyCommandHandler::class, // G3 (G-R2) points redeemed for a discount on the cart
         MarketplaceCommand::class => MarketplaceCommandHandler::class,
         MarketplaceStaffCommand::class => MarketplaceCommandHandler::class,
         CatalogCommand::class => CatalogCommandHandler::class,

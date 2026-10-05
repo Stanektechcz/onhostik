@@ -2,6 +2,9 @@
 
 declare(strict_types=1);
 
+use Database\Seeders\CatalogSeeder;
+use Database\Seeders\LegalEntitySeeder;
+use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Http\Client\Request as HttpClientRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -12,6 +15,7 @@ use Onhost\Domain\Identity\Models\PersonalAccessToken;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Identity\StepUp\Totp;
+use Onhost\Domain\Loyalty\Models\LoyaltyPoint;
 use Onhost\Domain\Notifications\Models\WebhookEndpoint;
 use Onhost\Domain\Notifications\WebhookDispatcher;
 use Onhost\Domain\Notifications\Webhooks\WebhookCommandHandler;
@@ -403,6 +407,12 @@ function apiManualArrange(string $what, object $test, ApiManualRun $run, array $
             break;
         case $what === 'healthy_receiver':
             $run->receiverStatus = 204;
+            break;
+        case $what === 'catalog': // G3: the price list and the tax rules a staging installation has (ordering has its own manual, 01)
+            $test->seed([CatalogSeeder::class, TaxRuleSeeder::class, LegalEntitySeeder::class]);
+            break;
+        case str_starts_with($what, 'loyalty_points='): // G3: points the organization earned earlier (support awards them on staging; earning is the loyalty tests' concern)
+            LoyaltyPoint::query()->create(['organization_id' => $run->org->id, 'rule' => 'manual', 'reference' => 'manual-api:'.uniqid(), 'points' => (int) substr($what, 15), 'note' => 'ruční test API']);
             break;
         default:
             throw new RuntimeException("{$where}: the page asks for an unknown arrangement `{$what}`");

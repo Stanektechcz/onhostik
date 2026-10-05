@@ -143,6 +143,11 @@ final class NotificationRouter
             'loyalty.level_up' => $this->customer($m, 'account', 'Nová úroveň věrnostního programu: '.($p['name'] ?? ''), ($p['reward'] ?? null) ? 'Odměna '.$money($p['reward']).' je na vašem promo kreditu.' : 'Díky, že jste s námi.', '/panel/nastaveni', 'info', $email, 'loyalty-level-up', ['uroven' => (string) ($p['name'] ?? ''), 'body' => (string) (int) ($p['points'] ?? 0), 'odmena' => ($p['reward'] ?? null) ? $money($p['reward']) : '—', 'url' => "{$portal}/panel/nastaveni"]),
             'loyalty.badge' => $this->customer($m, 'account', 'Nový odznak: '.($p['name'] ?? ''), 'Najdete ho v nastavení účtu.', '/panel/nastaveni'),
             'loyalty.clawback' => $this->customer($m, 'account', 'Věrnostní body vráceny: '.(int) ($p['points'] ?? 0), ($p['reason'] ?? 'Peníze se vrátily').' · zůstatek '.(int) ($p['total'] ?? 0).' bodů. Body se přičítají jen za zaplacené částky.', '/panel/nastaveni', 'info'),
+            // G3 (owner decision G-R2): points redeemed for a discount, given back with a credit note, about to expire, expired
+            'loyalty.redeemed' => $this->customer($m, 'account', 'Věrnostní body uplatněny: '.(int) ($p['points'] ?? 0), 'Sleva za věrnostní body '.$money($p['value'] ?? null).' · objednávka '.($p['number'] ?? '').' · zůstatek '.(int) ($p['total'] ?? 0).' bodů', '/panel/nastaveni', 'info'),
+            'loyalty.points_returned' => $this->customer($m, 'account', 'Uplatněné body se vrátily: '.(int) ($p['points'] ?? 0), 'Dobropis '.($p['credit_note'] ?? '').' · zůstatek '.(int) ($p['total'] ?? 0).' bodů', '/panel/nastaveni', 'info'),
+            'loyalty.expiring' => $this->customer($m, 'account', 'Věrnostní body brzy propadnou: '.(int) ($p['points'] ?? 0), 'Propadnou '.self::day($p['expires_on'] ?? null).'. Uplatněte je v košíku jako slevu na objednávku.', '/panel/nastaveni', 'warn', $email, 'loyalty-expiring', ['body' => (string) (int) ($p['points'] ?? 0), 'datum' => self::day($p['expires_on'] ?? null), 'zustatek' => (string) (int) ($p['total'] ?? 0), 'url' => "{$portal}/panel/nastaveni"]),
+            'loyalty.expired' => $this->customer($m, 'account', 'Věrnostní body propadly: '.(int) ($p['points'] ?? 0), 'Propadly body připsané do '.self::day($p['credited_until'] ?? null).' · zůstatek '.(int) ($p['total'] ?? 0).' bodů', '/panel/nastaveni', 'info'),
             'service.migration.collaborators_dropped' => $this->customer($m, 'service', 'Server '.($p['label'] ?? '').': spolupracovníky se nepodařilo přenést', 'Na nový server se nepřenesli spolupracovníci: '.(int) ($p['count'] ?? 0).'. Jejich práva by se při přenosu změnila, proto jsme je nepřidali. Přidejte je znovu v nastavení serveru.', '/panel/sluzby', 'warn'),
             'service.migrated' => $this->customer($m, 'service', 'Server '.($p['label'] ?? '').' byl přestěhován', 'Nová adresa: '.($p['address'] ?? '—').'. Data, nastavení i plány zůstaly.', '/panel/sluzby', 'info', $email, 'service-migrated', ['sluzba' => (string) ($p['label'] ?? ''), 'adresa' => (string) ($p['address'] ?? ''), 'url' => "{$portal}/panel/sluzby"]),
             'service.migration.failed' => $this->internal($m, 'infra', 'Stěhování serveru '.($p['label'] ?? '').' selhalo', (string) ($p['error'] ?? '').' · '.($p['source_node'] ?? '').' → '.($p['target_node'] ?? ''), '/sprava#/gprov', 'hot'),
@@ -796,6 +801,19 @@ final class NotificationRouter
             'whitelabel_scope' => ['basic' => 'základní', 'full' => 'plný'][$v] ?? $v,
             default => $v,
         };
+    }
+
+    /** `5. 10. 2026` — a calendar day (G3 expiry dates), no time. */
+    private static function day(mixed $date): string
+    {
+        if (! is_string($date) || $date === '') {
+            return '—';
+        }
+        try {
+            return CarbonImmutable::parse($date)->format('j. n. Y');
+        } catch (\Throwable) {
+            return $date;
+        }
     }
 
     private static function when(mixed $iso): string
