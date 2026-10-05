@@ -6,6 +6,8 @@ use Database\Seeders\CatalogSeeder;
 use Database\Seeders\DnsTemplateSeeder;
 use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
+use GuzzleHttp\Promise\Create;
+use GuzzleHttp\Psr7\Response;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Notification;
@@ -403,6 +405,179 @@ function e2eIspSiteExtras(array &$panel): void
         $panel[$rows][$id] = array_merge($panel[$rows][$id] ?? [], (array) ($data['params'] ?? []));
 
         return Http::response($envelope(1));
+    });
+}
+
+/**
+ * A STATEFUL Proxmox cluster (one node `prg1-n2`, the lab instance of pveLab()). Every guest is a row in `$pve['guests']` (config,
+ * power status, snapshots, firewall), the golden template 9001 is there from the start, and a clone really creates the next guest:
+ * what the platform writes is what it reads back, so a power action, a snapshot, a rollback, a reinstall or a rescue boot changes
+ * the cluster and the next read shows it. A path it does not know answers 501 and lands in `$pve['unknown']` (a test asserts it stays
+ * empty), so a call the platform should not make fails the flow out loud.
+ *
+ * State keys: `guests` (vmid => [name, description, tags, status, template, config, snapshots, firewall_rules, firewall_options,
+ * rolled_back_to]), `backups` (vmids that still have backups on the backup server), `isos` (volume ids the node offers), `writes`
+ * (every non-GET call as "METHOD /path", in order), `clones` (vmids cloned into, in order), `vnc_tickets` (issued), `unknown`,
+ * `floor` (the lowest number Proxmox hands out).
+ *
+ * @param  array<string,mixed>  $pve
+ */
+function e2ePveCluster(array &$pve): void
+{
+    $pve += ['guests' => [], 'backups' => [], 'isos' => ['local:iso/systemrescue-11.iso', 'local:iso/debian-13-netinst.iso'], 'writes' => [], 'clones' => [], 'vnc_tickets' => [], 'unknown' => [], 'floor' => 1040];
+    $pve['guests'][9001] ??= ['name' => 'debian-13-golden', 'description' => '', 'tags' => '', 'status' => 'stopped', 'template' => 1, 'config' => ['scsi0' => 'local-zfs:base-9001-disk-0,size=4G', 'cores' => 1, 'memory' => 2048], 'snapshots' => [], 'firewall_rules' => [], 'firewall_options' => []];
+    $base = 'https://pve.mgmt.test:8006/api2/json';
+    Http::fake(function (Request $request) use (&$pve, $base) {
+        if (! str_starts_with($request->url(), $base)) {
+            return null; // the gateway and the other panels get their turn
+        }
+        $path = substr(rawurldecode((string) parse_url($request->url(), PHP_URL_PATH)), strlen('/api2/json'));
+        parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+        $method = $request->method();
+        $data = $request->data();
+        if ($method !== 'GET') {
+            $pve['writes'][] = $method.' '.$path;
+        }
+        $ok = fn (mixed $payload = null) => Http::response(['data' => $payload]);
+        $task = fn (string $what, int|string $vmid) => Http::response(['data' => "UPID:prg1-n2:000A1B2C:0004E1F5:66F0AA11:{$what}:{$vmid}:onhost@pve!cp:"]);
+        $fail = fn (int $status, string $reason) => Create::promiseFor(new Response($status, ['Content-Type' => 'application/json'], '{"data":null}', '1.1', $reason));
+
+        if ($path === '/cluster/resources') {
+            return $ok(array_values(array_map(fn (int $id, array $g) => ['type' => 'qemu', 'vmid' => $id, 'node' => 'prg1-n2', 'name' => $g['name'], 'tags' => $g['tags'], 'status' => $g['status'], 'template' => $g['template']], array_keys($pve['guests']), $pve['guests'])));
+        }
+        if ($path === '/cluster/nextid') {
+            if (isset($query['vmid'])) {
+                return isset($pve['guests'][(int) $query['vmid']]) ? Http::response(['errors' => ['vmid' => "VM {$query['vmid']} already exists"], 'data' => null], 400) : $ok((string) (int) $query['vmid']);
+            }
+            for ($id = (int) $pve['floor']; isset($pve['guests'][$id]); $id++);
+
+            return $ok((string) $id);
+        }
+        if ($path === '/nodes/prg1-n2/storage/pbs-cz1/content') {
+            return $ok(array_map(fn (int $id) => ['volid' => "pbs-cz1:backup/vm/{$id}/2026-07-01T02:00:00Z", 'vmid' => $id, 'format' => 'pbs-vm', 'content' => 'backup', 'size' => 21474836480, 'protected' => 1], $pve['backups']));
+        }
+        if ($path === '/nodes/prg1-n2/storage/local/content') {
+            return $ok(array_map(fn (string $volume) => ['volid' => $volume, 'size' => 900 * 1024 * 1024, 'content' => 'iso'], $pve['isos']));
+        }
+        if (preg_match('~^/nodes/[^/]+/tasks/~', $path) === 1) {
+            return $ok(['status' => 'stopped', 'exitstatus' => 'OK']);
+        }
+        if ($path === '/nodes/prg1-n2/qemu/9001/clone' && $method === 'POST') {
+            $id = (int) $data['newid'];
+            $pve['clones'][] = $id;
+            if (isset($pve['guests'][$id])) {
+                return $fail(500, "unable to create VM {$id}: config file already exists");
+            }
+            $template = $pve['guests'][9001];
+            $pve['guests'][$id] = ['name' => (string) $data['name'], 'description' => (string) ($data['description'] ?? ''), 'tags' => '', 'status' => 'stopped', 'template' => 0,
+                'config' => ['scsi0' => "local-zfs:vm-{$id}-disk-0,size=4G", 'cores' => 1, 'memory' => 2048, 'agent' => '1', 'onboot' => 1, 'boot' => 'order=scsi0;net0'] + $template['config'], 'snapshots' => [], 'firewall_rules' => [], 'firewall_options' => []];
+
+            return $task('qmclone', 9001);
+        }
+        if (preg_match('~^/nodes/prg1-n2/qemu/(\d+)/(.+)$~', $path, $m) !== 1) {
+            $pve['unknown'][] = $method.' '.$path;
+
+            return Http::response(['data' => null], 501);
+        }
+        $id = (int) $m[1];
+        $what = $m[2];
+        if (! isset($pve['guests'][$id])) {
+            return $fail(500, "Configuration file 'nodes/prg1-n2/qemu-server/{$id}.conf' does not exist");
+        }
+        $guest = &$pve['guests'][$id];
+
+        if ($what === 'config' && $method === 'GET') {
+            return $ok(['name' => $guest['name'], 'description' => $guest['description'], 'tags' => $guest['tags']] + $guest['config'] + ($guest['template'] ? ['template' => 1] : []));
+        }
+        if ($what === 'config' && in_array($method, ['PUT', 'POST'], true)) {
+            foreach ($data as $key => $value) {
+                if (in_array($key, ['name', 'description', 'tags'], true)) {
+                    $guest[$key] = (string) $value;
+                } elseif ($key === 'scsi0' && str_contains((string) $value, 'import-from=')) { // a reinstall: the old disk is detached, a fresh one stands in its place
+                    $guest['config']['unused0'] = explode(',', (string) $guest['config']['scsi0'])[0];
+                    $guest['config']['scsi0'] = "local-zfs:vm-{$id}-disk-1,size=4G";
+                    $guest['config']['import'] = (string) $value;
+                } else {
+                    $guest['config'][$key] = $value;
+                }
+            }
+
+            return $method === 'POST' ? $task('qmconfig', $id) : $ok();
+        }
+        if ($what === 'resize' && $method === 'PUT') {
+            preg_match('~size=(\d+)G~', (string) $guest['config']['scsi0'], $current);
+            $wanted = (string) $data['size'];
+            $gb = str_starts_with($wanted, '+') ? (int) ($current[1] ?? 0) + (int) ltrim($wanted, '+') : (int) $wanted;
+            $guest['config']['scsi0'] = preg_replace('~size=\d+G~', "size={$gb}G", (string) $guest['config']['scsi0']);
+
+            return $task('resize', $id);
+        }
+        if ($what === 'cloudinit' && $method === 'PUT') {
+            return $ok();
+        }
+        if ($what === 'status/current') {
+            return $ok(['status' => $guest['status'], 'uptime' => $guest['status'] === 'running' ? 7 : 0, 'cpu' => 0.02, 'mem' => 536870912, 'maxmem' => 8589934592, 'netin' => 1000, 'netout' => 2000]);
+        }
+        if (preg_match('~^status/(start|stop|shutdown|reboot|reset)$~', $what, $s) === 1 && $method === 'POST') {
+            $guest['status'] = in_array($s[1], ['stop', 'shutdown'], true) ? 'stopped' : 'running';
+
+            return $task('qm'.$s[1], $id);
+        }
+        if ($what === 'snapshot' && $method === 'POST') {
+            $guest['snapshots'][(string) $data['snapname']] = ['name' => (string) $data['snapname'], 'description' => (string) ($data['description'] ?? ''), 'snaptime' => 1_760_000_000 + count($guest['snapshots'])];
+
+            return $task('qmsnapshot', $id);
+        }
+        if ($what === 'snapshot' && $method === 'GET') {
+            return $ok(array_merge(array_values($guest['snapshots']), [['name' => 'current']]));
+        }
+        if (preg_match('~^snapshot/([^/]+)/rollback$~', $what, $s) === 1 && $method === 'POST') {
+            if (! isset($guest['snapshots'][$s[1]])) {
+                return $fail(500, "snapshot '{$s[1]}' does not exist");
+            }
+            $guest['rolled_back_to'] = $s[1];
+            $guest['status'] = ! empty($data['start']) ? 'running' : 'stopped';
+
+            return $task('qmrollback', $id);
+        }
+        if (preg_match('~^snapshot/([^/]+)$~', $what, $s) === 1 && $method === 'DELETE') {
+            unset($guest['snapshots'][$s[1]]);
+
+            return $task('qmdelsnapshot', $id);
+        }
+        if ($what === 'firewall/rules' && $method === 'GET') {
+            return $ok(array_map(fn (int $pos, array $rule) => $rule + ['pos' => $pos], array_keys($guest['firewall_rules']), $guest['firewall_rules']));
+        }
+        if ($what === 'firewall/rules' && $method === 'POST') {
+            $rule = $data;
+            $position = (int) ($rule['pos'] ?? 0);
+            unset($rule['pos']);
+            array_splice($guest['firewall_rules'], $position, 0, [$rule]);
+
+            return $ok();
+        }
+        if (preg_match('~^firewall/rules/(\d+)$~', $what, $s) === 1 && $method === 'DELETE') {
+            array_splice($guest['firewall_rules'], (int) $s[1], 1);
+
+            return $ok();
+        }
+        if ($what === 'firewall/options') {
+            if ($method === 'PUT') {
+                $guest['firewall_options'] = $data + $guest['firewall_options'];
+
+                return $ok();
+            }
+
+            return $ok($guest['firewall_options']);
+        }
+        if ($what === 'vncproxy' && $method === 'POST') {
+            $pve['vnc_tickets'][] = 'PVEVNC:e2e-secret-ticket-'.$id;
+
+            return $ok(['port' => 5900, 'ticket' => 'PVEVNC:e2e-secret-ticket-'.$id, 'user' => 'onhost@pve!cp', 'password' => 'one-time-vnc-secret']);
+        }
+        $pve['unknown'][] = $method.' '.$path;
+
+        return Http::response(['data' => null], 501);
     });
 }
 
