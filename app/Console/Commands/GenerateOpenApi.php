@@ -229,6 +229,9 @@ final class GenerateOpenApi extends Command
 
         $out = base_path((string) $this->option('out'));
         $yaml = Yaml::dump($document, 12, 2, Yaml::DUMP_MULTI_LINE_LITERAL_BLOCK | Yaml::DUMP_EMPTY_ARRAY_AS_SEQUENCE);
+        // OpenAPI response codes are string keys; PHP turns "200" into an int and the dumper then writes it unquoted,
+        // which Spectral (and strict YAML tooling) reject as a numeric mapping key. Only response codes are 3-digit keys here.
+        $yaml = (string) preg_replace('/^(\s+)([1-5]\d\d):$/m', "$1'$2':", $yaml);
         $summary = sprintf('%s: %d paths, %d operations', $out, count($paths), array_sum(array_map('count', $paths)));
 
         if ($this->option('check')) {
