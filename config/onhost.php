@@ -265,6 +265,8 @@ return [
         'points' => ['order.paid_per_100' => 1, 'payment.on_time' => 10, 'mfa.enabled' => 50, 'backups.enabled' => 30, 'monitoring.enabled' => 20, 'service.first' => 100, 'anniversary' => 100, 'referral' => 200],
         'levels' => [['key' => 'bronze', 'name' => 'Bronze', 'min' => 0, 'reward_minor' => 0], ['key' => 'silver', 'name' => 'Silver', 'min' => 500, 'reward_minor' => 10000], ['key' => 'gold', 'name' => 'Gold', 'min' => 2000, 'reward_minor' => 30000], ['key' => 'platinum', 'name' => 'Platinum', 'min' => 5000, 'reward_minor' => 80000]],
         'reward_currency' => 'CZK',
+        // R6 (owner decision 2026-10-03): a payment earns points only from this amount (minor units; CZK 100), and a credit note or chargeback refund takes them back
+        'min_payment_minor' => ['CZK' => (int) env('ONHOST_LOYALTY_MIN_PAYMENT_MINOR', 10000), 'EUR' => 400, 'default' => 10000],
         // customer-to-customer referrals (audit §5j-2): points and promo credit for both sides once the invited organization pays its first document
         'referral' => ['referrer_points' => 200, 'referred_points' => 100, 'referrer_credit_minor' => (int) env('ONHOST_REFERRAL_CREDIT', 20000), 'referred_credit_minor' => (int) env('ONHOST_REFERRAL_WELCOME_CREDIT', 10000), 'max_per_30d' => (int) env('ONHOST_REFERRAL_MONTHLY_CAP', 20), 'clawback_days' => (int) env('ONHOST_REFERRAL_CLAWBACK_DAYS', 90)], // clawback_days: a chargeback of the referred organization within this window claws the referral back (§5l-4)
         // monthly missions (audit §5j-3): points per completed mission; the streak of on-time months that may earn a permanent discount (finance approves it)
