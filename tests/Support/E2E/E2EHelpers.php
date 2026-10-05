@@ -375,6 +375,40 @@ function e2eTopUp(object $test, array &$gate, int $amountCzk): void
 }
 
 /**
+ * Cron jobs and FTP accounts on the stateful ISPConfig double of `e2eIspPanel`, kept in `$panel['crons']` and `$panel['ftps']`
+ * (id => row, `active` y|n). Register it BEFORE `e2eIspPanel`: the first fake that answers wins, and the plain panel only knows
+ * these listings as empty. A suspension switches both off and a resume switches them back on, so a flow reads the rows to see it.
+ *
+ * @param  array<string,mixed>  $panel
+ */
+function e2eIspSiteExtras(array &$panel): void
+{
+    $panel += ['crons' => [], 'ftps' => [], 'calls' => []];
+    $envelope = fn (mixed $response): array => ['code' => 'ok', 'message' => '', 'response' => $response];
+    Http::fake(function (Request $request) use (&$panel, $envelope) {
+        if (! str_contains($request->url(), E2E_ISP)) {
+            return null;
+        }
+        $function = (string) parse_url($request->url(), PHP_URL_QUERY);
+        if (! in_array($function, ['sites_cron_get', 'sites_cron_update', 'sites_ftp_user_get', 'sites_ftp_user_update'], true)) {
+            return null;
+        }
+        $panel['calls'][] = $function;
+        $data = $request->data();
+        $rows = str_starts_with($function, 'sites_cron') ? 'crons' : 'ftps';
+        if (str_ends_with($function, '_get')) {
+            $parent = (string) (((array) ($data['primary_id'] ?? []))['parent_domain_id'] ?? '');
+
+            return Http::response($envelope(array_values(array_filter($panel[$rows], fn (array $row) => (string) ($row['parent_domain_id'] ?? '') === $parent))));
+        }
+        $id = (int) ($data['primary_id'] ?? 0);
+        $panel[$rows][$id] = array_merge($panel[$rows][$id] ?? [], (array) ($data['params'] ?? []));
+
+        return Http::response($envelope(1));
+    });
+}
+
+/**
  * A STATEFUL Proxmox cluster (one node `prg1-n2`, the lab instance of pveLab()). Every guest is a row in `$pve['guests']` (config,
  * power status, snapshots, firewall), the golden template 9001 is there from the start, and a clone really creates the next guest:
  * what the platform writes is what it reads back, so a power action, a snapshot, a rollback, a reinstall or a rescue boot changes
