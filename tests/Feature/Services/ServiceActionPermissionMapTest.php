@@ -58,7 +58,7 @@ it('maps every service action and nothing else', function () {
     $actions = array_values(array_unique(ServiceActionWorkflow::ACTIONS));
     sort($actions);
 
-    expect($mapped)->toBe($actions)->and($mapped)->toHaveCount(132);
+    expect($mapped)->toBe($actions)->and($mapped)->toHaveCount(135); // TASK-0110: iso.attach, iso.detach, iso.delete
     foreach (ServiceActionCommand::PERMISSIONS as $action => $permission) {
         expect(PermissionCatalog::exists($permission))->toBeTrue("{$action} maps to {$permission}, which the catalogue does not know")
             ->and(ServiceActionCommand::permissionFor($action))->toBe($action === 'schedule.create' ? 'service.manage' : $permission);

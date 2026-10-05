@@ -177,6 +177,13 @@ final class MetricRegistry
             'interval_minutes' => null, 'drives_guard' => false, 'status' => self::ENFORCED_ONLY,
             'reason' => 'Phase C (C9): a snapshot is refused once the server holds as many as its plan sells (feature_limit_reached); nothing samples the count over time — it is checked when a snapshot is asked for.',
         ],
+        // TASK-0110 (owner decision G-R5): the size of one customer image, sold only with the plan's `custom_iso` switch
+        'custom_iso_max_mb' => [
+            'entitlement' => ['custom_iso_max_mb'], 'unit' => 'mb', 'scope' => 'service', 'limit_kind' => self::HARD, 'families' => ['cloud'],
+            'sources' => ['proxmox' => 'CustomIsoLibrary::stage() refuses an upload larger than CustomIsoPolicy::maxBytes() — the plan\'s number, never more than what clamd scans in full (onhost.custom_iso.scan_max_mb) — before it is scanned or kept'],
+            'interval_minutes' => null, 'drives_guard' => false, 'status' => self::ENFORCED_ONLY,
+            'reason' => 'Checked on every upload against the bytes that arrived (not the size the browser claims); the organization\'s total and the number of images are the operator\'s quota (onhost.custom_iso.org_quota_mb, org_max_images), not the plan\'s.',
+        ],
         // TASK-0023 placement-capacity (decision 7): kept for the web family only — a web plan that sells it runs only on ISPConfig
         'php_workers_dedicated' => [
             'entitlement' => ['php_workers_dedicated'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::HARD, 'families' => ['web'],

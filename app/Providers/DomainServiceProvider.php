@@ -94,6 +94,8 @@ use Onhost\Domain\Services\Commands\ServiceArchiveCommandHandler;
 use Onhost\Domain\Services\Commands\ServicesCommandHandler;
 use Onhost\Domain\Services\Commands\WebToolsCommand;
 use Onhost\Domain\Services\Commands\WebToolsCommandHandler;
+use Onhost\Domain\Services\CustomIso\UploadCustomIsoCommand;
+use Onhost\Domain\Services\CustomIso\UploadCustomIsoHandler;
 use Onhost\Domain\Services\Listeners\CloseServiceAccessGrants;
 use Onhost\Domain\Services\Listeners\RevokeDelegatedAccess;
 use Onhost\Domain\Services\Metering\AnnounceDiskTotalCommand;
@@ -150,6 +152,7 @@ final class DomainServiceProvider extends ServiceProvider
         ServiceArchiveCommand::class => ServiceArchiveCommandHandler::class,
         IssueConsoleTokenCommand::class => ServicesCommandHandler::class,
         WebToolsCommand::class => WebToolsCommandHandler::class,
+        UploadCustomIsoCommand::class => UploadCustomIsoHandler::class, // a customer's own installation image (TASK-0110)
         IntegrationCommand::class => IntegrationCommandHandler::class,
         DomainCommand::class => DomainsCommandHandler::class,
         RegistrarConnectionCommand::class => RegistrarConnectionsCommandHandler::class,

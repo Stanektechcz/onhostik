@@ -33,6 +33,7 @@ use Onhost\Domain\Provisioning\Scheduling\PlacementRules;
 use Onhost\Domain\Provisioning\Workflow\Workflow;
 use Onhost\Domain\Provisioning\Workflows\CdnWorkflow;
 use Onhost\Domain\Provisioning\Workflows\CertificateWorkflow;
+use Onhost\Domain\Provisioning\Workflows\CustomIsoWorkflow;
 use Onhost\Domain\Provisioning\Workflows\DeployWorkflow;
 use Onhost\Domain\Provisioning\Workflows\ImportWorkflow;
 use Onhost\Domain\Provisioning\Workflows\ProvisionAppWorkflow;
@@ -46,6 +47,7 @@ use Onhost\Domain\Provisioning\Workflows\StagingWorkflow;
 use Onhost\Domain\Provisioning\Workflows\WordPressWorkflow;
 use Onhost\Domain\Services\Access\OwnerOnlyActions;
 use Onhost\Domain\Services\Commands\ServiceActionCommand;
+use Onhost\Domain\Services\CustomIso\CustomIsoPolicy;
 use Onhost\Domain\Services\Limits\LimitRaises;
 use Onhost\Domain\Services\Metering\CustomerUsage;
 use Onhost\Domain\Services\Models\Backup;
@@ -682,6 +684,7 @@ final class ServiceService
             str_starts_with($action, 'wp.') => WordPressWorkflow::class,
             $action === 'import.run' => ImportWorkflow::class,
             str_starts_with($action, 'cdn.') => CdnWorkflow::class,
+            str_starts_with($action, 'iso.') => CustomIsoWorkflow::class, // a customer's own image (TASK-0110)
             str_starts_with($action, 'site.') => SiteWorkflow::class,
             $action === 'ssl.wildcard' => CertificateWorkflow::class,
             default => ServiceActionWorkflow::class,
@@ -697,6 +700,9 @@ final class ServiceService
     private function featureParams(Service $service, string $action, array $params): array
     {
         $features = app(ServiceFeatures::class);
+        if ($action === 'iso.attach') { // G-R5: only where the ordered plan has it — said as such (403, „není v tarifu“), not as a missing panel feature
+            CustomIsoPolicy::assertInPlan($service);
+        }
         if (! in_array($action, $features->actions($service), true)) {
             throw new DomainError('feature_unavailable', "{$action} is not available for this service.", 422, ['action' => $action]);
         }
@@ -853,6 +859,8 @@ final class ServiceService
             // which image is the node's business: the value is checked against what it really offers (RescueMode)
             'rescue.start' => array_filter(['image' => (string) ($params['image'] ?? '') !== '' ? mb_substr((string) $params['image'], 0, 200) : null, 'hours' => isset($params['hours']) ? max(1, min(72, (int) $params['hours'])) : null], fn ($v) => $v !== null),
             'rescue.stop' => [],
+            // a customer's own image (TASK-0110): the organization's, ready, not on another server; the plan and a rescue session decide too
+            'iso.attach', 'iso.detach', 'iso.delete' => CustomIsoPolicy::params($service, $action, $params),
             'command.send' => ['command' => $need('command', '/^[^\r\n]{1,1000}$/', 'command is required (one line)')],
             'schedule.create' => (function () use ($need, $params, $action) {
                 $actions = [];
