@@ -37,7 +37,7 @@ final class GenerateOpenApi extends Command
      * F12a (TASK-0106): `description` and `response` (the schema of `data` in the 200 answer) for an operation whose answer has a
      * documented shape.
      *
-     * @var array<string, array{body?: array<string, mixed>, errors?: array<int, list<string>>, description?: string, response?: array<string, mixed>}>
+     * @var array<string, array{body?: array<string, mixed>, multipart?: array<string, mixed>, errors?: array<int, list<string>>, description?: string, response?: array<string, mixed>}>
      */
     private const DETAILS = [
         'POST /domains/transfer-in' => [
@@ -56,6 +56,23 @@ final class GenerateOpenApi extends Command
                 'email' => ['type' => 'string', 'format' => 'email', 'maxLength' => 190], 'phone' => ['type' => 'string', 'maxLength' => 40], 'street' => ['type' => 'string', 'maxLength' => 190],
                 'city' => ['type' => 'string', 'maxLength' => 120], 'postal_code' => ['type' => 'string', 'maxLength' => 20], 'country' => ['type' => 'string', 'minLength' => 2, 'maxLength' => 2],
             ], 'description' => 'How the holder is reached (e-mail, phone, address), changed at the registrar first. HIGH: needs a fresh step-up. The holder himself (name, company, IČO, DIČ) is a transfer of the domain and is refused.'],
+        ],
+        // TASK-0110 (owner decision G-R5): a customer's own installation image, only where the VPS plan sells `custom_iso`
+        'GET /services/{service}/isos' => [
+            'description' => 'The organization\'s own installation images as seen through this server: whether its plan offers them (`offered`), the size of one image it allows (`max_bytes`), the organization\'s quota and every image (`attached_service_id`, `attached_here`). Attach, detach and delete are the service actions `iso.attach` (params `iso_id`, `boot_first`, `reboot`; the console\'s permission), `iso.detach` (`reboot`) and `iso.delete` (`iso_id`; HIGH, a fresh step-up).',
+            'response' => ['type' => 'object', 'required' => ['offered', 'quota', 'images'], 'properties' => [
+                'offered' => ['type' => 'boolean'], 'max_bytes' => ['type' => ['integer', 'null']],
+                'quota' => ['type' => 'object', 'properties' => ['used_bytes' => ['type' => 'integer'], 'quota_bytes' => ['type' => 'integer'], 'images' => ['type' => 'integer'], 'max_images' => ['type' => 'integer']]],
+                'images' => ['type' => 'array', 'items' => ['type' => 'object', 'properties' => [
+                    'id' => ['type' => 'string'], 'name' => ['type' => 'string'], 'size_bytes' => ['type' => 'integer'], 'sha256' => ['type' => 'string'], 'scan' => ['type' => 'string', 'enum' => ['clean']],
+                    'attached_service_id' => ['type' => ['string', 'null']], 'attached_here' => ['type' => 'boolean'], 'attached_at' => ['type' => ['string', 'null'], 'format' => 'date-time'], 'uploaded_at' => ['type' => ['string', 'null'], 'format' => 'date-time'],
+                ]]],
+            ]],
+        ],
+        'POST /services/{service}/isos' => [
+            'description' => 'Uploads one installation image (multipart `file`) into the organization\'s library — only where this server\'s plan sells a custom ISO. The file must be an ISO 9660 image no larger than the plan allows; it is scanned by clamd before it is kept (an infected file is deleted and reported; without a scanner nothing is accepted), and it must fit the organization\'s quota (kept images and uploads in flight together; at most `org_max_inflight` uploads of one organization at a time, 429). Rate-limited per person (`custom-iso-upload`). The same file again is the image it already is (201 with that image); another file under the same Idempotency-Key is 409.',
+            'multipart' => ['required' => ['file'], 'properties' => ['file' => ['type' => 'string', 'format' => 'binary'], 'reason' => ['type' => 'string', 'maxLength' => 250]]],
+            'errors' => ['403' => ['custom_iso_not_in_plan'], '409' => ['service_not_active', 'idempotency_key_reused'], '422' => ['iso_too_large', 'iso_too_large_for_scan', 'iso_not_iso9660', 'iso_quota_exceeded', 'upload_infected', 'iso_scan_incomplete', 'iso_upload_unknown'], '429' => ['iso_upload_in_progress'], '503' => ['iso_scan_unavailable', 'iso_scanner_untrusted', 'custom_iso_storage_unsafe']],
         ],
         'POST /cart/quote' => ['errors' => ['422' => ['domain_action_invalid']]],
         'POST /orders' => ['errors' => ['422' => ['domain_action_invalid'], '409' => ['loyalty_points_unavailable']]],
@@ -227,7 +244,7 @@ final class GenerateOpenApi extends Command
 
     /**
      * @param  array<string, mixed>  $operation
-     * @param  array{body?: array<string, mixed>, errors?: array<int, list<string>>, description?: string, response?: array<string, mixed>}  $details
+     * @param  array{body?: array<string, mixed>, multipart?: array<string, mixed>, errors?: array<int, list<string>>, description?: string, response?: array<string, mixed>}  $details
      * @return array<string, mixed>
      */
     private function detailed(array $operation, array $details): array
@@ -237,6 +254,9 @@ final class GenerateOpenApi extends Command
         }
         if (isset($details['response'])) {
             $operation['responses'][200]['content']['application/json']['schema'] = ['type' => 'object', 'required' => ['data'], 'properties' => ['data' => $details['response']]];
+        }
+        if (isset($details['multipart'], $operation['requestBody'])) { // a file upload (TASK-0110)
+            $operation['requestBody'] = ['required' => true, 'content' => ['multipart/form-data' => ['schema' => ['type' => 'object'] + $details['multipart']]]];
         }
         if (isset($details['body'], $operation['requestBody'])) {
             $operation['requestBody']['content']['application/json']['schema'] = ['type' => 'object'] + $details['body'];

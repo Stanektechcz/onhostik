@@ -173,6 +173,10 @@ Message envelope: `id`, `name`, `aggregate_type`, `aggregate_id`, `organization_
 | `node.synthetic.leftover` | node | a throw-away resource made to qualify a node could not be removed; it names what is left | operator |
 | `service.relocated` | service | a VM moved to another node (HA after a node failure, or by hand) and proved to be this service's (`proof`: service tag or name); the reconciler moved its binding, VM record and node with it (`from`, `to`) | operator |
 | `service.rescue.ended` | service | the server is back on its own system | customer + operator |
+| `service.iso.uploaded` | service | a customer's own installation image was scanned clean and kept in the organization's library (`iso_id`, `name`, `size_bytes`; TASK-0110); not routed — the uploader got the answer | none (audit `service.iso.upload`) |
+| `service.iso.attached` | service | a customer image is the server's CD drive (`iso_id`, `name`, `boot_first`); the boot order found before is kept on the image | none yet (customer notice planned) |
+| `service.iso.detached` | service | the image is off the server and the drive and boot order are back as found (`iso_id`, `reason`) | none |
+| `service.iso.deleted` | service / custom_iso | the image and every hypervisor copy of it are gone (`iso_id`, `name`) | none |
 | `ipam.rdns.failed` | ip_address | the reverse zone refused the change; the record stays written down and the nightly drift check reports it | operator |
 | `service.migration.scheduled` / `service.migration.rescheduled` | a migration with a customer window (audit §5h-3): the customer gets the window and the default start (mail `service-migration-scheduled`) and may move the start from the panel (`PUT /v1/services/{id}/migration`); the move is an internal notice | customer `/panel/sluzby`; admin `#/gprov` |
 | `platform.queue.backlog` | operations due for longer than `ONHOST_QUEUE_BACKLOG_AGE_MINUTES` exceed `ONHOST_QUEUE_BACKLOG_THRESHOLD` (audit §5h-5) — raised by `onhost:integrations:health` at most once per half hour; gauge `onhost_operations_backlog{queue}` on `/metrics` for autoscaling | admin `#/jobsadm`, on-call |

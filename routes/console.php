@@ -77,6 +77,8 @@ use Onhost\Domain\Provisioning\QueueScaler;
 use Onhost\Domain\Provisioning\Reconciler;
 use Onhost\Domain\Provisioning\Scheduling\NodeRebalancer;
 use Onhost\Domain\Services\Access\ServiceAccessService;
+use Onhost\Domain\Services\CustomIso\CustomIsoLibrary;
+use Onhost\Domain\Services\CustomIso\IsoScanner;
 use Onhost\Domain\Services\DelegatedAccessReview;
 use Onhost\Domain\Services\DeletionPolicy;
 use Onhost\Domain\Services\FinalArchive;
@@ -487,6 +489,7 @@ Schedule::command('onhost:orders:settle')->everyTenMinutes()->withoutOverlapping
 // a service left in SUSPENDING/RESUMING/RESIZING by a step the panel refused accepts nothing until it is put back; nothing is sent to a panel
 Schedule::command('onhost:services:release-stranded --apply --minutes=30')->everyTenMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:services:rescue-expire')->everyTenMinutes()->withoutOverlapping()->onOneServer();
+Schedule::command('onhost:isos:sweep')->hourly()->withoutOverlapping()->onOneServer(); // TASK-0110 review H2: dead custom ISO uploads
 Schedule::command('onhost:services:restore-test')->dailyAt('04:20')->withoutOverlapping()->onOneServer(); // the cadence is per service; this only asks who is owed one
 Schedule::command('onhost:billing:meter')->hourlyAt(2)->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:billing:rate')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
@@ -821,6 +824,21 @@ Artisan::command('onhost:services:rescue-expire {--limit=50 : how many services 
     }
     $this->info(sprintf('rescue sessions past their window: %d · put back: %d · failed: %d', $stats['checked'], $stats['ended'], count($stats['errors'])));
 })->purpose('End the rescue sessions whose window has passed and put the servers back');
+
+// TASK-0110 review H2: an upload whose process died left a reservation against the organization's quota and a file on the image disk.
+Artisan::command('onhost:isos:sweep {--hours= : staged uploads older than this many hours are dead (default onhost.custom_iso.staging_hours)}', function (CustomIsoLibrary $library) {
+    $hours = $this->option('hours');
+    $stats = $library->sweep($hours === null || $hours === '' ? null : max(1, (int) $hours));
+    $this->info(sprintf('custom ISO uploads swept: %d staging row(s), %d stray file(s)', $stats['rows'], $stats['files']));
+})->purpose('Remove custom ISO uploads that never finished (staging rows and incoming files)');
+
+// TASK-0110 review M1: uploads are refused (503) while this fails — EICAR must be found and a file beyond clamd's limits reported.
+Artisan::command('onhost:isos:scanner-check', function (IsoScanner $scanner) {
+    $check = $scanner->selfTest();
+    $check['ok'] ? $this->info('custom ISO virus scan: OK — '.$check['detail']) : $this->error('custom ISO virus scan: FAILED — '.$check['detail'].' (uploads are refused)');
+
+    return $check['ok'] ? 0 : 1;
+})->purpose('Self-test of the virus scan custom ISO uploads need (EICAR found, AlertExceedsMax on)');
 
 /*
  * A node nobody has qualified sells nothing (H471). Without arguments this lists what is waiting and what each one

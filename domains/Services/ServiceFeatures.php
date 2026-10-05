@@ -16,6 +16,7 @@ use Onhost\Domain\Provisioning\Models\IpAddress;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Services\Commands\ServiceActionCommand;
+use Onhost\Domain\Services\CustomIso\CustomIsoPolicy;
 use Onhost\Domain\Services\Mail\MailDomains;
 use Onhost\Domain\Services\Mail\MailSettings;
 use Onhost\Domain\Services\Metering\WebDiskTotal;
@@ -92,6 +93,10 @@ final class ServiceFeatures
         'vm_rescue' => ['rescue.start', 'rescue.stop'],
         // a fresh operating system from a golden template the platform allows (C9, VmReinstall); the game panel's own reinstall is `game_settings`
         'vm_reinstall' => ['reinstall'],
+        // a customer's own installation image, only where the ordered plan sells it (TASK-0110, owner decision G-R5); the way out
+        // (detach, delete) stays open after a plan change took the feature away
+        'custom_iso' => ['iso.attach', 'iso.detach', 'iso.delete'],
+        'custom_iso_exit' => ['iso.detach', 'iso.delete'],
     ];
 
     public const RESOURCES = [
@@ -128,6 +133,10 @@ final class ServiceFeatures
     public const REASON_STATE = 'state';        // the service is not running right now (suspended, being cancelled, not provisioned yet)
 
     public const REASON_PERMISSION = 'permission'; // this person may see the service, not do this to it
+
+    public const REASON_PLAN = CustomIsoPolicy::REASON_PLAN; // the ordered plan does not sell it: the panel says „není v tarifu“ (G-R5, TASK-0110)
+
+    public const REASON_NODE = CustomIsoPolicy::REASON_NODE; // the plan sells it, the server it runs on is not set up for it (the operator's configuration)
 
     public const REASON_SHARED_NODE = ExplainsWithheldFeatures::SHARED_NODE; // the server is shared with other customers and was closed to this tool (R2, TASK-0034)
 
@@ -253,6 +262,12 @@ final class ServiceFeatures
                 if ($service->family === 'cloud') { // a managed database (family `data`) has no system of the customer's to reinstall
                     $images = $adapter instanceof ComputeProvider ? VmReinstall::allowed($service, $adapter->reinstallImages()) : [];
                     $out['vm_reinstall'] = $on($images !== [], null, ['images' => $images, 'disk_gb' => VmReinstall::diskGb($service)]);
+                    // G-R5 (TASK-0110): a custom ISO only where the ordered plan has it, and it says why it is not there
+                    $iso = CustomIsoPolicy::feature($service, $adapter);
+                    $out['custom_iso'] = $iso['enabled'] ? $on(true, null, $iso['options'] ?? null) : $iso;
+                    if (! $iso['enabled'] && CustomIsoPolicy::hasWayOut($service)) {
+                        $out['custom_iso_exit'] = $on(true);
+                    }
                 }
                 // the backups a server was sold (TASK-0019), offered only once the owner switched the rule on: until then
                 // the feature list of every existing server stays exactly what it was (the rule is asked first, so a switched-off

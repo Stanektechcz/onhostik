@@ -77,6 +77,22 @@ return [
     'rescue' => [
         'hours' => (int) env('ONHOST_RESCUE_HOURS', 8),
     ],
+    // a customer's own installation image, only where the ordered VPS plan sells `custom_iso` (owner decision G-R5, TASK-0110,
+    // docs/runbooks/custom-iso.md): every upload is an ISO 9660 image, scanned by clamd before it is kept (never kept unscanned),
+    // on the `custom_isos` disk outside the web root; the plan's `custom_iso_max_mb` sets the size of one image
+    'custom_iso' => [
+        'disk' => env('ONHOST_CUSTOM_ISO_DISK', 'custom_isos'),
+        'default_max_mb' => (int) env('ONHOST_CUSTOM_ISO_DEFAULT_MAX_MB', 4096),   // a plan that sells custom_iso without its own custom_iso_max_mb
+        'scan_max_mb' => (int) env('ONHOST_CUSTOM_ISO_SCAN_MAX_MB', 4096),         // what clamd is set up to scan in full (StreamMaxLength, MaxScanSize, MaxFileSize); larger is refused
+        'org_quota_mb' => (int) env('ONHOST_CUSTOM_ISO_ORG_QUOTA_MB', 20480),      // all images of one organization together
+        'org_max_images' => (int) env('ONHOST_CUSTOM_ISO_ORG_MAX_IMAGES', 5),
+        'upload_timeout_seconds' => (int) env('ONHOST_CUSTOM_ISO_UPLOAD_TIMEOUT', 3600), // one image to the hypervisor's ISO storage
+        'scan_timeout_seconds' => (int) env('ONHOST_CUSTOM_ISO_SCAN_TIMEOUT', 900),
+        'org_max_inflight' => (int) env('ONHOST_CUSTOM_ISO_ORG_MAX_INFLIGHT', 2),   // uploads of one organization at the same time (review H1)
+        'uploads_per_hour' => (int) env('ONHOST_CUSTOM_ISO_UPLOADS_PER_HOUR', 10),  // POST …/isos per person (rate limiter custom-iso-upload)
+        'staging_hours' => (int) env('ONHOST_CUSTOM_ISO_STAGING_HOURS', 6),         // a staged upload older than this is dead: onhost:isos:sweep removes it
+        'delete_wait_seconds' => (int) env('ONHOST_CUSTOM_ISO_DELETE_WAIT', 120),   // how long a delete waits for the hypervisor's task before the step fails (review M2)
+    ],
 
     'backups' => [
         'offsite_disk' => env('ONHOST_BACKUP_OFFSITE_DISK'), // a filesystems.disks entry (S3-compatible) for off-site copies; null = off
