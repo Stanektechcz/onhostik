@@ -47,11 +47,34 @@ use Onhost\Platform\Errors\DomainError;
  *  - `products`: product key => ['match' => regex on the current description, 'description' => {cs, en}] — replaced only while
  *    the current description still says what the revision withdraws, so a text staff wrote since is left alone;
  *  - `create`: keys of `PRODUCTS` a running catalogue must have — created (`CatalogCommand product.create`) while missing, never
- *    changed once they exist. A product defined here carries no prices of its own (a raise is priced by its parent's options).
+ *    changed once they exist. A product defined here carries no prices of its own (a raise is priced by its parent's options);
+ *  - `grant` (optional): 'product/plan' => [key => value] the new version SELLS (in `entitlements`, or in `limits` where the current
+ *    version keeps the key there) — pending while the current version does not carry exactly that value (TASK-0110);
+ *  - `proposal` (optional, true): prepared for the owner's decision and NOT part of "every revision": the doctor does not ask for
+ *    it and `onhost:catalog:revise` without an id neither previews nor applies it; it is previewed and applied only by its id.
  */
 final class CatalogRevisions
 {
     public const REVISIONS = [
+        // TASK-0110 (owner decision G-R5): a proposal, prepared and not applied — docs/proposals/custom-iso-plans.md. The owner decides
+        // which plans sell a custom ISO and how big one image may be; then `php artisan onhost:catalog:revise 2026-10-custom-iso --apply`
+        // (or the plan editor) publishes new versions. Customers on the versions they hold keep them (no custom ISO until a plan change).
+        '2026-10-custom-iso' => [
+            'proposal' => true,
+            'reason' => 'Rozhodnutí vlastníka G-R5 (návrh TASK-0110): vlastní ISO jen tam, kde ho objednaný tarif VPS obsahuje — nové verze tarifů Compute 4/8/16 a VDS s vlastním ISO (jeden obraz do 4 GB); ceny beze změny, stávající smlouvy beze změny.',
+            'plans' => [],
+            'rewrite' => [],
+            'products' => [],
+            'grant' => [
+                'vps/compute-4' => ['custom_iso' => true, 'custom_iso_max_mb' => 4096],
+                'vps/compute-8' => ['custom_iso' => true, 'custom_iso_max_mb' => 4096],
+                'vps/compute-16' => ['custom_iso' => true, 'custom_iso_max_mb' => 4096],
+                'vds/vds-4' => ['custom_iso' => true, 'custom_iso_max_mb' => 4096],
+                'vds/vds-8' => ['custom_iso' => true, 'custom_iso_max_mb' => 4096],
+                'vds/vds-16' => ['custom_iso' => true, 'custom_iso_max_mb' => 4096],
+            ],
+            'wording' => '/ISO/u',
+        ],
         '2026-09-honest-promises' => [
             'reason' => 'Rozhodnutí vlastníka 2/4/6/18 (2026-09-25): PITR, počet spojení, dedikovaná odchozí IP a dedikovaná databáze se neposkytují a interval záloh „1h“ se opravuje na „hourly“ — nové verze bez nich, ceny beze změny, stávající smlouvy beze změny.',
             'plans' => [
@@ -115,10 +138,16 @@ final class CatalogRevisions
     /** Features lines staff may have written that repeat a withdrawn promise: the preview warns, nothing rewrites them. */
     private const WITHDRAWN_WORDING = '/PITR|spojení|connection|dedikovan|dedicated/iu';
 
-    /** @return list<string> */
+    /** The revisions "every revision" means: all but the proposals, which wait for the owner and are named by their id (TASK-0110). @return list<string> */
     public static function ids(): array
     {
-        return array_keys(self::REVISIONS);
+        return array_values(array_filter(array_keys(self::REVISIONS), fn (string $id) => empty(self::definition($id)['proposal'])));
+    }
+
+    /** Revisions prepared for the owner's decision and not applied by "every revision" (TASK-0110). @return list<string> */
+    public static function proposals(): array
+    {
+        return array_values(array_diff(array_keys(self::REVISIONS), self::ids()));
     }
 
     /**
@@ -306,7 +335,7 @@ final class CatalogRevisions
     private function known(string $id): string
     {
         if (! array_key_exists($id, self::REVISIONS)) {
-            throw new DomainError('catalog_revision_unknown', "Unknown catalogue revision {$id}; known: ".implode(', ', self::ids()).'.', 422, ['field' => 'revision']);
+            throw new DomainError('catalog_revision_unknown', "Unknown catalogue revision {$id}; known: ".implode(', ', array_keys(self::REVISIONS)).'.', 422, ['field' => 'revision']);
         }
 
         return $id;
@@ -315,7 +344,7 @@ final class CatalogRevisions
     /**
      * A revision as the code reads it (the constant's literal types are narrower than what a revision may hold).
      *
-     * @return array{reason: string, plans: array<string, list<string>>, rewrite: array<string, array<string, mixed>>, products: array<string, array{match: string, description: array{cs: string, en: string}}>, create?: list<string>, drop_undelivered?: list<string>, withdraw_undelivered_options?: list<string>, wording?: string}
+     * @return array{reason: string, plans: array<string, list<string>>, rewrite: array<string, array<string, mixed>>, products: array<string, array{match: string, description: array{cs: string, en: string}}>, create?: list<string>, drop_undelivered?: list<string>, withdraw_undelivered_options?: list<string>, wording?: string, grant?: array<string, array<string, mixed>>, proposal?: bool}
      */
     private static function definition(string $revision): array
     {
@@ -329,6 +358,10 @@ final class CatalogRevisions
         $targets = [];
         foreach (array_keys($definition['plans']) as $target) {
             $targets[$target] = true;
+        }
+        $grant = (array) ($definition['grant'] ?? []);
+        foreach (array_keys($grant) as $target) {
+            $targets[(string) $target] = true;
         }
         $undelivered = array_values(array_map('strval', (array) ($definition['drop_undelivered'] ?? [])));
         if ($definition['rewrite'] !== [] || $undelivered !== []) { // a rewrite (or an undeliverable key) looks at every plan: the old value is wrong wherever it is
@@ -365,6 +398,12 @@ final class CatalogRevisions
                         $set[$key] = ['bag' => $bag, 'from' => $values[$key], 'to' => $map[(string) $values[$key]]];
                         break;
                     }
+                }
+            }
+            foreach ((array) ($grant[$target] ?? []) as $key => $value) { // what the new version sells (TASK-0110)
+                $bag = array_key_exists($key, $bags['limits']) && ! array_key_exists($key, $bags['entitlements']) ? 'limits' : 'entitlements';
+                if (($bags[$bag][$key] ?? null) !== $value) {
+                    $set[(string) $key] = ['bag' => $bag, 'from' => $bags[$bag][$key] ?? null, 'to' => $value];
                 }
             }
             if ($drop !== [] || $set !== []) {

@@ -38,6 +38,15 @@ return [
             'report' => false,
         ],
 
+        // customers' own installation images (TASK-0110): a dedicated mount outside the web root (docs/runbooks/custom-iso.md)
+        'custom_isos' => [
+            'driver' => 'local',
+            'root' => env('ONHOST_CUSTOM_ISO_ROOT', storage_path('app/custom-isos')),
+            'visibility' => 'private',
+            'throw' => true,
+            'report' => false,
+        ],
+
         'public' => [
             'driver' => 'local',
             'root' => storage_path('app/public'),

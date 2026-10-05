@@ -21,6 +21,7 @@ use Onhost\Domain\Provisioning\Models\Region;
 use Onhost\Providers\Contracts\FileTransport;
 use Onhost\Providers\IspConfig\IspConfigWebProvider;
 use Onhost\Providers\Shell\ScriptedShell;
+use Psr\Http\Message\StreamInterface;
 
 /*
  * Shared support for the end-to-end flows (E1 sign-up to web hosting, and the E-flows after it).
@@ -879,4 +880,144 @@ function e2eIspFileSeamsOff(): void
 {
     IspConfigWebProvider::$transportFactory = null;
     IspConfigWebProvider::$shellFactory = null;
+}
+
+/*
+ * TASK-0110 — a customer's own ISO on the stateful cluster.
+ *
+ *   e2ePveIsoStorage(array &$pve, $storage)  the custom ISO storage of node prg1-n2 on the cluster of e2ePveCluster: an upload
+ *                                            (multipart, checked against the SHA-256 it is sent with) really puts a volume there,
+ *                                            a delete takes it away, a listing shows what is there. Register it BEFORE
+ *                                            e2ePveCluster: the first fake that answers wins; any other path is the cluster's.
+ *
+ * State keys: `custom_isos` (volume id => [size, sha256]), `uploads` (file names in order), `writes` (shared with the cluster).
+ */
+function e2ePveIsoStorage(array &$pve, string $storage = 'isostore'): void
+{
+    $pve += ['custom_isos' => [], 'uploads' => [], 'writes' => [], 'unknown' => []];
+    $base = 'https://pve.mgmt.test:8006/api2/json';
+    Http::fake(function (Request $request) use (&$pve, $base, $storage) {
+        if (! str_starts_with($request->url(), $base)) {
+            return null;
+        }
+        $path = substr(rawurldecode((string) parse_url($request->url(), PHP_URL_PATH)), strlen('/api2/json'));
+        $prefix = "/nodes/prg1-n2/storage/{$storage}/";
+        if (! str_starts_with($path, $prefix)) {
+            return null; // the rest of the cluster answers
+        }
+        $method = $request->method();
+        if ($method !== 'GET') {
+            $pve['writes'][] = $method.' '.$path;
+        }
+        $rest = substr($path, strlen($prefix));
+        if ($rest === 'content' && $method === 'GET') {
+            return Http::response(['data' => array_map(fn (string $volume) => ['volid' => $volume, 'size' => $pve['custom_isos'][$volume]['size'], 'content' => 'iso', 'format' => 'iso'], array_keys($pve['custom_isos']))]);
+        }
+        if ($rest === 'upload' && $method === 'POST') {
+            $parts = e2ePveMultipart($request);
+            $content = (string) ($parts['filename']['contents'] ?? '');
+            $filename = (string) ($parts['filename']['filename'] ?? '');
+            if (($parts['content']['contents'] ?? '') !== 'iso' || $filename === '' || ($parts['checksum']['contents'] ?? '') !== hash('sha256', $content) || ($parts['checksum-algorithm']['contents'] ?? '') !== 'sha256') {
+                return Create::promiseFor(new Response(500, ['Content-Type' => 'application/json'], '{"data":null}', '1.1', 'checksum mismatch or no file'));
+            }
+            $pve['custom_isos']["{$storage}:iso/{$filename}"] = ['size' => strlen($content), 'sha256' => hash('sha256', $content)];
+            $pve['uploads'][] = $filename;
+
+            return Http::response(['data' => 'UPID:prg1-n2:000A1B40:0004E200:66F0AA30:imgcopy::onhost@pve!cp:']);
+        }
+        if (str_starts_with($rest, 'content/') && $method === 'DELETE') {
+            $volume = substr($rest, strlen('content/'));
+            if (! isset($pve['custom_isos'][$volume])) {
+                return Create::promiseFor(new Response(500, ['Content-Type' => 'application/json'], '{"data":null}', '1.1', "volume '{$volume}' does not exist"));
+            }
+            unset($pve['custom_isos'][$volume]);
+
+            return Http::response(['data' => 'UPID:prg1-n2:000A1B41:0004E201:66F0AA31:imgdel::onhost@pve!cp:']);
+        }
+        $pve['unknown'][] = $method.' '.$path;
+
+        return Http::response(['data' => null], 501);
+    });
+}
+
+/**
+ * The parts of a multipart request as the fake sees them: name => [contents, filename]. Read from the captured parts when the
+ * client hands them over, else from the raw body.
+ *
+ * @return array<string, array{contents:string, filename:?string}>
+ */
+function e2ePveMultipart(Request $request): array
+{
+    $out = [];
+    $data = $request->data();
+    if (is_array($data) && array_is_list($data) && isset($data[0]['name'])) {
+        foreach ($data as $part) {
+            $contents = $part['contents'] ?? '';
+            if (is_resource($contents)) {
+                rewind($contents);
+                $contents = stream_get_contents($contents);
+            } elseif ($contents instanceof StreamInterface) {
+                $contents->rewind();
+                $contents = $contents->getContents();
+            }
+            $out[(string) $part['name']] = ['contents' => (string) $contents, 'filename' => isset($part['filename']) ? (string) $part['filename'] : null];
+        }
+
+        return $out;
+    }
+    $type = (string) ($request->header('Content-Type')[0] ?? '');
+    if (preg_match('/boundary="?([^";]+)"?/', $type, $m) !== 1) {
+        return [];
+    }
+    $body = $request->toPsrRequest()->getBody();
+    $body->rewind();
+    foreach (explode('--'.$m[1], $body->getContents()) as $chunk) {
+        if (! str_contains($chunk, "\r\n\r\n")) {
+            continue;
+        }
+        [$head, $contents] = explode("\r\n\r\n", $chunk, 2);
+        if (preg_match('/name="([^"]+)"/', $head, $n) !== 1) {
+            continue;
+        }
+        $file = preg_match('/filename="([^"]*)"/', $head, $f) === 1 ? $f[1] : null;
+        $out[$n[1]] = ['contents' => substr($contents, 0, -2), 'filename' => $file];
+    }
+
+    return $out;
+}
+
+/**
+ * The cluster of e2ePveCluster with the custom ISO storage of e2ePveIsoStorage (TASK-0110). Laravel asks EVERY fake about every
+ * request and takes the first answer, so the cluster's own fake still sees the storage's paths and books them as `unknown` (and
+ * their writes a second time): a last fake takes exactly those bookings back, so `unknown` keeps meaning "nobody expected this".
+ *
+ * @param  array<string,mixed>  $pve
+ */
+function e2ePveClusterWithIsoStorage(array &$pve, string $storage = 'isostore'): void
+{
+    e2ePveIsoStorage($pve, $storage);
+    e2ePveCluster($pve);
+    $base = 'https://pve.mgmt.test:8006/api2/json';
+    Http::fake(function (Request $request) use (&$pve, $base, $storage) {
+        if (! str_starts_with($request->url(), $base)) {
+            return null;
+        }
+        $path = substr(rawurldecode((string) parse_url($request->url(), PHP_URL_PATH)), strlen('/api2/json'));
+        if (! str_starts_with($path, "/nodes/prg1-n2/storage/{$storage}/")) {
+            return null;
+        }
+        $line = $request->method().' '.$path;
+        foreach (['unknown', 'writes'] as $book) {
+            if ($book === 'writes' && $request->method() === 'GET') {
+                continue;
+            }
+            $at = array_search($line, array_reverse($pve[$book], true), true);
+            if ($at !== false && ($book === 'unknown' || count(array_keys($pve['writes'], $line, true)) > 1)) {
+                unset($pve[$book][$at]);
+                $pve[$book] = array_values($pve[$book]);
+            }
+        }
+
+        return null; // never an answer: the storage's fake gave it
+    });
 }

@@ -15359,6 +15359,187 @@ paths:
           bearer: []
       x-token-scope:
         - 'services:read'
+  '/services/{service}/isos':
+    get:
+      operationId: getServicesByServiceIsos
+      tags:
+        - services
+      summary: 'GET /services/{service}/isos'
+      parameters:
+        -
+          name: service
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    type: object
+                    required:
+                      - offered
+                      - quota
+                      - images
+                    properties:
+                      offered: { type: boolean }
+                      max_bytes: { type: [integer, 'null'] }
+                      quota: { type: object, properties: { used_bytes: { type: integer }, quota_bytes: { type: integer }, images: { type: integer }, max_images: { type: integer } } }
+                      images: { type: array, items: { type: object, properties: { id: { type: string }, name: { type: string }, size_bytes: { type: integer }, sha256: { type: string }, scan: { type: string, enum: [clean] }, attached_service_id: { type: [string, 'null'] }, attached_here: { type: boolean }, attached_at: { type: [string, 'null'], format: date-time }, uploaded_at: { type: [string, 'null'], format: date-time } } } }
+        422:
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        401:
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        403:
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        404:
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+        -
+          bearer: []
+      x-token-scope:
+        - 'services:read'
+      description: "The organization's own installation images as seen through this server: whether its plan offers them (`offered`), the size of one image it allows (`max_bytes`), the organization's quota and every image (`attached_service_id`, `attached_here`). Attach, detach and delete are the service actions `iso.attach` (params `iso_id`, `boot_first`, `reboot`; the console's permission), `iso.detach` (`reboot`) and `iso.delete` (`iso_id`; HIGH, a fresh step-up)."
+    post:
+      operationId: postServicesByServiceIsos
+      tags:
+        - services
+      summary: 'POST /services/{service}/isos'
+      parameters:
+        -
+          name: service
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        201:
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        422:
+          description: 'Validation or domain rule violation — error: `iso_too_large`, `iso_not_iso9660`, `iso_quota_exceeded`, `upload_infected`, `iso_scan_incomplete`, `iso_upload_unknown`'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  -
+                    $ref: '#/components/schemas/Problem'
+                  -
+                    properties:
+                      error: { enum: [iso_too_large, iso_not_iso9660, iso_quota_exceeded, upload_infected, iso_scan_incomplete, iso_upload_unknown] }
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        200:
+          description: 'Success (idempotent replay or synchronous result)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        401:
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        403:
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes) — error: `custom_iso_not_in_plan`'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  -
+                    $ref: '#/components/schemas/Problem'
+                  -
+                    properties:
+                      error: { enum: [custom_iso_not_in_plan] }
+        404:
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        503:
+          description: 'Refused — error: `iso_scan_unavailable`, `custom_iso_storage_unsafe`'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  -
+                    $ref: '#/components/schemas/Problem'
+                  -
+                    properties:
+                      error: { enum: [iso_scan_unavailable, custom_iso_storage_unsafe] }
+      security:
+        -
+          session: []
+        -
+          bearer: []
+      x-token-scope:
+        - 'services:power'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                reason:
+                  type: string
+                  maxLength: 250
+      description: "Uploads one installation image (multipart `file`) into the organization's library — only where this server's plan sells a custom ISO. The file must be an ISO 9660 image no larger than the plan allows; it is scanned by clamd before it is kept (an infected file is deleted and reported; without a scanner nothing is accepted), and it must fit the organization's quota. The same file again is the image it already is (201 with that image)."
   '/services/{service}/logs':
     get:
       operationId: getServicesByServiceLogs

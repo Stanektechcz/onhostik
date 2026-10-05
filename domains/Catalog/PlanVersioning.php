@@ -32,6 +32,19 @@ final class PlanVersioning
     /** A price moving by more than this share has to be confirmed: a slipped decimal place is the usual way to a wrong price list. */
     public const LARGE_CHANGE_PCT = 50;
 
+    /**
+     * The catalogue spec of keys a version may ADD ("new keys come with the code that reads them"): per product family and bag, the
+     * key and a value of its type. Everything else keeps the rule that a version changes values and never invents a key.
+     *
+     *  - `custom_iso` / `custom_iso_max_mb` (TASK-0110, owner decision G-R5): a customer's own installation image on a VPS/VDS —
+     *    read by CustomIsoPolicy (the switch, the size of one image in MB) and by nothing on any other family.
+     *
+     * @var array<string, array<string, array<string, mixed>>>
+     */
+    public const ADDABLE_KEYS = [
+        'cloud' => ['entitlements' => ['custom_iso' => false, 'custom_iso_max_mb' => 0]],
+    ];
+
     public function __construct(private readonly AuditRecorder $audit, private readonly OutboxPublisher $outbox) {}
 
     /**
@@ -143,8 +156,9 @@ final class PlanVersioning
     private function next(Plan $plan, array $in): array
     {
         $current = $plan->currentVersion() ?? throw new DomainError('plan_version_missing', "Plan {$plan->key} has no current version.", 500);
-        $entitlements = $this->merged((array) $current->entitlements, (array) ($in['entitlements'] ?? []), 'entitlements');
-        $limits = $this->merged((array) ($current->limits ?? []), (array) ($in['limits'] ?? []), 'limits');
+        $family = (string) Product::query()->whereKey($plan->product_id)->value('family');
+        $entitlements = $this->merged((array) $current->entitlements, (array) ($in['entitlements'] ?? []), 'entitlements', $family);
+        $limits = $this->merged((array) ($current->limits ?? []), (array) ($in['limits'] ?? []), 'limits', $family);
         $features = array_key_exists('features', $in) && $in['features'] !== null ? $this->features((array) $in['features']) : $current->features;
         $currentPrices = $current->prices()->where('state', 'active')->get();
         $prices = $this->prices($currentPrices->all(), (array) ($in['prices'] ?? []), (bool) ($in['confirm_large_change'] ?? false), (bool) ($in['keep_promos'] ?? false));
@@ -218,10 +232,11 @@ final class PlanVersioning
      * @param  array<string,mixed>  $changes
      * @return array<string,mixed>
      */
-    private function merged(array $current, array $changes, string $field): array
+    private function merged(array $current, array $changes, string $field, string $family = ''): array
     {
         foreach ($changes as $key => $value) {
-            if (! array_key_exists($key, $current)) {
+            $addable = self::ADDABLE_KEYS[$family][$field] ?? [];
+            if (! array_key_exists($key, $current) && ! array_key_exists($key, $addable)) {
                 throw new DomainError('plan_key_unknown', "{$field}.{$key} is not part of this plan; new keys come with the code that reads them.", 422, ['field' => "{$field}.{$key}"]);
             }
             if ($value === null) { // the schema could only grow: a number nothing applies any more had no way off the plan (audit §5ad)
@@ -229,7 +244,7 @@ final class PlanVersioning
 
                 continue;
             }
-            $was = $current[$key];
+            $was = array_key_exists($key, $current) ? $current[$key] : $addable[$key]; // a key the code adds has the type the spec gives it
             $sameKind = match (true) {
                 is_bool($was) => is_bool($value),
                 is_int($was) => (is_int($value) || (is_float($value) && floor($value) === $value)) && $value >= 0, // a whole number stays whole: adapters cast it
