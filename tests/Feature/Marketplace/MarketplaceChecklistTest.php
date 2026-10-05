@@ -92,5 +92,5 @@ it('requires the listing checklist behind every monthly report and shows the evi
     $index = count($entries) - 1;
     $this->withHeaders(['X-Organization' => $org->id])->get("/v1/account/marketplace/orders/{$order->id}/evidence/{$index}/report")->assertOk()->assertHeader('content-type', 'application/pdf');
     $this->withHeaders(['X-Organization' => $org->id])->get("/v1/account/marketplace/orders/{$order->id}/evidence/{$index}/updates")->assertNotFound();
-    $this->withHeaders(['X-Organization' => $partnerOrg->id])->get("/v1/account/marketplace/orders/{$order->id}/evidence/{$index}/report")->assertForbidden(); // the owner is no member of the partner organization
+    $this->withHeaders(['X-Organization' => $partnerOrg->id])->get("/v1/account/marketplace/orders/{$order->id}/evidence/{$index}/report")->assertNotFound(); // the owner is no member of the partner organization: it is not found for them (F12a)
 });

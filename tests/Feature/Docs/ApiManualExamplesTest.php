@@ -681,7 +681,7 @@ it('has no code block on the page that the replay would skip without saying so',
     }
 });
 
-it('is true that two pings without an Idempotency-Key in one minute are one command, and with a new key each one meets the cooldown', function () {
+it('is true that every ping without an Idempotency-Key meets the cooldown, and a ping retried with its key is replayed (F12a)', function () {
     $run = apiManualWorld($this);
     $this->travelTo(now()->startOfMinute()->addSeconds(5)); // the whole test lies inside one minute
     app(StepUpService::class)->grant($run->owner, 'totp', null, '127.0.0.1');
@@ -689,11 +689,13 @@ it('is true that two pings without an Idempotency-Key in one minute are one comm
     $endpoint = (string) $created->json('data.id');
     $ping = fn (?string $key) => $this->actingAs($run->owner, 'sanctum')->postJson("/v1/webhooks/{$endpoint}/ping", [], ['X-Organization' => $run->org->id] + ($key === null ? [] : ['Idempotency-Key' => $key]));
 
-    $first = $ping(null)->assertStatus(202);
-    $second = $ping(null)->assertStatus(202); // the same command of the same minute: its answer again, not the cooldown
-    expect($second->json('data.id'))->toBe($first->json('data.id'));
+    // F12a (TASK-0106): a ping without a key is a request of its own — the second one in the minute hears the cooldown
+    $ping(null)->assertStatus(202);
+    $ping(null)->assertStatus(429)->assertJsonPath('error', 'webhook_ping_cooldown');
     $this->travel(31)->seconds();
-    $this->travelTo(now()->startOfMinute()->addSeconds(50)); // still one minute for the two calls below
-    $ping((string) Str::uuid())->assertStatus(202);
+    $this->travelTo(now()->startOfMinute()->addSeconds(50)); // still one minute for the calls below
+    $key = (string) Str::uuid();
+    $first = $ping($key)->assertStatus(202);
+    expect($ping($key)->assertStatus(202)->json('data.id'))->toBe($first->json('data.id')); // the same key: its answer again
     $ping((string) Str::uuid())->assertStatus(429)->assertJsonPath('error', 'webhook_ping_cooldown');
 });

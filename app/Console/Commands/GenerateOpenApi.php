@@ -34,7 +34,10 @@ final class GenerateOpenApi extends Command
      * What a route alone cannot tell (TASK-0066): documented request bodies and the error slugs an operation refuses with, keyed by
      * "METHOD /path". Added here, not by hand in the YAML, so a regeneration (every deploy runs it) keeps them.
      *
-     * @var array<string, array{body?: array<string, mixed>, errors?: array<int, list<string>>}>
+     * F12a (TASK-0106): `description` and `response` (the schema of `data` in the 200 answer) for an operation whose answer has a
+     * documented shape.
+     *
+     * @var array<string, array{body?: array<string, mixed>, errors?: array<int, list<string>>, description?: string, response?: array<string, mixed>}>
      */
     private const DETAILS = [
         'POST /domains/transfer-in' => [
@@ -57,6 +60,22 @@ final class GenerateOpenApi extends Command
         'POST /cart/quote' => ['errors' => ['422' => ['domain_action_invalid']]],
         'POST /orders' => ['errors' => ['422' => ['domain_action_invalid']]],
         'POST /checkout/guest' => ['errors' => ['422' => ['domain_action_invalid']]],
+        'GET /me' => [
+            'description' => 'Who is calling. A person (session or personal token) gets `type: person` with the account, the organizations and the step-up state; a service account token gets `type: service_account` with the account, its organization, its role and the token\'s scopes (F12a). The endpoints that act for a person still answer a service account `403 person_required`.',
+            'response' => ['oneOf' => [
+                ['type' => 'object', 'title' => 'Person', 'required' => ['type', 'user'], 'properties' => [
+                    'type' => ['const' => 'person'], 'user' => ['type' => 'object'], 'organizations' => ['type' => 'array', 'items' => ['type' => 'object']],
+                    'organization' => ['type' => ['object', 'null']], 'step_up' => ['type' => ['object', 'null']], 'surface' => ['type' => 'string', 'enum' => ['panel', 'admin']],
+                ]],
+                ['type' => 'object', 'title' => 'ServiceAccount', 'required' => ['type', 'account', 'organization', 'role', 'scopes'], 'properties' => [
+                    'type' => ['const' => 'service_account'],
+                    'account' => ['type' => 'object', 'required' => ['id', 'name'], 'properties' => ['id' => ['type' => 'string'], 'name' => ['type' => 'string']]],
+                    'organization' => ['type' => 'object', 'required' => ['id', 'name'], 'properties' => ['id' => ['type' => 'string'], 'name' => ['type' => 'string']]],
+                    'role' => ['type' => ['string', 'null']], 'scopes' => ['type' => 'array', 'items' => ['type' => 'string']],
+                    'token' => ['type' => 'object', 'properties' => ['id' => ['type' => 'string'], 'expires_at' => ['type' => ['string', 'null'], 'format' => 'date-time']]],
+                ]],
+            ]],
+        ],
     ];
 
     public function handle(Router $router): int
@@ -198,11 +217,17 @@ final class GenerateOpenApi extends Command
 
     /**
      * @param  array<string, mixed>  $operation
-     * @param  array{body?: array<string, mixed>, errors?: array<int, list<string>>}  $details
+     * @param  array{body?: array<string, mixed>, errors?: array<int, list<string>>, description?: string, response?: array<string, mixed>}  $details
      * @return array<string, mixed>
      */
     private function detailed(array $operation, array $details): array
     {
+        if (isset($details['description'])) {
+            $operation['description'] = $details['description'];
+        }
+        if (isset($details['response'])) {
+            $operation['responses'][200]['content']['application/json']['schema'] = ['type' => 'object', 'required' => ['data'], 'properties' => ['data' => $details['response']]];
+        }
         if (isset($details['body'], $operation['requestBody'])) {
             $operation['requestBody']['content']['application/json']['schema'] = ['type' => 'object'] + $details['body'];
         }
