@@ -91,7 +91,9 @@ it('runs listing → publish → order → deliver → accept with the commissio
     $this->actingAs($owner, 'sanctum');
     $this->withHeaders($h + ['Idempotency-Key' => 'mo-3'])->postJson("/v1/account/marketplace/orders/{$order['id']}/accept")->assertOk()->assertJsonPath('state', 'accepted');
     $commission = PartnerCommission::query()->where('partner_id', $partner->id)->where('kind', 'marketplace')->firstOrFail();
-    expect($commission->amount_minor)->toBe(128000)->and($commission->state)->toBe('payable')->and($partners->balance($partner)['payable']->minor)->toBe(128000);
+    expect($commission->amount_minor)->toBe(128000)->and($commission->state)->toBe('pending') // R7 (TASK-0097): payable 30 days later
+        ->and($commission->payable_at?->toDateString())->toBe(now()->addDays(30)->toDateString())
+        ->and($partners->balance($partner)['payable']->minor)->toBe(0)->and($partners->balance($partner)['pending']->minor)->toBe(128000);
     $this->withHeaders($h + ['Idempotency-Key' => 'mo-4'])->postJson("/v1/account/marketplace/orders/{$order['id']}/accept")->assertStatus(409);
 
     // a second order is delivered, disputed and refunded by support: the credit comes back, a credit note corrects the document
