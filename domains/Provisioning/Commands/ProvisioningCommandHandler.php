@@ -297,7 +297,7 @@ final class ProvisioningCommandHandler implements CommandHandler
         }
         $operation = Operation::query()->where('service_id', $service->id)->orderByDesc('queued_at')->first();
 
-        return ['service' => Presenters::service($service->refresh()), 'operation_id' => $operation?->id, 'operation_state' => $operation?->state];
+        return ['service' => Presenters::service($service->refresh(), $context->staffMode), 'operation_id' => $operation?->id, 'operation_state' => $operation?->state];
     }
 
     private function findInstance(ProvisioningCommand $command): ProviderInstance

@@ -10,6 +10,29 @@ for a lawyer. Every new behaviour that reaches existing services ships switched 
 switches with the read-only command to run before each; section 7 lists the operator steps of Phase 0 of the
 permission program (2026-09-27, TASK-0033 … TASK-0041), the forensic baseline first.
 
+## 0. Operator steps in order (E11)
+
+One ordered list for the day of go-live. Run `php artisan onhost:doctor` after every step: each row that is not OK carries a
+*Remedy* column (and a `remedy` field in `--json`) with the command or setting that fixes it. Nothing here is run from a
+workstation against production, and no step prints a password, a TOTP secret or a token into a ticket or chat.
+
+| # | Step | Command / setting | Doctor result expected afterwards | Rollback |
+| --- | --- | --- | --- | --- |
+| 1 | PHP binary. The deploy and the queue/scheduler units use one PHP 8.3+ CLI | deploy with `PHP=<path>` (staging-launch.md S7: `PHP=/www/server/php/83/bin/php … onhost-deploy`), the same path in `infra/systemd/*.service` | *PHP binary is the one the deploy and the workers must use* OK (shows version and path) | none needed; redeploy with the right `PHP=` |
+| 2 | Proxy addresses (**open owner question**: the exact address(es) of the reverse proxy / CDN in front of the origin; until the owner names them the row stays WARN and the value must not be guessed) | `TRUSTED_PROXIES=<addr1>,<addr2>` as a real process environment variable (systemd unit / FPM pool env; **not** `.env`: `bootstrap/app.php` reads `env()` and `config:cache` skips `.env`), then `php artisan config:cache`. Never `*` | *trusted proxies are exact addresses* OK; a wildcard is FAIL in production | remove the line and `config:cache`; every client then appears as the proxy (rate limits shared) but nothing is spoofable |
+| 3 | Shared cache store for rate limits | `CACHE_STORE=redis`, own `CACHE_PREFIX`, `config:cache`, restart the queue workers | *cache store is shared (rate limits)* OK | set the previous store back; limits become per worker again |
+| 4 | Catalogue revisions: read first, then apply (four eyes apply unless `ONHOST_FOUR_EYES=false`) | `php artisan onhost:catalog:revise` (dry run), then `php artisan onhost:catalog:revise --apply`; the revision of the web plans alone: `onhost:catalog:revise 2026-10-deliverable-web-plans [--apply]` | *every catalogue revision is applied* and *catalogue revision 2026-10-deliverable-web-plans applied* OK | revisions publish new plan versions, never edit old ones; undo = a new revision/plan version through the catalogue, customers keep what they hold |
+| 5 | Exchange rates of the national bank | `php artisan onhost:fx:sync` once, then the scheduler keeps it (weekdays 14:40, daily 06:10) | *exchange rates are fresh* OK | none (data only) |
+| 6 | Staff authenticators. **The owner enrols on the server and types every password and code himself**; nobody else sees a secret | per staff account: `php artisan onhost:staff:totp <email>` (secret goes into the authenticator), then `php artisan onhost:staff:totp <email> --code=<6 digits>`; recovery codes are shown once, the owner stores them | *staff and demo accounts have an authenticator* OK (count 0 missing) | `--reset` replaces a lost authenticator; `ONHOST_STAFF_MFA_REQUIRED` stays `true` |
+| 7 | Capacity basis (decision 19) | read `php artisan onhost:capacity:basis`, then `ONHOST_CAPACITY_DISK_BASIS=sold` and `config:cache` | *capacity basis as decided (disk sold, RAM and CPU measured)* OK | back to `measured` |
+| 8 | Turnstile keys (presence is judged, values never shown) | `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`, `config:cache` | *Turnstile protects registration and public forms* OK | empty both and set `ONHOST_TURNSTILE_ENFORCE_REGISTER=false`, `ONHOST_TURNSTILE_ENFORCE_FORMS=false` deliberately |
+| 9 | API base URL for the documentation (information only) | `ONHOST_API_BASE_URL=https://api.<domain>/v1` if the API answers on its own host | *API base URL for the documentation* shows the value | unset |
+| 10 | R9 API tokens must name an organisation. **Order matters**: first look, then tell the holders, then switch | `php artisan operator:tokens:unbound --dry-run` (and `--past-cap`), contact the holders, then `ONHOST_TOKEN_ORGANIZATION_REQUIRED=true` and `config:cache` | *API tokens must name an organisation (R9)* OK | set the switch back to `false` and `config:cache`; tokens work as before |
+| 11 | Final doctor | `php artisan onhost:doctor` | 0 FAIL; every remaining WARN has a remedy in its row and an owner decision in section 6/7 | n/a |
+
+Rows are WARN outside production and FAIL in production only where the row is blocking (a PHP older than 8.3, the wildcard proxy, the older `staff MFA required` row
+and the other rows marked blocking in the doctor); the rest are standing WARNs that this list clears.
+
 ## 1. Platform
 
 | Item | Where | Verify | Status |
