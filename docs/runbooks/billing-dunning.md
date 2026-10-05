@@ -190,6 +190,14 @@ neither covers is a debt that later credit pays first. A refund is a spend like 
 never more than what is available (holds count). Consequence: credit returned for a document paid from the credit is
 spendable but not refundable — consistent with the withdrawal's express "refund to the credit".
 
+What is "purchased" is read from the ledger entry, not from a `wallet_topups` row whose state could change: a credit to
+the main wallet is purchased when its transaction is a `topup` (bonus top-ups credit the promo account) or reverses a
+`refund`. A reversed top-up is a debit and takes purchased credit first — its own money, not another top-up's. **A
+reversed spend** (a capture or charge taken back) **is credit that cannot be paid out.** The replay is one grouped scan of
+the one wallet account's postings (index `ledger_postings.account_id`), asked only by `refund()` under the wallet lock —
+no listing or doctor row calls it, so no snapshot table was added. A refund key used again for another amount, currency,
+destination or payment is refused (`idempotency_key_reused`, 409) instead of handing back the first refund.
+
 **The return of an unused period is computed from what was paid** (`ChargebackService::estimate`). It was
 `subscription.amount_minor × unused share`: the list price of ONE period without VAT. Twelve months paid in advance
 returned a share of one month; everybody lost the VAT; an order bought with an 80 % code returned more than was paid.

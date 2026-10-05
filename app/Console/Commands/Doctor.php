@@ -162,14 +162,17 @@ final class Doctor extends Command
     }
 
     /**
-     * Services whose most recent cancellation (`terminate`) in the last 30 days failed and that are still not cancelled —
-     * no removal scheduled, not being removed. A later cancellation that went through, or one still running, takes the
+     * Services whose most recent cancellation (`terminate`) failed and that are still not cancelled — no removal scheduled,
+     * not being removed. No time window (security review): a service that still serves months after its cancellation
+     * failed is exactly the one nobody remembers. A later cancellation that went through, or one still running, takes the
      * service off the list. @return list<string> service ids
      */
     private static function unfinishedCancellations(): array
     {
         $candidates = Operation::query()->where('kind', 'service.action')->where('desired->action', 'terminate')->where('state', Operation::FAILED)
-            ->whereNotNull('service_id')->where('queued_at', '>', now()->subDays(30))->distinct()->limit(200)->pluck('service_id');
+            ->whereNotNull('service_id')
+            ->whereIn('service_id', Service::query()->whereNull('terminate_at')->whereNotIn('state', [ServiceStateMachine::TERMINATED, ServiceStateMachine::TERMINATING])->select('id'))
+            ->distinct()->limit(500)->pluck('service_id');
         $out = [];
         foreach ($candidates as $serviceId) {
             $latest = Operation::query()->where('kind', 'service.action')->where('desired->action', 'terminate')->where('service_id', $serviceId)->orderByDesc('id')->value('state');
@@ -194,7 +197,7 @@ final class Doctor extends Command
         // TASK-0099: a cancellation that failed (most often at its final archive) leaves the service as the panel has it — still
         // serving, or suspended as before — and nothing else in the platform remembers that it was meant to end
         $unfinished = self::unfinishedCancellations();
-        $this->add('lifecycle', 'no cancellation left unfinished', $unfinished === [], $unfinished === [] ? 'none in the last 30 days'
+        $this->add('lifecycle', 'no cancellation left unfinished', $unfinished === [], $unfinished === [] ? 'none'
             : count($unfinished).' service(s) whose last cancellation failed and that run (or stay suspended) as before: '.implode(', ', array_slice($unfinished, 0, 5)).(count($unfinished) > 5 ? ', …' : ''), false,
             'php artisan onhost:services:archive <service> shows why the final archive failed; fix the path to the panel, then ask for the cancellation again (staff console → the service → cancel; dunning repeats its own every day)');
         $policy = app(DeletionPolicy::class)->all();

@@ -1352,8 +1352,9 @@ Zrušení služby je pět kroků a mezi nimi se nedá přeskočit:
 v tom stavu, v jakém ji panel opravdu má (TASK-0099): selhání před dokončenou zálohou nic nevypnulo, takže se vrátí do
 `ACTIVE`; po záloze se zeptá panelu (jen čtení) — vypnutý web je `SUSPENDED`, běžící `ACTIVE`; služba, která už byla
 pozastavená, pozastavená zůstane. Dřív se po každém selhání zapsalo `SUSPENDED` bez `terminate_at`, i když web dál běžel,
-a nikdo se to nedozvěděl. Obsluhu upozorní `operation.failed` a `onhost:doctor` → *no cancellation left unfinished*
-vypisuje službu, dokud neprojde další zrušení: `onhost:services:archive <služba>` ukáže proč archiv selhal, po opravě se
+a nikdo se to nedozvěděl. Obsluhu upozorní `service.termination.failed` (stav, ve kterém služba zůstala, krok a chyba;
+jen obsluze) a `onhost:doctor` → *no cancellation left unfinished* vypisuje službu — bez časového omezení — dokud neprojde
+další zrušení: `onhost:services:archive <služba>` ukáže proč archiv selhal, po opravě se
 zrušení zadá znovu (konzole obsluhy; dunning ho opakuje sám každý den).
 
 Po odstranění má zákazník dvě možnosti, obě v panelu v sekci **Zálohy**:

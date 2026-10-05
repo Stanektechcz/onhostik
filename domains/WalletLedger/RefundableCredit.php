@@ -6,8 +6,6 @@ namespace Onhost\Domain\WalletLedger;
 
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\WalletLedger\Models\LedgerAccount;
-use Onhost\Domain\WalletLedger\Models\WalletRefund;
-use Onhost\Domain\WalletLedger\Models\WalletTopup;
 use Onhost\Platform\Money\Currency;
 
 /**
@@ -67,28 +65,36 @@ final class RefundableCredit
         return $purchased;
     }
 
-    /** The unspent purchased credit of an organization's main wallet in one currency, in minor units (never negative). */
+    /**
+     * The unspent purchased credit of an organization's main wallet in one currency, in minor units (never negative).
+     *
+     * What counts as purchased is read from the ledger entry itself, never from a `wallet_topups` row whose state could
+     * change (security review H2): a credit to the main wallet is purchased when its transaction is a `topup` (a bonus
+     * top-up credits the promo account, not this one), or when it reverses a `refund` (a payout the gateway refused gives
+     * the purchased money back). Everything else credited here — a return, bonus moved in, a staff credit, and the
+     * reversal of a spend — is credit that cannot be paid out. A reversed top-up is a debit and takes purchased credit
+     * first, so it takes back its own money and not another top-up's.
+     *
+     * Cost: one grouped scan of this one account's postings through the `ledger_postings.account_id` index, streamed. It is
+     * asked only by `WalletService::refund()` (under the wallet lock) — no listing, presenter or doctor row calls it.
+     */
     public static function of(string $organizationId, Currency $currency): int
     {
         $account = LedgerAccount::query()->where('code', LedgerService::walletAccount($organizationId, $currency))->first();
         if ($account === null) {
             return 0;
         }
-        $purchased = WalletTopup::query()->where('organization_id', $organizationId)->where('currency', $currency->value)
-            ->where('bucket', 'purchased')->where('state', 'completed')->whereNotNull('transaction_id')->pluck('transaction_id')->flip();
-        // a refund that is ever reversed (the gateway refused to pay it out) gives back purchased credit
-        $refunds = WalletRefund::query()->where('organization_id', $organizationId)->where('currency', $currency->value)
-            ->whereNotNull('transaction_id')->pluck('transaction_id')->flip();
         $rows = DB::table('ledger_postings')
             ->join('ledger_transactions', 'ledger_transactions.id', '=', 'ledger_postings.transaction_id')
+            ->leftJoin('ledger_transactions as reversed', 'reversed.id', '=', 'ledger_transactions.reversal_of')
             ->where('ledger_postings.account_id', $account->id)
-            ->groupBy('ledger_postings.transaction_id', 'ledger_transactions.reversal_of')
-            ->selectRaw("ledger_postings.transaction_id AS tx, ledger_transactions.reversal_of AS reversal_of, SUM(CASE WHEN ledger_postings.direction = 'credit' THEN ledger_postings.amount_minor ELSE 0 END) AS credits, SUM(CASE WHEN ledger_postings.direction = 'debit' THEN ledger_postings.amount_minor ELSE 0 END) AS debits")
+            ->groupBy('ledger_postings.transaction_id', 'ledger_transactions.kind', 'reversed.kind')
+            ->selectRaw("ledger_postings.transaction_id AS tx, ledger_transactions.kind AS kind, reversed.kind AS reversed_kind, SUM(CASE WHEN ledger_postings.direction = 'credit' THEN ledger_postings.amount_minor ELSE 0 END) AS credits, SUM(CASE WHEN ledger_postings.direction = 'debit' THEN ledger_postings.amount_minor ELSE 0 END) AS debits")
             ->orderBy('ledger_postings.transaction_id')
             ->cursor()
             ->map(fn (object $row): array => [
                 'credit' => (int) $row->credits, 'debit' => (int) $row->debits,
-                'purchased' => $purchased->has($row->tx) || ($row->reversal_of !== null && $refunds->has($row->reversal_of)),
+                'purchased' => $row->kind === 'topup' || ($row->kind === 'reversal' && $row->reversed_kind === 'refund'),
             ]);
 
         return self::replay($rows);

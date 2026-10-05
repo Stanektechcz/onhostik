@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Notification as LaravelNotification;
 use Onhost\Domain\Billing\Models\Subscription;
+use Onhost\Domain\Notifications\Models\Notification;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Services\Models\Backup;
@@ -100,12 +101,22 @@ it('leaves a hosting whose final archive cannot be taken ACTIVE, as the panel st
     expect(Backup::query()->where('service_id', $service->id)->where('kind', 'final')->where('state', 'failed')->exists())->toBeTrue();
     // the operators hear it: the failed operation is an alert, and the doctor keeps the service on its list until it is dealt with
     expect(OutboxMessage::query()->where('name', 'operation.failed')->where('aggregate_id', $operation->id)->exists())->toBeTrue();
+    $event = OutboxMessage::query()->where('name', 'service.termination.failed')->where('aggregate_id', $service->id)->sole();
+    expect($event->payload)->toMatchArray(['state' => ServiceStateMachine::ACTIVE, 'switched_off' => false, 'step' => 'Záloha před zrušením', 'operation_id' => $operation->id])
+        ->and((string) $event->payload['name'])->not->toBe('')->and(mb_strlen((string) $event->payload['error']))->toBeLessThanOrEqual(200);
+    $alerts = Notification::query()->where('event', 'service.termination.failed')->get();
+    expect($alerts)->toHaveCount(1)->and($alerts->first()->audience)->toBe('internal')->and($alerts->first()->severity)->toBe('hot') // the operators' feed, never the customer's
+        ->and((string) $alerts->first()->title)->toContain('Zrušení služby se nedokončilo');
     $row = terminateFailureDoctorRow();
     expect($row['status'])->toBe('WARN')->and($row['detail'])->toContain('1 ')->and($row['detail'])->toContain($service->id)->and($row['remedy'])->not->toBe('');
 
     // the cancellation can be asked for again (dunning repeats it daily with a new key), and it is not lost in a state that refuses it
     $again = terminateFailureCancel($service->fresh(), 'sub_expire:archive:retry');
     expect($again->id)->not->toBe($operation->id)->and($service->fresh()->state)->toBe(ServiceStateMachine::ACTIVE);
+
+    // a service that still serves after a failed cancellation stays on the doctor's list however long ago that was
+    $this->travel(45)->days();
+    expect(terminateFailureDoctorRow())->toMatchArray(['status' => 'WARN'])->and(terminateFailureDoctorRow()['detail'])->toContain($service->id);
 });
 
 it('keeps an already suspended hosting SUSPENDED — switched off on the panel — when its cancellation fails at the archive', function () {
@@ -126,6 +137,8 @@ it('keeps an already suspended hosting SUSPENDED — switched off on the panel �
     // it used to be marked FAILED and the customer was told "provisioning failed"; nothing was suspended again either
     expect(OutboxMessage::query()->where('aggregate_id', $service->id)->whereIn('name', ['service.failed', 'service.suspended'])->count())->toBe($before);
     expect(terminateFailureDoctorRow()['status'])->toBe('WARN');
+    expect(OutboxMessage::query()->where('name', 'service.termination.failed')->where('aggregate_id', $service->id)->sole()->payload)
+        ->toMatchArray(['state' => ServiceStateMachine::SUSPENDED, 'switched_off' => true, 'operation_id' => $operation->id]);
 });
 
 it('puts a hosting back to ACTIVE when the panel refused to switch it off, and to SUSPENDED when it did and a later step failed', function () {
@@ -146,6 +159,10 @@ it('puts a hosting back to ACTIVE when the panel refused to switch it off, and t
     expect($later->state)->toBe(Operation::FAILED)->and($later->step_label)->toBe('Odvolání delegovaných přístupů')
         ->and($fresh->state)->toBe(ServiceStateMachine::SUSPENDED)->and($panel['sites'][(int) $siteId]['active'])->toBe('n')
         ->and($fresh->terminate_at)->toBeNull();
+    $told = OutboxMessage::query()->where('name', 'service.termination.failed')->where('aggregate_id', $service->id)->get()->keyBy(fn ($m) => $m->payload['operation_id']);
+    expect($told)->toHaveCount(2)
+        ->and($told[$refused->id]->payload)->toMatchArray(['state' => ServiceStateMachine::ACTIVE, 'switched_off' => false, 'step' => 'Deaktivace služby'])
+        ->and($told[$later->id]->payload)->toMatchArray(['state' => ServiceStateMachine::SUSPENDED, 'switched_off' => true, 'step' => 'Odvolání delegovaných přístupů']);
     $row = terminateFailureDoctorRow();
     expect($row['status'])->toBe('WARN')->and($row['detail'])->toContain($service->id);
 });

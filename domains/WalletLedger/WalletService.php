@@ -442,6 +442,15 @@ final class WalletService
         return DB::transaction(function () use ($organizationId, $amount, $reason, $idempotencyKey, $context, $destination, $paymentIntentId, $approvalId) {
             $existing = WalletRefund::query()->where('idempotency_key', $idempotencyKey)->first();
             if ($existing !== null) {
+                // the same key is the same refund only when it asks for the same thing: another amount, currency, wallet or
+                // destination under an old key used to come back as the old refund — the caller believed a refund that never happened
+                $same = (int) $existing->amount_minor === $amount->minor && (string) $existing->getRawOriginal('currency') === $amount->currency->value
+                    && $existing->organization_id === $organizationId && $existing->destination === $destination
+                    && (string) ($existing->payment_intent_id ?? '') === (string) ($paymentIntentId ?? '');
+                if (! $same) {
+                    throw new DomainError('idempotency_key_reused', 'This idempotency key was already used for another refund.', 409);
+                }
+
                 return $existing;
             }
             $wallet = $this->lockWallet($organizationId, $amount->currency);

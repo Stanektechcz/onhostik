@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Onhost\Domain\WalletLedger\LedgerService;
+use Onhost\Domain\WalletLedger\Models\LedgerTransaction;
 use Onhost\Domain\WalletLedger\Models\WalletRefund;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Errors\DomainError;
@@ -138,4 +139,55 @@ it('keeps the refundable credit of each currency apart', function () {
 
     expect($wallets->refundableBalance($org->id, 'CZK')->minor)->toBe(100000)
         ->and($wallets->refundableBalance($org->id, 'EUR')->minor)->toBe(1000);
+});
+
+it('refuses a refund key used again for another amount instead of handing back the first refund (H1)', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    [$wallets, $ctx] = [app(WalletService::class), $this->contextFor($owner, $org)];
+    $wallets->topup($org, Money::decimal('1000', 'CZK'), 'card', 'rb8-top', $ctx, 'pi_rb8', bankProvider: 'comgate');
+    $first = $wallets->refund($org, Money::decimal('200', 'CZK'), 'customer request', 'rb8-refund', $ctx, 'source', 'pi_rb8');
+
+    expect(fn () => $wallets->refund($org, Money::decimal('700', 'CZK'), 'customer request', 'rb8-refund', $ctx, 'source', 'pi_rb8'))
+        ->toThrow(DomainError::class, 'already used for another refund');
+    expect(fn () => $wallets->refund($org, Money::decimal('200', 'CZK'), 'customer request', 'rb8-refund', $ctx, 'credit_note'))
+        ->toThrow(DomainError::class, 'already used for another refund');
+    try {
+        $wallets->refund($org, Money::decimal('700', 'CZK'), 'customer request', 'rb8-refund', $ctx, 'source', 'pi_rb8');
+    } catch (DomainError $e) {
+        expect($e->error)->toBe('idempotency_key_reused')->and($e->status)->toBe(409);
+    }
+    // the same request again is still the same refund, and nothing more left the wallet
+    expect($wallets->refund($org, Money::decimal('200', 'CZK'), 'customer request', 'rb8-refund', $ctx, 'source', 'pi_rb8')->id)->toBe($first->id)
+        ->and(WalletRefund::query()->where('organization_id', $org->id)->count())->toBe(1)
+        ->and($wallets->balances($org, 'CZK')['available']->minor)->toBe(80000);
+});
+
+it('knows purchased credit by its ledger entry: a reversed top-up takes back its own money, not the other top-up\'s (H2)', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    [$wallets, $ctx] = [app(WalletService::class), $this->contextFor($owner, $org)];
+    $ledger = app(LedgerService::class);
+    $reversedTopup = $wallets->topup($org, Money::decimal('1000', 'CZK'), 'card', 'rb9-top-a', $ctx, bankProvider: 'comgate');
+    $wallets->topup($org, Money::decimal('500', 'CZK'), 'card', 'rb9-top-b', $ctx, bankProvider: 'comgate');
+
+    // the bank takes the first payment back: the ledger reverses its entry, and the top-up row may say so too — the answer must not depend on that row
+    $ledger->reverse(LedgerTransaction::query()->findOrFail($reversedTopup->transaction_id), 'rb9-reverse-a', 'payment returned by the bank');
+    $reversedTopup->forceFill(['state' => 'reversed'])->save();
+    $wallets->refreshCaches($wallets->wallet($org, 'CZK'));
+
+    expect($wallets->balances($org, 'CZK')['available']->minor)->toBe(50000)
+        ->and($wallets->refundableBalance($org->id, 'CZK')->minor)->toBe(50000);
+});
+
+it('treats a reversed spend as credit that cannot be paid out', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    [$wallets, $ctx] = [app(WalletService::class), $this->contextFor($owner, $org)];
+    $ledger = app(LedgerService::class);
+    $wallets->topup($org, Money::decimal('1000', 'CZK'), 'card', 'rb10-top', $ctx, bankProvider: 'comgate');
+    $hold = $wallets->hold($org, Money::decimal('600', 'CZK'), 'order', 'rb10-hold', $ctx, 'order', 'ord_rb10');
+    $captured = $wallets->capture($hold, 'web', $ctx);
+    $ledger->reverse(LedgerTransaction::query()->findOrFail($captured->captured_transaction_id), 'rb10-reverse', 'charge taken back');
+    $wallets->refreshCaches($wallets->wallet($org, 'CZK'));
+
+    expect($wallets->balances($org, 'CZK')['available']->minor)->toBe(100000)
+        ->and($wallets->refundableBalance($org->id, 'CZK')->minor)->toBe(40000);
 });

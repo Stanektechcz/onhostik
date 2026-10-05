@@ -222,25 +222,33 @@ final class ServiceActionWorkflow implements Workflow
      *  - a service that was already SUSPENDED (or FAILED) when the cancellation started keeps that state — nothing in this
      *    run changed it, and settling it again told the customer "suspended" (or "provisioning failed") once more.
      *
-     * The run itself is the operators' alert (`operation.failed`), and `onhost:doctor` lists the service until a later
-     * cancellation goes through ("no cancellation left unfinished"). The callers that must end a service ask again: dunning
+     * The operators hear it as `service.termination.failed` (what state it was left in, which step, why), and
+     * `onhost:doctor` lists the service until a later cancellation goes through ("no cancellation left unfinished"). The callers that must end a service ask again: dunning
      * every day with a new key, a withdrawal by its attempts, staff from the console.
      */
     private function afterFailedTermination(StepContext $context, Service $service, ServiceService $services, string $reason): void
     {
         $fresh = Service::query()->find($service->id);
-        if ($fresh === null || $fresh->state !== ServiceStateMachine::SUSPENDING) {
+        if ($fresh === null) {
             return;
         }
-        $archiveInPlace = $context->get('final_archive_id') !== null || $context->get('final_archive_skipped') !== null;
-        $switchedOff = $archiveInPlace && ($this->panelSaysStopped($context, $fresh) ?? $context->get('deactivated') === true);
-        if ($switchedOff) {
-            // the site IS off: suspended is the truth. Told to the operators as a deactivation, not to the customer as a new suspension
-            $services->settleTransient($fresh, ServiceStateMachine::SUSPENDED, $context->actor, (string) $context->desired('reason', 'zrušení služby'), $context->operation, null, 'service.deactivated');
-
-            return;
+        if ($fresh->state === ServiceStateMachine::SUSPENDING) {
+            $archiveInPlace = $context->get('final_archive_id') !== null || $context->get('final_archive_skipped') !== null;
+            $switchedOff = $archiveInPlace && ($this->panelSaysStopped($context, $fresh) ?? $context->get('deactivated') === true);
+            if ($switchedOff) {
+                // the site IS off: suspended is the truth. Told to the operators as a deactivation, not to the customer as a new suspension
+                $services->settleTransient($fresh, ServiceStateMachine::SUSPENDED, $context->actor, (string) $context->desired('reason', 'zrušení služby'), $context->operation, null, 'service.deactivated');
+            } else {
+                $services->settleTransient($fresh, ServiceStateMachine::ACTIVE, $context->actor, "terminate failed before anything was switched off: {$reason}", $context->operation);
+            }
+            $fresh->refresh();
         }
-        $services->settleTransient($fresh, ServiceStateMachine::ACTIVE, $context->actor, "terminate failed before anything was switched off: {$reason}", $context->operation);
+        // one event per failed cancellation, whatever state it left (operators only; the catalog describes the payload)
+        $context->container->make(OutboxPublisher::class)->publish(GenericEvent::of('service.termination.failed', 'service', $fresh->id, [
+            'name' => $fresh->hostname ?: ($fresh->label ?: $fresh->name), 'state' => $fresh->state, 'switched_off' => $fresh->state === ServiceStateMachine::SUSPENDED,
+            'step' => (string) $context->operation->step_label, 'error' => mb_substr($reason, 0, 200), 'operation_id' => $context->operation->id,
+            'requested_for' => mb_substr((string) $context->desired('reason', ''), 0, 120),
+        ], (string) $fresh->organization_id));
     }
 
     /** What the panel says about the service right now: true = switched off, false = serving, null = it could not be asked. */
