@@ -35,6 +35,9 @@ trait IspConfigTools
     /** Test seam: a factory returning the shell to use for a site (ScriptedShell in the suite); null = real SSH. Set it on the adapter class (`IspConfigWebProvider::$shellFactory`), not on the trait. */
     public static $shellFactory = null;
 
+    /** Test seam: a factory `(ResourceRef $site, string $root): ?FileTransport` for the SFTP half of the toolkit (files, dumps, panel-backup download); null = real SFTP over the agent user. Set on the adapter class like `$shellFactory`. */
+    public static $transportFactory = null;
+
     public function shell(ResourceRef $site): NodeShell
     {
         if (self::$shellFactory !== null) {
@@ -57,6 +60,10 @@ trait IspConfigTools
 
     public function transport(ResourceRef $site): FileTransport
     {
+        $seam = self::$transportFactory === null ? null : (self::$transportFactory)($site, $this->agentDocroot($site));
+        if ($seam instanceof FileTransport) {
+            return $seam;
+        }
         $shell = $this->shell($site);
         if (! $shell instanceof SshShell) {
             throw new ProviderException('ispconfig', ProviderErrorCode::VALIDATION, 'The file transport needs the SSH agent user');
@@ -320,7 +327,7 @@ trait IspConfigTools
         if (! $run->ok()) {
             throw new ProviderException('ispconfig', ProviderErrorCode::VALIDATION, 'The dump failed: '.$run->output());
         }
-        $transport = new SftpTransport($this->shell($site), $this->siteDirInShell($site), 'ispconfig');
+        $transport = $this->siteDirTransport($site);
         $transport->download($remote, $localFile);
         $this->shell($site)->run('rm -f "$HOME/'.$remote.'"', ['timeout' => 20]);
 
@@ -334,7 +341,7 @@ trait IspConfigTools
         $name = (string) $row['database_name'];
         $gz = str_ends_with(strtolower($localFile), '.gz');
         $remote = 'private/onhost-import-'.bin2hex(random_bytes(4)).($gz ? '.sql.gz' : '.sql');
-        $transport = new SftpTransport($this->shell($site), $this->siteDirInShell($site), 'ispconfig');
+        $transport = $this->siteDirTransport($site);
         $this->shell($site)->run('mkdir -p "$HOME/private"', ['timeout' => 20]);
         $transport->upload($remote, $localFile);
         $cmd = sprintf('%s "$HOME/%s" | mysql -h %s -u %s -p%s %s', $gz ? 'gunzip -c' : 'cat', $remote, Q::arg($host), Q::arg($user), Q::arg($password), Q::arg($name));
@@ -362,7 +369,7 @@ trait IspConfigTools
         // `backup_download` copies the archive from the server's backup store into the site's backup/ folder (applied by the job
         // queue). The remote function takes the BACKUP's id as `primary_id`; the list above proved it is this site's.
         $this->api->call('sites_web_domain_backup', ['primary_id' => (int) $backupRemoteId, 'action_type' => 'backup_download'], true);
-        $transport = new SftpTransport($this->shell($site), $this->siteDirInShell($site), 'ispconfig');
+        $transport = $this->siteDirTransport($site);
         $deadline = microtime(true) + 600;
         while (! $transport->exists('backup/'.$filename)) {
             if (microtime(true) > $deadline) {
@@ -581,6 +588,22 @@ trait IspConfigTools
         }
 
         return rtrim($dir, '/');
+    }
+
+    /** The SFTP side of the site's own directory (dumps, panel-backup download, imports): the test seam first, the real transport otherwise. */
+    private function siteDirTransport(ResourceRef $site): FileTransport
+    {
+        $root = $this->siteDirInShell($site);
+        $seam = self::$transportFactory === null ? null : (self::$transportFactory)($site, $root);
+        if ($seam instanceof FileTransport) {
+            return $seam;
+        }
+        $shell = $this->shell($site);
+        if (! $shell instanceof SshShell) {
+            throw new ProviderException('ispconfig', ProviderErrorCode::VALIDATION, 'The file transport needs the SSH agent user');
+        }
+
+        return new SftpTransport($shell, $root, 'ispconfig');
     }
 
     /** The site directory as the agent sees it: `/` inside a jail, the real path otherwise (detected once per site). */

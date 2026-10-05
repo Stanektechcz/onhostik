@@ -39,12 +39,20 @@ function arsArchive(Service $source): Backup
     ]);
 }
 
+/** A remote id nobody used before in this process: a random one collided now and then on the unique binding. */
+function arsNextRemoteId(): string
+{
+    static $next = 1000;
+
+    return (string) ++$next;
+}
+
 function arsWebService(Organization $org, string $domain, ?string $projectId = null): Service
 {
     $instance = ProviderInstance::query()->firstOrCreate(['key' => 'ispconfig-ars'], ['provider' => 'ispconfig', 'name' => 'ISPConfig ars', 'base_url' => 'https://ars.test:8080', 'secret_ref' => 'env://ISPCONFIG_ARS', 'state' => 'active', 'options' => []]);
     $service = Service::query()->create(['organization_id' => $org->id, 'project_id' => $projectId, 'product_key' => 'web-hosting', 'family' => 'web', 'name' => 'Web '.$domain, 'hostname' => $domain, 'state' => ServiceStateMachine::ACTIVE,
         'region_code' => 'cz1', 'entitlements' => ['nvme_gb' => 50], 'desired_spec' => ['domain' => $domain, 'executor' => 'ispconfig'], 'sla_class' => 'standard', 'provider_instance_id' => $instance->id]);
-    ProviderBinding::query()->create(['service_id' => $service->id, 'provider_instance_id' => $instance->id, 'remote_type' => 'web_domain', 'remote_id' => (string) random_int(100, 999), 'remote_node' => '1',
+    ProviderBinding::query()->create(['service_id' => $service->id, 'provider_instance_id' => $instance->id, 'remote_type' => 'web_domain', 'remote_id' => arsNextRemoteId(), 'remote_node' => '1',
         'meta' => ['domain' => $domain, 'system_user' => 'web41'], 'idempotency_key' => 'ars-'.$service->id]);
 
     return $service->refresh();

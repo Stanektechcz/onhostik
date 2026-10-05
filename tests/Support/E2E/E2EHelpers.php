@@ -16,6 +16,9 @@ use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\Models\Region;
+use Onhost\Providers\Contracts\FileTransport;
+use Onhost\Providers\IspConfig\IspConfigWebProvider;
+use Onhost\Providers\Shell\ScriptedShell;
 
 /*
  * Shared support for the end-to-end flows (E1 sign-up to web hosting, and the E-flows after it).
@@ -572,4 +575,99 @@ function e2eGamePanel(array &$panel): void
 
         return $notFound;
     });
+}
+
+/*
+ * E10 — cancellation and the end of an account.
+ *
+ *   e2eIspSiteTree(array &$panel)  everything ISPConfig keeps as a row of its own under a site: databases and their logins, FTP and
+ *                                  SSH accounts, cron jobs, alias and sub vhosts, plus the panel's own nightly site backup. Register it BEFORE
+ *                                  `e2eIspPanel` on the same `$panel`. Rows a test puts in before the flow are the panel's HISTORICAL ones.
+ *                                  `$panel['deleted']` is the ordered "function:id" log of every delete the panel was asked for.
+ *   e2eIspFileSeams()              the node's file half (SFTP archive/download, mysqldump over the agent shell) answered in memory:
+ *                                  call `e2eIspFileSeamsOff()` in afterEach, the seams are static on the adapter class.
+ */
+
+/**
+ * @param  array<string,mixed>  $panel
+ */
+function e2eIspSiteTree(array &$panel): void
+{
+    $panel += ['databases' => [], 'db_users' => [], 'ftps' => [], 'shells' => [], 'crons' => [], 'aliases' => [], 'subs' => [], 'backups' => [], 'deleted' => [], 'calls' => []];
+    $envelope = fn (mixed $response): array => ['code' => 'ok', 'message' => '', 'response' => $response];
+    $tables = ['sites_database' => ['databases', 'database_id'], 'sites_database_user' => ['db_users', 'database_user_id'], 'sites_ftp_user' => ['ftps', 'ftp_user_id'], 'sites_shell_user' => ['shells', 'shell_user_id'],
+        'sites_cron' => ['crons', 'id'], 'sites_web_aliasdomain' => ['aliases', 'domain_id'], 'sites_web_subdomain' => ['subs', 'domain_id']];
+    Http::fake(function (Request $request) use (&$panel, $envelope, $tables) {
+        if (! str_contains($request->url(), E2E_ISP)) {
+            return null;
+        }
+        $function = (string) parse_url($request->url(), PHP_URL_QUERY);
+        $data = $request->data();
+        if ($function === 'sites_web_domain_backup_list') {
+            $panel['calls'][] = $function;
+
+            return Http::response($envelope(array_values($panel['backups'])));
+        }
+        if ($function === 'sites_web_domain_backup') { // restore / download / delete of one of the panel's own archives: accepted, nothing to do in memory
+            $panel['calls'][] = $function;
+
+            return Http::response($envelope(1));
+        }
+        if ($function === 'sites_web_domain_delete') { // the vhost itself: the same removal e2eIspPanel does, but written into the delete log in order
+            $panel['calls'][] = $function;
+            $panel['deleted'][] = $function.':'.(int) ($data['primary_id'] ?? 0);
+            unset($panel['sites'][(int) ($data['primary_id'] ?? 0)]);
+            $panel['queue'] = 2;
+
+            return Http::response($envelope(1));
+        }
+        if (preg_match('~^(.+)_(get|add|delete|update)$~', $function, $m) !== 1 || ! isset($tables[$m[1]])) {
+            return null; // not a row of ours: e2eIspPanel (or a fault) answers
+        }
+        [$bag, $idColumn] = $tables[$m[1]];
+        $panel['calls'][] = $function;
+        $key = $data['primary_id'] ?? null;
+        $params = (array) ($data['params'] ?? []);
+
+        return Http::response($envelope(match ($m[2]) {
+            'get' => is_array($key)
+                ? array_values(array_filter($panel[$bag], fn (array $row) => collect($key)->every(fn ($wanted, $column) => (string) ($row[$column] ?? '') === (string) $wanted)))
+                : ($panel[$bag][(int) $key] ?? false),
+            'add' => (function () use (&$panel, $bag, $idColumn, $params, $data) {
+                $id = max([100, ...array_map('intval', array_keys($panel[$bag]))]) + 1;
+                $panel[$bag][$id] = [$idColumn => $id] + $params + ['client_id' => (int) ($data['client_id'] ?? 0)];
+                $panel['queue'] = 2;
+
+                return $id;
+            })(),
+            'update' => (function () use (&$panel, $bag, $key, $params) {
+                $panel[$bag][(int) $key] = array_merge($panel[$bag][(int) $key] ?? [], $params);
+
+                return 1;
+            })(),
+            'delete' => (function () use (&$panel, $bag, $key, $function) {
+                $panel['deleted'][] = $function.':'.(int) $key;
+                unset($panel[$bag][(int) $key]);
+                $panel['queue'] = 2;
+
+                return 1;
+            })(),
+        }));
+    });
+}
+
+/** The node's file half in memory: a transport that "packs" and "downloads", an agent shell that "dumps". Undo with e2eIspFileSeamsOff(). */
+function e2eIspFileSeams(): void
+{
+    $transport = Mockery::mock(FileTransport::class)->shouldIgnoreMissing();
+    $transport->shouldReceive('download')->andReturnUsing(fn (string $path, string $localFile) => file_put_contents($localFile, gzencode(str_repeat('e2e site files ', 60)." {$path}")));
+    $transport->shouldReceive('exists')->andReturn(true);
+    IspConfigWebProvider::$transportFactory = fn () => $transport;
+    IspConfigWebProvider::$shellFactory = fn () => new ScriptedShell;
+}
+
+function e2eIspFileSeamsOff(): void
+{
+    IspConfigWebProvider::$transportFactory = null;
+    IspConfigWebProvider::$shellFactory = null;
 }
