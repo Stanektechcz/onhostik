@@ -8,6 +8,9 @@
  * prototype's literals at the functions below, and every function returns null when there is no panel data so the
  * demo mode keeps the prototype's own card. */
 (function () {
+  /* a count with its noun in the right Czech form (1 den, 2 dny, 5 dní) — G8 item 7 */
+  function cn(n, cs, en, lang) { var I = window.OnhostI18n; return I ? I.cn(n, cs, en, lang) : n + ' ' + (lang === 'en' ? (n === 1 ? en[0] : en[1]) : (n === 1 ? cs[0] : (n >= 2 && n <= 4 ? cs[1] : cs[2]))); }
+  function cq(_, n, cs, en) { return _(cn(n, cs, en, 'cs'), cn(n, cs, en, 'en')); }
   if (window.OnhostPanelBilling) return; // the prototype runtime executes helmet scripts twice
   var API_BASE = (window.ONHOST && window.ONHOST.apiBase) || '/v1';
   var LABELS = {
@@ -97,12 +100,21 @@
   /* TASK-0021 (owner decision 20): credit orders of members who may not spend the credit, waiting for the owner or a billing admin.
    * Shown in the pending-payments card before the transfers; the server refuses a decision to anybody else. */
   function decideOrder(cmp, o, decision) {
-    var _ = tr(cmp), A = window.OnhostApi, reason = null;
+    var _ = tr(cmp), A = window.OnhostApi;
     if (!A) return;
     if (decision === 'reject') {
-      reason = window.prompt(_('Proč objednávku ' + o.number + ' zamítáte? Důvod dostane člen, který ji zadal.', 'Why do you reject order ' + o.number + '? The member who placed it gets the reason.'), '');
-      if (!reason || !String(reason).trim()) return;
-    } else if (!window.confirm(_('Schválit objednávku ' + o.number + ' za ' + money(cmp, o.total) + '? Částka se uhradí z kreditu a služby se začnou zřizovat.', 'Approve order ' + o.number + ' for ' + money(cmp, o.total) + '? It is paid from credit and the services start.'))) return;
+      window.OnhostDialog.prompt(_('Proč objednávku ' + o.number + ' zamítáte? Důvod dostane člen, který ji zadal.', 'Why do you reject order ' + o.number + '? The member who placed it gets the reason.'), '', { title: _('Zamítnout objednávku ', 'Reject order ') + o.number, fieldLabel: _('Důvod', 'Reason'), required: true, confirm: _('Zamítnout', 'Reject') }).then(function (why) {
+        if (!why || !String(why).trim()) return;
+        sendDecision(cmp, o, decision, why);
+      });
+      return;
+    }
+    if (!window.confirm(_('Schválit objednávku ' + o.number + ' za ' + money(cmp, o.total) + '? Částka se uhradí z kreditu a služby se začnou zřizovat.', 'Approve order ' + o.number + ' for ' + money(cmp, o.total) + '? It is paid from credit and the services start.'))) return;
+    sendDecision(cmp, o, decision, null);
+  }
+
+  function sendDecision(cmp, o, decision, reason) {
+    var _ = tr(cmp), A = window.OnhostApi;
     A.post('/orders/' + encodeURIComponent(o.id) + '/approval', { decision: decision, reason: reason ? String(reason).trim() : undefined }, A.key()).then(function () {
       flash(cmp, decision === 'approve' ? _('Objednávka schválena · ', 'Order approved · ') + o.number : _('Objednávka zamítnuta · ', 'Order rejected · ') + o.number, decision === 'approve' ? _('Uhrazeno z kreditu, služby se zřizují.', 'Paid from credit; the services are being set up.') : _('Nic se z kreditu nečerpalo.', 'No credit was used.'));
       setTimeout(function () { location.reload(); }, 1500);
@@ -343,11 +355,11 @@
       state: _('bez pokut', 'no penalties'), stateKind: 'ok', actions: atActions.concat(cardActions),
       head: [_('Krok', 'Step'), _('Kdy', 'When'), '', _('Co můžete udělat', 'What you can do')],
       rows: (atRow ? [atRow] : []).concat(cardRow ? [cardRow] : []).concat([
-        [_('Splatnost dokladu', 'Document due'), _('faktura nebo zálohová faktura k úhradě', 'invoice or proforma to pay'), _(due + ' dní od vystavení', due + ' days from issue'), '', _('kredit, karta, převod', 'credit, card, transfer')],
-        [_('Upomínky', 'Reminders'), _('e-mail a upozornění v panelu, žádné poplatky', 'e-mail and a panel notice, no fees'), _(notices + ' dní po splatnosti', notices + ' days after due'), '', _('zaplatit nebo napsat podpoře', 'pay or write to support')],
-        [_('Pozastavení služeb', 'Suspension'), _('data zůstávají, po úhradě obnovíme do minut', 'data stays; restored within minutes after payment'), _(dn.suspend_after_days + ' dní po splatnosti', dn.suspend_after_days + ' days after due'), '', _('uhradit doklad', 'settle the document')],
-        [_('Ukončení služeb', 'Termination'), _('služby končí, doména zůstává vaše do expirace', 'services end; a domain stays yours until it expires'), _(dn.terminate_after_days + ' dní po splatnosti', dn.terminate_after_days + ' days after due'), '', _('export dat v panelu', 'export your data in the panel')],
-        [_('Smazání dat', 'Data deletion'), _('nenávratné, po uplynutí ochranné lhůty', 'irreversible, after the retention period'), _(dn.retention_after_termination_days + ' dní po ukončení', dn.retention_after_termination_days + ' days after termination'), '', _('do té doby lze vše obnovit', 'everything can be restored until then')]
+        [_('Splatnost dokladu', 'Document due'), _('faktura nebo zálohová faktura k úhradě', 'invoice or proforma to pay'), _(cn(due, ['den', 'dny', 'dní'], ['day', 'days'], 'cs') + ' od vystavení', cn(due, ['den', 'dny', 'dní'], ['day', 'days'], 'en') + ' from issue'), '', _('kredit, karta, převod', 'credit, card, transfer')],
+        [_('Upomínky', 'Reminders'), _('e-mail a upozornění v panelu, žádné poplatky', 'e-mail and a panel notice, no fees'), _(cn(notices, ['den', 'dny', 'dní'], ['day', 'days'], 'cs') + ' po splatnosti', cn(notices, ['den', 'dny', 'dní'], ['day', 'days'], 'en') + ' after due'), '', _('zaplatit nebo napsat podpoře', 'pay or write to support')],
+        [_('Pozastavení služeb', 'Suspension'), _('data zůstávají, po úhradě obnovíme do minut', 'data stays; restored within minutes after payment'), _(cn(dn.suspend_after_days, ['den', 'dny', 'dní'], ['day', 'days'], 'cs') + ' po splatnosti', cn(dn.suspend_after_days, ['den', 'dny', 'dní'], ['day', 'days'], 'en') + ' after due'), '', _('uhradit doklad', 'settle the document')],
+        [_('Ukončení služeb', 'Termination'), _('služby končí, doména zůstává vaše do expirace', 'services end; a domain stays yours until it expires'), _(cn(dn.terminate_after_days, ['den', 'dny', 'dní'], ['day', 'days'], 'cs') + ' po splatnosti', cn(dn.terminate_after_days, ['den', 'dny', 'dní'], ['day', 'days'], 'en') + ' after due'), '', _('export dat v panelu', 'export your data in the panel')],
+        [_('Smazání dat', 'Data deletion'), _('nenávratné, po uplynutí ochranné lhůty', 'irreversible, after the retention period'), _(cn(dn.retention_after_termination_days, ['den', 'dny', 'dní'], ['day', 'days'], 'cs') + ' po ukončení', cn(dn.retention_after_termination_days, ['den', 'dny', 'dní'], ['day', 'days'], 'en') + ' after termination'), '', _('do té doby lze vše obnovit', 'everything can be restored until then')]
       ]),
       totals: [],
       meta: [[_('Splatnost', 'Due'), due + ' ' + _('dní', 'days')], [_('Upomínky', 'Reminders'), notices + ' ' + _('dní', 'days')], [_('Pozastavení', 'Suspension'), dn.suspend_after_days + ' ' + _('dní', 'days')], [_('Ukončení', 'Termination'), dn.terminate_after_days + ' ' + _('dní', 'days')], [_('Ochranná lhůta dat', 'Data retention'), dn.retention_after_termination_days + ' ' + _('dní', 'days')]],

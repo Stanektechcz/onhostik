@@ -8,6 +8,9 @@
  * come from the prototype's render scope. */
 (function () {
   'use strict';
+  /* a count with its noun in the right Czech form (1 den, 2 dny, 5 dní) — G8 item 7 */
+  function cn(n, cs, en, lang) { var I = window.OnhostI18n; return I ? I.cn(n, cs, en, lang) : n + ' ' + (lang === 'en' ? (n === 1 ? en[0] : en[1]) : (n === 1 ? cs[0] : (n >= 2 && n <= 4 ? cs[1] : cs[2]))); }
+  function cq(_, n, cs, en) { return _(cn(n, cs, en, 'cs'), cn(n, cs, en, 'en')); }
   if (window.OnhostPanelAccount) return;
   var S = { tokens: null, sessions: null, org: null, webhooks: null, discord: null, totp: null, lastToken: null, recovery: null, pw: false, prefilled: false, busy: {} };
   var SCOPES = { 'services:read': ['čtení služeb', 'read services'], 'services:power': ['start a restart služeb', 'power services'], 'invoices:read': ['čtení faktur', 'read invoices'], 'tickets:write': ['zakládání tiketů', 'write tickets'], 'dns:write': ['zápis DNS (včetně čtení)', 'write DNS (reading included)'], 'dns:read': ['čtení DNS', 'read DNS'], 'domains:read': ['čtení domén', 'read domains'], 'wallet:read': ['čtení kreditu', 'read wallet'], 'services:console': ['konzole, terminál a příkazy', 'consoles, terminal and commands'] };
@@ -46,6 +49,103 @@
   }
   function orgList() { var u = me(); return (u && Array.isArray(u.organizations)) ? u.organizations : []; }
 
+  /* The e-mail address is not verified yet (R5): POST /v1/me/email/verification sends the mail again (once a minute, five an hour). */
+  function resendVerification(cmp, _) {
+    if (S.busy.verify) return;
+    S.busy.verify = true;
+    A().post('/me/email/verification', {}, A().key()).then(function () {
+      flash(cmp, _('Ověřovací e-mail odeslán', 'Verification e-mail sent'), _('Zkontrolujte schránku ' + ((me() || {}).email || '') + ' a klikněte na odkaz. Další e-mail můžete poslat za minutu.', 'Check the mailbox ' + ((me() || {}).email || '') + ' and click the link. You can ask for another one in a minute.'));
+    }).catch(function (e) { fail(cmp, _, e); }).then(function () { delete S.busy.verify; });
+  }
+
+  /* ── Service accounts (TASK-0079 API, G8 item 1): non-human identities of the organization, each with a role and its own tokens.
+   *    Owner only — anybody else is refused by the server (403), so the section says so instead of listing. Every write is a bus
+   *    command that asks for a fresh step-up (the session bridge's step-up dialog answers it); a token's plain text is in the create /
+   *    issue answer only and goes to the same copy-once box as an API key (S.lastToken). */
+  function scopePresets(_) {
+    return [
+      [_('jen čtení', 'read only'), ['services:read', 'invoices:read', 'domains:read', 'wallet:read']],
+      [_('provoz služeb', 'operate services'), ['services:read', 'services:power', 'domains:read', 'dns:write', 'tickets:write']],
+      [_('všechny rozsahy', 'all scopes'), Object.keys(SCOPES).filter(function (k) { return EXPLICIT_ONLY.indexOf(k) < 0; })]
+    ];
+  }
+  function saLoad(cmp) {
+    if (S.svcAccounts !== undefined && S.svcAccounts !== null) return;
+    if (S.busy.svcAccounts || !A()) return;
+    S.busy.svcAccounts = true;
+    A().get('/service-accounts').then(function (r) { S.svcAccounts = { list: r.data || [], roles: r.roles || [] }; })
+      .catch(function (e) { S.svcAccounts = { list: [], roles: [], denied: !!(e && (e.status === 403 || e.status === 404)), error: (e && e.message) || '' }; })
+      .then(function () { delete S.busy.svcAccounts; rerender(cmp); });
+  }
+  function saDone(cmp, _, r, title, body) {
+    var d = r || {};
+    if (d.token) S.lastToken = { name: d.name || title, token: d.token, expires: d.expires_at || null };
+    S.svcAccounts = null; rerender(cmp);
+    flash(cmp, title, body);
+  }
+  function saCreate(cmp, _) {
+    var roles = (S.svcAccounts && S.svcAccounts.roles) || [], presets = scopePresets(_);
+    return window.OnhostDialog.form({
+      title: _('Nový servisní účet', 'New service account'),
+      lead: _('Servisní účet je identita pro skript nebo integraci, ne člověk. Má jednu roli v organizaci a vlastní klíče; zrušením klíče nebo účtu přestane platit okamžitě.', 'A service account is an identity for a script or an integration, not a person. It has one role in the organization and its own keys; revoking a key or the account stops it at once.'),
+      confirm: _('Vytvořit účet', 'Create account'),
+      fields: [
+        { key: 'name', label: _('Název', 'Name'), required: true, placeholder: 'ci-deploy' },
+        { key: 'role', label: _('Role', 'Role'), type: 'select', value: roles.indexOf('viewer') >= 0 ? 'viewer' : roles[0], options: roles.map(function (k) { return [k, roleLabel(k, isCs(cmp))]; }) },
+        { key: 'scope', label: _('Rozsah prvního klíče', 'Scope of the first key'), type: 'select', options: presets.map(function (p) { return p[0]; }) },
+        { key: 'days', label: _('Platnost klíče (dní, max. 365)', 'Key validity (days, max. 365)'), value: '365' }
+      ]
+    }).then(function (v) {
+      if (!v) return null;
+      var preset = presets.filter(function (p) { return p[0] === v.scope; })[0] || presets[0], days = parseInt(v.days, 10);
+      return A().post('/service-accounts', { name: v.name.trim(), role: v.role, scopes: preset[1], expires_in_days: days > 0 ? Math.min(365, days) : 365 }, A().key()).then(function (r) {
+        saDone(cmp, _, r, _('Servisní účet vytvořen', 'Service account created'), _('Klíč zkopírujte z rámečku nad tabulkou — podruhé se nezobrazí.', 'Copy the key from the box above the table — it is not shown again.'));
+      });
+    }).catch(function (e) { fail(cmp, _, e); });
+  }
+  function saManage(cmp, _, acc) {
+    var live = (acc.tokens || []).filter(function (t) { return !t.revoked_at; }), presets = scopePresets(_);
+    return window.OnhostDialog.form({
+      title: _('Servisní účet ', 'Service account ') + acc.name,
+      lead: _('Aktivní klíče: ' + live.length + '. Vyberte, co se má stát.', 'Active keys: ' + live.length + '. Choose what to do.'),
+      confirm: _('Provést', 'Do it'),
+      fields: [
+        { key: 'op', label: _('Akce', 'Action'), type: 'select', options: [['issue', _('Vydat nový klíč', 'Issue a new key')], ['revoke', _('Zrušit vybraný klíč', 'Revoke the selected key')], ['delete', _('Odstranit celý účet i s klíči', 'Remove the whole account with its keys')]] },
+        { key: 'scope', label: _('Rozsah nového klíče', 'Scope of a new key'), type: 'select', options: presets.map(function (p) { return p[0]; }) },
+        { key: 'name', label: _('Název nového klíče', 'Name of a new key'), value: acc.name + '-' + new Date().toISOString().slice(0, 10) },
+        { key: 'token', label: _('Klíč ke zrušení', 'Key to revoke'), type: 'select', options: live.map(function (t) { return [t.id, t.name + (t.expires_at ? ' · ' + day(t.expires_at, isCs(cmp)) : '')]; }) }
+      ]
+    }).then(function (v) {
+      if (!v) return null;
+      var base = '/service-accounts/' + encodeURIComponent(acc.id);
+      if (v.op === 'issue') {
+        var preset = presets.filter(function (p) { return p[0] === v.scope; })[0] || presets[0];
+        if (!v.name.trim()) return null;
+        return A().post(base + '/tokens', { name: v.name.trim(), scopes: preset[1], expires_in_days: 365 }, A().key()).then(function (r) { saDone(cmp, _, r, _('Klíč vydán', 'Key issued'), acc.name); });
+      }
+      if (v.op === 'revoke') {
+        if (!v.token) return null;
+        return A().del(base + '/tokens/' + encodeURIComponent(v.token)).then(function () { saDone(cmp, _, null, _('Klíč zrušen', 'Key revoked'), _('Přestal platit okamžitě.', 'It stopped working at once.')); });
+      }
+      return window.OnhostDialog.confirm(_('Odstranit servisní účet ' + acc.name + '?', 'Remove the service account ' + acc.name + '?'), _('Všechny jeho klíče přestanou platit okamžitě a účet se odebere z organizace.', 'All its keys stop working at once and the account leaves the organization.'), { danger: true, confirm: _('Odstranit', 'Remove') }).then(function (yes) {
+        if (!yes) return null;
+        return A().del(base).then(function () { saDone(cmp, _, null, _('Servisní účet odstraněn', 'Service account removed'), acc.name); });
+      });
+    }).catch(function (e) { fail(cmp, _, e); });
+  }
+  function serviceAccountRows(cmp, _, cs) {
+    saLoad(cmp);
+    var sa = S.svcAccounts;
+    if (!sa) return [{ title: _('Servisní účty', 'Service accounts'), meta: _('načítám…', 'loading…'), value: '', kind: 'off' }];
+    if (sa.denied) return [{ title: _('Servisní účty', 'Service accounts'), meta: _('spravuje je jen vlastník organizace', 'only the owner of the organization manages them'), value: '—', kind: 'off' }];
+    var rows = (sa.list || []).map(function (a) {
+      var live = (a.tokens || []).filter(function (t) { return !t.revoked_at; }).length;
+      return { title: _('Servisní účet · ', 'Service account · ') + a.name, meta: roleLabel(a.role, cs) + ' · ' + live + ' ' + plural(live, ['aktivní klíč', 'aktivní klíče', 'aktivních klíčů'], ['active key', 'active keys'], cmp) + (a.created_at ? ' · ' + day(a.created_at, cs) : ''), value: _('spravovat', 'manage'), kind: a.state === 'active' || !a.state ? 'ok' : 'warn', on: function () { saManage(cmp, _, a); } };
+    });
+    rows.push({ title: _('Nový servisní účet', 'New service account'), meta: _('identita pro skript nebo integraci s vlastní rolí a klíči · jen vlastník, vyžaduje čerstvé ověření', 'an identity for a script or integration with its own role and keys · owner only, needs a fresh confirmation'), value: '+', kind: 'ok', on: function () { saCreate(cmp, _); } });
+    return rows;
+  }
+
   /* ── API keys and webhooks ─────────────────────────────────────────────────────────────── */
   /* Discord: link the account for /onhost slash commands and confirmation buttons; a Discord channel webhook receives the same events as any webhook, as embeds. */
   function discordRows(cmp, _, cs) {
@@ -68,9 +168,10 @@
       } });
     rows.push({ title: _('Discord notifikace', 'Discord notifications'), meta: _('vložte URL webhooku kanálu (Nastavení kanálu → Integrace → Webhooky); události přijdou jako karty', 'paste a channel webhook URL (Channel settings → Integrations → Webhooks); events arrive as embeds'), value: '+', kind: 'ok',
       on: function () {
-        var url = window.prompt(_('URL Discord webhooku kanálu:', 'Discord channel webhook URL:'), 'https://discord.com/api/webhooks/');
+        window.OnhostDialog.prompt(_('URL Discord webhooku kanálu:', 'Discord channel webhook URL:'), 'https://discord.com/api/webhooks/').then(function (url) {
         if (!url || url.indexOf('https://discord.com/api/webhooks/') !== 0 && url.indexOf('https://discordapp.com/api/webhooks/') !== 0) return;
         A().post('/webhooks', { url: url.trim(), events: ['*'] }, A().key()).then(function () { flash(cmp, _('Discord notifikace zapnuty', 'Discord notifications on'), _('Výpadky, deploye, faktury a tikety přijdou do kanálu.', 'Outages, deployments, invoices and tickets arrive in the channel.')); reload(cmp, 'webhooks'); }).catch(function (e) { fail(cmp, _, e); });
+        });
       } });
     return rows;
   }
@@ -141,16 +242,16 @@
         rows: [{ title: S.lastToken.token, meta: 'Authorization: Bearer ' + S.lastToken.token, aux: S.lastToken.expires ? _('platí do ', 'valid until ') + day(S.lastToken.expires, cs) : '', value: '', dot: H.dot('ok') }]
       } : null,
       side: {
-        title: _('Discord a webhooky', 'Discord and webhooks'),
+        title: _('Discord, webhooky a servisní účty', 'Discord, webhooks and service accounts'),
         rows: discordRows(cmp, _, cs).concat(hooks.length ? hooks.map(function (h) {
           return { title: h.url, meta: ((h.events || ['*']).join(', ')) + (h.last_delivered_at ? ' · ' + _('naposledy ', 'last ') + when(h.last_delivered_at, cs) : ''), value: (h.failures || 0) > 0 ? h.failures + ' ×' : (h.state === 'paused' ? _('pozastaven', 'paused') : _('aktivní', 'active')), kind: (h.failures || 0) > 0 ? 'warn' : 'ok',
             on: function () { if (window.confirm(_('Odebrat webhook ' + h.url + '?', 'Remove webhook ' + h.url + '?'))) A().del('/webhooks/' + encodeURIComponent(h.id)).then(function () { reload(cmp, 'webhooks'); }).catch(function (e) { fail(cmp, _, e); }); } };
-        }) : [{ title: _('Zatím žádný webhook', 'No webhook yet'), meta: _('podepsané události (objednávky, služby, faktury, domény, tikety) s opakováním a historií doručení', 'signed events (orders, services, invoices, domains, tickets) with retries and a delivery history'), value: '—', kind: 'off' }])
+        }) : [{ title: _('Zatím žádný webhook', 'No webhook yet'), meta: _('podepsané události (objednávky, služby, faktury, domény, tikety) s opakováním a historií doručení', 'signed events (orders, services, invoices, domains, tickets) with retries and a delivery history'), value: '—', kind: 'off' }]).concat(serviceAccountRows(cmp, _, cs))
       },
       advice: {
         title: _('Přidat webhook', 'Add a webhook'), lead: _('Události o objednávkách, službách, fakturách, doménách a tiketech posíláme podepsané na vaši HTTPS adresu. Doručení opakujeme a jeho historii uvidíte zde.', 'Events about orders, services, invoices, domains and tickets are delivered signed to your HTTPS endpoint, with retries and a visible delivery history.'), cta: _('Přidat webhook →', 'Add a webhook →'),
         on: function () {
-          var url = window.prompt(_('URL webhooku (musí začínat https://):', 'Webhook URL (must start with https://):'), 'https://');
+          window.OnhostDialog.prompt(_('URL webhooku (musí začínat https://):', 'Webhook URL (must start with https://):'), 'https://').then(function (url) {
           if (!url || url === 'https://') return;
           A().post('/webhooks', { url: url.trim(), events: ['*'] }, A().key()).then(function (r) {
             var d = r.data || r;
@@ -158,6 +259,7 @@
             if (d.secret) S.lastToken = { name: 'webhook', token: d.secret, expires: null };
             reload(cmp, 'webhooks');
           }).catch(function (e) { fail(cmp, _, e); });
+          });
         }
       }
     };
@@ -319,7 +421,7 @@
     if (S.green === undefined && orgId()) { S.green = null; load(cmp, 'green', '/account/green'); }
     var rf = S.referral || null, ms = S.missions || null, sp = S.statusPage || null, gr = S.green || null;
     var profileRows = [
-      [_('Doporučte nás', 'Refer us'), rf && rf.code ? rf.code : (rf ? _('kód ještě nemáte', 'no code yet') : _('načítám…', 'loading…')), rf && rf.counts ? (rf.counts.rewarded + _(' odměněných · ', ' rewarded · ') + rf.counts.pending + _(' čeká', ' pending')) : _('body a kredit pro obě strany po první platbě', 'points and credit for both sides after the first payment'), 'ok', rf && rf.code ? _('Zkopírovat odkaz', 'Copy the link') : _('Získat kód', 'Get a code'), function () {
+      [_('Doporučte nás', 'Refer us'), rf && rf.code ? rf.code : (rf ? _('kód ještě nemáte', 'no code yet') : _('načítám…', 'loading…')), rf && rf.counts ? (cq(_, rf.counts.rewarded, ['odměněná', 'odměněné', 'odměněných'], ['rewarded', 'rewarded']) + ' · ' + rf.counts.pending + _(' čeká', ' pending')) : _('body a kredit pro obě strany po první platbě', 'points and credit for both sides after the first payment'), 'ok', rf && rf.code ? _('Zkopírovat odkaz', 'Copy the link') : _('Získat kód', 'Get a code'), function () {
         if (!orgId()) return;
         if (rf && rf.code) { try { navigator.clipboard.writeText(rf.link); } catch (e) { /* clipboard unavailable */ } flash(cmp, _('Odkaz k doporučení', 'Invite link'), rf.link + '\n' + _('Odměna: ', 'Reward: ') + (rf.reward ? (rf.reward.referrer_points + ' b. + ' + (rf.reward.referrer_credit ? (rf.reward.referrer_credit.minor / 100) + ' ' + rf.reward.referrer_credit.currency : '')) : '')); return; }
         A().post('/account/referral/code', {}, A().key()).then(function (r) { S.referral = r.data || r; rerender(cmp); flash(cmp, _('Kód vytvořen', 'Code created'), (S.referral && S.referral.link) || ''); }).catch(function (e) { flash(cmp, _('Nepodařilo se', 'Failed'), (e && e.message) || ''); });
@@ -331,9 +433,10 @@
       [_('Vlastní stránka stavu', 'Own status page'), sp ? (sp.settings && sp.settings.enabled ? _('zapnuta', 'on') : _('vypnuta', 'off')) : _('načítám…', 'loading…'), sp ? sp.url : '', sp && sp.settings && sp.settings.enabled ? 'ok' : 'off', sp && sp.settings && sp.settings.enabled ? _('Vypnout', 'Switch off') : _('Zapnout', 'Switch on'), function () {
         if (!orgId() || !sp) return;
         var on = !(sp.settings && sp.settings.enabled);
-        var title = on ? window.prompt(_('Název stránky (např. jméno vaší firmy):', 'Page title (e.g. your company name):'), (sp.settings && sp.settings.title) || (org && org.name) || '') : null;
+        (on ? window.OnhostDialog.prompt(_('Název stránky (např. jméno vaší firmy):', 'Page title (e.g. your company name):'), (sp.settings && sp.settings.title) || (org && org.name) || '') : Promise.resolve(null)).then(function (title) {
         if (on && title === null) return;
         A().patch('/organizations/' + encodeURIComponent(orgId()), { status_page: on ? { enabled: true, title: title || undefined } : { enabled: false } }).then(function () { S.statusPage = undefined; rerender(cmp); flash(cmp, on ? _('Stránka stavu zapnuta', 'Status page on') : _('Stránka stavu vypnuta', 'Status page off'), on ? sp.url + '\n' + _('Odznak: ', 'Badge: ') + sp.badge_url + '\n' + (sp.cname_hint || '') : ''); }).catch(function (e) { flash(cmp, _('Nepodařilo se', 'Failed'), (e && e.message) || ''); });
+        });
       }],
       // the customer's own status host (audit §5k-3): set the host, verify its CNAME, the edge issues the certificate on demand
       [_('Stavová stránka na vlastní doméně', 'Status page on your own domain'), sp && sp.settings ? (sp.settings.domain ? sp.settings.domain + (sp.settings.domain_verified_at ? _(' · ověřeno', ' · verified') : _(' · čeká na ověření CNAME', ' · awaiting CNAME')) : _('nenastaveno', 'not set')) : _('načítám…', 'loading…'), sp ? _('CNAME na ', 'CNAME to ') + (sp.expected_cname || '') : '', sp && sp.settings && sp.settings.domain_verified_at ? 'ok' : 'off', sp && sp.settings && sp.settings.domain && !sp.settings.domain_verified_at ? _('Ověřit', 'Verify') : _('Nastavit', 'Set'), function () {
@@ -342,9 +445,10 @@
           A().post('/account/status-page/verify', {}, A().key()).then(function (r) { var d = r.data || r; S.statusPage = undefined; rerender(cmp); flash(cmp, d.verified ? _('Doména ověřena', 'Domain verified') : _('CNAME zatím nesedí', 'CNAME not there yet'), d.verified ? (d.url || '') : _('Nalezeno: ', 'Found: ') + ((d.found || []).join(', ') || '—') + '\n' + _('Očekáváno: ', 'Expected: ') + (d.expected_cname || '')); }).catch(function (e) { flash(cmp, _('Nepodařilo se', 'Failed'), (e && e.message) || ''); });
           return;
         }
-        var domain = window.prompt(_('Hostname stránky stavu (např. status.vase-domena.cz); prázdné = zrušit:', 'Status page host name (e.g. status.your-domain.cz); empty = remove:'), (sp.settings && sp.settings.domain) || '');
+        window.OnhostDialog.prompt(_('Hostname stránky stavu (např. status.vase-domena.cz); prázdné = zrušit:', 'Status page host name (e.g. status.your-domain.cz); empty = remove:'), (sp.settings && sp.settings.domain) || '').then(function (domain) {
         if (domain === null) return;
         A().patch('/organizations/' + encodeURIComponent(orgId()), { status_page: { domain: domain.trim() } }).then(function () { S.statusPage = undefined; rerender(cmp); flash(cmp, domain.trim() ? _('Doména uložena', 'Domain saved') : _('Doména odebrána', 'Domain removed'), domain.trim() ? _('Nastavte CNAME ', 'Set a CNAME ') + domain.trim() + ' → ' + (sp.expected_cname || '') + _(' a klikněte na Ověřit.', ' and click Verify.') : ''); }).catch(function (e) { flash(cmp, _('Nepodařilo se', 'Failed'), (e && e.message) || ''); });
+        });
       }],
       [_('Uhlíková stopa', 'Carbon footprint'), gr ? (gr.kwh + ' kWh · ' + Math.round(gr.gco2 / 100) / 10 + ' kg CO₂e / ' + _('měsíc', 'month')) : _('načítám…', 'loading…'), gr ? gr.renewable_pct + _(' % z obnovitelných zdrojů · odhad', ' % renewable · estimate') : '', gr && gr.renewable_pct >= 90 ? 'ok' : 'warn', _('Odznak', 'Badge'), function () {
         if (!gr) return;
@@ -358,8 +462,8 @@
       }],
       // TASK-0070: a person in several organizations chooses the one the panel works in (OnhostOrganizations in the session bridge)
       orgs.length > 1 ? [_('Organizace', 'Organization'), (o.name || '—'), _('jste členem ', 'member of ') + orgs.length + ' ' + plural(orgs.length, ['organizace', 'organizací', 'organizací'], ['organization', 'organizations'], cmp) + ' · ' + orgs.filter(function (x) { return !o.id || x.id !== o.id; }).map(function (x) { return x.name; }).join(', '), 'ok', _('Přepnout', 'Switch'), function () { if (window.OnhostOrganizations) window.OnhostOrganizations.dialog(); }] : null,
-      [_('Jméno', 'Name'), u.name || '—', _('zobrazuje se týmu i podpoře', 'shown to your team and to support'), 'ok', _('Upravit', 'Edit'), function () { var n = window.prompt(_('Jméno:', 'Name:'), u.name || ''); if (!n || !n.trim()) return; A().patch('/me', { name: n.trim() }).then(function () { u.name = n.trim(); flash(cmp, _('Jméno uloženo', 'Name saved'), n.trim()); rerender(cmp); }).catch(function (e) { fail(cmp, _, e); }); }],
-      [_('Přihlašovací e-mail', 'Sign-in e-mail'), u.email || '—', _('ověřený · doklady a upozornění', 'verified · documents and alerts'), 'ok', _('Změnit přes podporu', 'Change via support'), function () { flash(cmp, _('Změna e-mailu', 'E-mail change'), _('Přihlašovací e-mail měníme po ověření identity — napište prosím podpoře.', 'The sign-in e-mail is changed after identity verification — please write to support.')); }],
+      [_('Jméno', 'Name'), u.name || '—', _('zobrazuje se týmu i podpoře', 'shown to your team and to support'), 'ok', _('Upravit', 'Edit'), function () { window.OnhostDialog.prompt(_('Jméno:', 'Name:'), u.name || '').then(function (n) { if (!n || !n.trim()) return; A().patch('/me', { name: n.trim() }).then(function () { u.name = n.trim(); flash(cmp, _('Jméno uloženo', 'Name saved'), n.trim()); rerender(cmp); }).catch(function (e) { fail(cmp, _, e); }); }); }],
+      u.email_verified === false ? [_('Přihlašovací e-mail', 'Sign-in e-mail'), u.email || '—', _('neověřený · potvrďte odkaz z e-mailu, jinak vám nemusí chodit doklady', 'not verified · confirm the link in the e-mail, otherwise documents may not reach you'), 'warn', _('Poslat ověření znovu', 'Resend verification'), function () { resendVerification(cmp, _); }] : [_('Přihlašovací e-mail', 'Sign-in e-mail'), u.email || '—', _('ověřený · doklady a upozornění', 'verified · documents and alerts'), 'ok', _('Změnit přes podporu', 'Change via support'), function () { flash(cmp, _('Změna e-mailu', 'E-mail change'), _('Přihlašovací e-mail měníme po ověření identity — napište prosím podpoře.', 'The sign-in e-mail is changed after identity verification — please write to support.')); }],
       [_('Heslo a 2FA', 'Password and 2FA'), mfaOn() ? _('heslo + autentikátor', 'password + authenticator') : _('jen heslo', 'password only'), mfaOn() ? _('v pořádku', 'in order') : _('doporučujeme zapnout 2FA', 'we recommend 2FA'), mfaOn() ? 'ok' : 'warn', _('Zabezpečení', 'Security'), function () { goSecurity(cmp); }],
       // TASK-0070: which notices arrive by e-mail and in the panel (GET/PUT /v1/notifications/preferences had no screen)
       [_('Upozornění', 'Notifications'), _('e-mail a panel podle druhu', 'e-mail and panel per kind'), _('bezpečnost, doklady a výpadky chodí vždy', 'security, documents and outages always arrive'), 'ok', _('Nastavit', 'Set'), function () { notifyDialog(cmp, _); }],

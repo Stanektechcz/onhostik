@@ -72,10 +72,12 @@
     var current = (info && info.model) || o.partner.model;
     if (model === current) return true;
     if (info && info.request && info.request.state === 'requested') { cmp.flash(tr(cmp, 'Žádost už čeká na finance', 'A request is already waiting for finance'), tr(cmp, 'Rozhodnutí přijde e-mailem i sem do portálu.', 'The decision arrives by e-mail and here in the portal.')); return true; }
-    var note = window.prompt(tr(cmp, 'Požádat finance o změnu modelu na ' + (model === 'share' ? 'podíl z objemu' : 'jednorázově + bonus') + '. Změna platí od dalšího měsíce. Poznámka (volitelné):', 'Ask finance to switch the model to ' + (model === 'share' ? 'revenue share' : 'one-off + bonus') + '. The change applies from next month. Note (optional):'), '');
+    window.OnhostDialog.prompt(tr(cmp, 'Požádat finance o změnu modelu na ' + (model === 'share' ? 'podíl z objemu' : 'jednorázově + bonus') + '. Změna platí od dalšího měsíce. Poznámka (volitelné):', 'Ask finance to switch the model to ' + (model === 'share' ? 'revenue share' : 'one-off + bonus') + '. The change applies from next month. Note (optional):'), '', { title: tr(cmp, 'Změna modelu provize', 'Change of the commission model'), fieldLabel: tr(cmp, 'Poznámka (volitelné)', 'Note (optional)') }).then(function (note) {
     if (note === null) return true;
     var a = A(); if (!a) return true;
     a.post('/partner/model', { model: model, note: note || null }, a.key()).then(function () { S.model = null; if (cmp.forceUpdate) cmp.forceUpdate(); cmp.flash(tr(cmp, 'Žádost odeslána', 'Request sent'), tr(cmp, 'Finance rozhodne; schválená změna platí od 1. dne příštího měsíce.', 'Finance decides; an approved change applies from the 1st of next month.')); }).catch(function (e) { cmp.flash(tr(cmp, 'Žádost neprošla', 'Request failed'), (e && e.message) || 'error'); });
+    return true;
+    });
     return true;
   }
   function modelNote(cmp) {
@@ -118,14 +120,16 @@
     if (info.open && info.open[kind]) { cmp.flash(tr(cmp, 'Žádost už čeká na finance', 'A request is already waiting for finance'), tr(cmp, 'Rozhodnutí přijde e-mailem i sem do portálu.', 'The decision arrives by e-mail and here in the portal.')); return; }
     var values = (info.kinds && info.kinds[kind]) || [];
     var listed = values.map(function (v) { return v + ' = ' + termValue(cmp, kind, v); }).join('\n');
-    var value = window.prompt(tr(cmp, 'Nová hodnota pro ', 'New value for ') + tr(cmp, TERM_LABELS[kind][0], TERM_LABELS[kind][1]) + ':\n' + listed, values[0] || '');
+    window.OnhostDialog.prompt(tr(cmp, 'Nová hodnota pro ', 'New value for ') + tr(cmp, TERM_LABELS[kind][0], TERM_LABELS[kind][1]) + ':\n' + listed, values[0] || '').then(function (value) {
     if (value === null) return;
     value = String(value).trim().split(' ')[0];
     if (values.indexOf(value) < 0) { cmp.flash(tr(cmp, 'Neznámá hodnota', 'Unknown value'), listed); return; }
-    var note = window.prompt(tr(cmp, 'Poznámka pro finance (volitelné):', 'Note for finance (optional):'), '');
+    window.OnhostDialog.prompt(tr(cmp, 'Poznámka pro finance (volitelné):', 'Note for finance (optional):'), '').then(function (note) {
     if (note === null) return;
     var a = A(); if (!a) return;
     a.post('/partner/changes', { kind: kind, value: value, note: note || null }, a.key()).then(function () { S.terms = null; S.model = null; if (cmp.forceUpdate) cmp.forceUpdate(); cmp.flash(tr(cmp, 'Žádost odeslána', 'Request sent'), tr(cmp, 'Finance rozhodnou; schválená změna platí od 1. dne příštího měsíce.', 'Finance decides; an approved change applies from the 1st of next month.')); }).catch(function (e) { cmp.flash(tr(cmp, 'Žádost neprošla', 'Request failed'), (e && e.message) || 'error'); });
+      });
+    });
   }
   /* tab badges: the real client count and the payouts waiting for approval (empty = no badge) */
   function clientBadge(cmp) { var list = clientsRaw(cmp); return Array.isArray(list) && list.length ? String(list.length) : ''; }
@@ -244,21 +248,26 @@
   var ORDER_STATE = { ordered: ['nová zakázka', 'new job', 'warn'], in_progress: ['pracujeme', 'in progress', 'ok'], delivered: ['dodáno · čeká na převzetí', 'delivered · awaiting acceptance', 'ok'], accepted: ['převzato', 'accepted', 'ok'], disputed: ['reklamace', 'disputed', 'hot'], cancelled: ['zrušeno', 'cancelled', 'off'], ended: ['ukončeno', 'ended', 'off'] };
 
   function newListing(cmp) {
-    var key = window.prompt(tr(cmp, 'Klíč nabídky (malá písmena, číslice, pomlčky):', 'Listing key (lowercase letters, digits, dashes):'), 'wp-care-basic');
-    if (!key) return;
-    var title = window.prompt(tr(cmp, 'Název (3–120 znaků):', 'Title (3–120 characters):'), ''); if (!title) return;
-    var category = window.prompt(tr(cmp, 'Kategorie: care, seo, security, backup, migration, development, design, content', 'Category: care, seo, security, backup, migration, development, design, content'), 'care'); if (!category) return;
-    var price = window.prompt(tr(cmp, 'Cena bez DPH (celé koruny):', 'Net price (whole units):'), '1500'); if (!price) return;
-    var billing = window.prompt(tr(cmp, 'Účtování: oneoff (jednorázově) / monthly (měsíčně)', 'Billing: oneoff / monthly'), 'oneoff'); if (!billing) return;
-    var days = window.prompt(tr(cmp, 'Dodání do (dní):', 'Delivery within (days):'), '7'); if (days === null) return;
-    var description = window.prompt(tr(cmp, 'Popis pro zákazníky:', 'Description for customers:'), '') || '';
-    var checklist = [];
-    if (billing.trim() === 'monthly') { // §5o-2: the monthly deliverable is a matter of facts — the items the partner ticks every period
-      var cl = window.prompt(tr(cmp, 'Checklist měsíčního plnění (položky oddělené čárkou, např. aktualizace, záloha, uptime%):', 'Monthly deliverable checklist (comma-separated, e.g. updates, backup, uptime%):'), tr(cmp, 'aktualizace, záloha, uptime%', 'updates, backup, uptime%'));
-      if (cl === null) return;
-      checklist = cl.split(',').map(function (s) { return s.trim(); }).filter(Boolean).map(function (label) { var text = /%$/.test(label); var raw = label.replace(/%$/, ''); return { key: raw.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'item', cs: raw, en: raw, kind: text ? 'text' : 'check' }; });
-    }
-    act(cmp, 'post', '/partner/marketplace/listings', { key: key.trim().toLowerCase(), title: title.trim(), category: category.trim(), price_minor: Math.round(Number(String(price).replace(',', '.')) * 100), billing: billing.trim(), delivery_days: Math.max(1, Number(days) || 7), description: description, checklist: checklist });
+    window.OnhostDialog.form({
+      title: tr(cmp, 'Nová nabídka', 'New listing'), confirm: tr(cmp, 'Vytvořit nabídku', 'Create listing'),
+      fields: [
+        { key: 'key', label: tr(cmp, 'Klíč nabídky (malá písmena, číslice, pomlčky)', 'Listing key (lowercase letters, digits, dashes)'), value: 'wp-care-basic', required: true },
+        { key: 'title', label: tr(cmp, 'Název (3–120 znaků)', 'Title (3–120 characters)'), required: true },
+        { key: 'category', label: tr(cmp, 'Kategorie', 'Category'), type: 'select', value: 'care', options: ['care', 'seo', 'security', 'backup', 'migration', 'development', 'design', 'content'] },
+        { key: 'price', label: tr(cmp, 'Cena bez DPH (celé koruny)', 'Net price (whole units)'), value: '1500', required: true },
+        { key: 'billing', label: tr(cmp, 'Účtování', 'Billing'), type: 'select', value: 'oneoff', options: [['oneoff', tr(cmp, 'jednorázově', 'one-off')], ['monthly', tr(cmp, 'měsíčně', 'monthly')]] },
+        { key: 'days', label: tr(cmp, 'Dodání do (dní)', 'Delivery within (days)'), value: '7' },
+        { key: 'description', label: tr(cmp, 'Popis pro zákazníky', 'Description for customers'), type: 'textarea' },
+        { key: 'checklist', label: tr(cmp, 'Checklist měsíčního plnění (jen u měsíčního účtování; položky oddělené čárkou)', 'Monthly deliverable checklist (monthly billing only; comma-separated)'), value: tr(cmp, 'aktualizace, záloha, uptime%', 'updates, backup, uptime%'), hint: tr(cmp, 'Položka končící % se při odevzdání vyplňuje textem, ostatní se odškrtávají.', 'An item ending in % is filled with text when reporting, the others are ticked.') }
+      ]
+    }).then(function (v) {
+      if (!v) return;
+      var checklist = [];
+      if (v.billing === 'monthly') { // §5o-2: the monthly deliverable is a matter of facts — the items the partner ticks every period
+        checklist = v.checklist.split(',').map(function (s) { return s.trim(); }).filter(Boolean).map(function (label) { var text = /%$/.test(label); var raw = label.replace(/%$/, ''); return { key: raw.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'item', cs: raw, en: raw, kind: text ? 'text' : 'check' }; });
+      }
+      act(cmp, 'post', '/partner/marketplace/listings', { key: v.key.trim().toLowerCase(), title: v.title.trim(), category: v.category.trim(), price_minor: Math.round(Number(String(v.price).replace(',', '.')) * 100), billing: v.billing.trim(), delivery_days: Math.max(1, Number(v.days) || 7), description: v.description || '', checklist: checklist });
+    });
   }
   /* §5p-3: a file behind a checklist item — a file picker, multipart upload, then the report prompt again */
   function uploadEvidence(cmp, o, item) {
@@ -278,8 +287,9 @@
       if (l.state === 'published') a1 = [tr(cmp, 'Pozastavit', 'Pause'), BTN, function () { act(cmp, 'post', '/partner/marketplace/listings/' + encodeURIComponent(l.id) + '/state', { state: 'paused' }); }];
       if (l.state === 'paused') a1 = [tr(cmp, 'Obnovit', 'Resume'), PRIMARY, function () { act(cmp, 'post', '/partner/marketplace/listings/' + encodeURIComponent(l.id) + '/state', { state: 'published' }); }];
       if (l.state !== 'retired') a2 = [tr(cmp, 'Upravit cenu', 'Edit price'), BTN, function () {
-        var price = window.prompt(tr(cmp, 'Nová cena bez DPH (změna vrátí nabídku ke schválení):', 'New net price (the listing goes back for approval):'), String((l.price.minor || 0) / 100)); if (!price) return;
+        window.OnhostDialog.prompt(tr(cmp, 'Nová cena bez DPH (změna vrátí nabídku ke schválení):', 'New net price (the listing goes back for approval):'), String((l.price.minor || 0) / 100)).then(function (price) { if (!price) return;
         act(cmp, 'put', '/partner/marketplace/listings/' + encodeURIComponent(l.id), { price_minor: Math.round(Number(String(price).replace(',', '.')) * 100) });
+        });
       }];
       return {
         title: l.title, sub: l.key + ' · ' + l.category + ' · ' + (l.billing === 'monthly' ? tr(cmp, 'měsíčně', 'monthly') : tr(cmp, 'jednorázově', 'one-off')) + ' · ' + tr(cmp, 'dodání do ', 'delivery within ') + l.delivery_days + ' d' + (l.orders ? ' · ' + l.orders + '× ' + tr(cmp, 'převzato', 'accepted') : ''),
@@ -297,23 +307,35 @@
       var a1 = null, a2 = null;
       if (o.state === 'ordered') a1 = [tr(cmp, 'Převzít', 'Start'), PRIMARY, function () { act(cmp, 'post', '/partner/marketplace/orders/' + encodeURIComponent(o.id) + '/start', {}); }];
       if (o.state === 'ordered' || o.state === 'in_progress' || o.state === 'disputed') a2 = [tr(cmp, 'Označit dodáno', 'Mark delivered'), o.state === 'in_progress' ? PRIMARY : BTN, function () {
-        var note = window.prompt(tr(cmp, 'Co bylo dodáno (zákazník to uvidí):', 'What was delivered (the customer sees it):'), ''); if (!note) return;
+        window.OnhostDialog.prompt(tr(cmp, 'Co bylo dodáno (zákazník to uvidí):', 'What was delivered (the customer sees it):'), '').then(function (note) { if (!note) return;
         act(cmp, 'post', '/partner/marketplace/orders/' + encodeURIComponent(o.id) + '/deliver', { note: note });
+        });
       }];
       if (o.state === 'accepted' && o.subscription && (o.subscription.state === 'active' || o.subscription.state === 'past_due')) a2 = [tr(cmp, 'Odevzdat měsíční plnění', 'Report the monthly deliverable'), (o.sla && o.sla.period && !o.sla.period.served) ? PRIMARY : BTN, function () { // §5n-2 + §5o-2: the period report with its checklist
         var evidence = {}, items = o.checklist || [], uploaded = (o.period_uploads || []).map(function (u) { return u.key; });
-        for (var i = 0; i < items.length; i++) {
-          var it = items[i], label = cs(cmp) ? it.cs : it.en;
-          if (it.kind === 'file') { // §5p-3: the file goes up first, the report consumes it
-            if (uploaded.indexOf(it.key) >= 0) continue;
-            if (window.confirm(tr(cmp, 'Nahrát soubor: ', 'Upload a file: ') + label + '?')) { uploadEvidence(cmp, o, it); } else { cmp.flash(tr(cmp, 'Plnění neodevzdáno', 'Report not sent'), tr(cmp, 'Nejdřív nahrajte soubor k položce ', 'Upload the file for ') + label + '.'); }
-            return;
-          }
-          if (it.kind === 'text') { var v = window.prompt(label + ':', ''); if (v === null) return; evidence[it.key] = v; }
-          else { if (!window.confirm(tr(cmp, 'Splněno: ', 'Done: ') + label + '?')) { cmp.flash(tr(cmp, 'Plnění neodevzdáno', 'Report not sent'), tr(cmp, 'Každá položka checklistu musí být splněna.', 'Every checklist item must be done.')); return; } evidence[it.key] = true; }
-        }
-        var note = window.prompt(tr(cmp, 'Co bylo v tomto období uděláno (zákazník to uvidí):', 'What was done this period (the customer sees it):'), ''); if (!note) return;
-        act(cmp, 'post', '/partner/marketplace/orders/' + encodeURIComponent(o.id) + '/deliver', { note: note, evidence: evidence });
+        var chain = Promise.resolve(true);
+        items.forEach(function (it) {
+          chain = chain.then(function (goOn) {
+            if (!goOn) return false;
+            var label = cs(cmp) ? it.cs : it.en;
+            if (it.kind === 'file') { // §5p-3: the file goes up first, the report consumes it
+              if (uploaded.indexOf(it.key) >= 0) return true;
+              if (window.confirm(tr(cmp, 'Nahrát soubor: ', 'Upload a file: ') + label + '?')) { uploadEvidence(cmp, o, it); } else { cmp.flash(tr(cmp, 'Plnění neodevzdáno', 'Report not sent'), tr(cmp, 'Nejdřív nahrajte soubor k položce ', 'Upload the file for ') + label + '.'); }
+              return false;
+            }
+            if (it.kind === 'text') return window.OnhostDialog.prompt(label + ':', '', { title: tr(cmp, 'Měsíční plnění', 'Monthly deliverable'), fieldLabel: label }).then(function (v) { if (v === null) return false; evidence[it.key] = v; return true; });
+            if (!window.confirm(tr(cmp, 'Splněno: ', 'Done: ') + label + '?')) { cmp.flash(tr(cmp, 'Plnění neodevzdáno', 'Report not sent'), tr(cmp, 'Každá položka checklistu musí být splněna.', 'Every checklist item must be done.')); return false; }
+            evidence[it.key] = true;
+            return true;
+          });
+        });
+        chain.then(function (goOn) {
+          if (!goOn) return null;
+          return window.OnhostDialog.prompt(tr(cmp, 'Co bylo v tomto období uděláno (zákazník to uvidí):', 'What was done this period (the customer sees it):'), '', { type: 'textarea', required: true }).then(function (note) {
+            if (!note) return;
+            act(cmp, 'post', '/partner/marketplace/orders/' + encodeURIComponent(o.id) + '/deliver', { note: note, evidence: evidence });
+          });
+        });
       }];
       var overdue = o.sla && o.sla.overdue;
       var sub = (o.brief || '').slice(0, 140) + (o.subscription ? ' · ' + tr(cmp, 'předplatné do ', 'subscription until ') + when(o.subscription.period_end, cmp) + (o.subscription.cancel_at_period_end ? tr(cmp, ' (končí)', ' (ending)') : '') : '') + (overdue ? ' · ' + tr(cmp, 'PO TERMÍNU', 'OVERDUE') + (o.sla.refund_available ? tr(cmp, ' · zákazník může žádat vrácení', ' · the customer may ask for a refund') : '') : '');

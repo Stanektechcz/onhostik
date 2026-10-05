@@ -203,8 +203,8 @@
           facts: [[tr(cmp, 'Stav', 'State'), i.state], [tr(cmp, 'Od', 'Since'), fmt(i.at)], [tr(cmp, 'Číslo', 'Number'), String(i.id)]],
           age: open ? tr(cmp, 'otevřený', 'open') : tr(cmp, 'vyřešený', 'resolved'), kind: open ? (sev === 'P1' ? 'hot' : 'warn') : 'off',
           actions: open ? [
-            [tr(cmp, 'Označit vyřešený', 'Mark resolved'), true, function () { var note = window.prompt(tr(cmp, 'Poznámka k vyřešení (zákazníci ji uvidí na stránce stavu)', 'Resolution note (customers see it on the status page)'), ''); if (note !== null) s.setIncidentState(i.id, 'vyreseno', note); }],
-            [tr(cmp, 'Aktualizace stavu', 'Status update'), false, function () { var note = window.prompt(tr(cmp, 'Zpráva pro stavovou stránku', 'Status page update'), ''); if (note) s.setIncidentState(i.id, i.state, note); }]
+            [tr(cmp, 'Označit vyřešený', 'Mark resolved'), true, function () { window.OnhostDialog.prompt(tr(cmp, 'Poznámka k vyřešení (zákazníci ji uvidí na stránce stavu)', 'Resolution note (customers see it on the status page)'), '').then(function (note) { if (note !== null) s.setIncidentState(i.id, 'vyreseno', note); }); }],
+            [tr(cmp, 'Aktualizace stavu', 'Status update'), false, function () { window.OnhostDialog.prompt(tr(cmp, 'Zpráva pro stavovou stránku', 'Status page update'), '').then(function (note) { if (note) s.setIncidentState(i.id, i.state, note); }); }]
           ] : [] };
       });
     }
@@ -391,8 +391,9 @@
   function freezeActions(cmp) {
     var out = [];
     if (apiAllowed('/staff/provisioning/freeze', 'POST')) out.push([tr(cmp, 'Zmrazit provisioning', 'Freeze provisioning'), tr(cmp, 'Nové operace počkají, běžící doběhnou.', 'New operations wait, running ones finish.'), 0, function () {
-      var reason = window.prompt(tr(cmp, 'Důvod zmrazení (zapíše se do auditu):', 'Reason for the freeze (goes to the audit log):'), 'incident'); if (!reason) return;
+      window.OnhostDialog.prompt(tr(cmp, 'Důvod zmrazení (zapíše se do auditu):', 'Reason for the freeze (goes to the audit log):'), 'incident').then(function (reason) { if (!reason) return;
       post('/staff/provisioning/freeze', { reason: reason }, null, function () { reloadView('board'); });
+      });
     }]);
     if (apiAllowed('/staff/provisioning/thaw', 'POST')) out.push([tr(cmp, 'Rozmrazit provisioning', 'Thaw provisioning'), '', 0, function () {
       if (!window.confirm(tr(cmp, 'Rozmrazit provisioning?', 'Thaw provisioning?'))) return;
@@ -420,9 +421,9 @@
     finance: { note: ['MRR, inkaso, odchody a tržby.', 'MRR, collections, churn and revenue.'], sources: [['/staff/reports/mrr', ['MRR', 'MRR']], ['/staff/reports/collections', ['Inkaso', 'Collections']], ['/staff/reports/churn', ['Odchody', 'Churn']], ['/staff/reports/revenue', ['Tržby', 'Revenue']]] },
     users: { note: ['Reset druhého faktoru jiné osoby: s důvodem, auditem a krokem navíc.', 'Resetting somebody else’s second factor: with a reason, an audit row and a step-up.'], sources: [], actions: function (cmp) {
       return apiAllowed('/staff/users/x/mfa-reset', 'POST') ? [[tr(cmp, 'Resetovat MFA', 'Reset MFA'), tr(cmp, 'ID uživatele a důvod (nejméně 10 znaků).', 'User id and a reason (at least 10 characters).'), 1, function () {
-        var id = window.prompt(tr(cmp, 'ID uživatele:', 'User id:'), ''); if (!id) return;
-        var reason = window.prompt(tr(cmp, 'Důvod (zapíše se do auditu, nejméně 10 znaků):', 'Reason (goes to the audit log, at least 10 characters):'), ''); if (!reason) return;
+        window.OnhostDialog.form({ title: tr(cmp, 'Resetovat MFA', 'Reset MFA'), confirm: tr(cmp, 'Resetovat', 'Reset'), danger: true, fields: [{ key: 'id', label: tr(cmp, 'ID uživatele', 'User id'), required: true }, { key: 'reason', label: tr(cmp, 'Důvod (zapíše se do auditu, nejméně 10 znaků)', 'Reason (goes to the audit log, at least 10 characters)'), required: true }] }).then(function (v) { if (!v) return; var id = v.id, reason = v.reason;
         post('/staff/users/' + encodeURIComponent(id.trim()) + '/mfa-reset', { reason: reason.trim() }, function () { window.alert(tr(cmp, 'MFA resetováno.', 'MFA reset.')); });
+        });
       }]] : [];
     } },
     mailtpl: { note: ['Šablony zpráv a odchozí pošta.', 'Message templates and the outbox.'], sources: [['/staff/templates', ['Šablony', 'Templates']], ['/staff/outbox?limit=50', ['Odchozí pošta', 'Outbox']]] },
@@ -516,16 +517,19 @@
     if (!rows.length) rows.push([tr(cmp, 'Žádná kampaň', 'No campaign'), tr(cmp, 'založte první: mise z katalogu, okno, odznak — odhad nákladů uvidíte před uložením', 'create the first: catalogue missions, a window, a badge — the forecast shows before you save'), ['0', '—'], 'off', tr(cmp, 'prázdné', 'empty'), []]);
     var actions = [
       [tr(cmp, 'Nová kampaň', 'New campaign'), tr(cmp, 'Nejdřív odhad nákladů, pak uložení.', 'The forecast first, then the save.'), 1, function () {
-        var key = window.prompt(tr(cmp, 'Klíč kampaně (a-z, 0-9, pomlčky):', 'Campaign key (a-z, 0-9, dashes):'), ''); if (!key) return;
-        var cs = window.prompt(tr(cmp, 'Název (cs):', 'Title (cs):'), ''); if (!cs) return;
-        var ms = window.prompt(tr(cmp, 'Mise (klíče oddělené čárkou) z: ', 'Missions (comma-separated keys) from: ') + missions.join(', '), missions.slice(0, 2).join(', ')); if (!ms) return;
-        var from = window.prompt(tr(cmp, 'Platí od (YYYY-MM-DD):', 'Active from (YYYY-MM-DD):'), new Date().toISOString().slice(0, 10)); if (!from) return;
-        var to = window.prompt(tr(cmp, 'Platí do (YYYY-MM-DD, prázdné = bez konce):', 'Active to (YYYY-MM-DD, empty = open-ended):'), ''); if (to === null) return;
-        var badge = window.prompt(tr(cmp, 'Odznak (volitelné):', 'Badge (optional):'), key); if (badge === null) return;
+        window.OnhostDialog.form({ title: tr(cmp, 'Nová kampaň', 'New campaign'), confirm: tr(cmp, 'Spočítat odhad', 'Forecast'), fields: [
+          { key: 'key', label: tr(cmp, 'Klíč kampaně (a-z, 0-9, pomlčky)', 'Campaign key (a-z, 0-9, dashes)'), required: true },
+          { key: 'cs', label: tr(cmp, 'Název (cs)', 'Title (cs)'), required: true },
+          { key: 'ms', label: tr(cmp, 'Mise (klíče oddělené čárkou)', 'Missions (comma-separated keys)'), value: missions.slice(0, 2).join(', '), hint: tr(cmp, 'Z katalogu: ', 'From the catalogue: ') + missions.join(', '), required: true },
+          { key: 'from', label: tr(cmp, 'Platí od (YYYY-MM-DD)', 'Active from (YYYY-MM-DD)'), value: new Date().toISOString().slice(0, 10), required: true },
+          { key: 'to', label: tr(cmp, 'Platí do (YYYY-MM-DD, prázdné = bez konce)', 'Active to (YYYY-MM-DD, empty = open-ended)') },
+          { key: 'badge', label: tr(cmp, 'Odznak (volitelné)', 'Badge (optional)') }
+        ] }).then(function (v) { if (!v) return; var key = v.key, cs = v.cs, ms = v.ms, from = v.from, to = v.to, badge = v.badge || v.key;
         var draft = { key: key.trim().toLowerCase(), cs: cs.trim(), en: cs.trim(), missions: ms.split(',').map(function (s) { return s.trim().toLowerCase(); }).filter(Boolean), active_from: from.trim(), active_to: to.trim() || null, badge: badge.trim() || null };
         forecast(cmp, draft, function (d) {
           if (!window.confirm(forecastNote(cmp, d) + '\n\n' + tr(cmp, 'Uložit kampaň?', 'Save the campaign?'))) return;
           saveCampaigns(cmp, campaigns.concat([draft]));
+        });
         });
       }],
       [tr(cmp, 'Obnovit', 'Refresh'), '', 0, function () { reloadView('loyalty'); }]
@@ -545,9 +549,9 @@
     });
     (q.data || []).forEach(function (r) {
       var acts = [];
-      if (r.state === 'proposed' || r.state === 'approved') acts.push([tr(cmp, r.state === 'proposed' ? 'Schválit' : 'Objednat znovu', r.state === 'proposed' ? 'Approve' : 'Order again'), tr(cmp, 'S dodavatelem na instanci se uzel objedná; bez něj čeká na ruční nákup.', 'With a vendor on the instance the node is ordered; without one it waits for the purchase.'), 1, function () { var n = window.prompt(tr(cmp, 'Poznámka (volitelné):', 'Note (optional):'), ''); if (n === null) return; decide(r, 'approve', { note: n || null }); }]);
+      if (r.state === 'proposed' || r.state === 'approved') acts.push([tr(cmp, r.state === 'proposed' ? 'Schválit' : 'Objednat znovu', r.state === 'proposed' ? 'Approve' : 'Order again'), tr(cmp, 'S dodavatelem na instanci se uzel objedná; bez něj čeká na ruční nákup.', 'With a vendor on the instance the node is ordered; without one it waits for the purchase.'), 1, function () { window.OnhostDialog.prompt(tr(cmp, 'Poznámka (volitelné):', 'Note (optional):'), '').then(function (n) { if (n === null) return; decide(r, 'approve', { note: n || null }); }); }]);
       if (r.state === 'failed') acts.push([tr(cmp, 'Zkusit znovu', 'Retry'), '', 1, function () { decide(r, 'retry'); }]);
-      if (r.state === 'proposed' || r.state === 'approved' || r.state === 'ordered') acts.push([tr(cmp, 'Dodáno', 'Delivered'), tr(cmp, 'Uzel je aktivní: zapište jeho název a žádost se uzavře.', 'The node is active: name it and the request closes.'), 0, function () { var n = window.prompt(tr(cmp, 'Název uzlu:', 'Node name:'), r.node_name || ''); if (!n) return; decide(r, 'delivered', { node_name: n }); }]);
+      if (r.state === 'proposed' || r.state === 'approved' || r.state === 'ordered') acts.push([tr(cmp, 'Dodáno', 'Delivered'), tr(cmp, 'Uzel je aktivní: zapište jeho název a žádost se uzavře.', 'The node is active: name it and the request closes.'), 0, function () { window.OnhostDialog.prompt(tr(cmp, 'Název uzlu:', 'Node name:'), r.node_name || '').then(function (n) { if (!n) return; decide(r, 'delivered', { node_name: n }); }); }]);
       if (r.state === 'proposed' || r.state === 'approved' || r.state === 'ordered') acts.push([tr(cmp, 'Zrušit', 'Cancel'), '', 0, function () { if (!window.confirm(tr(cmp, 'Zrušit žádost?', 'Cancel the request?'))) return; decide(r, 'cancel'); }]);
       var ready = r.ready_at ? ' · ' + tr(cmp, 'ohlásil se ', 'reported ') + (r.ready && r.ready.ip ? r.ready.ip : '') + (r.ready && r.ready.os ? ' ' + r.ready.os : '') : '';
       rows.push([tr(cmp, 'Žádost ', 'Request ') + r.role + ' · ' + (r.region || '—'), Math.round((r.wanted.ram_mb || 0) / 1024) + ' GB RAM · ' + r.wanted.cpu_cores + ' vCPU · ' + r.wanted.disk_gb + ' GB' + (r.vendor ? ' · ' + tr(cmp, 'dodavatel ', 'vendor ') + r.vendor : ' · ' + tr(cmp, 'ruční nákup', 'manual purchase')) + (r.node_name ? ' · ' + r.node_name : '') + (r.ip ? ' · ' + r.ip : '') + (r.error ? ' · ' + r.error : '') + ready, [r.days_left === null ? '∞' : String(r.days_left), tr(cmp, 'dní', 'days')], r.state === 'failed' ? 'hot' : (r.state === 'delivered' || r.state === 'cancelled' ? 'off' : 'warn'), r.state, acts]);
@@ -580,26 +584,22 @@
           var acts = [];
           // node limits through the panel API (audit §5q follow-up): the operator never opens the panel's own UI
           acts.push([tr(cmp, 'Limity uzlu', 'Node limits'), tr(cmp, 'Paměť a disk uzlu na panelu (MB) a případná přealokace v %; plánovač kapacitu převezme hned.', 'Node memory and disk on the panel (MB) and over-allocation in %; the scheduler takes the capacity over at once.'), 0, function () {
-            var mem = window.prompt(tr(cmp, 'Paměť uzlu v MB (prázdné = beze změny):', 'Node memory in MB (empty = unchanged):'), String(n.memory || ''));
-            if (mem === null) return;
-            var disk = window.prompt(tr(cmp, 'Disk uzlu v MB (prázdné = beze změny):', 'Node disk in MB (empty = unchanged):'), String(n.disk || ''));
-            if (disk === null) return;
+            window.OnhostDialog.form({ title: tr(cmp, 'Limity uzlu', 'Node limits'), confirm: tr(cmp, 'Uložit', 'Save'), fields: [{ key: 'mem', label: tr(cmp, 'Paměť uzlu v MB (prázdné = beze změny)', 'Node memory in MB (empty = unchanged)'), value: String(n.memory || '') }, { key: 'disk', label: tr(cmp, 'Disk uzlu v MB (prázdné = beze změny)', 'Node disk in MB (empty = unchanged)'), value: String(n.disk || '') }] }).then(function (v) { if (!v) return; var mem = v.mem, disk = v.disk;
             var body = {};
             if (mem.trim() !== '' && Number(mem) !== Number(n.memory)) body.memory = Number(mem);
             if (disk.trim() !== '' && Number(disk) !== Number(n.disk)) body.disk = Number(disk);
             if (!Object.keys(body).length) { window.alert(tr(cmp, 'Nic ke změně.', 'Nothing to change.')); return; }
             put(base + '/game/nodes/' + encodeURIComponent(n.id), body, reload);
+            });
           }]);
           acts.push([tr(cmp, 'Změřit RAM', 'Detect RAM'), tr(cmp, 'Paměť uzlu se nastaví podle toho, co hlásí démon uzlu (Wings), minus rezerva pro hostitele.', 'The node memory follows what the node daemon (Wings) reports, minus the host reserve.'), 0, function () { put(base + '/game/nodes/' + encodeURIComponent(n.id), { detect: true }, reload); }]);
           if (n.scheduler_id) acts.push([tr(cmp, 'Vystěhovat servery', 'Evacuate servers'), tr(cmp, 'Uzel se odstaví a každý server dostane vlastní stěhování: zastavení → záloha → nový server na cíli → přenos dat → přepnutí adresy → úklid.', 'The node is drained and every server gets its own migration: stop → backup → new server on the target → data transfer → address switch → clean-up.'), 0, function () {
             var others = (inst.nodes || []).filter(function (o) { return o.scheduler_id && o.scheduler_id !== n.scheduler_id; }).map(function (o) { return o.name; });
-            var target = window.prompt(tr(cmp, 'Cílový uzel (prázdné = vybere plánovač): ', 'Target node (empty = the scheduler picks): ') + others.join(', '), '');
-            if (target === null) return;
-            var reason = window.prompt(tr(cmp, 'Důvod (zapíše se do auditu a zákazníkům)', 'Reason (goes to the audit log and to customers)'), tr(cmp, 'údržba uzlu', 'node maintenance'));
-            if (reason === null) return;
+            window.OnhostDialog.form({ title: tr(cmp, 'Vystěhovat servery', 'Evacuate servers'), confirm: tr(cmp, 'Vystěhovat', 'Evacuate'), danger: true, fields: [{ key: 'target', label: tr(cmp, 'Cílový uzel (prázdné = vybere plánovač)', 'Target node (empty = the scheduler picks)'), hint: others.join(', ') }, { key: 'reason', label: tr(cmp, 'Důvod (zapíše se do auditu a zákazníkům)', 'Reason (goes to the audit log and to customers)'), value: tr(cmp, 'údržba uzlu', 'node maintenance') }] }).then(function (v) { if (!v) return; var target = v.target, reason = v.reason;
             post(base + '/game/nodes/' + encodeURIComponent(n.scheduler_id) + '/evacuate', { target_node_id: target.trim() || null, reason: reason || null }, null, reload);
+            });
           }]);
-          if (n.scheduler_id) acts.push([n.scheduler_state === 'draining' ? tr(cmp, 'Vrátit do provozu', 'Resume') : tr(cmp, 'Odstavit z umísťování', 'Drain'), tr(cmp, 'Odstavený uzel nedostává nové servery; běžící zůstávají.', 'A drained node gets no new servers; running ones stay.'), 0, function () { var to = n.scheduler_state === 'draining' ? 'active' : 'draining'; var reason = to === 'draining' ? window.prompt(tr(cmp, 'Důvod odstavení:', 'Reason for draining:'), '') : null; if (to === 'draining' && reason === null) return; post(base + '/nodes/' + encodeURIComponent(n.scheduler_id) + '/state', { state: to, reason: reason || undefined, keep: to === 'draining' }, null, reload); }]);
+          if (n.scheduler_id) acts.push([n.scheduler_state === 'draining' ? tr(cmp, 'Vrátit do provozu', 'Resume') : tr(cmp, 'Odstavit z umísťování', 'Drain'), tr(cmp, 'Odstavený uzel nedostává nové servery; běžící zůstávají.', 'A drained node gets no new servers; running ones stay.'), 0, function () { var to = n.scheduler_state === 'draining' ? 'active' : 'draining'; (to === 'draining' ? window.OnhostDialog.prompt(tr(cmp, 'Důvod odstavení:', 'Reason for draining:'), '') : Promise.resolve(null)).then(function (reason) { if (to === 'draining' && reason === null) return; post(base + '/nodes/' + encodeURIComponent(n.scheduler_id) + '/state', { state: to, reason: reason || undefined, keep: to === 'draining' }, null, reload); }); }]);
           rows.push([n.name, tr(cmp, 'RAM ' + Math.round((n.allocated_memory || 0) / 1024) + ' / ' + Math.round((n.memory || 0) / 1024) + ' GB · disk ' + Math.round((n.allocated_disk || 0) / 1024) + ' / ' + Math.round((n.disk || 0) / 1024) + ' GB', 'RAM ' + Math.round((n.allocated_memory || 0) / 1024) + ' / ' + Math.round((n.memory || 0) / 1024) + ' GB · disk ' + Math.round((n.allocated_disk || 0) / 1024) + ' / ' + Math.round((n.disk || 0) / 1024) + ' GB') + (n.scheduler_state ? ' · ' + tr(cmp, 'plánovač: ', 'scheduler: ') + n.scheduler_state : ' · ' + tr(cmp, 'mimo plánovač', 'not in the scheduler')), [String(n.servers || 0), Math.max(n.memory_pct || 0, n.disk_pct || 0) + ' %'], tone, n.maintenance ? tr(cmp, 'údržba', 'maintenance') : (n.scheduler_state === 'draining' ? tr(cmp, 'odstavený', 'drained') : tr(cmp, 'v provozu', 'serving')), acts]);
         });
       }
@@ -607,32 +607,35 @@
         actions.push([tr(cmp, 'Namapovat automaticky · ' + inst.key, 'Map automatically · ' + inst.key), tr(cmp, 'Klíče katalogu se přiřadí k šablonám panelu podle názvu; chybějící šablony hlásí, co doimportovat.', 'Catalogue keys are matched to panel templates by name; missing templates say what to import.'), 0, function () { post(base + '/game/eggs/sync', {}, null, reload); }]);
         if (!actions.some(function (x) { return x[0] === tr(cmp, 'Proměnné provozovatele', 'Operator variables'); })) actions.push([tr(cmp, 'Proměnné provozovatele', 'Operator variables'), tr(cmp, 'Hodnoty, které zákazník nemění (Steam účet pro DayZ). Uloží se šifrovaně; hodnota se už nikdy nezobrazí.', 'Values the customer cannot change (the Steam account for DayZ). Stored encrypted; the value is never shown again.'), 1, function () { // §5t-1
           var a = A(); if (!a) return;
-          a.get('/staff/game/operator-variables').then(function (res) { var d = res.data || res, needed = d.needed || {}; var lines = Object.keys(needed).map(function (k) { return k + ((d.stored || []).indexOf(k) >= 0 ? ' ✓ ' : ' ✗ ') + '(' + needed[k].join(', ') + ')'; }); var env = window.prompt(tr(cmp, 'Potřebné proměnné:\n', 'Needed variables:\n') + (lines.join('\n') || '—') + tr(cmp, '\n\nNázev proměnné k uložení:', '\n\nVariable name to store:'), Object.keys(needed).filter(function (k) { return (d.stored || []).indexOf(k) < 0; })[0] || ''); if (!env) return; var val = window.prompt(tr(cmp, 'Hodnota ' + env + ' (prázdné = smazat):', 'Value of ' + env + ' (empty = remove):'), ''); if (val === null) return; put('/staff/game/operator-variables/' + encodeURIComponent(env.trim().toUpperCase()), { value: val }, reload); }).catch(function (e) { window.alert((e && e.message) || 'error'); });
+          a.get('/staff/game/operator-variables').then(function (res) { var d = res.data || res, needed = d.needed || {}; var lines = Object.keys(needed).map(function (k) { return k + ((d.stored || []).indexOf(k) >= 0 ? ' ✓ ' : ' ✗ ') + '(' + needed[k].join(', ') + ')'; }); window.OnhostDialog.form({ title: tr(cmp, 'Proměnná provozovatele', 'Operator variable'), lead: tr(cmp, 'Potřebné proměnné:', 'Needed variables:') + ' ' + (lines.join(', ') || '—'), confirm: tr(cmp, 'Uložit', 'Store'), fields: [{ key: 'env', label: tr(cmp, 'Název proměnné k uložení', 'Variable name to store'), value: Object.keys(needed).filter(function (k) { return (d.stored || []).indexOf(k) < 0; })[0] || '', required: true }, { key: 'val', label: tr(cmp, 'Hodnota (prázdné = smazat)', 'Value (empty = remove)'), type: 'password' }] }).then(function (v) { if (!v) return; put('/staff/game/operator-variables/' + encodeURIComponent(v.env.trim().toUpperCase()), { value: v.val }, reload); }); }).catch(function (e) { window.alert((e && e.message) || 'error'); });
         }]);
-        actions.push([tr(cmp, 'Namapovat šablonu · ' + inst.key, 'Map a template · ' + inst.key), tr(cmp, 'Klíč katalogu (např. minecraft-paper) → hnízdo a egg panelu.', 'Catalogue key (e.g. minecraft-paper) → panel nest and egg.'), 1, function () { var key = window.prompt(tr(cmp, 'Klíč katalogu (minecraft-paper, cs2, rust…):', 'Catalogue key (minecraft-paper, cs2, rust…):'), ''); if (!key) return; var nest = window.prompt(tr(cmp, 'ID hnízda (nest):', 'Nest id:'), ''); var egg = window.prompt(tr(cmp, 'ID šablony (egg):', 'Egg id:'), ''); if (!nest || !egg) return; put(base + '/game/eggs', { key: key.trim(), nest: Number(nest), egg: Number(egg) }, reload); }]);
+        actions.push([tr(cmp, 'Namapovat šablonu · ' + inst.key, 'Map a template · ' + inst.key), tr(cmp, 'Klíč katalogu (např. minecraft-paper) → hnízdo a egg panelu.', 'Catalogue key (e.g. minecraft-paper) → panel nest and egg.'), 1, function () { window.OnhostDialog.form({ title: tr(cmp, 'Namapovat šablonu', 'Map a template'), confirm: tr(cmp, 'Namapovat', 'Map'), fields: [{ key: 'key', label: tr(cmp, 'Klíč katalogu (minecraft-paper, cs2, rust…)', 'Catalogue key (minecraft-paper, cs2, rust…)'), required: true }, { key: 'nest', label: tr(cmp, 'ID hnízda (nest)', 'Nest id'), required: true }, { key: 'egg', label: tr(cmp, 'ID šablony (egg)', 'Egg id'), required: true }] }).then(function (v) { if (!v) return; put(base + '/game/eggs', { key: v.key.trim(), nest: Number(v.nest), egg: Number(v.egg) }, reload); }); }]);
         (inst.eggs || []).forEach(function (e) {
           var mapped = (e.mapped_as || []).length > 0;
           rows.push([e.nest + ' · ' + e.name, tr(cmp, 'hnízdo ' + e.nest_id + ' · egg ' + e.id + ' · image ' + (e.docker_image || '—') + (e.privileged ? ' · privilegovaný kontejner (neprodáváme)' : ''), 'nest ' + e.nest_id + ' · egg ' + e.id + ' · image ' + (e.docker_image || '—') + (e.privileged ? ' · privileged container (not sold)' : '')), [String(e.servers || 0), mapped ? e.mapped_as.join(', ') : '—'], e.privileged ? 'hot' : (mapped ? 'ok' : 'off'), mapped ? tr(cmp, 'v katalogu', 'in catalogue') : tr(cmp, 'nenamapováno', 'unmapped'),
-            mapped ? e.mapped_as.map(function (k) { return [tr(cmp, 'Odebrat ' + k, 'Remove ' + k), tr(cmp, 'Katalogový klíč přestane ukazovat na tuto šablonu.', 'The catalogue key stops pointing at this template.'), 0, function () { put(base + '/game/eggs', { key: k, remove: true }, reload); }]; }) : [[tr(cmp, 'Namapovat', 'Map'), '', 1, function () { var key = window.prompt(tr(cmp, 'Klíč katalogu pro ' + e.name + ':', 'Catalogue key for ' + e.name + ':'), ''); if (!key) return; put(base + '/game/eggs', { key: key.trim(), nest: e.nest_id, egg: e.id }, reload); }]]]);
+            mapped ? e.mapped_as.map(function (k) { return [tr(cmp, 'Odebrat ' + k, 'Remove ' + k), tr(cmp, 'Katalogový klíč přestane ukazovat na tuto šablonu.', 'The catalogue key stops pointing at this template.'), 0, function () { put(base + '/game/eggs', { key: k, remove: true }, reload); }]; }) : [[tr(cmp, 'Namapovat', 'Map'), '', 1, function () { window.OnhostDialog.prompt(tr(cmp, 'Klíč katalogu pro ' + e.name + ':', 'Catalogue key for ' + e.name + ':'), '').then(function (key) { if (!key) return; put(base + '/game/eggs', { key: key.trim(), nest: e.nest_id, egg: e.id }, reload); }); }]]]);
         });
       }
       if (view === 'galloc') {
         (inst.allocations || []).forEach(function (a) {
           rows.push([a.name + ' (#' + a.node + ')', tr(cmp, 'IP ' + (a.ips || []).join(', '), 'IP ' + (a.ips || []).join(', ')), [String(a.total || 0), String(a.free || 0)], a.free === 0 ? 'hot' : (a.free < 5 ? 'warn' : 'ok'), a.free === 0 ? tr(cmp, 'bez volných portů', 'no free ports') : tr(cmp, 'volné', 'free'),
-            [[tr(cmp, 'Vytvořit rozsah portů', 'Create a port range'), tr(cmp, 'Rozsah vytvoříme celý dopředu, ať se při zakládání serveru nečeká.', 'The whole range up front so nothing waits at server creation.'), 1, function () { var ip = window.prompt(tr(cmp, 'IP adresa uzlu:', 'Node IP:'), (a.ips || [])[0] || ''); if (!ip) return; var ports = window.prompt(tr(cmp, 'Porty nebo rozsahy oddělené čárkou (25565, 25570-25580):', 'Ports or ranges, comma-separated (25565, 25570-25580):'), ''); if (!ports) return; post(base + '/game/allocations', { node: a.node, ip: ip.trim(), ports: ports.split(',').map(function (p) { return p.trim(); }).filter(Boolean) }, null, reload); }]]]);
+            [[tr(cmp, 'Vytvořit rozsah portů', 'Create a port range'), tr(cmp, 'Rozsah vytvoříme celý dopředu, ať se při zakládání serveru nečeká.', 'The whole range up front so nothing waits at server creation.'), 1, function () { window.OnhostDialog.form({ title: tr(cmp, 'Vytvořit rozsah portů', 'Create a port range'), confirm: tr(cmp, 'Vytvořit', 'Create'), fields: [{ key: 'ip', label: tr(cmp, 'IP adresa uzlu', 'Node IP'), value: (a.ips || [])[0] || '', required: true }, { key: 'ports', label: tr(cmp, 'Porty nebo rozsahy oddělené čárkou (25565, 25570-25580)', 'Ports or ranges, comma-separated (25565, 25570-25580)'), required: true }] }).then(function (v) { if (!v) return; post(base + '/game/allocations', { node: a.node, ip: v.ip.trim(), ports: v.ports.split(',').map(function (p) { return p.trim(); }).filter(Boolean) }, null, reload); }); }]]]);
         });
       }
       if (view === 'gprov') {
         actions.push([tr(cmp, 'Založit herní server · ' + inst.key, 'Create a game server · ' + inst.key), tr(cmp, 'Server pro zákazníka bez objednávky: organizace, tarif, šablona, verze. Stejná cesta jako objednávka (audit, fronta).', 'A server for a customer without an order: organization, plan, template, version. The same path an order takes (audit, queue).'), 1, function () { // §5o: staff quick action
-          var org = window.prompt(tr(cmp, 'Organizace (id nebo slug):', 'Organization (id or slug):'), ''); if (!org) return;
-          var plan = window.prompt(tr(cmp, 'Tarif (game-8 / game-16 / game-32):', 'Plan (game-8 / game-16 / game-32):'), 'game-8'); if (!plan) return;
           var eggKeys = Object.keys(inst.eggs_mapped || {});
-          var egg = window.prompt(tr(cmp, 'Šablona: ', 'Template: ') + (eggKeys.join(', ') || 'minecraft-spigot'), eggKeys.indexOf('minecraft-spigot') >= 0 ? 'minecraft-spigot' : (eggKeys[0] || 'minecraft-spigot')); if (!egg) return;
-          var version = window.prompt(tr(cmp, 'Verze hry (Minecraft, např. 1.21.8; prázdné = výchozí šablony):', 'Game version (Minecraft, e.g. 1.21.8; empty = the template default):'), egg.indexOf('minecraft') === 0 ? '1.21.8' : ''); if (version === null) return;
-          var label = window.prompt(tr(cmp, 'Název serveru pro zákazníka:', 'Server label for the customer:'), ''); if (label === null) return;
+          window.OnhostDialog.form({ title: tr(cmp, 'Založit herní server', 'Create a game server'), confirm: tr(cmp, 'Založit', 'Create'), fields: [
+            { key: 'org', label: tr(cmp, 'Organizace (id nebo slug)', 'Organization (id or slug)'), required: true },
+            { key: 'plan', label: tr(cmp, 'Tarif', 'Plan'), type: 'select', value: 'game-8', options: ['game-8', 'game-16', 'game-32'] },
+            { key: 'egg', label: tr(cmp, 'Šablona', 'Template'), type: 'select', value: eggKeys.indexOf('minecraft-spigot') >= 0 ? 'minecraft-spigot' : (eggKeys[0] || 'minecraft-spigot'), options: eggKeys.length ? eggKeys : ['minecraft-spigot'] },
+            { key: 'version', label: tr(cmp, 'Verze hry (Minecraft, např. 1.21.8; prázdné = výchozí šablony)', 'Game version (Minecraft, e.g. 1.21.8; empty = the template default)') },
+            { key: 'label', label: tr(cmp, 'Název serveru pro zákazníka', 'Server label for the customer') }
+          ] }).then(function (v) { if (!v) return; var org = v.org, plan = v.plan, egg = v.egg, version = v.version, label = v.label;
           var body = { product_key: 'game', plan_key: plan.trim(), config: { egg: egg.trim(), version: version.trim() || undefined, label: label.trim() || undefined, region: inst.region || undefined } };
           var a = A(); if (!a) return;
           a.post('/staff/customers/' + encodeURIComponent(org.trim()) + '/services', body, a.key()).then(function (r) { var d = r.data || r; window.alert(tr(cmp, 'Založeno: ', 'Created: ') + (d.service ? d.service.name + ' · ' + d.service.state : '') + (d.operation_id ? ' · ' + tr(cmp, 'operace ', 'operation ') + d.operation_id : '')); reload(); }).catch(function (e) { window.alert((e && e.message) || 'error'); });
+          });
         }]);
         (inst.servers || []).forEach(function (sv) {
           var svc = sv.service;
@@ -644,7 +647,7 @@
             acts.push([tr(cmp, 'Start', 'Start'), '', 1, power('start')]);
             acts.push([tr(cmp, 'Restart', 'Restart'), '', 0, power('reboot')]);
             acts.push([tr(cmp, 'Stop', 'Stop'), '', 0, power('stop')]);
-            acts.push([tr(cmp, 'Příkaz', 'Command'), tr(cmp, 'Odešle se do konzole serveru (např. list, say Ahoj, op Hrac).', 'Sent to the server console (e.g. list, say Hi, op Player).'), 0, function () { var c = window.prompt(tr(cmp, 'Příkaz konzole:', 'Console command:'), 'list'); if (!c) return; call('post', '/services/' + sid + '/actions', { action: 'command.send', params: { command: c } }, function () { window.alert(tr(cmp, 'Odesláno · výstup je v logu', 'Sent · the output is in the log')); }); }]);
+            acts.push([tr(cmp, 'Příkaz', 'Command'), tr(cmp, 'Odešle se do konzole serveru (např. list, say Ahoj, op Hrac).', 'Sent to the server console (e.g. list, say Hi, op Player).'), 0, function () { window.OnhostDialog.prompt(tr(cmp, 'Příkaz konzole:', 'Console command:'), 'list').then(function (c) { if (!c) return; call('post', '/services/' + sid + '/actions', { action: 'command.send', params: { command: c } }, function () { window.alert(tr(cmp, 'Odesláno · výstup je v logu', 'Sent · the output is in the log')); }); }); }]);
             acts.push([tr(cmp, 'Log', 'Log'), tr(cmp, 'Posledních 200 řádků konzole serveru.', 'The last 200 lines of the server console.'), 0, function () { call('get', '/services/' + sid + '/logs', null, function (d) { var lines = (d && (d.lines || d.log || d)) || []; window.alert(Array.isArray(lines) ? lines.slice(-60).join('\n') : String(lines).slice(-4000)); }); }]);
             acts.push([tr(cmp, 'Konzole', 'Console'), tr(cmp, 'Konzole serveru vedle konzole: log, příkazy, napájení, token živé konzole.', 'The server console next to this console: log, commands, power, the live console token.'), 0, function () { window.open('/sprava/konzole/' + sid, '_blank', 'noopener'); }]); // §5p-2
           }
@@ -656,7 +659,7 @@
       (g.queue || []).forEach(function (o) {
         var failed = o.state === 'FAILED', waiting = o.state === 'WAITING';
         rows.unshift([(o.organization || '—') + ' · ' + (o.service || o.service_id), (o.step_label || o.kind) + (o.error && o.error.message ? ' · ' + o.error.message : ''), [o.attempts + '×', o.state.toLowerCase()], failed ? 'hot' : (waiting ? 'warn' : 'ok'), failed ? tr(cmp, 'selhalo', 'failed') : (waiting ? tr(cmp, 'čeká na uzel', 'waiting on the node') : tr(cmp, 'běží', 'running')),
-          failed || waiting ? [[tr(cmp, 'Opakovat', 'Retry'), tr(cmp, 'Operace se spustí znovu od kroku, kde skončila.', 'The operation resumes from the step where it stopped.'), 1, function () { post('/staff/provisioning/jobs/' + encodeURIComponent(o.id) + '/retry', {}, null, reload); }], [tr(cmp, 'Zrušit', 'Cancel'), tr(cmp, 'Objednávka zůstane k ručnímu dokončení.', 'The order stays for manual completion.'), 0, function () { var reason = window.prompt(tr(cmp, 'Důvod zrušení:', 'Cancel reason:'), ''); if (reason === null) return; post('/staff/provisioning/jobs/' + encodeURIComponent(o.id) + '/cancel', { reason: reason }, null, reload); }]] : []]);
+          failed || waiting ? [[tr(cmp, 'Opakovat', 'Retry'), tr(cmp, 'Operace se spustí znovu od kroku, kde skončila.', 'The operation resumes from the step where it stopped.'), 1, function () { post('/staff/provisioning/jobs/' + encodeURIComponent(o.id) + '/retry', {}, null, reload); }], [tr(cmp, 'Zrušit', 'Cancel'), tr(cmp, 'Objednávka zůstane k ručnímu dokončení.', 'The order stays for manual completion.'), 0, function () { window.OnhostDialog.prompt(tr(cmp, 'Důvod zrušení:', 'Cancel reason:'), '').then(function (reason) { if (reason === null) return; post('/staff/provisioning/jobs/' + encodeURIComponent(o.id) + '/cancel', { reason: reason }, null, reload); }); }]] : []]);
       });
       if (!(g.queue || []).length && !rows.length) rows.push([tr(cmp, 'Fronta je prázdná', 'The queue is empty'), tr(cmp, 'za 24 h dokončeno: ' + (g.recent || 0), 'finished in 24 h: ' + (g.recent || 0)), ['0', '—'], 'ok', tr(cmp, 'klid', 'quiet'), []]);
     }
@@ -673,7 +676,7 @@
       var tone = n.state === 'draining' ? 'warn' : (n.suggest_drain || bmcBad ? 'hot' : (n.health && n.health.up === false ? 'hot' : 'ok'));
       var evacuate = function () {
         if (!window.confirm(tr(cmp, 'Přestěhovat z uzlu ' + n.name + ' všechno, co se přestěhovat dá? Uzel se zároveň odstaví.', 'Move everything that can be moved off ' + n.name + '? The node is drained as well.'))) return;
-        var reason = window.prompt(tr(cmp, 'Důvod (uvidí ho i zákazník u operace):', 'Reason (the customer sees it on the operation):'), tr(cmp, 'údržba uzlu', 'node maintenance'));
+        window.OnhostDialog.prompt(tr(cmp, 'Důvod (uvidí ho i zákazník u operace):', 'Reason (the customer sees it on the operation):'), tr(cmp, 'údržba uzlu', 'node maintenance')).then(function (reason) {
         if (reason === null) return;
         post('/staff/nodes/' + encodeURIComponent(n.id) + '/evacuate', { reason: reason || undefined }, null, function (r) {
           var d = (r && r.data) || r || {};
@@ -682,8 +685,9 @@
             'Moving: ' + (d.started || []).length + '\nStaying on the node: ' + (d.staying || 0) + (stays.length ? '\n· ' + stays.join('\n· ') : '') + '\n\nWhat stays has no migration saga of its own — deal with it by hand before the node goes down.'));
           reload();
         });
+        });
       };
-      var acts = [[n.state === 'draining' ? tr(cmp, 'Vrátit do provozu', 'Resume') : tr(cmp, 'Odstavit', 'Drain'), tr(cmp, 'Odstavený uzel nedostává nové služby; běžící zůstávají.', 'A drained node gets no new services; running ones stay.'), 0, function () { if (!n.instance) return; var to = n.state === 'draining' ? 'active' : 'draining'; var reason = to === 'draining' ? window.prompt(tr(cmp, 'Důvod odstavení:', 'Reason:'), '') : null; if (to === 'draining' && reason === null) return; post('/staff/integrations/' + encodeURIComponent(n.instance.key) + '/nodes/' + encodeURIComponent(n.id) + '/state', { state: to, reason: reason || undefined, keep: to === 'draining' }, null, reload); }]];
+      var acts = [[n.state === 'draining' ? tr(cmp, 'Vrátit do provozu', 'Resume') : tr(cmp, 'Odstavit', 'Drain'), tr(cmp, 'Odstavený uzel nedostává nové služby; běžící zůstávají.', 'A drained node gets no new services; running ones stay.'), 0, function () { if (!n.instance) return; var to = n.state === 'draining' ? 'active' : 'draining'; (to === 'draining' ? window.OnhostDialog.prompt(tr(cmp, 'Důvod odstavení:', 'Reason:'), '') : Promise.resolve(null)).then(function (reason) { if (to === 'draining' && reason === null) return; post('/staff/integrations/' + encodeURIComponent(n.instance.key) + '/nodes/' + encodeURIComponent(n.id) + '/state', { state: to, reason: reason || undefined, keep: to === 'draining' }, null, reload); }); }]];
       acts.push([tr(cmp, 'Vyprázdnit uzel', 'Empty the node'), tr(cmp, 'Přestěhuje služby jinam a řekne, co se přestěhovat nedá.', 'Moves the services elsewhere and says what cannot be moved.'), 1, evacuate]);
       return [n.name + ' · ' + (n.role || '') + ' · ' + (n.region || ''), (n.instance ? n.instance.key + ' · ' : '') + (n.health ? (n.health.up ? tr(cmp, 'integrace odpovídá', 'integration up') : tr(cmp, 'integrace neodpovídá', 'integration down')) : tr(cmp, 'bez měření', 'no probe')) + ' · ' + tr(cmp, 'za ' + n.window_minutes + ' min: ' + n.succeeded + ' ok, ' + n.transient_failures + ' přechodných chyb', 'last ' + n.window_minutes + ' min: ' + n.succeeded + ' ok, ' + n.transient_failures + ' transient failures') + (n.auto_drained ? tr(cmp, ' · odstaveno automaticky', ' · drained automatically') : '') + (bmc ? ' · BMC ' + (bmc.temp_max_c != null ? bmc.temp_max_c + ' °C' : '—') + ((bmc.psu_failed || 0) > 0 ? ' · ' + tr(cmp, 'zdroj mimo OK', 'PSU not OK') : '') + ((bmc.fans_failed || 0) > 0 ? ' · ' + tr(cmp, 'ventilátor mimo OK', 'fan not OK') : '') : '') + (n.power_w != null ? ' · ' + n.power_w + ' W' : ''), [String(n.succeeded), String(n.transient_failures)], tone, n.state === 'draining' ? tr(cmp, 'odstavený', 'drained') : (n.state === 'maintenance' ? tr(cmp, 'údržba', 'maintenance') : (n.suggest_drain ? tr(cmp, 'k odstavení', 'drain suggested') : n.state)), acts];
     });
@@ -691,7 +695,7 @@
     ops.forEach(function (pair) {
       var kind = pair[0], o = pair[1];
       rows.push([(o.kind || '') + ' · ' + (o.service_id || ''), (o.step_label || '') + (o.error && o.error.message ? ' · ' + o.error.message : ''), [(o.attempts || 0) + '×', (o.state || '').toLowerCase()], kind === 'failed' ? 'hot' : 'warn', kind === 'stalled' ? tr(cmp, 'čeká na uzel', 'waiting on the node') : (kind === 'failed' ? tr(cmp, 'selhalo', 'failed') : tr(cmp, 'běží dlouho', 'long running')),
-        [[tr(cmp, 'Opakovat', 'Retry'), '', 1, function () { post('/staff/provisioning/jobs/' + encodeURIComponent(o.id) + '/retry', {}, null, reload); }], [tr(cmp, 'Zrušit', 'Cancel'), '', 0, function () { var reason = window.prompt(tr(cmp, 'Důvod zrušení:', 'Cancel reason:'), ''); if (reason === null) return; post('/staff/provisioning/jobs/' + encodeURIComponent(o.id) + '/cancel', { reason: reason }, null, reload); }]].concat(o.trace_url ? [[tr(cmp, 'Trasa', 'Trace'), tr(cmp, 'Otevře trace operace v Grafaně / Tempu.', 'Opens the operation trace in Grafana / Tempo.'), 0, function () { window.open(o.trace_url, '_blank', 'noopener'); }]] : [])]);
+        [[tr(cmp, 'Opakovat', 'Retry'), '', 1, function () { post('/staff/provisioning/jobs/' + encodeURIComponent(o.id) + '/retry', {}, null, reload); }], [tr(cmp, 'Zrušit', 'Cancel'), '', 0, function () { window.OnhostDialog.prompt(tr(cmp, 'Důvod zrušení:', 'Cancel reason:'), '').then(function (reason) { if (reason === null) return; post('/staff/provisioning/jobs/' + encodeURIComponent(o.id) + '/cancel', { reason: reason }, null, reload); }); }]].concat(o.trace_url ? [[tr(cmp, 'Trasa', 'Trace'), tr(cmp, 'Otevře trace operace v Grafaně / Tempu.', 'Opens the operation trace in Grafana / Tempo.'), 0, function () { window.open(o.trace_url, '_blank', 'noopener'); }]] : [])]);
     });
     var c = b.counts || {};
     return { title: tr(cmp, 'Uzly a operace', 'Nodes and operations'), note: tr(cmp, c.stalled + ' čeká na uzel · ' + c.failed_24h + ' selhalo za 24 h · ' + c.long_running + ' běží dlouho · ' + c.draining + ' odstavených uzlů', c.stalled + ' waiting on a node · ' + c.failed_24h + ' failed in 24 h · ' + c.long_running + ' long running · ' + c.draining + ' drained nodes'), head: [tr(cmp, 'Uzel / operace', 'Node / operation'), tr(cmp, 'Co víme', 'What we know'), [tr(cmp, 'OK', 'OK'), tr(cmp, 'Chyby', 'Failures')], tr(cmp, 'Stav', 'State'), ''], actions: [[tr(cmp, 'Obnovit', 'Refresh'), '', 0, reload], [tr(cmp, 'Nastavení systému', 'System settings'), tr(cmp, 'Integrace, instance a přístupy.', 'Integrations, instances, credentials.'), 0, function () { window.location.href = '/sprava/nastaveni/integrace'; }]], rows: rows, foot: tr(cmp, 'Uzel, který jen selhává, odstavíme automaticky a vrátíme ho po dvou zdravých sondách; ručně odstavený uzel necháme být, dokud ho nevrátíte.', 'A node that only fails is drained automatically and comes back after two healthy probes; a node you drained by hand stays until you resume it.') };
@@ -721,8 +725,8 @@
     var rows = (c.rows || []).map(function (r) {
       var s = st[r.state] || [r.state, 'off'];
       var acts = r.state === 'requested' && c.can_decide !== false ? [
-        [tr(cmp, 'Schválit', 'Approve'), tr(cmp, 'Zákazník pak službu zruší v panelu a dostane ' + r.percent + ' % nevyužitého období jako kredit.', 'The customer then cancels the service in the panel and gets ' + r.percent + ' % of the unused period as credit.'), 1, function () { var reason = window.prompt(tr(cmp, 'Poznámka pro zákazníka (volitelná):', 'Note for the customer (optional):'), ''); if (reason === null) return; post('/staff/chargebacks/' + encodeURIComponent(r.id) + '/decide', { decision: 'approve', reason: reason || null }, null, function () { reloadView('chargebacks'); }); }],
-        [tr(cmp, 'Zamítnout', 'Reject'), '', 0, function () { var reason = window.prompt(tr(cmp, 'Důvod zamítnutí (zákazník ho uvidí):', 'Reason (the customer sees it):'), ''); if (!reason) return; post('/staff/chargebacks/' + encodeURIComponent(r.id) + '/decide', { decision: 'reject', reason: reason }, null, function () { reloadView('chargebacks'); }); }]
+        [tr(cmp, 'Schválit', 'Approve'), tr(cmp, 'Zákazník pak službu zruší v panelu a dostane ' + r.percent + ' % nevyužitého období jako kredit.', 'The customer then cancels the service in the panel and gets ' + r.percent + ' % of the unused period as credit.'), 1, function () { window.OnhostDialog.prompt(tr(cmp, 'Poznámka pro zákazníka (volitelná):', 'Note for the customer (optional):'), '').then(function (reason) { if (reason === null) return; post('/staff/chargebacks/' + encodeURIComponent(r.id) + '/decide', { decision: 'approve', reason: reason || null }, null, function () { reloadView('chargebacks'); }); }); }],
+        [tr(cmp, 'Zamítnout', 'Reject'), '', 0, function () { window.OnhostDialog.prompt(tr(cmp, 'Důvod zamítnutí (zákazník ho uvidí):', 'Reason (the customer sees it):'), '').then(function (reason) { if (!reason) return; post('/staff/chargebacks/' + encodeURIComponent(r.id) + '/decide', { decision: 'reject', reason: reason }, null, function () { reloadView('chargebacks'); }); }); }]
       ] : [];
       return [(r.organization || '—') + ' · ' + ((r.service && r.service.label) || r.service_id), (r.reason || '') + (r.decision_reason ? ' · ' + tr(cmp, 'rozhodnutí: ', 'decision: ') + r.decision_reason : ''), [fmt(r.refund), r.percent + ' %'], s[1], s[0], acts];
     });
@@ -736,8 +740,8 @@
         }],
         [tr(cmp, 'Spory marketplace', 'Marketplace disputes'), tr(cmp, 'Reklamované zakázky partnerů: vrátit kredit, nebo potvrdit dodání.', 'Disputed partner jobs: refund the credit or confirm the delivery.'), 0, function () {
           var a = A(); if (!a) return;
-          a.get('/staff/marketplace/orders?state=disputed').then(function (r) { var rows = r.data || []; if (!rows.length) { window.alert(tr(cmp, 'Žádný otevřený spor.', 'No open dispute.')); return; } var o = rows[0]; var pick = window.prompt(tr(cmp, 'Spor: ', 'Dispute: ') + (o.listing ? o.listing.title : '') + ' · ' + (o.organization || '') + ' ↔ ' + (o.partner || '') + '\n' + (o.dispute_reason || '') + '\n\n' + tr(cmp, 'Rozhodnutí (refund / deliver):', 'Decision (refund / deliver):'), 'refund'); if (!pick) return; var reason = window.prompt(tr(cmp, 'Odůvodnění (uvidí zákazník i partner):', 'Reason (the customer and the partner see it):'), ''); if (!reason) return; post('/staff/marketplace/orders/' + encodeURIComponent(o.id) + '/resolve', { decision: pick, reason: reason }, null, function () { reloadView('chargebacks'); }); }).catch(function (e) { window.alert((e && e.message) || 'error'); });
-        }]].concat(c.can_set_share === false ? [] : [[tr(cmp, 'Nastavit podíl', 'Set the share'), tr(cmp, 'Kolik procent nevyužitého zaplaceného období se vrací jako kredit.', 'What share of the unused paid period comes back as credit.'), 0, function () { var v = window.prompt(tr(cmp, 'Podíl v procentech (0–100):', 'Share in percent (0–100):'), String(c.percent)); if (v === null) return; put('/staff/chargebacks/settings', { percent: Number(v) }, function () { reloadView('chargebacks'); }); }]]),
+          a.get('/staff/marketplace/orders?state=disputed').then(function (r) { var rows = r.data || []; if (!rows.length) { window.alert(tr(cmp, 'Žádný otevřený spor.', 'No open dispute.')); return; } var o = rows[0]; window.OnhostDialog.form({ title: tr(cmp, 'Rozhodnout spor', 'Resolve the dispute'), lead: (o.listing ? o.listing.title : '') + ' · ' + (o.organization || '') + ' ↔ ' + (o.partner || '') + '\n' + (o.dispute_reason || ''), confirm: tr(cmp, 'Rozhodnout', 'Decide'), fields: [{ key: 'decision', label: tr(cmp, 'Rozhodnutí', 'Decision'), type: 'select', value: 'refund', options: [['refund', tr(cmp, 'refund · vrátit zákazníkovi', 'refund · back to the customer')], ['deliver', tr(cmp, 'deliver · uznat plnění partnera', 'deliver · accept the partner delivery')]] }, { key: 'reason', label: tr(cmp, 'Odůvodnění (uvidí zákazník i partner)', 'Reason (the customer and the partner see it)'), required: true }] }).then(function (v) { if (!v) return; post('/staff/marketplace/orders/' + encodeURIComponent(o.id) + '/resolve', { decision: v.decision, reason: v.reason }, null, function () { reloadView('chargebacks'); }); }); }).catch(function (e) { window.alert((e && e.message) || 'error'); });
+        }]].concat(c.can_set_share === false ? [] : [[tr(cmp, 'Nastavit podíl', 'Set the share'), tr(cmp, 'Kolik procent nevyužitého zaplaceného období se vrací jako kredit.', 'What share of the unused paid period comes back as credit.'), 0, function () { window.OnhostDialog.prompt(tr(cmp, 'Podíl v procentech (0–100):', 'Share in percent (0–100):'), String(c.percent)).then(function (v) { if (v === null) return; put('/staff/chargebacks/settings', { percent: Number(v) }, function () { reloadView('chargebacks'); }); }); }]]),
       rows: rows, foot: tr(cmp, 'Vrácení jde vždy jen do kreditu zákazníka, nikdy na účet. Platí podíl nastavený v okamžiku schválení; služba se ruší až po závěrečné záloze.', 'Refunds go to the customer\'s credit only, never to a bank account. The share in force at the approval applies; the service is cancelled after a final backup.') };
   }
   /* rebalancing (audit §5i): the plan and its execution as migrations inside a window */
@@ -752,34 +756,36 @@
         a.get('/staff/provisioning/rebalance?basis=usage').then(function (r) { var p = r.data || r; var lines = (p.moves || []).map(function (m) { return m.label + ' (' + Math.round((m.ram_mb || 0) / 1024) + ' GB): ' + m.from + ' → ' + m.to; }); var nodes = (p.nodes || []).map(function (n) { return n.name + ' ' + n.load_pct + ' %'; }); window.alert(tr(cmp, 'Podle naměřené zátěže · uzly: ', 'By measured load · nodes: ') + nodes.join(', ') + '\n\n' + (lines.join('\n') || tr(cmp, 'žádný přesun', 'no move'))); }).catch(function (e) { window.alert((e && e.message) || 'error'); });
       }],
       [tr(cmp, 'Spustit přerozdělení', 'Run the rebalancing'), tr(cmp, 'Každý přesun je stěhování v okně, které si zákazník může posunout.', 'Every move is a migration inside a window the customer may move.'), 0, function () {
-        var days = window.prompt(tr(cmp, 'Okno pro zákazníky (dní od zítřka):', 'Window for customers (days from tomorrow):'), '3');
+        window.OnhostDialog.prompt(tr(cmp, 'Okno pro zákazníky (dní od zítřka):', 'Window for customers (days from tomorrow):'), '3').then(function (days) {
         if (days === null) return;
         var from = new Date(Date.now() + 86400000), to = new Date(from.getTime() + Math.max(1, Number(days) || 3) * 86400000);
-        var reason = window.prompt(tr(cmp, 'Důvod (zákazníci ho uvidí):', 'Reason (customers see it):'), tr(cmp, 'vyrovnání zátěže uzlů', 'node load balancing'));
+        window.OnhostDialog.prompt(tr(cmp, 'Důvod (zákazníci ho uvidí):', 'Reason (customers see it):'), tr(cmp, 'vyrovnání zátěže uzlů', 'node load balancing')).then(function (reason) {
         if (reason === null) return;
         post('/staff/provisioning/rebalance', { window_from: from.toISOString(), window_to: to.toISOString(), reason: reason || null }, null, function () { reloadView('board'); });
+          });
+        });
       }]
     ];
   }
   function startBulk(cmp) {
     var j = data.jobs || {}, actions = j.bulk_actions || [];
-    var action = window.prompt(tr(cmp, 'Akce: ', 'Action: ') + actions.join(', '), actions[0] || 'backup');
-    if (!action) return;
-    action = action.trim();
+    window.OnhostDialog.form({ title: tr(cmp, 'Hromadná úloha', 'Bulk job'), confirm: tr(cmp, 'Spustit', 'Run'), fields: [
+      { key: 'action', label: tr(cmp, 'Akce', 'Action'), type: actions.length ? 'select' : 'text', value: actions[0] || 'backup', options: actions, required: true },
+      { key: 'sel', label: tr(cmp, 'Výběr služeb', 'Service selection'), value: 'family:web', required: true, hint: tr(cmp, 'family:web · product:web-hosting · instance:<klíč instance> · node:<id> · org:<id> · services:<id,id>', 'family:web · product:web-hosting · instance:<instance key> · node:<id> · org:<id> · services:<id,id>') },
+      { key: 'raw', label: tr(cmp, 'Parametry akce jako JSON (prázdné = bez parametrů)', 'Action parameters as JSON (empty = none)'), value: '{}', hint: '{"version":"8.3"}' },
+      { key: 'reason', label: tr(cmp, 'Důvod (zapíše se do auditu a k úloze)', 'Reason (goes to the audit log and the job)') }
+    ] }).then(function (v) {
+    if (!v) return;
+    var action = v.action.trim(), sel = v.sel, raw = v.raw, reason = v.reason;
     if (actions.length && actions.indexOf(action) < 0) { window.alert(tr(cmp, 'Neznámá akce.', 'Unknown action.')); return; }
-    var sel = window.prompt(tr(cmp, 'Výběr služeb — family:web · product:web-hosting · instance:<klíč instance> · node:<id> · org:<id> · services:<id,id>', 'Service selection — family:web · product:web-hosting · instance:<instance key> · node:<id> · org:<id> · services:<id,id>'), 'family:web');
-    if (!sel) return;
     var m = /^\s*(family|product|instance|node|org|services)\s*:\s*(.+)$/.exec(sel);
     if (!m) { window.alert(tr(cmp, 'Filtr má tvar klíč:hodnota.', 'The filter has the form key:value.')); return; }
     var keys = { family: 'family', product: 'product_key', instance: 'provider_instance_id', node: 'node_id', org: 'organization_id', services: 'service_ids' }, filter = {};
     filter[keys[m[1]]] = m[1] === 'services' ? m[2].split(/[\s,]+/).filter(Boolean) : m[2].trim();
-    var raw = window.prompt(tr(cmp, 'Parametry akce jako JSON, např. {"version":"8.3"}; prázdné = bez parametrů', 'Action parameters as JSON, e.g. {"version":"8.3"}; empty = none'), '{}');
-    if (raw === null) return;
     var params = {};
     try { params = raw.trim() ? JSON.parse(raw) : {}; } catch (e) { window.alert(tr(cmp, 'Parametry nejsou platný JSON.', 'The parameters are not valid JSON.')); return; }
-    var reason = window.prompt(tr(cmp, 'Důvod (zapíše se do auditu a k úloze)', 'Reason (goes to the audit log and the job)'), '');
-    if (reason === null) return;
     post('/staff/bulk-jobs', { action: action, filter: filter, params: params, reason: reason || null }, null, function () { reloadView('jobs'); });
+    });
   }
   function automationTable(cmp, _) {
     var a = data.automation;
@@ -791,9 +797,10 @@
       var tone = off ? 'off' : (last && last.error ? 'hot' : (r.command === null ? 'ok' : (last ? 'ok' : 'off')));
       var state = off ? tr(cmp, 'vypnuto obsluhou', 'switched off') : (r.command === null ? tr(cmp, 'při události', 'on event') : (last ? tr(cmp, 'běží', 'running') : tr(cmp, 'čeká na první běh', 'awaiting first run')));
       var acts = r.switchable === false ? [] : [[off ? tr(cmp, 'Zapnout', 'Switch on') : tr(cmp, 'Vypnout', 'Switch off'), off ? '' : tr(cmp, 'Pravidlo zůstane v plánu, jen zapisuje přeskočení.', 'The rule keeps its slot and records skips.'), off ? 1 : 0, function () {
-        var reason = window.prompt(tr(cmp, 'Důvod (zapíše se do auditu)', 'Reason (goes to the audit log)'), '');
+        window.OnhostDialog.prompt(tr(cmp, 'Důvod (zapíše se do auditu)', 'Reason (goes to the audit log)'), '').then(function (reason) {
         if (reason === null) return;
         put('/staff/automation/' + encodeURIComponent(r.key), { enabled: off, reason: reason || null }, function () { reloadView('automation'); });
+        });
       }]];
       if (r.key === 'oncall.escalate') { // §5r-1: the on-call rota
         acts.push([tr(cmp, 'Rota on-call', 'On-call rota'), tr(cmp, 'Kdo drží pager teď a v příštích 14 dnech.', 'Who carries the pager now and in the next 14 days.'), 0, function () {
@@ -801,22 +808,22 @@
           a.get('/staff/oncall/shifts?days=14').then(function (res) { var rows = res.data || []; window.alert((res.hand_over || '') + '\n\n' + (rows.map(function (s) { return (s.active ? '▶ ' : '  ') + s.name + ' · ' + fmt(new Date(s.starts_at).getTime()) + ' → ' + fmt(new Date(s.ends_at).getTime()) + ' · ' + s.id + (s.note ? ' · ' + s.note : ''); }).join('\n') || tr(cmp, 'Žádné směny.', 'No shifts.'))); }).catch(function (e) { window.alert((e && e.message) || 'error'); });
         }]);
         acts.push([tr(cmp, 'Přidat směnu', 'Add a shift'), tr(cmp, 'E-mail pracovníka, začátek a konec (RRRR-MM-DD HH:MM); směny se nesmí překrývat.', 'Staff e-mail, start and end (YYYY-MM-DD HH:MM); shifts may not overlap.'), 1, function () {
-          var who = window.prompt(tr(cmp, 'E-mail pracovníka:', 'Staff e-mail:'), ''); if (!who) return;
-          var from = window.prompt(tr(cmp, 'Začátek (RRRR-MM-DD HH:MM):', 'Start (YYYY-MM-DD HH:MM):'), ''); if (!from) return;
-          var to = window.prompt(tr(cmp, 'Konec (RRRR-MM-DD HH:MM):', 'End (YYYY-MM-DD HH:MM):'), ''); if (!to) return;
+          window.OnhostDialog.form({ title: tr(cmp, 'Přidat směnu', 'Add a shift'), confirm: tr(cmp, 'Přidat', 'Add'), fields: [{ key: 'who', label: tr(cmp, 'E-mail pracovníka', 'Staff e-mail'), required: true }, { key: 'from', label: tr(cmp, 'Začátek (RRRR-MM-DD HH:MM)', 'Start (YYYY-MM-DD HH:MM)'), required: true }, { key: 'to', label: tr(cmp, 'Konec (RRRR-MM-DD HH:MM)', 'End (YYYY-MM-DD HH:MM)'), required: true }] }).then(function (v) { if (!v) return; var who = v.who, from = v.from, to = v.to;
           post('/staff/oncall/shifts', { user: who.trim(), starts_at: from.trim(), ends_at: to.trim() }, null, function () { reloadView('automation'); });
+          });
         }]);
-        acts.push([tr(cmp, 'Odkaz pro kalendář', 'Calendar link'), tr(cmp, 'Osobní adresa rota pro kalendář v telefonu; nový odkaz zruší ten starý.', 'A personal rota address for a phone calendar; a new link revokes the old one.'), 0, function () { var a = A(); if (!a) return; a.post('/staff/oncall/feed-token', {}, a.key()).then(function (res) { var d = res.data || res; window.prompt(tr(cmp, 'Odkaz se zobrazí jen teď — zkopírujte ho do kalendáře:', 'The link is shown only now — copy it into your calendar:'), d.url); }).catch(function (e) { window.alert((e && e.message) || 'error'); }); }]); // §5u-4
-        acts.push([tr(cmp, 'Odebrat směnu', 'Remove a shift'), '', 0, function () { var id = window.prompt(tr(cmp, 'ID směny (z Roty on-call):', 'Shift id (from the on-call rota):'), ''); if (!id) return; var a = A(); if (!a) return; a.del('/staff/oncall/shifts/' + encodeURIComponent(id.trim())).then(function () { reloadView('automation'); }).catch(function (e) { window.alert((e && e.message) || 'error'); }); }]);
+        acts.push([tr(cmp, 'Odkaz pro kalendář', 'Calendar link'), tr(cmp, 'Osobní adresa rota pro kalendář v telefonu; nový odkaz zruší ten starý.', 'A personal rota address for a phone calendar; a new link revokes the old one.'), 0, function () { var a = A(); if (!a) return; a.post('/staff/oncall/feed-token', {}, a.key()).then(function (res) { var d = res.data || res; window.OnhostDialog.prompt(tr(cmp, 'Odkaz se zobrazí jen teď — zkopírujte ho do kalendáře:', 'The link is shown only now — copy it into your calendar:'), d.url); }).catch(function (e) { window.alert((e && e.message) || 'error'); }); }]); // §5u-4
+        acts.push([tr(cmp, 'Odebrat směnu', 'Remove a shift'), '', 0, function () { window.OnhostDialog.prompt(tr(cmp, 'ID směny (z Roty on-call):', 'Shift id (from the on-call rota):'), '').then(function (id) { if (!id) return; var a = A(); if (!a) return; a.del('/staff/oncall/shifts/' + encodeURIComponent(id.trim())).then(function () { reloadView('automation'); }).catch(function (e) { window.alert((e && e.message) || 'error'); }); }); }]);
       }
       if (r.key === 'order.risk') acts.push([tr(cmp, 'Upravit váhy', 'Edit weights'), tr(cmp, 'Váhy signálů (5–100) a práh zadržení (10–300); "reset" vrátí výchozí a smaže naučené.', 'Signal weights (5–100) and the hold threshold (10–300); "reset" restores the defaults and forgets the feedback.'), 0, function () {
         var cur = String(now.weights || '').split(' ').reduce(function (o, kv) { var p = kv.split('='); if (p[0] && p[1] !== undefined) o[p[0]] = Number(p[1]); return o; }, {});
-        var raw = window.prompt(tr(cmp, 'Váhy jako JSON včetně "hold_score", nebo napište reset:', 'Weights as JSON including "hold_score", or type reset:'), JSON.stringify(Object.assign({ hold_score: now.hold_score }, cur)));
+        window.OnhostDialog.prompt(tr(cmp, 'Váhy jako JSON včetně "hold_score", nebo napište reset:', 'Weights as JSON including "hold_score", or type reset:'), JSON.stringify(Object.assign({ hold_score: now.hold_score }, cur)), { type: 'textarea' }).then(function (raw) {
         if (raw === null) return;
         var body;
         if (raw.trim().toLowerCase() === 'reset') body = { reset: true };
         else { try { var j = JSON.parse(raw); body = { weights: {}, hold_score: j.hold_score }; Object.keys(j).forEach(function (k) { if (k !== 'hold_score') body.weights[k] = j[k]; }); } catch (e) { window.alert(tr(cmp, 'Neplatný JSON.', 'Invalid JSON.')); return; } }
         put('/staff/automation/order.risk/tuning', body, function () { reloadView('automation'); });
+        });
       }]);
       if (r.key === 'order.risk') acts.push([tr(cmp, 'Přehled rozhodnutí', 'Decision review'), tr(cmp, 'Zadržené objednávky za 90 dní: kolikrát byl každý signál potvrzen zamítnutím.', 'Held orders of 90 days: how often each signal was confirmed by a rejection.'), 0, function () {
         var a = A(); if (!a) return;
@@ -839,13 +846,17 @@
   function newIncident(cmp) {
     var s = S();
     if (!s) return;
-    var title = window.prompt(tr(cmp, 'Název incidentu (zákazníci ho uvidí na stránce stavu)', 'Incident title (customers see it on the status page)'), '');
-    if (!title) return;
-    var sev = (window.prompt(tr(cmp, 'Závažnost: P1 (výpadek), P2 (degradace), P3 (omezení)', 'Severity: P1 (outage), P2 (degradation), P3 (limited)'), 'P2') || 'P2').toLowerCase();
+    window.OnhostDialog.form({ title: tr(cmp, 'Nový incident', 'New incident'), confirm: tr(cmp, 'Založit', 'Create'), fields: [
+      { key: 'title', label: tr(cmp, 'Název incidentu (zákazníci ho uvidí na stránce stavu)', 'Incident title (customers see it on the status page)'), required: true },
+      { key: 'sev', label: tr(cmp, 'Závažnost', 'Severity'), type: 'select', value: 'P2', options: [['P1', tr(cmp, 'P1 · výpadek', 'P1 · outage')], ['P2', tr(cmp, 'P2 · degradace', 'P2 · degradation')], ['P3', tr(cmp, 'P3 · omezení', 'P3 · limited')]] },
+      { key: 'component', label: tr(cmp, 'Dotčená komponenta (např. web, mail, dns, portal)', 'Affected component (e.g. web, mail, dns, portal)'), value: 'portal' }
+    ] }).then(function (v) {
+    if (!v) return;
+    var title = v.title, sev = String(v.sev || 'P2').toLowerCase(), component = v.component.trim() || 'portal';
     if (['p1', 'p2', 'p3', 'p4'].indexOf(sev) < 0) sev = 'p2';
-    var component = window.prompt(tr(cmp, 'Dotčená komponenta (např. web, mail, dns, portal)', 'Affected component (e.g. web, mail, dns, portal)'), 'portal') || 'portal';
     s.createIncident({ title: title, sev: sev, components: [component], impact: '' });
     cmp.setState({ view: 'incidents' });
+    });
   }
 
   window.OnhostAdmin = { allows: allows, role: role, label: label, head: head, documents: documents, pages: pages, apiAllowed: apiAllowed, denied: isDenied, failed: failure, tickets: tickets, emptyTicket: emptyTicket, thread: thread, reply: reply, ticketActions: ticketActions, quick: quick, context: context, customers: customers, cards: cards, alert: alert, alertTake: alertTake,

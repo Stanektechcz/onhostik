@@ -7,6 +7,9 @@
  * only `password` kind the renderer adds to the generic form. */
 (function () {
   'use strict';
+  /* a count with its noun in the right Czech form (1 den, 2 dny, 5 dní) — G8 item 7 */
+  function cn(n, cs, en, lang) { var I = window.OnhostI18n; return I ? I.cn(n, cs, en, lang) : n + ' ' + (lang === 'en' ? (n === 1 ? en[0] : en[1]) : (n === 1 ? cs[0] : (n >= 2 && n <= 4 ? cs[1] : cs[2]))); }
+  function cq(_, n, cs, en) { return _(cn(n, cs, en, 'cs'), cn(n, cs, en, 'en')); }
   if (window.OnhostPanelRegistrars) return;
   var S = { list: null, detail: null, detailId: null, history: null, busy: {} };
 
@@ -41,7 +44,7 @@
   function summary(run, _) {
     var s = run.summary || {};
     if (run.kind === 'sync') return _('importováno ', 'imported ') + (s.imported || 0) + ' · ' + _('změněno ', 'changed ') + (s.updated || 0) + ' · ' + _('zóny ', 'zones ') + (s.zones || 0) + ' · ' + _('upozornění ', 'notices ') + (s.notices || 0);
-    if (run.kind === 'probe') return (s.domains != null ? s.domains + _(' domén · ', ' domains · ') : '') + (s.credit || '');
+    if (run.kind === 'probe') return (s.domains != null ? cq(_, s.domains, ['doména', 'domény', 'domén'], ['domain', 'domains']) + ' · ' : '') + (s.credit || '');
     return Object.keys(s).map(function (k) { return k + ' ' + s[k]; }).join(' · ');
   }
 
@@ -74,14 +77,14 @@
           var login = String(s.rcLogin || '').trim(), password = String(s.rcPassword || '');
           if (!login || !password) { flash(cmp, _('Chybí přihlašovací údaje', 'Credentials missing'), _('Vyplňte WAPI login i API heslo.', 'Enter the WAPI login and the API password.')); return; }
           busy(cmp, _, 'connect', A().post('/registrar-connections', { provider: 'wedos', login: login, password: password, label: String(s.rcLabel || '').trim() || null }, A().key()).then(function (r) { cmp.setState({ rcPassword: '', rcLogin: '', rcLabel: '' }); return r; }),
-            _('Účet připojen', 'Account connected'), function (r) { var c = (r && r.connection) || {}; return (c.stats && c.stats.domains != null ? c.stats.domains + _(' domén zrcadleno · ', ' domains mirrored · ') : '') + _('synchronizace běží každou hodinu', 'the account syncs every hour'); });
+            _('Účet připojen', 'Account connected'), function (r) { var c = (r && r.connection) || {}; return (c.stats && c.stats.domains != null ? cq(_, c.stats.domains, ['doména', 'domény', 'domén'], ['domain', 'domains']) + _(' zrcadleno · ', ' mirrored · ') : '') + _('synchronizace běží každou hodinu', 'the account syncs every hour'); });
         }
       },
       tableTitle: _('Účty', 'Accounts'), tableNote: _('stav, domény, kredit a poslední synchronizace', 'state, domains, credit and last sync'),
       cols: [_('Účet', 'Account'), _('Domény', 'Domains'), _('Stav', 'State'), _('Kredit', 'Credit'), ''],
       rows: rows.filter(function (c) { return H.match(c.label) || H.match(c.login); }).map(function (c) {
         return {
-          name: c.label, sub: c.login + (c.last_synced_at ? ' · ' + _('sync ', 'synced ') + when(c.last_synced_at, cs) : ''), c2: String(c.domains || 0) + _(' domén', ' domains') + (c.zones ? ' · ' + c.zones + _(' zón', ' zones') : ''),
+          name: c.label, sub: c.login + (c.last_synced_at ? ' · ' + _('sync ', 'synced ') + when(c.last_synced_at, cs) : ''), c2: cq(_, c.domains || 0, ['doména', 'domény', 'domén'], ['domain', 'domains']) + (c.zones ? ' · ' + cq(_, c.zones, ['zóna', 'zóny', 'zón'], ['zone', 'zones']) : ''),
           state: stateLabel(c.state, _), stateStyle: H.pill(stateKind(c.state)), barStyle: H.bar(c.state === 'active' ? 100 : 30, stateKind(c.state)), metric: credit(c.credit), rowStyle: H.rowStyle,
           action: c.state === 'disabled' ? '' : _('Otevřít', 'Open'), actionCls: 'btn btn-secondary', onAction: function () { if (c.state !== 'disabled') cmp.setState({ rconSel: c.id, query: '' }); }
         };
@@ -119,15 +122,15 @@
     var serviceOf = function (sid) { return services.filter(function (x) { return x.id === sid; })[0]; };
     var defaultService = settings.pair_service_id && serviceOf(settings.pair_service_id) ? serviceOf(settings.pair_service_id) : null;
     function pickService() {
-      if (!services.length) { flash(cmp, _('Žádný webhosting', 'No web hosting'), _('Nejdřív si objednejte webhosting; poté k němu doménu spárujete.', 'Order a web hosting plan first; then pair the domain with it.')); return null; }
-      if (services.length === 1) return services[0];
-      var text = services.map(function (x, i) { return (i + 1) + ') ' + (x.label || x.hostname); }).join('\n');
-      var pick = window.prompt(_('Ke kterému webu doménu spárovat? Zadejte číslo:\n', 'Which site should the domain pair with? Enter the number:\n') + text, defaultService ? String(services.indexOf(defaultService) + 1) : '1');
-      if (pick === null) return null;
-      return services[parseInt(pick, 10) - 1] || null;
+      if (!services.length) { flash(cmp, _('Žádný webhosting', 'No web hosting'), _('Nejdřív si objednejte webhosting; poté k němu doménu spárujete.', 'Order a web hosting plan first; then pair the domain with it.')); return Promise.resolve(null); }
+      if (services.length === 1) return Promise.resolve(services[0]);
+      return window.OnhostDialog.form({ title: _('Ke kterému webu doménu spárovat?', 'Which site should the domain pair with?'), confirm: _('Spárovat', 'Pair'), fields: [{ key: 'site', label: _('Web', 'Site'), type: 'select', value: (defaultService || services[0]).id, options: services.map(function (x) { return [x.id, x.label || x.hostname]; }) }] })
+        .then(function (v) { return v ? serviceOf(v.site) || null : null; });
     }
     function pair(d) {
-      var svc = pickService(); if (!svc) return;
+      pickService().then(function (svc) { if (svc) pairWith(d, svc); });
+    }
+    function pairWith(d, svc) {
       busy(cmp, _, 'pair:' + d.id, A().post('/domains/' + encodeURIComponent(d.id) + '/pair', { service_id: svc.id }, A().key()), _('Doména spárována', 'Domain paired'), function (r) {
         var p = (r && r.pairing) || {};
         return d.fqdn + ' → ' + (svc.label || svc.hostname) + (p.dns === 'synced' ? _(' · DNS záznamy nastaveny, certifikát vystavíme po rozšíření', ' · DNS rows set, the certificate follows once propagated') : _(' · nastavte A záznamy @ a www na ', ' · set the A records for @ and www to ') + ((p.records || [])[0] || {}).content);
@@ -185,7 +188,7 @@
         rows: [
           { title: _('← Zpět na účty', '← Back to accounts'), meta: '', value: '', kind: 'off', on: back(cmp) },
           { title: _('Synchronizovat teď', 'Sync now'), meta: _('domény, zóny, upozornění, kredit', 'domains, zones, notices, credit'), value: S.busy.sync ? '…' : '↻', kind: 'ok', on: function () { busy(cmp, _, 'sync', A().post(path + '/sync', {}, A().key()), _('Synchronizováno', 'Synchronised'), function (r) { return summary({ kind: 'sync', summary: (r && r.summary) || {} }, _); }); } },
-          { title: _('Ověřit připojení', 'Check the connection'), meta: _('přihlášení, počet domén a kredit', 'login, domain count and credit'), value: S.busy.probe ? '…' : '✓', kind: 'ok', on: function () { busy(cmp, _, 'probe', A().post(path + '/probe', {}, A().key()), _('Účet odpovídá', 'The account answers'), function (r) { var x = (r && r.result) || {}; return (x.domains != null ? x.domains + _(' domén · ', ' domains · ') : '') + credit(x.credit); }); } },
+          { title: _('Ověřit připojení', 'Check the connection'), meta: _('přihlášení, počet domén a kredit', 'login, domain count and credit'), value: S.busy.probe ? '…' : '✓', kind: 'ok', on: function () { busy(cmp, _, 'probe', A().post(path + '/probe', {}, A().key()), _('Účet odpovídá', 'The account answers'), function (r) { var x = (r && r.result) || {}; return (x.domains != null ? cq(_, x.domains, ['doména', 'domény', 'domén'], ['domain', 'domains']) + ' · ' : '') + credit(x.credit); }); } },
           { title: _('Odpojit účet', 'Disconnect the account'), meta: _('smaže uložené heslo a zrcadlené domény; u registrátora se nic nezmění', 'drops the stored password and the mirrored domains; nothing changes at the registrar'), value: '×', kind: 'warn', on: function () {
             if (!window.confirm(_('Odpojit účet ' + c.label + '? Uložené heslo a zrcadlené domény zmizí z panelu.', 'Disconnect ' + c.label + '? The stored password and the mirrored domains leave the panel.'))) return;
             busy(cmp, _, 'disconnect', A().del(path), _('Účet odpojen', 'Account disconnected'), c.label);

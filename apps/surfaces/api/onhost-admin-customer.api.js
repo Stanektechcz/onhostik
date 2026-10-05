@@ -105,7 +105,7 @@
       if (state.panel === 'ai') body += '<div class="ohac-sec"><div class="ohac-st"><h3>AI asistent nad účtem zákazníka</h3><span class="ohac-muted">čte jen tento účet · akce se provede až po vašem potvrzení</span></div>' + aiPanel() + '</div>';
       if (state.panel === 'order') body += '<div class="ohac-sec"><div class="ohac-st"><h3>Nová objednávka za zákazníka</h3><span class="ohac-muted">stejná cena a proces jako v panelu zákazníka</span></div>' + orderForm() + '</div>';
       body += '<div class="ohac-sec"><div class="ohac-st"><h3>Objednávky</h3><span class="ohac-muted">' + (org.orders || []).length + '</span></div>' + orderRows(org) + '</div>' +
-        '<div class="ohac-sec"><div class="ohac-st"><h3>Služby</h3><span class="ohac-muted">' + (org.services || []).length + '</span></div>' + ((org.services || []).length ? org.services.map(function (s) { return '<div class="ohac-row"><span><b>' + esc(s.label || s.name || s.product_key) + '</b><div class="ohac-muted">' + esc(s.product_key || '') + '</div></span><span class="ohac-muted">' + esc(s.plan_key || '') + '</span><span><span class="ohac-pill ' + (/ACTIVE/.test(s.state) ? 'ok' : (/FAIL|SUSP/.test(s.state) ? 'hot' : 'warn')) + '">' + esc(String(s.state || '').toLowerCase()) + '</span></span><span></span><span></span></div>'; }).join('') : '<div class="ohac-row"><span class="ohac-muted">Žádné služby.</span></div>') + '</div>' +
+        '<div class="ohac-sec"><div class="ohac-st"><h3>Služby</h3><span class="ohac-muted">' + (org.services || []).length + '</span></div>' + ((org.services || []).length ? org.services.map(function (s) { return '<div class="ohac-row"><span><b>' + esc(s.label || s.name || s.product_key) + '</b><div class="ohac-muted">' + esc(s.product_key || '') + '</div></span><span class="ohac-muted">' + esc(s.plan_key || '') + '</span><span><span class="ohac-pill ' + (/ACTIVE/.test(s.state) ? 'ok' : (/FAIL|SUSP/.test(s.state) ? 'hot' : 'warn')) + '">' + esc(String(s.state || '').toLowerCase()) + '</span></span><span></span><span>' + (/ACTIVE|DEGRADED/.test(String(s.state || '')) ? '<button class="ohac-btn" data-a="sso" data-v="' + esc(s.id) + '">Vstoupit do panelu</button>' : '') + '</span></div>'; }).join('') : '<div class="ohac-row"><span class="ohac-muted">Žádné služby.</span></div>') + '</div>' +
         '<div class="ohac-sec"><div class="ohac-st"><h3>Doklady</h3><span class="ohac-muted">' + (org.invoices || []).length + '</span></div>' + ((org.invoices || []).length ? org.invoices.slice(0, 20).map(function (i) { return '<div class="ohac-row"><span><b>' + esc(i.number || i.id) + '</b><div class="ohac-muted">' + esc(i.type || '') + '</div></span><span>' + kc(amt(i.total), i.currency) + '</span><span><span class="ohac-pill ' + (i.state === 'PAID' ? 'ok' : 'warn') + '">' + esc(String(i.state || '').toLowerCase()) + '</span></span><span class="ohac-muted">' + when(i.issued_at) + '</span><span></span></div>'; }).join('') : '<div class="ohac-row"><span class="ohac-muted">Žádné doklady.</span></div>') + '</div>';
     }
     root.innerHTML = '<div class="ohac-d" role="dialog" aria-modal="true"><div class="ohac-h"><h2>' + esc(org ? org.name : 'Zákazník') + '</h2><span class="ohac-muted">' + esc(org ? ((org.billing && org.billing.ico ? 'IČO ' + org.billing.ico + ' · ' : '') + (org.billing && org.billing.email ? org.billing.email : '')) : '') + '</span><button class="ohac-btn ohac-x" data-a="close">✕ Zavřít</button></div><div class="ohac-b">' + body + '</div></div>';
@@ -195,11 +195,32 @@
         .then(function (r) { var d = r.data || r; state.busy = false; state.panel = null; state.quote = null; state.form = {}; state.msg = ['ok', 'Objednávka ' + (d.number || '') + ' vytvořena · ' + (STATE[d.state] ? STATE[d.state][0] : d.state) + (d.bank_instructions && d.bank_instructions.variable_symbol ? ' · VS ' + d.bank_instructions.variable_symbol : '') + ' · kredit k dispozici ' + kc(amt(d.spendable)) + '.']; load(); }).catch(fail);
       return;
     }
+    if (a === 'sso') { // staff sign-on into the customer's panel: an open customer ticket about this service, a reason, the customer is told at once
+      var svc = ((state.org && state.org.services) || []).filter(function (x) { return x.id === v; })[0]; if (!svc) return;
+      window.OnhostDialog.form({
+        title: 'Vstoupit do panelu zákazníka',
+        lead: 'Platí jen k otevřenému tiketu, který zákazník založil k této službě (číslo nebo id). Zákazník je o vstupu okamžitě informován; bez jeho souhlasu je potřeba druhý schvalovatel. Odkaz je jednorázový a platí jen chvíli.',
+        confirm: 'Vytvořit odkaz',
+        fields: [{ key: 'ticket', label: 'Tiket zákazníka (číslo)', required: true }, { key: 'reason', label: 'Důvod (zapíše se do auditu, nejméně 10 znaků)', required: true }]
+      }).then(function (f) {
+        if (!f) return null;
+        if (f.reason.trim().length < 10) { state.msg = ['err', 'Důvod má mít nejméně 10 znaků.']; return render(); }
+        state.busy = true; render();
+        return A().post('/staff/services/' + encodeURIComponent(svc.id) + '/panel-login', { ticket_id: f.ticket.trim(), reason: f.reason.trim() }, A().key()).then(function (r) {
+          var d = r.data || r; state.busy = false;
+          if (!d.url) { state.msg = ['ok', 'Žádost o vstup čeká na schválení druhou osobou.']; return render(); }
+          state.msg = ['ok', 'Odkaz do panelu je připraven (platí ' + (d.expires_in_seconds || 60) + ' s, jednou).' + (d.consented ? '' : ' Zákazník nedal souhlas předem, vstup je zapsán v auditu.')]; render();
+          var w = null; try { w = window.open(d.url, '_blank', 'noopener'); } catch (e) { w = null; }
+          if (!w) window.OnhostDialog.prompt('Odkaz zkopírujte do nové karty; platí jednou.', d.url, { title: 'Odkaz do panelu', fieldLabel: 'Odkaz', cancel: 'Zavřít' });
+        });
+      }).catch(fail);
+      return;
+    }
     if (a === 'paid') {
       var o = ((state.org && state.org.orders) || []).filter(function (x) { return x.id === v; })[0]; if (!o) return;
       var vs = o.bank_instructions && o.bank_instructions.variable_symbol;
       if (!vs) { state.msg = ['err', 'Objednávka nemá variabilní symbol; platbu zapište v sekci Platby.']; return render(); }
-      var sum = window.prompt('Přijatá částka pro ' + o.number + ' (VS ' + vs + '):', String(amt(o.total)));
+      window.OnhostDialog.prompt('Přijatá částka pro ' + o.number + ' (VS ' + vs + '):', String(amt(o.total))).then(function (sum) {
       if (sum == null) return;
       state.busy = true; render();
       // one confirmation is one bank line: the line id and the request key come from the same intent (this order, this amount),
@@ -208,12 +229,14 @@
       A().post('/staff/payments/bank/lines', { variable_symbol: vs, amount: paid, currency: o.currency || 'CZK', external_id: 'console-' + o.number + '-' + lineKey, message: 'Potvrzeno v konzoli' }, lineKey)
         .then(function () { state.busy = false; state.msg = ['ok', 'Platba zapsána — objednávka ' + o.number + ' se spáruje a zřídí.']; load(); }).catch(fail);
       return;
+      });
     }
     if (a === 'release' || a === 'reject') {
-      var reason = window.prompt(a === 'release' ? 'Důvod uvolnění (audit):' : 'Důvod zamítnutí (zákazník ho uvidí):', '');
+      window.OnhostDialog.prompt(a === 'release' ? 'Důvod uvolnění (audit):' : 'Důvod zamítnutí (zákazník ho uvidí):', '').then(function (reason) {
       if (reason == null) return;
       state.busy = true; render();
       A().post('/staff/orders/' + encodeURIComponent(v) + '/review', { decision: a, reason: reason }, A().key()).then(function () { state.busy = false; state.msg = ['ok', a === 'release' ? 'Objednávka uvolněna.' : 'Objednávka zamítnuta.']; load(); }).catch(fail);
+      });
     }
   }
   function onInput(e) {

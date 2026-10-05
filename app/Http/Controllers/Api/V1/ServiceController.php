@@ -81,9 +81,18 @@ final class ServiceController extends ApiController
         $model = $this->resolve($request, $service);
         $manages = $this->api->can($request, 'service.manage', CommandScope::resource($model->id, $model->organization_id, $model->project_id)); // a secret a run generated is shown to whoever manages the service, never to a reader
         $operations = Operation::query()->where('service_id', $model->id)->orderByDesc('queued_at')->limit(10)->get()->map(fn (Operation $o) => Presenters::operation($o, false, $manages))->all();
-        $bindings = array_map(fn (ProviderBinding $b) => ['type' => $b->remote_type, 'adapter_version' => $b->adapter_version, 'last_reconciled_at' => $b->last_reconciled_at?->toIso8601String()], $model->bindings()->get()->all());
+        $bindings = array_map(fn (ProviderBinding $b) => ['type' => self::publicBindingType((string) $b->remote_type), 'adapter_version' => $b->adapter_version, 'last_reconciled_at' => $b->last_reconciled_at?->toIso8601String()], $model->bindings()->get()->all());
 
         return response()->json(['data' => Presenters::service($model) + ['operations' => $operations, 'bindings' => $bindings, 'actual' => $model->actual_spec, 'summary' => app(ServiceSummary::class)->for($model)]]);
+    }
+
+    /**
+     * What a customer is told a binding is. The platform's own record keeps the hypervisor's word (`qemu`, `lxc`) — the adapters and the
+     * identity check compare it — but a customer is never told which technology or vendor is under their service (G8 item 5).
+     */
+    private static function publicBindingType(string $remoteType): string
+    {
+        return ['qemu' => 'vm', 'lxc' => 'container'][$remoteType] ?? $remoteType;
     }
 
     /** Generic action endpoint plus the shorthand routes (power/resize/backup/…) mapped onto it. */
