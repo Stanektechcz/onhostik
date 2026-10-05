@@ -62,8 +62,9 @@ development is work outside the plan and needs a price the customer approved:
 ## Bank transfers (proformas and top-ups)
 
 Transfers have no webhook. Incoming statement lines are matched by variable symbol + amount to the pending bank
-intent (`PaymentService::matchBankLine`); a match settles the intent, pays the proforma (fulfilment starts) or credits
-the wallet, and issues the receipt. Sources of lines:
+intent (`PaymentService::matchBankLine`); a match settles the intent, pays the proforma (fulfilment starts), pays an issued
+invoice or credits the wallet, and issues the payment's document — none for an issued invoice (it is the tax document, see
+"Only the invoice is a tax document" below). Sources of lines:
 
 | Source | How |
 | --- | --- |
@@ -78,6 +79,65 @@ reconciliation item instead of paying, a symbol nobody waits for stays `unmatche
 `finance.reconciliation.mismatch` means the bank statement import does not match ledger postings. Compare the
 statement line with `ledger_transactions` (idempotency key `payment:<intent>`), never edit postings; post a
 correcting transaction with a reference to the statement line.
+
+## Only the invoice is a tax document (G1, owner decision G-R1, 2026-10-05)
+
+One sale, one tax document. Every card or bank payment used to be credited to the wallet **with a receipt that stated VAT** and
+then spent on the invoice it was made for — so the invoice and the receipt were both tax documents (`CzkTaxStatement::TYPES`) for
+the same sale and the VAT was stated twice on documents (the ledger booked it once). The document of a payment is now chosen
+in `PaymentService::document()`:
+
+| Payment | Document |
+| --- | --- |
+| an issued invoice (`purpose: invoice`, the invoice still open), by card, transfer — or from credit (`POST /v1/invoices/{id}/pay` `wallet`) | **none** — the payment is matched to the invoice (`SettleInvoicePayment`) |
+| more than the invoice still owes (a credit note was written meanwhile), or the invoice was paid/credited before the money came | the rest stays as credit and gets a top-up document |
+| an order (gateway or bank), a proforma | `receipt` — the sale's one tax document (the order's `statement` is none) |
+| a top-up by a taxable person or legal entity (`InvoiceService::taxablePerson`: a company, `b2b`, or an IČO/DIČ/VAT ID — VAT payer or not, domestic or foreign) | `receipt`; the tax engine decides the rate, reverse charge (`AE`) or OSS |
+| a top-up by a consumer (a person without any business number) | `confirmation` — *Potvrzení o přijetí platby*, no VAT (`tax_summary` empty, line category `O`), not a tax document; a receipt on request is not built yet |
+| **any** of the above while the seller is no VAT payer (`InvoiceService::sellerIsVatPayer`: the legal entity's `vat_payer` and the tax rules' `supplier.vat_payer`) | `confirmation` — a non-payer issues no tax document (§ 29) |
+
+The rule follows the seller, not the customer's registration (security review of PR #103): a taxable person that is not a VAT
+payer still gets the receipt (§ 28 (2)); only a consumer does not need one.
+
+The PDF says what a document is: *Daňový doklad k přijaté platbě*, *Vyúčtování z kreditu (není daňový doklad)*, *Zálohová faktura
+(není daňový doklad)*, *Potvrzení o přijetí platby (není daňový doklad)*. While the seller is no VAT payer no title says
+"daňový doklad": *Faktura*, *Opravná faktura*, *Potvrzení o přijetí platby*, and the PDF states that the document is no tax
+document. A payment confirmation has no structured form: `GET /v1/invoices/{id}/ubl` answers 409 `document_not_exportable` (it
+would be imported as a commercial invoice, type 380). A referral is still settled by a paid confirmation, and `collections`
+counts it as issued, like the receipt it replaces.
+
+**Payments that meet on one invoice.** `SettleInvoicePayment` locks the invoice and reads what it still owes inside the
+transaction: of two payments for one invoice (two tabs, a card and a transfer) one is applied, the other stays credit with a
+top-up document. When the payment could not be applied at all (a listener failed: reconciliation item `paid_but_not_applied`),
+the money is credit too and gets its top-up document at once.
+
+**Open question for the accountant (owner question).** Whether ONhost credit is a multi-purpose voucher (§ 10a–10c of the VAT
+act). If it is, a top-up is no taxable supply and no receipt is due at all — VAT arises when the credit is spent, which is
+how the ledger already books it. Until that is answered a taxable person's top-up keeps its receipt.
+
+**Known residual.** A taxable person's top-up gets a receipt with VAT; when that credit later pays an issued invoice (`POST
+/v1/invoices/{id}/pay` `wallet`), the invoice states the same VAT again — receipt and invoice are two tax documents for that
+money, and on the documents (not in the ledger, which books the VAT once, when the credit is spent) the VAT is stated twice.
+The credit is fungible, so the report below cannot attribute a receipt to an invoice. The answer to the voucher question above
+decides the fix (no receipt for top-ups, or the invoice deducting the advance).
+
+**Existing data** — read only, nothing is marked, voided or deleted (documents are append-only; the correction is the
+accountant's decision, e.g. a credit note of the receipt or an adjustment of the VAT return):
+
+```
+php artisan onhost:billing:double-tax-report [--organization=<id>] [--since=YYYY-MM-DD] [--json]
+```
+
+It lists every invoice whose own payment (an intent `purpose: invoice` for that invoice) also got a `receipt`: the invoice and
+receipt numbers, the receipt's VAT and totals per currency ("VAT stated twice"). Not listed: the residual above (a top-up receipt
+whose credit later paid an invoice). `--since` takes a date `YYYY-MM-DD`; anything else is refused (exit 1), never guessed.
+
+**A top-up is never refunded to its source** (owner decision G-R4): `PaymentService::refund` refuses a payment with purpose
+`topup` (422 `topup_not_refundable`) before the gateway is asked — credit is spent on services, never paid back in money. Order
+and invoice payments are refunded as before; the old link to a wallet refund (`payment_refunds.wallet_refund_id`) is no longer
+written.
+
+Tests: `tests/Feature/Billing/G1OnlyInvoiceTest.php`, `tests/Feature/E2E/BillingDunningFlowTest.php`.
 
 ## Reports
 
@@ -251,8 +311,9 @@ Tests: `tests/Feature/Billing/DunningEnforcementTest.php` (both holes proven aga
 A tax document issued in EUR has to state its VAT **in CZK** (§ 29 (1) l) of the Czech VAT act), converted at the rate of the
 Czech National Bank valid for the day the tax is due (§ 4). It carried neither the rate nor the amount.
 
-* **Which documents:** `invoice`, `receipt` (the tax document of a top-up) and `credit_note`. A proforma is a request to pay
-  and a statement only lists what the credit paid for — neither is a tax document.
+* **Which documents:** `invoice`, `receipt` (the tax document of a paid order or of a VAT payer's top-up) and `credit_note`. A
+  proforma is a request to pay, a statement only lists what the credit paid for and a payment confirmation (`confirmation`)
+  only confirms money received as credit — none of them is a tax document.
 * **Which rate:** the list valid for the document's supply day (`CnbRates::rateFor`): the latest stored list that is not
   younger than the day and not older than `ONHOST_FX_MAX_AGE_DAYS` (7). The bank publishes at 14:30 on working days; before
   that, and over a weekend, the previous list is the valid one — the document prints the date of the list it used.

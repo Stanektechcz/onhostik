@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Billing\Models\BillingPeriod;
 use Onhost\Domain\Billing\Models\DunningCase;
 use Onhost\Domain\Billing\Models\Subscription;
+use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Platform\Money\Money;
 
@@ -38,7 +39,7 @@ final class ReportService
         $out = [];
         foreach (config('onhost.billing.currencies', ['CZK']) as $currency) {
             $collected = (int) Invoice::query()->where('currency', $currency)->where('state', Invoice::PAID)->where('paid_at', '>=', $since)->sum('paid_minor');
-            $issued = (int) Invoice::query()->where('currency', $currency)->whereIn('type', ['invoice', 'statement', 'receipt'])->where('issued_at', '>=', $since)->sum('total_minor');
+            $issued = (int) Invoice::query()->where('currency', $currency)->whereIn('type', ['invoice', 'statement', 'receipt', InvoiceService::PAYMENT_CONFIRMATION])->where('issued_at', '>=', $since)->sum('total_minor');
             $open = Invoice::query()->where('currency', $currency)->whereIn('state', [Invoice::ISSUED, Invoice::OVERDUE])->where('type', 'invoice')->get();
             $buckets = ['current' => 0, '1_30' => 0, '31_60' => 0, '61_plus' => 0];
             foreach ($open as $invoice) {

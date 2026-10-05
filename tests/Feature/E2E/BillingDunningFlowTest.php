@@ -11,6 +11,8 @@ use Onhost\Domain\Billing\Models\DunningCase;
 use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Identity\StepUp\StepUpService;
+use Onhost\Domain\Invoicing\CzkTaxStatement;
+use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Notifications\Models\MailOutbox;
 use Onhost\Domain\Notifications\Models\Notification;
@@ -46,7 +48,9 @@ require_once __DIR__.'/../../Support/E2E/E2EHelpers.php';
  *     the recap is added later), and its credit note keeps the rate of the invoice.
  *
  * The customer's browser session does not outlive the weeks the clock travels, so the flow signs in again (POST /v1/auth/login).
- * The card payment of an invoice is booked the platform's way: credited to the wallet (with a receipt), then spent on the invoice.
+ * The card payment of an invoice is booked the platform's way: credited to the wallet, then spent on the invoice — with no receipt of
+ * its own: the invoice is the tax document of the sale (G1, owner decision G-R1). A company's top-up gets a tax receipt (the seller
+ * is a VAT payer here); a consumer's would get a payment confirmation, no tax document.
  * Asserts never depend on row order (SQLite and PostgreSQL alike) and nothing the customer reads names a vendor.
  */
 
@@ -229,7 +233,7 @@ it('renews by invoice, reminds on the dunning schedule, suspends the unpaid host
     expect($case->actions()->pluck('action')->all())->toContain('resolve')->toContain('resume');
     $events = OutboxMessage::query()->where('organization_id', $org->id)->pluck('name')->countBy()->all();
     expect($events['dunning.resolved'])->toBe(1)->and($events['service.active'])->toBe(1)->and($events['payment.succeeded'])->toBe(2) // the order's card payment and this one
-        ->and($events['invoice.paid'])->toBe(4); // statement + receipt of the order, this invoice, and the receipt of this card payment
+        ->and($events['invoice.paid'])->toBe(3); // statement + receipt of the order, and this invoice — its card payment gets no receipt (G1)
     expect(Notification::query()->where('organization_id', $org->id)->where('title', 'Platba přijata, vše v pořádku')->count())->toBe(1);
 
     // ── the money: the card payment is credited and spent on this one invoice, the books stay balanced and VAT is booked once per sale ─
@@ -237,8 +241,12 @@ it('renews by invoice, reminds on the dunning schedule, suspends the unpaid host
     expect($ledger->balance(LedgerService::walletAccount($org->id, 'CZK'), 'CZK')->minor)->toBe(0)->and($ledger->verifyInvariant()['balanced'])->toBeTrue()
         ->and($ledger->balance(LedgerService::vatAccount('CZK'), 'CZK')->minor)->toBe(3 * 1869) // the order and the two renewal invoices, not one more for the receipt
         ->and($ledger->balance(LedgerService::receivableAccount($org->id, 'CZK'), 'CZK')->minor)->toBe(10769); // only the second invoice is still owed
-    $receipt = Invoice::query()->where('organization_id', $org->id)->where('type', 'receipt')->get()->first(fn (Invoice $r) => $r->meta['payment_intent_id'] !== null && $r->issued_at->toDateString() === '2026-12-19');
-    expect($receipt)->not->toBeNull()->and($receipt->total_minor)->toBe(10769)->and($receipt->state)->toBe(Invoice::PAID);
+    // one sale, one tax document (G1): the card payment of the invoice got no receipt, and the VAT the tax documents state is the VAT
+    // the ledger booked — the order's receipt and the two renewal invoices, nothing twice
+    $taxDocuments = Invoice::query()->where('organization_id', $org->id)->whereIn('type', CzkTaxStatement::TYPES)->get();
+    expect($taxDocuments->where('type', 'receipt')->filter(fn (Invoice $r) => $r->issued_at->toDateString() === '2026-12-19'))->toHaveCount(0)
+        ->and($taxDocuments->countBy('type')->all())->toBe(['receipt' => 1, 'invoice' => 2])
+        ->and((int) $taxDocuments->sum('tax_minor'))->toBe(3 * 1869)->and($ledger->balance(LedgerService::vatAccount('CZK'), 'CZK')->minor)->toBe(3 * 1869);
 
     // ── the second invoice runs its own course: nothing of the first one's history is replayed on it ─────────────
     e2eBillingDay($this, '2026-12-22'); // three days after its due date
@@ -355,13 +363,14 @@ it('pays an invoice from credit only when there is credit, and finance credits i
 
     // ── a card top-up through the gateway, then the invoice is paid from the credit ──────────────────────────────
     e2eTopUp($this, $gate, 500);
-    expect($wallet())->toBe(50000)->and(Invoice::query()->where('organization_id', $org->id)->where('type', 'receipt')->count())->toBe(2); // the order's payment and the top-up: each a receipt
+    expect($wallet())->toBe(50000)->and(Invoice::query()->where('organization_id', $org->id)->where('type', 'receipt')->count())->toBe(2) // the order's payment and the company's top-up: each a tax receipt
+        ->and(Invoice::query()->where('organization_id', $org->id)->where('type', InvoiceService::PAYMENT_CONFIRMATION)->count())->toBe(0);
     $paid = $this->withHeaders(e2eHeaders('pay-credit'))->postJson("/v1/invoices/{$invoice->id}/pay", ['method' => 'wallet'])->assertOk();
     expect($paid->json('state'))->toBe(Invoice::PAID)->and($paid->json('paid.minor'))->toBe(10769)->and($wallet())->toBe(50000 - 10769)
         ->and($invoice->refresh()->paid_minor)->toBe(10769)->and($ledger->balance(LedgerService::receivableAccount($org->id, 'CZK'), 'CZK')->minor)->toBe(0)
         ->and(DunningCase::query()->where('invoice_id', $invoice->id)->value('state'))->toBe(DunningCase::RESOLVED);
     $this->withHeaders(e2eHeaders('pay-again'))->postJson("/v1/invoices/{$invoice->id}/pay", ['method' => 'wallet'])->assertStatus(409)->assertJsonPath('error', 'invoice_not_payable'); // never twice
-    expect($wallet())->toBe(50000 - 10769)->and(Invoice::query()->where('organization_id', $org->id)->where('type', 'receipt')->count())->toBe(2); // paying from credit is not a payment received: no receipt
+    expect($wallet())->toBe(50000 - 10769)->and(Invoice::query()->where('organization_id', $org->id)->whereIn('type', ['receipt', InvoiceService::PAYMENT_CONFIRMATION])->count())->toBe(2); // paying from credit is not a payment received: no receipt
 
     // ── the customer cannot write a document or mark one paid by hand ────────────────────────────────────────────
     $this->withHeaders(e2eHeaders('own-note'))->postJson("/v1/invoices/{$invoice->id}/credit-note", ['reason' => 'Chci peníze zpět', 'return_to_credit' => true])->assertForbidden();
