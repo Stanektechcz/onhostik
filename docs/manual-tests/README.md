@@ -17,6 +17,8 @@ brány, skutečné doručení pošty a chování vnějších systémů.
 | F6 | [06-herni-server.md](06-herni-server.md) | Herní server | `tests/Feature/E2E/GameFlowTest.php` |
 | F7 | [07-fakturace-upominky.md](07-fakturace-upominky.md) | Fakturace, upomínky, pozastavení | `tests/Feature/E2E/BillingDunningFlowTest.php` |
 | F8 | [08-zruseni-konec-uctu.md](08-zruseni-konec-uctu.md) | Zrušení služby a konec účtu | `tests/Feature/E2E/CancellationFlowTest.php` |
+| F9 | [09-role.md](09-role.md) | Role a oprávnění (generováno z kódu) | `tests/Feature/E2E/SharingFlowTest.php` |
+| F10 | [10-api.md](10-api.md) | Veřejné API: klíče, rozsahy, webhooky, ukázky curl | `tests/Feature/E2E/ApiAutomationFlowTest.php` |
 
 F1 až F4 píše skupina „objednávka, web, doména, e-mail“, F5 až F8 jiný pracovník; soubory F5 až F8 mohou přijít
 samostatným slučováním.

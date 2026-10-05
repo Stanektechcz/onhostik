@@ -2,6 +2,8 @@
 
 > Tento soubor je **generovaný z kódu** příkazem `php artisan onhost:docs:roles` (zdroje: `RoleCatalog`, `StaffNavigation`, `PanelNavigation`, `SurfaceDataController::NAV_REQUIRES`). Ručně se needituje; CI hlídá shodu příkazem `php artisan onhost:docs:roles --check`.
 
+Automatický protějšek bez prohlížeče (sdílení služby a role): `tests/Feature/E2E/SharingFlowTest.php`.
+
 ## Jak testovat
 
 1. Přihlaste se jako uživatel dané role. Demo účty a jejich hesla si nastavuje vlastník platformy sám, tady žádná hesla nejsou.
@@ -1146,7 +1148,7 @@ Odmítnuté akce (musí skončit chybou):
 - [ ] Objednat službu (`POST /v1/orders`, chybí `catalog.order.create`): **403** (Člen organizace bez oprávnění).
 - [ ] Dobít peněženku (`POST /v1/wallet/topup`, chybí `billing.wallet.topup`): **403** (Člen organizace bez oprávnění).
 - [ ] Zaplatit z kreditu organizace (`POST /v1/orders (platba z kreditu)`, chybí `billing.wallet.spend`): **403** (Člen organizace bez oprávnění).
-- [ ] Spravovat platební metody (`POST /v1/payment-methods`, chybí `billing.payment_method.manage`): **403** (Člen organizace bez oprávnění).
+- [ ] Spravovat platební metody (`DELETE /v1/payment-methods/{method}`, chybí `billing.payment_method.manage`): **403** (Člen organizace bez oprávnění).
 - [ ] Obnovit službu ze zálohy (`POST /v1/services/{service}/restore`, chybí `backup.restore`): **403** (Člen organizace bez oprávnění).
 
 - Cizí uživatel mimo organizaci otevře `GET /v1/organizations/{organization}` a dostane **404**; kdo organizaci nezná, nesmí poznat, že existuje.
@@ -1176,7 +1178,7 @@ Odmítnuté akce (musí skončit chybou):
 - [ ] Objednat službu (`POST /v1/orders`, chybí `catalog.order.create`): **403** (Člen organizace bez oprávnění).
 - [ ] Dobít peněženku (`POST /v1/wallet/topup`, chybí `billing.wallet.topup`): **403** (Člen organizace bez oprávnění).
 - [ ] Zaplatit z kreditu organizace (`POST /v1/orders (platba z kreditu)`, chybí `billing.wallet.spend`): **403** (Člen organizace bez oprávnění).
-- [ ] Spravovat platební metody (`POST /v1/payment-methods`, chybí `billing.payment_method.manage`): **403** (Člen organizace bez oprávnění).
+- [ ] Spravovat platební metody (`DELETE /v1/payment-methods/{method}`, chybí `billing.payment_method.manage`): **403** (Člen organizace bez oprávnění).
 - [ ] Upravit DNS záznam (`POST /v1/dns/zones/{zone}/changes`, chybí `dns.zone.write`): **403** (Člen organizace bez oprávnění).
 
 - Cizí uživatel mimo organizaci otevře `GET /v1/organizations/{organization}` a dostane **404**; kdo organizaci nezná, nesmí poznat, že existuje.
@@ -1206,7 +1208,7 @@ Odmítnuté akce (musí skončit chybou):
 - [ ] Objednat službu (`POST /v1/orders`, chybí `catalog.order.create`): **403** (Člen organizace bez oprávnění).
 - [ ] Dobít peněženku (`POST /v1/wallet/topup`, chybí `billing.wallet.topup`): **403** (Člen organizace bez oprávnění).
 - [ ] Zaplatit z kreditu organizace (`POST /v1/orders (platba z kreditu)`, chybí `billing.wallet.spend`): **403** (Člen organizace bez oprávnění).
-- [ ] Spravovat platební metody (`POST /v1/payment-methods`, chybí `billing.payment_method.manage`): **403** (Člen organizace bez oprávnění).
+- [ ] Spravovat platební metody (`DELETE /v1/payment-methods/{method}`, chybí `billing.payment_method.manage`): **403** (Člen organizace bez oprávnění).
 - [ ] Upravit DNS záznam (`POST /v1/dns/zones/{zone}/changes`, chybí `dns.zone.write`): **403** (Člen organizace bez oprávnění).
 
 - Cizí uživatel mimo organizaci otevře `GET /v1/organizations/{organization}` a dostane **404**; kdo organizaci nezná, nesmí poznat, že existuje.
@@ -1237,7 +1239,7 @@ Odmítnuté akce (musí skončit chybou):
 - [ ] Objednat službu (`POST /v1/orders`, chybí `catalog.order.create`): **403** (Člen organizace bez oprávnění).
 - [ ] Dobít peněženku (`POST /v1/wallet/topup`, chybí `billing.wallet.topup`): **403** (Člen organizace bez oprávnění).
 - [ ] Zaplatit z kreditu organizace (`POST /v1/orders (platba z kreditu)`, chybí `billing.wallet.spend`): **403** (Člen organizace bez oprávnění).
-- [ ] Spravovat platební metody (`POST /v1/payment-methods`, chybí `billing.payment_method.manage`): **403** (Člen organizace bez oprávnění).
+- [ ] Spravovat platební metody (`DELETE /v1/payment-methods/{method}`, chybí `billing.payment_method.manage`): **403** (Člen organizace bez oprávnění).
 
 - Cizí uživatel mimo organizaci otevře `GET /v1/organizations/{organization}` a dostane **404**; kdo organizaci nezná, nesmí poznat, že existuje.
 
@@ -1380,7 +1382,7 @@ Odmítnuté akce (musí skončit chybou):
 
 - [ ] Dobít peněženku (`POST /v1/wallet/topup`, chybí `billing.wallet.topup`): **403** (Člen organizace bez oprávnění).
 - [ ] Zaplatit z kreditu organizace (`POST /v1/orders (platba z kreditu)`, chybí `billing.wallet.spend`): **403** (Člen organizace bez oprávnění).
-- [ ] Spravovat platební metody (`POST /v1/payment-methods`, chybí `billing.payment_method.manage`): **403** (Člen organizace bez oprávnění).
+- [ ] Spravovat platební metody (`DELETE /v1/payment-methods/{method}`, chybí `billing.payment_method.manage`): **403** (Člen organizace bez oprávnění).
 - [ ] Restartovat službu (`POST /v1/services/{service}/actions`, chybí `service.operate`): **403** (Člen organizace bez oprávnění).
 - [ ] Měnit nastavení služby (PHP, cron, databáze) (`POST /v1/services/{service}/actions`, chybí `service.manage`): **403** (Člen organizace bez oprávnění).
 

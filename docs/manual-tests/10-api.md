@@ -9,6 +9,8 @@ aplikaci (metoda, cesta, hlavičky, tělo) a ověří, že odpověď má stav z 
 a že rozsah z řádku `# scope:` je opravdu ten, který smlouva (`x-token-scope`) pro operaci uvádí. Když se API změní a ukázka
 přestane platit, test selže; když ukázku upravíte, upravte i řádek se značkou.
 
+Automatický protějšek bez terminálu: `tests/Feature/E2E/ApiAutomationFlowTest.php`.
+
 ## Značky nad příkazem
 
 Značky jsou obyčejné komentáře v bashi, takže ukázku můžete vkládat do terminálu i s nimi.
