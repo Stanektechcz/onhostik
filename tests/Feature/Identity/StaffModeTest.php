@@ -277,6 +277,7 @@ it('reads is_staff only where the allow-list says: every other decision asks Sta
     // only shrinks: a new read is either StaffActor or a reviewed line here.
     $allowed = [
         'app/Console/Commands/Doctor.php' => 1,                      // counts staff accounts
+        'domains/Platform/GoLiveChecks.php' => 1,                    // go-live doctor row: counts staff without an authenticator
         'app/Console/Commands/ForensicLookback.php' => 2,            // describes the old shortcut it looks for (text)
         'app/Console/Commands/Forensics/MembershipHistory.php' => 1, // read-only look-back
         'app/Console/Commands/StaffTotp.php' => 1,                   // CLI for staff MFA

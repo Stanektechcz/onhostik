@@ -1451,7 +1451,17 @@ final class ServiceService
         $this->recordConsoleIssuer((string) ($access['token'] ?? ''), $service, $context);
         $this->audit->record($context->withScope($service->organization_id), 'service.console', 'succeeded', ['kind' => $access['kind'], 'expires_at' => $access['expires_at']], 'service', $service->id);
 
-        return $access;
+        // E5: the adapter's `url` is the node's own daemon socket and `meta` the panel's server id — what a customer's browser is told is
+        // only the relay `socket`. The operator's console keeps both (it prints them for the person who runs the node).
+        if (StaffActor::acts($context)) {
+            return $access;
+        }
+        // the portal's own link (Proxmox: <portal>/console/ws/<token>) is ours and stays; any other address is the node's
+        $portal = rtrim((string) config('onhost.portal_url'), '/');
+        $ours = $portal !== '' && str_starts_with((string) ($access['url'] ?? ''), $portal.'/');
+        $hide = ['meta' => true] + ($ours ? [] : ['url' => true]);
+
+        return array_diff_key($access, $hide);
     }
 
     /**

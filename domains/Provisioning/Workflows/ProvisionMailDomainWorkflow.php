@@ -67,7 +67,12 @@ final class ProvisionMailDomainWorkflow implements Workflow
                     $domain = (string) $context->desired('domain');
                     $zone = DnsZone::query()->where('name', $domain)->where('organization_id', $service->organization_id)->where('state', 'active')->first();
                     $meta = (array) $context->get('mail_domain_meta', []);
-                    $dkim = $this->capability($context, MailProvider::class)->dkim($this->ref($context, 'mail_domain')) ?? ['selector' => $meta['dkim_selector'] ?? null, 'public' => $meta['dkim_public'] ?? null];
+                    // the contract answers {selector, public_key, dns_record}; the saga read `public`, so a key the panel DID hand back was
+                    // dropped and the DKIM record never published (E3 end-to-end test). The creation meta is the fallback when the panel has none.
+                    $answer = $this->capability($context, MailProvider::class)->dkim($this->ref($context, 'mail_domain'));
+                    $dkim = $answer === null
+                        ? ['selector' => $meta['dkim_selector'] ?? null, 'public' => $meta['dkim_public'] ?? null]
+                        : ['selector' => $answer['selector'] ?? null, 'public' => $answer['public_key'] ?? $answer['public'] ?? null];
                     // one builder for both sagas (MailSettings): a mail service's customers looked their settings up by
                     // hand, because the autoconfig records were published only for a web service's mail
                     $records = MailSettings::records($domain, (string) ($context->instance()->option('mail_host') ?: config('onhost.dns.mail_host')),
