@@ -139,6 +139,28 @@ written.
 
 Tests: `tests/Feature/Billing/G1OnlyInvoiceTest.php`, `tests/Feature/E2E/BillingDunningFlowTest.php`.
 
+## VAT payer mode, proformas and the final invoice (G2, owner decision G-R1, 2026-10-05)
+
+The platform runs as a VAT payer or as a seller who is not one; the mode is configuration (`ONHOST_VAT_PAYER`) written to the
+legal entity with `php artisan onhost:vat:payer-mode --apply` (CommandBus, CRITICAL), shown by `onhost:doctor` (row **VAT payer
+mode**, with the remedy when the two disagree). Switching never changes an issued document — each froze its seller. A non-payer
+charges no VAT (the tax engine decides `E`), issues no tax document and its EUR invoice has **no CZK VAT recap** (the open G1
+issue: it carried a zero "VAT in CZK" and entered the recap).
+
+A bank-transfer order of a VAT payer: proforma `PF` (no tax document) → the transfer arrives → **tax document for the received
+payment** `PP`, one line per VAT rate with the order's base and VAT, DUZP = the bank's booking day → the order is paid → **final
+invoice** `FV` (`type invoice`, `meta.advances`) that deducts the advance (*Zúčtování zálohy*: the receipt's number, the base and
+VAT deducted per rate, the difference, *Zbývá uhradit 0*). The advance is corrected by a credit note of the receipt. A
+non-payer's advance gets a payment confirmation and the order its credit statement, as before. A card order keeps G1 (receipt +
+statement).
+
+Every tax document of a payer carries the § 29 particulars incl. the DUZP and the VAT summary per rate, in Czech and English;
+VAT is rounded to the haléř half away from zero (§ 37, `VatRounding`, `meta.rounding`) — also when it is extracted from a top-up
+(the base used to be truncated). KH/SH drafts for the accountant: `php artisan onhost:vat:export kh|sh --period=YYYY-MM|YYYY-Qn
+--format=csv|xml` (read only).
+
+Details, the accountant's open questions: [vat-payer-mode.md](vat-payer-mode.md). Tests: `tests/Feature/Tax/G2VatPayerTest.php`.
+
 ## Reports
 
 `GET /v1/staff/reports/mrr | collections | churn | revenue` feed the admin `#/reporty` view; the numbers are

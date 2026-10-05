@@ -251,7 +251,7 @@ kredit s příjmovým dokladem (s DPH) a pak se z kreditu zaplatila faktura, tak
 | --- | --- |
 | Faktura zaplacená kartou, převodem nebo z kreditu | žádný nový; faktura je daňový doklad |
 | Platba vyšší, než kolik faktura ještě dluží (mezitím dobropis) | zbytek jde na kredit a dostane doklad k dobití |
-| Objednávka zaplacená kartou nebo převodem | daňový doklad k přijaté platbě (vyúčtování z kreditu daňovým dokladem není) |
+| Objednávka zaplacená kartou nebo převodem | daňový doklad k přijaté platbě (vyúčtování z kreditu daňovým dokladem není); objednávka převodem na zálohovou fakturu končí u plátce konečnou fakturou, která zálohu odečte (F7-11) |
 | Dobití kreditu firmou nebo podnikatelem (IČO, DIČ; plátce i neplátce DPH, i zahraniční) | daňový doklad k přijaté platbě (sazbu, přenesení daňové povinnosti či OSS určí daňový modul) |
 | Dobití kreditu spotřebitelem | potvrzení o přijetí platby, **není daňový doklad**, bez DPH |
 | Cokoli z výše uvedeného, když ONhost **není plátce DPH** | potvrzení o přijetí platby; faktura je jen „Faktura“, žádný doklad se nejmenuje daňový |
@@ -274,6 +274,67 @@ kredit s příjmovým dokladem (s DPH) a pak se z kreditu zaplatila faktura, tak
 
 **Kde hledat:** runbook [billing-dunning](../runbooks/billing-dunning.md), oddíl „Only the invoice is a tax document“. Automaticky:
 [`G1OnlyInvoiceTest`](../../tests/Feature/Billing/G1OnlyInvoiceTest.php) a E2E `BillingDunningFlowTest` (F7-03, F7-05).
+
+---
+
+## F7-11 Režim plátce DPH, zálohová faktura a zúčtování zálohy (G2)
+
+**Pravidlo (G-R1, G2):** režim plátce / neplátce DPH je **konfigurace** (`ONHOST_VAT_PAYER`) zapsaná do právnické osoby
+(`php artisan onhost:vat:payer-mode --apply`). Doklad si pamatuje dodavatele, s nímž byl vystaven: přepnutí režimu **nezmění žádný
+vystavený doklad**. Zálohová faktura (řada PF) daňovým dokladem není. Plátce k přijaté platbě vystaví daňový doklad k přijaté
+platbě (řada PP, DUZP = den připsání platby) a konečná faktura (řada FV) zálohu odečte; neplátce vystaví potvrzení o přijetí
+platby a žádný daňový doklad.
+
+**Předpoklady:** firma s DIČ CZ ověřeným ve VIES; účet finance; doctor řádek „VAT payer mode“ zelený.
+
+**Kroky**
+
+1. `php artisan onhost:vat:payer-mode` — vypíše režim (plátce), hodnotu právnické osoby, `ONHOST_VAT_PAYER` a daňových pravidel.
+2. Zákazník objedná webhosting s platbou převodem (`POST /v1/orders`, platba `bank`); otevře zálohovou fakturu v `/panel/fakturace`.
+3. Finance zapíše řádek výpisu s variabilním symbolem zálohové faktury (`POST /v1/staff/payments/bank/lines`), datum připsání včera.
+4. Otevřít doklady (`GET /v1/invoices`) a PDF (`GET /v1/invoices/{invoice}/pdf`): zálohovou fakturu, daňový doklad k přijaté platbě, konečnou fakturu.
+5. Finance vystaví dobropis k daňovému dokladu k přijaté platbě (F7-06, `POST /v1/invoices/{invoice}/credit-note`).
+6. Na stagingu nastavit `ONHOST_VAT_PAYER=false`, spustit `php artisan onhost:doctor` (řádek „VAT payer mode“ ukáže nesoulad a radu),
+   pak `php artisan onhost:vat:payer-mode --apply` a zopakovat kroky 2–4. Nakonec režim vrátit (`ONHOST_VAT_PAYER=true`, `--apply`).
+
+**Očekávaný výsledek**
+
+- Zálohová faktura: číslo `PF-…`, nadpis „Zálohová faktura (není daňový doklad)“, **bez DUZP**, bez rekapitulace v Kč.
+- Daňový doklad k přijaté platbě: číslo `PP-…`, **DUZP = den připsání platby** (ne den spárování), DPH po sazbách přesně jako
+  objednávka (ne jedna sazba z celé částky), odkaz na číslo zálohové faktury.
+- Konečná faktura: číslo `FV-…`, „Faktura – daňový doklad“, oddíl **„Zúčtování zálohy“** s číslem daňového dokladu k přijaté platbě,
+  odečtený základ a DPH po sazbách, rozdíl k vyúčtování 0 a „Zbývá uhradit 0 Kč“.
+- Na každém daňovém dokladu plátce: dodavatel a odběratel s IČO a DIČ, číslo, datum vystavení, DUZP, popis, množství, cena za
+  jednotku bez DPH, rekapitulace DPH po sazbách (základ, sazba, daň), celkem; poznámka o zaokrouhlení DPH na haléře (§ 37).
+  U faktury v EUR rekapitulace v Kč kurzem ČNB ke dni DUZP (F7-07); u firmy z jiného státu EU s platným DIČ „Daň odvede zákazník“
+  a obě DIČ.
+- Dobropis k dokladu k přijaté platbě: řada `DK-…`, záporné DPH, odkaz na opravovaný doklad.
+- Po přepnutí na neplátce: nová objednávka převodem dostane jen potvrzení o přijetí platby a výpis z kreditu; faktury nesou
+  „Faktura“, „Neplátce DPH“ a „Tento doklad není daňovým dokladem“, žádné DUZP ani DPH; faktura v EUR **nemá** rekapitulaci v Kč.
+  Doklady vystavené před přepnutím zůstanou beze změny (PDF i data).
+
+**Kde hledat:** runbook [vat-payer-mode](../runbooks/vat-payer-mode.md) a [billing-dunning](../runbooks/billing-dunning.md), oddíl „VAT
+payer mode, proformas and the final invoice“. Automaticky: [`G2VatPayerTest`](../../tests/Feature/Tax/G2VatPayerTest.php) (mimo E2E).
+
+---
+
+## F7-12 Podklady pro kontrolní a souhrnné hlášení (jen pro účetní)
+
+**Kroky:** finance spustí `php artisan onhost:vat:export kh --period=2026-10 --format=xml` a `--format=csv`, pak
+`php artisan onhost:vat:export sh --period=2026-10` (měsíc `RRRR-MM` nebo čtvrtletí `RRRR-Qn`).
+
+**Očekávaný výsledek**
+
+- KH: oddíl A.4 po dokladech pro odběratele s českým DIČ nad 10 000 Kč vč. DPH (DIČ, číslo dokladu, DUZP, základ a daň v Kč
+  po sazbách; dobropis jde tam, kam opravovaný doklad), oddíl A.5 součty ostatních tuzemských plnění po sazbách. Konečná faktura
+  se zálohou přispívá jen rozdílem (zálohu vykázal daňový doklad k přijaté platbě). OSS a plnění mimo EU v KH nejsou.
+- SH: přenesení daňové povinnosti do jiného státu EU po odběrateli — stát, DIČ bez předpony, kód plnění 3, počet plnění,
+  hodnota v celých Kč.
+- XML je **koncept** struktury EPO (DPHKH1 / DPHSHV) s poznámkou, že se nic neodeslalo; účetní ho zkontroluje a podá sám.
+  Doklady neplátce, doklady mimo období a doklady bez známého kurzu (vypíše varování) v podkladech nejsou. Příkaz nic nezapisuje.
+- Neplatné období (např. „říjen“) příkaz odmítne (exit 1), nikdy nehádá.
+
+**Kde hledat:** runbook [vat-payer-mode](../runbooks/vat-payer-mode.md), oddíl „KH and SH drafts“. Automaticky: `G2VatPayerTest`.
 
 ---
 

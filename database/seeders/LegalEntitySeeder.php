@@ -29,7 +29,7 @@ final class LegalEntitySeeder extends Seeder
             'bic' => $legal('bic', 'XXXXCZPP'),
             'bank_account' => $legal('bank_account', '000000-0000000000/0000'),
             'series' => ['invoice' => 'FV', 'credit_note' => 'DK', 'proforma' => 'PF', 'receipt' => 'PP', 'correction' => 'OD', 'statement' => 'VY'],
-            'vat_payer' => true,
+            'vat_payer' => (bool) config('vat.payer', true), // G2: the declared VAT mode (ONHOST_VAT_PAYER); onhost:vat:payer-mode --apply switches it later
             'meta' => ['registry' => 'Městský soud v Praze, oddíl C', 'oss' => true],
         ]);
 
