@@ -9,7 +9,13 @@ use Onhost\Domain\WalletLedger\Models\LedgerAccount;
 use Onhost\Platform\Money\Currency;
 
 /**
- * How much of the main wallet is purchased credit that has not been spent — the most a cash refund may pay out.
+ * How much of the main wallet is purchased credit that has not been spent — and the spend order of the credit (owner
+ * decision G-R3, 2026-10-05: purchased credit first; `replay` is that rule and stays as it is).
+ *
+ * It is no longer the cap of a cash refund: credit is never paid out in money (owner decision G-R4) and the wallet has no
+ * refund. The measure is kept because the spend order is a decision of record, because it tells purchased credit from the
+ * credit that came back from a correction in the ledger alone, and because a statutory refund of an unused prepayment (the
+ * open owner question in ROZHODNUTI.md G-R4) would be capped by exactly this amount. No screen, API or command shows it.
  *
  * The main wallet is ONE ledger account: money the customer paid in (a purchased top-up), credit that came back from a
  * correction (`returnToCredit`, non-refundable), bonus credit moved in for an order (`promo_used`) and staff credits all
@@ -24,7 +30,7 @@ use Onhost\Platform\Money\Currency;
  *   2. then the other credit (returned, bonus moved in, staff credits),
  *   3. what neither covers is a debt (metered usage may go below zero); credit that arrives later pays the debt first.
  *
- * A refund is a spend like any other (it can only take purchased credit, and under this order that is what it takes).
+ * A refund booked before G-R4 (ledger kind `refund`) is a spend like any other; its reversal gives the purchased money back.
  * The ledger is replayed in the order the money moved (transaction ids are ULIDs, monotonic in creation order), so the
  * answer is the same whenever it is asked and needs no column the ledger does not have.
  */
@@ -75,8 +81,8 @@ final class RefundableCredit
      * reversal of a spend — is credit that cannot be paid out. A reversed top-up is a debit and takes purchased credit
      * first, so it takes back its own money and not another top-up's.
      *
-     * Cost: one grouped scan of this one account's postings through the `ledger_postings.account_id` index, streamed. It is
-     * asked only by `WalletService::refund()` (under the wallet lock) — no listing, presenter or doctor row calls it.
+     * Cost: one grouped scan of this one account's postings through the `ledger_postings.account_id` index, streamed. No
+     * listing, presenter, doctor row or payout calls it (G-R4); tests pin the spend order with it.
      */
     public static function of(string $organizationId, Currency $currency): int
     {

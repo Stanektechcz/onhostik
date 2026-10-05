@@ -17,6 +17,10 @@ vypnutý, dokud ho provozovatel nezapne.
 * Vrácení jde na kredit účtu (`returnToCredit`), nikdy jako dobití a nikdy na kartu. Zákazník s tím v panelu výslovně
   souhlasí zaškrtnutím (záznam `consents.kind = withdrawal_refund_to_credit`). Bez souhlasu platí text poučení: vrácení
   původním způsobem na žádost podpoře (ruční postup).
+* Kredit se v hotovosti nevrací nikdy (rozhodnutí vlastníka G-R4, 2026-10-05; VOP čl. 2 bod 3). Jedinou výjimkou je
+  zákonné vrácení **platby** za odstoupenou smlouvu původním způsobem (§ 1831 OZ), když spotřebitel s vrácením na kredit
+  nesouhlasí — viz `docs/audit/2026-10-full-readiness/ROZHODNUTI.md`, G-R4. Tato cesta zatím není v systému napojená
+  (G6); panel i personál dnes bez souhlasu odstoupení nepřijmou.
 * Registrovanou doménu nelze odstoupit (plnění dokončeno zápisem do registru); upozornění je v košíku u objednávky
   domény a v poučení i VOP. Zaplacenou objednávku, z níž se zatím nic nedodalo, lze odstoupit celou (zruší se a všechny
   řádky se dobropisují) — včetně domény, která ještě registrována nebyla.
@@ -24,7 +28,8 @@ vypnutý, dokud ho provozovatel nezapne.
 ## Otázky pro právníka
 
 1. Stačí výslovný souhlas zaškrtnutím v panelu k vrácení na (nevyplatitelný) kredit místo původního platebního
-   prostředku? Kredit z odstoupení je dnes veden jako nevyplatitelný (`refundable = false`); má být vyplatitelný?
+   prostředku? Kredit z odstoupení je veden jako nevyplatitelný (`refundable = false`) a podle G-R4 vyplatitelný nebude.
+   Je v pořádku, že bez souhlasu nelze odstoupení v panelu odeslat (spotřebitel musí napsat podpoře)?
 2. Počítání lhůty od dne objednávky (uzavření smlouvy) a poměrné vyúčtování po dnech včetně dne odeslání.
 3. Jednorázové poplatky (zřízení, řádky bez období) se nevracejí — je to v pořádku?
 4. Výjimka pro registraci domény: je formulace v košíku, v poučení (čl. 1 bod 4) a ve VOP (čl. 8 bod 1) dostatečná?
@@ -33,3 +38,7 @@ vypnutý, dokud ho provozovatel nezapne.
 6. Upravené texty `withdrawal_waiver.md` (čl. 1 body 2–4) a `terms.md` (čl. 8 bod 1) byly doplněny bez změny verze
    `2026-09`; rozhodněte, zda vydat novou verzi dokumentu (LegalEntitySeeder) a jak naložit se souhlasy ke staré verzi.
 7. Potvrzení o přijetí odstoupení (e-mail `withdrawal-accepted`, povinný, nelze vypnout) — obsah a trvalý nosič.
+8. Dobití kreditu: je to samostatná smlouva, od níž spotřebitel může do 14 dnů odstoupit s vrácením nevyčerpané části na
+   kartu? Poučení čl. 2 slibuje „předplacený kredit nevyužitý v době odstoupení vracíme v plné výši“, VOP čl. 2 bod 3
+   (G-R4) říká, že kredit v hotovosti vrátit nelze, s výjimkou zákonného vrácení platby při odstoupení. Sjednoťte text.
+9. Zůstatek kreditu při zrušení účtu (výmaz): propadá, nebo musí být vrácen?

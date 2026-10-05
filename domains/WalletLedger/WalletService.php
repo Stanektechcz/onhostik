@@ -12,7 +12,6 @@ use Onhost\Domain\WalletLedger\Models\LedgerTransaction;
 use Onhost\Domain\WalletLedger\Models\Wallet;
 use Onhost\Domain\WalletLedger\Models\WalletAdjustment;
 use Onhost\Domain\WalletLedger\Models\WalletHold;
-use Onhost\Domain\WalletLedger\Models\WalletRefund;
 use Onhost\Domain\WalletLedger\Models\WalletTopup;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
@@ -144,9 +143,8 @@ final class WalletService
      *
      * It is not a top-up. No money arrived at a bank, so the other side of the entry is what the correction takes back —
      * the revenue and its VAT, or the receivable — not an `asset:bank:<reason>` account nobody can ever reconcile with a
-     * statement. And it does not raise what may be paid out in money: `refundableBalance()` counts only purchased credit that
-     * is still unspent (`RefundableCredit`), so a service bought with bonus credit — or with money already spent — and then
-     * given back does not turn into cash.
+     * statement. Like all credit it is never paid out in money (owner decision G-R4: the wallet has no cash refund); the row is
+     * marked `refundable = false` and is not purchased credit in the spend order (`RefundableCredit`, G-R3).
      *
      * @param  list<array{account:string, debit:int}>  $debits  where the returned amount is taken from; must add up to it
      */
@@ -432,65 +430,6 @@ final class WalletService
 
             return $adjustment;
         }, 3);
-    }
-
-    /** Refund purchased (never promo) credit back to the payment source or by credit note. */
-    public function refund(Organization|string $organization, Money $amount, string $reason, string $idempotencyKey, CommandContext $context, string $destination = 'source', ?string $paymentIntentId = null, ?string $approvalId = null): WalletRefund
-    {
-        $organizationId = $organization instanceof Organization ? $organization->id : $organization;
-
-        return DB::transaction(function () use ($organizationId, $amount, $reason, $idempotencyKey, $context, $destination, $paymentIntentId, $approvalId) {
-            $existing = WalletRefund::query()->where('idempotency_key', $idempotencyKey)->first();
-            if ($existing !== null) {
-                // the same key is the same refund only when it asks for the same thing: another amount, currency, wallet or
-                // destination under an old key used to come back as the old refund — the caller believed a refund that never happened
-                $same = (int) $existing->amount_minor === $amount->minor && (string) $existing->getRawOriginal('currency') === $amount->currency->value
-                    && $existing->organization_id === $organizationId && $existing->destination === $destination
-                    && (string) ($existing->payment_intent_id ?? '') === (string) ($paymentIntentId ?? '');
-                if (! $same) {
-                    throw new DomainError('idempotency_key_reused', 'This idempotency key was already used for another refund.', 409);
-                }
-
-                return $existing;
-            }
-            $wallet = $this->lockWallet($organizationId, $amount->currency);
-            $refundable = $this->refundableBalance($organizationId, $amount->currency);
-            if ($refundable->lessThan($amount)) {
-                throw new DomainError('refund_exceeds_refundable', 'Refund exceeds the refundable purchased credit.', 409, ['refundable' => $refundable]);
-            }
-            $transaction = $this->ledger->post('refund', $amount->currency, [
-                ['account' => LedgerService::walletAccount($organizationId, $amount->currency), 'debit' => $amount->minor],
-                ['account' => $destination === 'source' && $paymentIntentId ? LedgerService::bankAccount('refund_pending', $amount->currency) : LedgerService::expenseAccount('refund', $amount->currency), 'credit' => $amount->minor],
-            ], 'ledger:'.$idempotencyKey, $organizationId, 'wallet_refund', $idempotencyKey, $reason, $this->actor($context), ['approval_id' => $approvalId]);
-            $refund = WalletRefund::query()->create([
-                'wallet_id' => $wallet->id, 'organization_id' => $organizationId, 'amount_minor' => $amount->minor, 'currency' => $amount->currency->value,
-                'reason' => $reason, 'destination' => $destination, 'payment_intent_id' => $paymentIntentId, 'state' => 'pending',
-                'transaction_id' => $transaction->id, 'approval_id' => $approvalId, 'idempotency_key' => $idempotencyKey, 'created_by' => $this->actor($context),
-            ]);
-            $this->refreshCaches($wallet);
-            $this->outbox->publish(GenericEvent::of('wallet.refund.requested', 'wallet', $wallet->id, ['refund_id' => $refund->id, 'amount' => $amount, 'destination' => $destination], $organizationId));
-
-            return $refund;
-        }, 3);
-    }
-
-    /**
-     * What may leave the wallet as money: min(available, purchased credit not yet spent). The purchased part is replayed
-     * from the ledger with the wallet's spend order — purchased credit first, then returned/bonus/staff credit
-     * (`RefundableCredit`) — so credit that came back from a correction never becomes cash. It used to be
-     * min(available, purchased − refunded), which never subtracted what had been spent.
-     */
-    public function refundableBalance(string $organizationId, Currency|string $currency): Money
-    {
-        $wallet = $this->wallet($organizationId, $currency);
-        $cur = $currency instanceof Currency ? $currency : Currency::fromString($currency);
-        $cap = Money::minor(RefundableCredit::of($organizationId, $cur), $cur);
-        $available = $wallet->available();
-        if (! $available->isPositive()) {
-            return Money::zero($cur);
-        }
-
-        return $available->lessThan($cap) ? $available : $cap;
     }
 
     public function freeze(Organization|string $organization, Currency|string $currency, string $reason, CommandContext $context): Wallet

@@ -5,8 +5,10 @@ declare(strict_types=1);
 use Onhost\Domain\WalletLedger\LedgerService;
 use Onhost\Domain\WalletLedger\Models\Budget;
 use Onhost\Domain\WalletLedger\Models\CreditLine;
+use Onhost\Domain\WalletLedger\RefundableCredit;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Errors\DomainError;
+use Onhost\Platform\Money\Currency;
 use Onhost\Platform\Money\Money;
 
 it('tops up, holds, captures and keeps the ledger balanced', function () {
@@ -64,7 +66,7 @@ it('honours the approved B2B credit line and the domain renewal reserve', functi
     expect($domainHold->priority)->toBe('domain');
 });
 
-it('keeps promo credit non-refundable and refunds only purchased credit', function () {
+it('keeps promo credit apart from purchased credit, and pays none of it out (G-R4)', function () {
     [$owner, $org] = $this->customerWithOrganization();
     $wallets = app(WalletService::class);
     $ctx = $this->contextFor($owner, $org);
@@ -72,10 +74,8 @@ it('keeps promo credit non-refundable and refunds only purchased credit', functi
     $wallets->topup($org, Money::decimal('700', 'CZK'), 'card', 'topup-3', $ctx, bankProvider: 'comgate');
 
     expect($wallets->spendable($org, 'CZK')->minor)->toBe(100000)
-        ->and($wallets->refundableBalance($org->id, 'CZK')->minor)->toBe(70000);
-    expect(fn () => $wallets->refund($org, Money::decimal('800', 'CZK'), 'test', 'rf-1', $ctx))->toThrow(DomainError::class);
-    $refund = $wallets->refund($org, Money::decimal('700', 'CZK'), 'customer request', 'rf-2', $ctx, 'source', 'pi_x');
-    expect($refund->state)->toBe('pending')->and($wallets->balances($org, 'CZK')['available']->minor)->toBe(0);
+        ->and(RefundableCredit::of($org->id, Currency::CZK))->toBe(70000) // purchased, spent first (G-R3)
+        ->and(method_exists($wallets, 'refund'))->toBeFalse(); // credit is never paid out in cash
 });
 
 it('enforces hard budgets and reverses transactions cleanly', function () {

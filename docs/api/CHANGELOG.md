@@ -4,6 +4,9 @@ Každý záznam je nadpis `## datum | druh | název | okno` a odstavec pod ním.
 `security`; okno je volitelné. Stránka `/dokumentace/api` i `/api` čtou tenhle soubor (`PublicApiDocs::changelog()`),
 takže tu nikdy nestojí nic jiného než na webu. Nový záznam patří nahoru.
 
+## 2026-10-05 | breaking | Kredit se nevyplácí: událost wallet.refund.requested není v katalogu webhooků | bez okna
+Kredit nelze vrátit v hotovosti (rozhodnutí vlastníka G-R4), takže API nemá žádnou cestu k výplatě kreditu a `GET /v1/webhooks` už mezi událostmi nenabízí `wallet.refund.requested`. Událost se nikdy neposílala (výplatu kreditu nic nevolalo), takže dosavadní odběr, který ji uvádí, nepřijde o žádné doručení; nový odběr, který ji jmenuje výslovně, dostane `422 webhook_event_unknown`. Odpovědi `GET /v1/wallet` a `GET /v1/wallet/transactions` se nemění a žádnou vyplatitelnou částku neuvádějí.
+
 ## 2026-10-05 | compatible | Testovací událost webhooku bez Idempotency-Key narazí na limit
 `POST /v1/webhooks/{endpoint}/ping` bez hlavičky `Idempotency-Key` je pokaždé nový požadavek: druhý ping v době čekání odpoví `429 webhook_ping_cooldown` s `retry_after`. Dřív se dva pingy během jedné minuty sloučily a druhý dostal znovu první odpověď `202`. Se stejnou hlavičkou `Idempotency-Key` se ping dál jen zopakuje; založení, otočení tajemství a ostatní zápisy webhooků zůstávají bez hlavičky idempotentní v rámci minuty.
 

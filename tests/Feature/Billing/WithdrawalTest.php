@@ -34,6 +34,7 @@ use Onhost\Domain\Orders\OrderStateMachine;
 use Onhost\Domain\Orders\QuoteService;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\OrganizationService;
+use Onhost\Domain\Payments\Models\PaymentRefund;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Services\Models\Service;
@@ -41,9 +42,13 @@ use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\SuspensionHold;
 use Onhost\Domain\WalletLedger\LedgerService;
 use Onhost\Domain\WalletLedger\Models\LedgerTransaction;
+use Onhost\Domain\WalletLedger\Models\WalletRefund;
+use Onhost\Domain\WalletLedger\Models\WalletTopup;
+use Onhost\Domain\WalletLedger\RefundableCredit;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
+use Onhost\Platform\Money\Currency;
 use Onhost\Platform\Money\Money;
 use Onhost\Platform\Outbox\OutboxMessage;
 use Onhost\Platform\Outbox\OutboxPublisher;
@@ -175,9 +180,12 @@ function withdrawalSwitchOffScenario(): Closure
         $note = Invoice::query()->where('type', 'credit_note')->sole();
         expect($suspended->state)->toBe(Operation::SUCCEEDED)->and($fresh->suspended_at->lte($withdrawal->refunded_at))->toBeTrue()->and($withdrawal->refunded_at->lte($terminate->queued_at))->toBeTrue();
         expect($terminate->idempotency_key)->toBe("withdrawal:{$withdrawal->id}:terminate")->and($terminate->desired['final_backup'] ?? null)->toBeTrue();
-        // a credit note of exactly the unused part of the paid line, VAT split in the line's proportion, back on the credit as money that cannot be paid out
+        // a credit note of exactly the unused part of the paid line, VAT split in the line's proportion, back on the credit — never to
+        // the card and never as cash (G-R4): no wallet refund, no payment refund, and the returned credit is not purchased credit (G-R3)
         expect($note->total_minor)->toBe(-30250)->and($note->tax_minor)->toBe(-5250)->and($wallets->balances($org, 'CZK')['posted']->minor)->toBe(30250)
-            ->and($wallets->refundableBalance($org->id, 'CZK')->minor)->toBe(0)->and(app(LedgerService::class)->verifyInvariant()['balanced'])->toBeTrue();
+            ->and(RefundableCredit::of($org->id, Currency::CZK))->toBe(0)->and(app(LedgerService::class)->verifyInvariant()['balanced'])->toBeTrue();
+        expect(WalletRefund::query()->count())->toBe(0)->and(PaymentRefund::query()->count())->toBe(0)
+            ->and(WalletTopup::query()->where('organization_id', $org->id)->where('source', 'return')->sole()->refundable)->toBeFalse();
 
         // no free way back: the customer's resume is refused with the withdrawal hold
         $this->withHeader('Idempotency-Key', 'wd-resume')->postJson("/v1/services/{$service->id}/actions", ['action' => 'resume'])->assertStatus(409)->assertJsonPath('error', 'service_suspension_held')->assertJsonPath('hold', 'withdrawal');

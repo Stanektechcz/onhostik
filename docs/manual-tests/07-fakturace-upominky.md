@@ -3,8 +3,8 @@
 Ruční test pro vlastníka, finance a QA. Klientská zóna: `/panel/fakturace` (doklady, kredit, „Co se stane, když nezaplatíte“,
 Dobít kredit), `/panel/sluzby` a detail služby. Stejné kroky automaticky projde E2E test
 [`BillingDunningFlowTest`](../../tests/Feature/E2E/BillingDunningFlowTest.php) (hodiny se v něm posouvají, plánované příkazy se
-spouštějí po jménu, brána a hostingový panel jsou náhrada). Body a vratné peníze pokrývají
-[`LoyaltyClawbackTest`](../../tests/Feature/Loyalty/LoyaltyClawbackTest.php) a [`RefundableBalanceTest`](../../tests/Feature/Billing/RefundableBalanceTest.php).
+spouštějí po jménu, brána a hostingový panel jsou náhrada). Body a kredit, který se nevyplácí, pokrývají
+[`LoyaltyClawbackTest`](../../tests/Feature/Loyalty/LoyaltyClawbackTest.php), [`G4NoCashRefundTest`](../../tests/Feature/Billing/G4NoCashRefundTest.php) a [`RefundableBalanceTest`](../../tests/Feature/Billing/RefundableBalanceTest.php).
 
 ## Co je potřeba předem
 
@@ -220,23 +220,32 @@ spouštějí po jménu, brána a hostingový panel jsou náhrada). Body a vratn�
 
 ---
 
-## F7-09 Vyplatitelný zůstatek ≤ nevyčerpaný zakoupený kredit
+## F7-09 Kredit se v hotovosti nevrací; zakoupený kredit se čerpá první
 
-**Pravidlo:** peníze zpět na kartu či účet smí být nanejvýš **nevyčerpaný kredit, který zákazník koupil**. Vrácený kredit (z dobropisu, z odstoupení), bonus a kredit personálu se nikdy nestanou penězi k vyplacení.
+**Pravidlo (G-R4):** kredit se **nikdy nevyplácí** v hotovosti, na bankovní účet ani na kartu. Vrácený kredit (z dobropisu,
+z odstoupení, ze zrušení služby), bonus a kredit od personálu zůstávají na účtu k čerpání. **G-R3:** zakoupený kredit se čerpá
+jako první, potom ostatní. Jediná zákonná výjimka je vrácení **platby** za smlouvu, od níž spotřebitel odstoupil a s vrácením
+na kredit nesouhlasil (§ 1831 OZ, viz `08-zruseni-konec-uctu.md`, F8-04).
 
 **Kroky**
 
 1. Dobít 1 000 Kč, utratit 800 Kč, nechat vrátit 800 Kč (vrácený kredit).
-2. Zjistit, co lze vyplatit (`GET /v1/wallet` ukazuje dostupný zůstatek; vyplatitelná část se počítá z hlavní knihy).
-3. Finance se pokusí vyplatit víc než zbytek zakoupeného kreditu.
+2. V panelu `/panel/fakturace` a v `GET /v1/wallet` zkontrolovat zůstatek a hledat jakoukoli „vyplatitelnou“ částku nebo tlačítko
+   „Vyplatit kredit“.
+3. Jako finance (`billing_finance_admin`) v administraci u zákazníka hledat výplatu nebo vrácení kreditu na účet či kartu.
+4. Přečíst VOP (`/dokumenty/vop`, čl. 2 bod 3) a článek znalostní báze „Firemní faktury, DPH a kredit“.
 
 **Očekávaný výsledek**
 
-- Dostupný zůstatek 1 000 Kč, ale vyplatit lze jen **200 Kč** (ne 1 000).
-- Výplata 300 Kč: **409 `refund_exceeds_refundable`**, nic se nezapíše. Výplata 200 Kč projde; zbylých 800 Kč (vrácený kredit) zůstane k utracení.
-- Zakoupený kredit se utrácí jako první.
+- Dostupný zůstatek 1 000 Kč; odpověď `GET /v1/wallet` ani výpis transakcí neobsahuje žádné pole `refundable`.
+- Panel ani administrace nenabízí výplatu kreditu; API nemá žádnou cestu k výplatě kreditu a žádný plánovaný příkaz kredit
+  nevyplácí. Odběr webhooku nenabízí událost výplaty kreditu.
+- VOP i znalostní báze říkají, že kredit v hotovosti vrátit nelze.
+- Zakoupený kredit se utrácí jako první: z 1 000 Kč zakoupených zbývá po kroku 1 nevyčerpaných 200 Kč (hlavní kniha,
+  `RefundableBalanceTest`); ani těch 200 Kč se nevyplácí.
 
-**Poznámka:** v této verzi k výplatě **není HTTP cesta ani tlačítko**; provádí se příkazem finance (právo „billing.refund.execute“, vysoké riziko, nad prahem 20 000 Kč čtyři oči). Ruční ověření je proto jen přes zákazníkův zůstatek a hlavní knihu; plné pokrytí dává `RefundableBalanceTest`.
+**Poznámka:** v této verzi kredit nevyplácí žádná cesta (dřívější `WalletService::refund` je odstraněný). Plné pokrytí
+dávají `G4NoCashRefundTest` a `RefundableBalanceTest`.
 
 ---
 
@@ -249,4 +258,4 @@ spouštějí po jménu, brána a hostingový panel jsou náhrada). Body a vratn�
 | F7-05, F7-06 | „pays an invoice from credit only when there is credit, and finance credits it back exactly once, VAT included“ |
 | F7-06 (nezaplacená) | „lets the credit note of an unpaid invoice end its dunning case and the suspension it caused — and offers no other way to cancel one“ |
 | F7-07 | „states the VAT of a renewal invoice in euro in crowns at the bank rate of the supply day, and its credit note at the rate of the invoice“ |
-| F7-08, F7-09 | mimo E2E; viz `LoyaltyClawbackTest`, `RefundableBalanceTest` |
+| F7-08, F7-09 | mimo E2E; viz `LoyaltyClawbackTest`, `G4NoCashRefundTest`, `RefundableBalanceTest` |
