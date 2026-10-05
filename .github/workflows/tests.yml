@@ -36,6 +36,10 @@ jobs:
       - name: OpenAPI contract drift
         run: php artisan onhost:openapi --check
 
+      # the per-role manual test sheet is generated from RoleCatalog and the navigations (php artisan onhost:docs:roles)
+      - name: Role manual test sheet drift
+        run: php artisan onhost:docs:roles --check
+
       - name: Static analysis (Larastan level 5, baseline = typing debt; new code must pass)
         run: vendor/bin/phpstan analyse --no-progress --memory-limit=2G
 
