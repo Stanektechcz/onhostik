@@ -229,7 +229,7 @@ it('lets the owner issue a scoped personal token that reads what it was given an
     // 3. what it was not given is 403, and says which scope is missing
     apiFlowCall($this, 'GET', '/v1/invoices', [], [])->assertForbidden()->assertJsonPath('message', 'The API token lacks the invoices:read scope.');
     apiFlowCall($this, 'POST', "/v1/services/{$service->id}/actions", ['action' => 'power', 'params' => ['state' => 'restart']], apiFlowKey('power'))->assertForbidden();
-    expect(DB::table('operations')->where('service_id', $service->id)->where('type', 'like', '%power%')->count())->toBe(0);
+    expect(DB::table('operations')->where('service_id', $service->id)->where('kind', 'like', '%power%')->count())->toBe(0);
     // a token never manages tokens or service accounts, edits the account, or reaches the staff console
     apiFlowCall($this, 'GET', '/v1/tokens', [], [], 'portal')->assertForbidden();
     apiFlowCall($this, 'POST', '/v1/tokens', ['name' => 'more', 'scopes' => ['services:read']], apiFlowKey('more'), 'portal')->assertForbidden();
