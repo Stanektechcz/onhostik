@@ -220,9 +220,22 @@ final class SubscriptionService
 
     public function cancelAtPeriodEnd(Subscription $subscription, bool $cancel, CommandContext $context): Subscription
     {
-        $subscription->forceFill(['cancel_at_period_end' => $cancel, 'auto_renew' => $cancel ? false : $subscription->auto_renew, 'next_renewal_at' => $cancel ? $subscription->current_period_end : $subscription->next_renewal_at])->save();
-        $this->audit->record($context->withScope($subscription->organization_id), $cancel ? 'subscription.cancel_scheduled' : 'subscription.cancel_revoked', 'succeeded', ['period_end' => $subscription->current_period_end->toIso8601String()], 'subscription', $subscription->id);
-        $this->outbox->publish(GenericEvent::of($cancel ? 'subscription.cancel_scheduled' : 'subscription.cancel_revoked', 'subscription', $subscription->id, ['service_id' => $subscription->service_id, 'period_end' => $subscription->current_period_end->toIso8601String()], $subscription->organization_id));
+        // what the customer had chosen is kept while the cancellation stands, and taking the cancellation back gives it back: a
+        // revoked cancellation must not end the service at the period end because the cancellation had switched auto-renew off (TASK-0094)
+        $standing = (bool) $subscription->cancel_at_period_end;
+        $restored = false;
+        if ($cancel) {
+            $changes = ['cancel_at_period_end' => true, 'auto_renew_before_cancel' => $standing ? $subscription->auto_renew_before_cancel : (bool) $subscription->auto_renew, 'auto_renew' => false, 'next_renewal_at' => $subscription->current_period_end];
+        } elseif ($standing) {
+            $restored = $subscription->auto_renew_before_cancel === true; // no record (cancelled before the column existed): auto-renew stays off, never switched on against the holder's choice
+            $lead = (self::periodEnd($subscription) ?? now())->copy()->subDays((int) config('onhost.billing.renew_lead_days', 7));
+            $changes = ['cancel_at_period_end' => false, 'auto_renew_before_cancel' => null] + ($restored ? ['auto_renew' => true, 'next_renewal_at' => $lead->max(now())] : []);
+        } else {
+            $changes = [];
+        }
+        $subscription->forceFill($changes)->save();
+        $this->audit->record($context->withScope($subscription->organization_id), $cancel ? 'subscription.cancel_scheduled' : 'subscription.cancel_revoked', 'succeeded', ['period_end' => $subscription->current_period_end->toIso8601String()] + ($cancel ? [] : ['auto_renew_restored' => $restored]), 'subscription', $subscription->id);
+        $this->outbox->publish(GenericEvent::of($cancel ? 'subscription.cancel_scheduled' : 'subscription.cancel_revoked', 'subscription', $subscription->id, ['service_id' => $subscription->service_id, 'period_end' => $subscription->current_period_end->toIso8601String()] + ($cancel ? [] : ['auto_renew_restored' => $restored]), $subscription->organization_id));
 
         return $subscription;
     }
