@@ -372,3 +372,159 @@ Technické navazující body:
 * `WalletService::refund` zatím nikdo nevolá.
 * R7: migrace se na nasazení může zastavit, pokud produkce obsahuje skutečné dvojí naúčtování; musí je vyřešit finance (viz go-live checklist §9).
 * Panel nemá UI pro opakované odeslání a ověření e-mailu (R5).
+
+## Stav po fázi F (závěrečný průchod, 2026-10-05)
+
+Závěrečný průchod nad `origin/development` (poslední sloučený PR #101) vychází z čerstvého čtení tohoto souboru a kódu. „Hotovo“ znamená sloučeno s testy; „otevřeno“ znamená, že práce neproběhla, nebo čeká na rozhodnutí vlastníka či zásah operátora na serveru. Čísla PR jsou z repozitáře `Stanektechcz/onhostik`.
+
+Opravy proti starším tabulkám:
+- Seeder `wedos-main` je opravený v #99: zakládá se vypnutý a bez přihlašovacích údajů, stav poskytovatele se nastaví jen při vytvoření záznamu.
+- Klíče busu `invoice.credit` a `invoice.markpaid` jsou opravené v #99.
+- Expirace tokenů (P2-10) je v kódu hotová od #53 (365 dní, `TokenLifetime`). Starší tabulka fáze D ji vedla jen jako dokumentaci.
+- Spectral v CI není. CI spouští jen `onhost:openapi --check` a `OpenApiContractTest`. Spectral je otevřený navazující bod.
+
+### Všechny nálezy
+
+#### P0
+
+| Nález | Stav | PR | Vlastník / poznámka |
+|---|---|---|---|
+| P0-1 | hotovo | #42 | – |
+| P0-2 | hotovo | #51 | – |
+| P0-3 | hotovo | #61, #63 | Ověření úklidu aaPanelu při ukončení služby zůstává krokem operátora. |
+| P0-4 | otevřeno | – | Vlastník: R3, výsledek kontroly PBS; `backups.compute` se zapne až po ní. |
+| P0-5 | hotovo v kódu | #77 | Operátor ověří direktivu usranalyse na serveru. |
+| P0-6 | hotovo | #77 | – |
+
+#### P1
+
+| Nález | Stav | PR | Vlastník / poznámka |
+|---|---|---|---|
+| P1-1 | hotovo | #44 | – |
+| P1-2 | hotovo | #43 | – |
+| P1-3 | hotovo | #43, #99 | Zavření, hodnocení a předání ticketu jde přes bus od #99. |
+| P1-4 | hotovo | #44 | – |
+| P1-5 | hotovo | #59 | – |
+| P1-6 | hotovo | #60, #64 | – |
+| P1-7 | hotovo | #59 | – |
+| P1-8 | hotovo | #60 | – |
+| P1-9 | hotovo | #67 | V CI běží `onhost:openapi --check` a `OpenApiContractTest`. Spectral v CI není (inženýrství). |
+| P1-10 | hotovo | #66 | – |
+| P1-11 | hotovo | #71 | Zbývá úklid tvrzení prototypu `onhost-svc-*.js`. |
+| P1-12 | hotovo | #70 | Zbývá vyhrazená fronta webhooků a překryv při rotaci tajného klíče (inženýrství). |
+| P1-13 | hotovo | #87, #99 | Minimum 100 Kč, odebrání bodů při dobropisu a stržení bodů při potvrzeném refundu (#99). Uplatnění bodů je rozhodnutí vlastníka. |
+| P1-14 | částečně | #78, #84 | Nahrané odpovědi Comgate jsou zatím ručně psané fakes. Vlastník: testovací účet Comgate. |
+| P1-15 | částečně | #61, #47 | `PlanPromises::KNOWN_GAPS` má 7 klíčů. Revizi katalogu musí operátor spustit na serveru (`onhost:catalog:revise --apply`). |
+| P1-16 | hotovo | #76, #77, #99 | Seeder `wedos-main` opravený v #99. Kroky TOTP a obnovu `expected-nonok` provádí operátor. |
+
+#### P2
+
+Číslování P2 odpovídá odrážkám backlogu shora. Skupina „Backend bez UI“ je rozepsaná jako P2-1a až P2-1f.
+
+| Nález | Stav | PR | Vlastník / poznámka |
+|---|---|---|---|
+| P2-1a DNS: verze, rollback, export | hotovo | fáze C | PR upřesnit při příští revizi. |
+| P2-1b Domény: převod na ONhost, kontakty | hotovo | fáze C | PR upřesnit při příští revizi. |
+| P2-1c Služby: health check, náhled destruktivní akce, spec | hotovo | fáze C | `DestructivePreview` je jen česky. |
+| P2-1d Konzole: noVNC, živá konzole herního serveru | hotovo v kódu | fáze C, #81 | Nasazení relay konzole je krok operátora. |
+| P2-1e Pošta: `sending.set` | hotovo | fáze C | PR upřesnit při příští revizi. |
+| P2-1f Admin: SSO do panelu v UI | otevřeno | – | Inženýrství. |
+| P2-2 Reinstalace VPS a vlastní ISO | částečně | – | Reinstalace VPS je hotová v kódu, test na testovacím uzlu zbývá. Vlastní ISO otevřeno (vlastník). |
+| P2-3 `ONHOST_ADDON_RENEWALS=false` | hotovo | fáze C (R12) | – |
+| P2-4 Změna tarifu na aaPanelu | otevřeno (známý limit) | – | Resize na uzlu nic nemění. |
+| P2-5 Role: spící oprávnění | otevřeno | – | Vlastník rozhodne. |
+| P2-6 Role: SS-7, zákaznický sidebar, nekonzistence rolí | hotovo | #55, #44, #91 | – |
+| P2-7 Idempotence bez organizace a zámku | hotovo | #68 | – |
+| P2-8 Pole `provider` v chybách | hotovo | #68 | – |
+| P2-9 Limiter `probes` | hotovo | #69 | – |
+| P2-10 Tokeny bez expirace | hotovo | #53, #72 | Expirace v kódu od #53. Zapnutí `ONHOST_TOKEN_ORGANIZATION_REQUIRED` po `operator:tokens:unbound` je krok operátora. |
+| P2-11 Paginace bez tiebreakeru | hotovo | #69 | – |
+| P2-12 Partnerská provize bez ochranné lhůty | hotovo | #89 | Rozhodnutí financí R7 o dvojím naúčtování. |
+| P2-13 Úklid aaPanelu při ukončení | hotovo v kódu | #90 | Ověření na serveru zbývá (operátor). |
+| P2-14 Outbox dead letters bez alertu | otevřeno | – | Chybí vyhrazený alert. |
+| P2-15 StaffReadAudit | otevřeno | – | Je jen ve 4 controllerech. |
+| P2-16 Verifikační mail obchází MailOutbox | otevřeno (záměr) | – | Obchází záměrně. |
+| P2-17 Staging: openapi jen porovnávat | hotovo | #67 | – |
+| P2-19 Staging: revize katalogu, capacity basis | otevřeno | – | Krok na serveru. |
+| P2-20 Staging: Turnstile, ClamAV | otevřeno | – | Krok na serveru (klíče Turnstile, clamd). |
+
+
+#### P3
+
+| Nález | Stav | PR | Vlastník / poznámka |
+|---|---|---|---|
+| P3-1 Přístupnost: `lang`, `:focus-visible` | hotovo | fáze C | `window.prompt` je samostatně v P3-2. |
+| P3-2 `window.prompt` | otevřeno | – | Asi 98 výskytů. |
+| P3-3 České plurály | otevřeno | – | Neověřeno. |
+| P3-4 Mrtvý modul `OnhostDomains` | otevřeno | – | – |
+| P3-5 DNS scopy | hotovo | #72 | – |
+| P3-6 Politika verzí API | hotovo | #69 | – |
+| P3-7 Executable bit `staging.sh` | otevřeno | – | – |
+
+### Sloučená práce fáze F
+
+| PR | Obsah |
+|---|---|
+| #94 | F9: matice rolí se generuje (`onhost:docs:roles --check` v CI). |
+| #95 | F1–F4: ruční testy a `ManualTestsTest`. |
+| #97 | F10: manuál API s 59 přehranými příklady curl. |
+| #98 | F5–F8: ruční testy; do katalogu přibyly 4 události. |
+| #99 | F12b: seeding `wedos-main`, klíče busu pro faktury, zavření/hodnocení/předání ticketu přes bus, `payment.refunded` se zamčeným, měnově kontrolovaným a idempotentním refundem, stržení věrnostních bodů při potvrzeném refundu, go-live §6. |
+| #100 | F12a: skutečné role v testech a guard, cizí `X-Organization` dává 404, `/v1/me` pro service accounty, atomický cooldown pingu webhooku. |
+| #101 | `development` je zelený po doplnění manuálních dokumentů. |
+
+### Otevřené body
+
+#### Rozhodnutí vlastníka
+
+* R3: výsledek kontroly PBS, teprve potom `backups.compute`.
+* S1-05: automatizační grants.
+* `TRUSTED_PROXIES`.
+* Dvojí doklad DPH.
+* Uplatnění věrnostních bodů.
+* `services.reinstate`.
+* Pořadí čerpání kreditu.
+* Vrácení v hotovosti u vratek zaplacených z kreditu.
+* Vlastní ISO.
+* Spící oprávnění.
+* Testovací účet Comgate.
+* R7: rozhodnutí financí o dvojím naúčtování.
+
+#### Kroky na serveru (operátor)
+
+* Ověřit direktivu usranalyse.
+* `onhost:catalog:revise --apply`.
+* TOTP a obnova `expected-nonok`.
+* Capacity basis, klíče Turnstile, clamd.
+* Sdílený cache store.
+* `ONHOST_TOKEN_ORGANIZATION_REQUIRED` po `operator:tokens:unbound`.
+* Nasazení relay konzole.
+* Test reinstalace VPS na testovacím uzlu.
+* Ověření úklidu aaPanelu.
+
+#### Inženýrské navazující body
+
+* Spectral v CI.
+* Sada nahraných odpovědí Comgate.
+* Webhooky: vyhrazená fronta a překryv při rotaci tajného klíče.
+* Portálové UI pro service accounty.
+* Tvrzení prototypu v `onhost-svc-*.js`.
+* Znovu vygenerovat API klienty.
+* `DestructivePreview` jen česky.
+* UX rotace remember tokenu.
+* Typ vazby „qemu“ je vidět zákazníkovi.
+* UI pro opakované odeslání ověřovacího e-mailu (R5).
+* `WalletService::refund` a `PaymentService::refund` nemají v aplikaci volajícího.
+* Šablona e-mailu `payment.refunded`.
+* Cesta potvrzení bankovního refundu.
+* Token s oprávněním chatu může spustit předání (bus ignoruje oprávnění tokenu).
+* Dvojí započtení základu fragmentu.
+* SSO do panelu v admin UI.
+* Resize aaPanelu.
+* Alert pro dead letters.
+* StaffReadAudit všude.
+* `window.prompt`, plurály, `OnhostDomains`, exec bit `staging.sh`.
+* Rozšířit `ExistenceOracleTest`.
+* Nestabilní testy: #74 (Discord, PR otevřen), `LexiconCoverageTest`, `getenv()` jen při paralelním běhu, `ArchiveRestoreScopeTest`.
+* Stavové řádky v `.ai/tasks`.
+* README neobsahuje #65, #73 a #74.
