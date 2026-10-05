@@ -39,6 +39,16 @@ groups:
         for: 5m
         labels: { severity: page }
         annotations: { summary: "Outbox relay is behind: customers are not receiving notifications/webhooks" }
+      # G7 (TASK-0115): a message the relay gave up on after 10 attempts is never delivered and no longer counts as lag
+      - alert: OnhostOutboxDeadLetters
+        expr: onhost_outbox_dead_letters > 0
+        for: 10m
+        labels: { severity: ticket }
+        annotations: { summary: "{{ $value }} outbox message(s) the relay gave up on — events, notifications or webhooks were never delivered", runbook: docs/runbooks/outbox-dead-letters.md }
+      - alert: OnhostOutboxDeadLettersOld
+        expr: onhost_outbox_dead_letter_oldest_seconds > 24 * 3600
+        labels: { severity: page }
+        annotations: { summary: "An outbox dead letter has waited more than a day for a person", runbook: docs/runbooks/outbox-dead-letters.md }
       - alert: OnhostProvisioningDead
         expr: increase(onhost_operations_total{state="DEAD"}[1h]) > 0
         labels: { severity: ticket }

@@ -800,4 +800,12 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
         'owner_recovery_cancel_window_days' => 30,
     ],
     // ── end TASK-0042 ──
+    // ── G7 (TASK-0115): customer webhooks — the queue lane of the deliveries and the overlap of a rotated signing secret ──
+    'webhooks' => [
+        // the lane DeliverWebhook goes to while a worker loops on it (onhost-queue@webhooks); otherwise, or when empty, the default queue
+        'queue' => (string) env('ONHOST_WEBHOOK_QUEUE', 'webhooks'),
+        // after a rotation the previous secret still signs (X-ONhost-Signature-Previous) for this long; 0 = the new one at once. Max one day
+        'secret_overlap_minutes' => max(0, min(1440, (int) env('ONHOST_WEBHOOK_SECRET_OVERLAP_MINUTES', 60))),
+    ],
+    // ── end G7 ──
 ];
