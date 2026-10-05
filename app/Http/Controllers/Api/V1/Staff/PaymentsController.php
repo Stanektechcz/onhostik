@@ -71,7 +71,7 @@ final class PaymentsController extends ApiController
         $amount = Money::decimal((string) $data['amount'], (string) $intent->currency);
 
         return $this->dispatch(new PaymentRefundCommand($this->idempotencyKey($request, 'payments.refund:'.$intent->id), [
-            'op' => 'refund.withdrawal', 'payment_id' => $intent->id, 'organization_id' => $intent->organization_id, 'amount_minor' => $amount->minor, 'currency' => $amount->currency->value,
+            'op' => 'refund.withdrawal', 'payment_id' => $intent->id, 'organization_id' => $intent->organization_id, 'amount_minor' => $amount->minor, 'currency' => $amount->currency->value, 'payment_refunded_minor' => (int) $intent->refunded_minor,
             'sent_at' => (string) $data['sent_at'], 'reason' => $data['reason'],
         ]), $this->api->context($request, null, $data['reason']));
     }

@@ -62,7 +62,6 @@ final class StaffNavigation
         'dns.global.write' => 'bus: platform DNS writes (four eyes)',
         'domain.critical.manage' => 'bus: critical domain operations (four eyes)',
         'billing.invoice.manage' => 'bus: invoice writes (mark paid, credit notes) from the customer detail',
-        'billing.refund.execute' => 'bus: refunds and recorded withdrawals',
         'billing.refund.execute_large' => 'bus: large refunds (four eyes)',
         'billing.credit.adjust_mass' => 'bus: mass credit (four eyes)',
         'billing.tax_rule.manage' => 'bus: a VAT status set by hand and the VAT payer mode switch (four eyes); its one GET, the mode report, is in API_ALLOW_LIST',

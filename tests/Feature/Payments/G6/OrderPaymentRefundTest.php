@@ -223,6 +223,12 @@ it('asks a second person above the refund approval threshold', function () {
     expect(G6CardGateway::$refunds)->toBe(0);
     $this->withHeader('Idempotency-Key', 'g6-large')->postJson("/v1/staff/payments/{$intent->id}/refund", $body + ['approval_ids' => [secondPersonApproves($approval)]])->assertOk()->assertJsonPath('state', 'succeeded');
     expect($intent->fresh()->state)->toBe('REFUNDED');
+
+    // two refunds below the threshold that reach it together: the second one takes the second person
+    [$order2, , $intent2] = g6PaidOrder($org);
+    $this->withHeader('Idempotency-Key', 'g6-split-1')->postJson("/v1/staff/payments/{$intent2->id}/refund", g6RefundBody($order2, 300.0))->assertOk();
+    $this->withHeader('Idempotency-Key', 'g6-split-2')->postJson("/v1/staff/payments/{$intent2->id}/refund", g6RefundBody($order2, 300.0))->assertForbidden()->assertJsonPath('error', 'approval_required');
+    expect((int) $intent2->fresh()->refunded_minor)->toBe(30000);
 });
 
 it('keeps a bank refund pending until finance confirms the payout, then announces it once', function () {

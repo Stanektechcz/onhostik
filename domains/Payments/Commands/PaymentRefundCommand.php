@@ -48,7 +48,10 @@ final class PaymentRefundCommand extends GlobalCommand implements RiskAwareComma
         return $this->large();
     }
 
-    /** A refund at or above the approval threshold of its currency (an unknown currency counts as large). */
+    /**
+     * A refund that brings what was refunded of the payment to the approval threshold of its currency or above (an unknown
+     * currency counts as large): splitting one refund into smaller ones does not get round the second person.
+     */
     private function large(): bool
     {
         if ($this->op() !== 'refund.withdrawal') {
@@ -56,6 +59,6 @@ final class PaymentRefundCommand extends GlobalCommand implements RiskAwareComma
         }
         $threshold = config('onhost.billing.refund_approval_threshold.'.strtoupper((string) $this->get('currency', 'CZK')));
 
-        return $threshold === null || (int) $this->get('amount_minor', 0) >= (int) $threshold;
+        return $threshold === null || (int) $this->get('amount_minor', 0) + (int) $this->get('payment_refunded_minor', 0) >= (int) $threshold;
     }
 }
