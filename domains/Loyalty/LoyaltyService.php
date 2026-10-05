@@ -22,8 +22,10 @@ use Onhost\Platform\Settings\SettingsStore;
  * Loyalty programme (gamification of using the platform well): points for what customers do — paid orders, payments,
  * two-factor sign-in, backups and monitoring switched on, the first service, anniversaries, referrals — add up to
  * levels; reaching a level earns a badge and a promo-credit reward booked through the wallet (idempotent per level).
- * Points are never money and never expire; staff override the level table in system settings and may award points
- * by hand (audited). Nothing here can reduce a customer's credit.
+ * Points are never money; staff override the level table in system settings and may award points by hand (audited). Nothing
+ * here can reduce a customer's credit. Since G3 (owner decision G-R2) points can be redeemed for a discount on an order
+ * (LoyaltyRedemptions) and expire 24 months after they were credited (LoyaltyExpiry). The level follows the points earned
+ * (`standing()`), not what is left to spend: redeeming or letting points expire never takes a level away.
  */
 final class LoyaltyService
 {
@@ -81,6 +83,15 @@ final class LoyaltyService
         return (int) LoyaltyPoint::query()->where('organization_id', $organizationId)->sum('points');
     }
 
+    /** Rules that move the spendable balance without being earned or taken back (G3): they never change the level. */
+    public const SPENDING_RULES = ['redeem', 'redeem.return', 'expiry'];
+
+    /** The points the level is measured by: everything earned, less what was taken back — not what was spent or expired. */
+    public function standing(string $organizationId): int
+    {
+        return (int) LoyaltyPoint::query()->where('organization_id', $organizationId)->whereNotIn('rule', self::SPENDING_RULES)->sum('points');
+    }
+
     /** @return array{key:string,name:string,min:int,reward_minor:int} */
     public function levelFor(int $points): array
     {
@@ -101,15 +112,15 @@ final class LoyaltyService
      */
     public function award(string $organizationId, string $rule, string $reference, int $points, ?string $note, CommandContext $context): array
     {
-        $before = $this->points($organizationId);
+        $before = $this->standing($organizationId);
         $levelBefore = $this->levelFor($before);
         try {
             DB::transaction(fn () => LoyaltyPoint::query()->create(['organization_id' => $organizationId, 'rule' => $rule, 'reference' => mb_substr($reference, 0, 120), 'points' => $points, 'note' => $note !== null ? mb_substr($note, 0, 200) : null])); // savepoint: an already-counted rule never aborts the paid-order transaction (PostgreSQL)
         } catch (QueryException $e) { // unique (organization, rule, reference): already counted
-            return ['awarded' => false, 'points' => 0, 'total' => $before, 'level' => $levelBefore, 'level_up' => null];
+            return ['awarded' => false, 'points' => 0, 'total' => $this->points($organizationId), 'level' => $levelBefore, 'level_up' => null];
         }
-        $total = $before + $points;
-        $level = $this->levelFor($total);
+        $level = $this->levelFor($before + $points);
+        $total = $this->points($organizationId); // the balance after the award (the level is measured by the standing)
         $levelUp = null;
         if ($points > 0 && $level['key'] !== $levelBefore['key'] && $level['min'] > $levelBefore['min']) {
             $levelUp = $level['key'];
@@ -180,17 +191,19 @@ final class LoyaltyService
     public function summary(string $organizationId, string $locale = 'cs'): array
     {
         $total = $this->points($organizationId);
-        $level = $this->levelFor($total);
+        $standing = $this->standing($organizationId);
+        $level = $this->levelFor($standing);
         $next = null;
         foreach ($this->levels() as $candidate) {
-            if ($candidate['min'] > $total) {
-                $next = $candidate + ['missing' => $candidate['min'] - $total];
+            if ($candidate['min'] > $standing) {
+                $next = $candidate + ['missing' => $candidate['min'] - $standing];
                 break;
             }
         }
         $badges = LoyaltyBadge::query()->where('organization_id', $organizationId)->orderBy('earned_at')->get()->map(fn (LoyaltyBadge $b) => ['badge' => $b->badge, 'name' => self::BADGES[$b->badge][$locale] ?? self::BADGES[$b->badge]['cs'] ?? $b->badge, 'earned_at' => $b->earned_at?->toIso8601String()])->all();
         $history = LoyaltyPoint::query()->where('organization_id', $organizationId)->orderByDesc('created_at')->orderByDesc('id')->limit(20)->get()->map(fn (LoyaltyPoint $p) => ['rule' => $p->rule, 'points' => $p->points, 'note' => $p->note, 'at' => $p->created_at?->toIso8601String()])->all();
 
-        return ['points' => $total, 'level' => $level, 'next' => $next, 'levels' => $this->levels(), 'badges' => $badges, 'history' => $history, 'rules' => (array) config('onhost.loyalty.points', [])];
+        return ['points' => $total, 'standing' => $standing, 'level' => $level, 'next' => $next, 'levels' => $this->levels(), 'badges' => $badges, 'history' => $history, 'rules' => (array) config('onhost.loyalty.points', []),
+            'redeem' => app(LoyaltyRedemptions::class)->summary($organizationId), 'expiring' => app(LoyaltyExpiry::class)->upcoming($organizationId)];
     }
 }

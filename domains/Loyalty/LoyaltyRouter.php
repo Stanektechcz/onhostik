@@ -17,7 +17,7 @@ use Onhost\Platform\Outbox\OutboxEventDispatched;
  */
 final class LoyaltyRouter
 {
-    public function __construct(private readonly LoyaltyService $loyalty, private readonly ReferralService $referrals, private readonly LoyaltyClawback $clawback) {}
+    public function __construct(private readonly LoyaltyService $loyalty, private readonly ReferralService $referrals, private readonly LoyaltyClawback $clawback, private readonly LoyaltyRedemptions $redemptions) {}
 
     public function __invoke(OutboxEventDispatched $event): void
     {
@@ -52,7 +52,8 @@ final class LoyaltyRouter
             'payment.succeeded' => $this->loyalty->qualifies((int) data_get($p, 'amount.minor', 0), (string) data_get($p, 'amount.currency', 'CZK'))
                 ? $this->loyalty->award($org, 'payment.on_time', (string) $m->aggregate_id, (int) ($rules['payment.on_time'] ?? 10), 'Platba přijata', $ctx) // R6: only a payment of 100 CZK or more earns points
                 : null,
-            'invoice.issued' => $this->clawback->onCreditNote($org, (string) $m->aggregate_id, $ctx), // R6: a credit note (a chargeback refund is one) takes the points back
+            'invoice.issued' => $this->clawback->onCreditNote($org, (string) $m->aggregate_id, $ctx) // R6: a credit note (a chargeback refund is one) takes the points back
+                + $this->redemptions->onCreditNote($org, (string) $m->aggregate_id, $ctx), // G3 (G-R2): and gives back the redeemed points of what it credited
             'payment.refunded' => $this->clawback->onPaymentRefunded($org, (string) $m->aggregate_id, $ctx), // F12b: a payment refunded to its source without a credit note
             'security.mfa' => (function () use ($org, $p, $rules, $ctx) {
                 if (($p['action'] ?? $p['state'] ?? 'enabled') === 'disabled') {

@@ -251,6 +251,7 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
 
     Route::get('wallet', [WalletController::class, 'show']);
     Route::get('account/rewards', [RewardsController::class, 'show']); // loyalty programme: points, level, badges
+    Route::post('cart/loyalty', [CartController::class, 'loyalty']); // G3 (G-R2): redeem loyalty points on the signed-in customer's cart (`loyalty.redeem`)
     Route::get('account/referral', [RewardsController::class, 'referral']); // invites (audit §5j-2)
     Route::post('account/referral/code', [RewardsController::class, 'referralCode']);
     Route::get('account/missions', [RewardsController::class, 'missions']); // missions and the streak (audit §5j-3)

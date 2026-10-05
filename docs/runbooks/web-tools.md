@@ -765,6 +765,26 @@ once and finance decides: `POST /v1/staff/loyalty/streak/{organization} {percent
 `settings.loyalty_discount`; `QuoteService` takes it off every line after the commitment and promo discounts (never
 on a plan change); `percent: 0` removes it.
 
+**Redeeming points (G3, owner decision G-R2, 2026-10-05).** A signed-in customer chooses points on the cart (`POST
+/v1/cart/loyalty {points}` → command `loyalty.redeem`, NORMAL, permission `catalog.order.create`; 0 removes it). The quote
+(`LoyaltyRedemptions::price`) adds a line of its own, `sku: loyalty-redeem` (1 point = 1 CZK off before VAT, EUR at the ČNB
+rate of the day, none while the rate is unknown), at least 100 points, never more than the organization has free (balance
+less reservations), and every discount of the lines points may discount stays within 20 % of their list net (domains and plan
+changes are never discounted; a credit top-up is no cart line). The rules live in `config/loyalty.php`, recorded in
+`docs/audit/2026-10-full-readiness/ROZHODNUTI.md` (G-R2). `CheckoutService::placeOrder` reserves the points under a lock on
+the organization row (`loyalty_redemptions`, state `reserved`; the order line is `applied`, never provisioned), `markPaid`
+consumes them (history row `redeem`, event `loyalty.redeemed`), a cancelled unpaid order releases them. A credit note on the
+order's document credits the points line in step with the lines it discounted (`RedemptionShare`, also in
+`OrderSettlement` for undelivered lines) and `LoyaltyRedemptions::onCreditNote` gives back the same share of the points
+(`redeem.return`, `loyalty.points_returned`). Levels follow the earned points (`LoyaltyService::standing`), so spending
+or expiry never lowers a level.
+
+**Points expire (G3).** `php artisan onhost:loyalty:expire` (daily 05:35) takes away the points credited more than 24 months
+ago that nothing used up (oldest spent first, reserved points count as spent; points credited before 2026-10-05 count as
+credited that day) — history row `expiry`, event `loyalty.expired` — and warns 30 days before, once per organization and month
+of expiry (`loyalty_expiry_notices`, event `loyalty.expiring`, mail `loyalty-expiring`). Safe to run twice: the row of a day
+and the notice of a month are unique.
+
 **Predictive rebalancing.** `GET /v1/staff/provisioning/rebalance?basis=usage` plans from the node's last measured
 RAM (`usage.ram_used_mb`) instead of the RAM sold; nodes without a measurement keep the sold figure. `php artisan
 onhost:rebalance:plan [--role=] [--basis=usage] [--mail]` prints the plan; the nightly run (03:35) sends it to the

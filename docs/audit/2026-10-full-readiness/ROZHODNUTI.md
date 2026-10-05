@@ -54,8 +54,46 @@ jako směr**. Jejich provedení na živých systémech dál potřebuje výslovn�
 
 | # | Rozhodnutí | Provedeno | Poznámka |
 |---|---|---|---|
+| G-R2 | **Věrnostní body lze uplatnit jako slevu** — jen výslovnou akcí zákazníka (`loyalty.redeem` přes bus, riziko NORMAL, bez step-upu) a vždy jako **samostatný řádek** objednávky a dokladu, nikdy skrytě v ceně. | TASK-0114 (G3) | Pravidla níže (výchozí doporučené hodnoty), v `config/loyalty.php`. Hlídá `G3RedeemTest` a `LoyaltyRedeemFlowTest`. |
 | G-R3 | Čerpání kreditu zůstává: **nejdřív zakoupený kredit**, potom vrácený, bonusový a kredit od personálu; co nepokryje ani jeden, je dluh, který další kredit zaplatí jako první. | TASK-0112 (G4) | `RefundableCredit::replay` se nemění (potvrzuje E-R2). `RefundableCredit::of` už není strop výplaty, jen měřítko nevyčerpaného zakoupeného kreditu; pořadí hlídá `RefundableBalanceTest`. |
 | G-R4 | **Kredit nelze vrátit v hotovosti** (na účet ani na kartu) v žádné vrstvě. | TASK-0112 (G4) | `WalletService::refund` a `refundableBalance` jsou odstraněné, webhook `wallet.refund.requested` zmizel z katalogu, žádná cesta API, staff ani příkaz kredit nevyplácí (`G4NoCashRefundTest`). VOP čl. 2 bod 3 a článek znalostní báze „Firemní faktury, DPH a kredit“ to říkají výslovně. Tabulka `wallet_refunds` zůstává kvůli historii. |
+
+### G-R2: pravidla uplatnění věrnostních bodů (TASK-0114, G3)
+
+Vlastník rozhodl, že body lze uplatnit jako slevu; konkrétní pravidla jsou doporučené výchozí hodnoty a jsou v
+`config/loyalty.php` (změna pravidla je nové rozhodnutí vlastníka, zapíše se sem).
+
+1. **Hodnota:** 1 bod = 1 Kč slevy **z ceny bez DPH**; DPH se počítá z ceny po slevě. Objednávka v eurech dostane hodnotu
+   v Kč přepočtenou kurzem ČNB platným v den nabídky (zaokrouhleno dolů); dokud kurz není známý, body se neuplatní.
+2. **Minimum:** jedno uplatnění je nejméně **100 bodů**; nikdy víc, než má organizace volných (zůstatek minus body
+   zarezervované nezaplacenými objednávkami).
+3. **Strop:** všechny slevy na řádcích, které body smějí zlevnit (promo kód, sleva za závazek, věrnostní sleva série
+   a body), dohromady nejvýš **20 % jejich ceníkové ceny bez DPH**. Body vyplní jen to, co ze stropu zbývá — promo kód
+   se s body **nesčítá nad strop** (sám promo kód stropem omezen není). Strop se počítá z ceny bez DPH, protože tak se
+   počítají všechny slevy v nabídce i na dokladu.
+4. **Co se nezlevňuje:** **doména** (zůstává za ceníkovou cenu, pravidlo vlastníka „domény nejméně rok za ceníkovou
+   cenu“), **změna tarifu** (nenese žádné slevy) a **dobití kreditu** (není řádek košíku, je to platba). Doména není ani
+   v základu stropu.
+5. **Samostatný řádek:** sleva je řádek `loyalty-redeem` objednávky i dokladu („Sleva za věrnostní body (N bodů)“),
+   se svou DPH; ceny služeb zůstávají ceníkové. Obnovy jsou za ceníkovou cenu (sleva je jednorázová).
+6. **Rezervace a čerpání:** nabídka (quote) slevu spočítá, **objednávka body zarezervuje** (pod zámkem řádku organizace,
+   takže dvě souběžné objednávky tytéž body neutratí — druhá dostane 409 `loyalty_points_unavailable`), **zaplacení je
+   spotřebuje** (řádek historie `redeem`), **zrušení nezaplacené objednávky** (zákazníkem, personálem nebo vypršením
+   lhůty) rezervaci uvolní. Volba v košíku se po objednávce maže: další objednávka je bez bodů, dokud je zákazník znovu
+   nezvolí.
+7. **Vrácení:** dobropis (vrácení peněz, nedodaná položka při vypořádání, zrušení zaplacené objednávky, odstoupení,
+   vrácení nevyužitého období, ruční dobropis finance) vrací spolu s řádky, které body zlevnily, **stejný podíl řádku
+   bodů** — zákazník dostane zpět to, co za ty řádky skutečně zaplatil, a stejný podíl bodů (polovina řádku = polovina
+   bodů, poslední dobropis zbytek). Body se nikdy nemění v kredit ani v peníze. Vrácené body se připisují ke dni vrácení.
+8. **Propadnutí:** body propadají **24 měsíců po připsání**; čerpá se od nejstarších, body zarezervované nezaplacenou
+   objednávkou propadnout nemohou. Zákazník dostane upozornění **30 dní předem** (v panelu a e-mailem, jednou za měsíc
+   propadnutí). Body připsané před zavedením pravidla se počítají jako připsané **5. 10. 2026**. Úroveň věrnostního
+   programu se řídí **získanými** body: uplatnění ani propadnutí úroveň nesnižují.
+9. **Idempotence a oddělení:** každý pohyb bodů je řádek s vlastním pravidlem a referencí (dvakrát doručená událost nic
+   nezdvojí); organizace vidí, rezervuje a dostává zpět jen své body a jen svůj košík.
+
+**Otevřená otázka pro účetní:** sleva za body je sleva poskytnutá při prodeji (snižuje základ daně stejně jako promo kód),
+ne platba; potvrďte prosím, že to tak účetní vede (řádek dokladu se zápornou cenou a DPH).
 
 ### G-R4: zákonná výjimka – odstoupení spotřebitele (§ 1831 OZ)
 

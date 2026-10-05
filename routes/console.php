@@ -36,6 +36,7 @@ use Onhost\Domain\Incidents\OrganizationStatusService;
 use Onhost\Domain\Incidents\SlaService;
 use Onhost\Domain\Integrations\DiscordService;
 use Onhost\Domain\Invoicing\InvoiceService;
+use Onhost\Domain\Loyalty\LoyaltyExpiry;
 use Onhost\Domain\Loyalty\MissionService;
 use Onhost\Domain\Marketplace\MarketplaceService;
 use Onhost\Domain\Notifications\DigestService;
@@ -264,6 +265,11 @@ Artisan::command('onhost:marketplace:sla', function (MarketplaceService $marketp
 Artisan::command('onhost:loyalty:campaigns', function (MissionService $missions) {
     $this->table(['campaigns', 'organizations'], [$missions->announceCampaigns()]);
 })->purpose('Announce mission campaigns whose window opened (audit §5l-5)');
+
+Artisan::command('onhost:loyalty:expire', function (LoyaltyExpiry $expiry) {
+    $expired = $expiry->expire();
+    $this->table(['organizations', 'points expired', 'organizations warned'], [[$expired['organizations'], $expired['points'], $expiry->warn()]]);
+})->purpose('Expire loyalty points 24 months after they were credited and warn the customer 30 days before (owner decision G-R2)');
 
 Artisan::command('onhost:marketplace:auto-accept', function (MarketplaceService $marketplace) {
     $this->info('accepted after the window: '.$marketplace->autoAccept());
@@ -503,6 +509,7 @@ Schedule::command('onhost:marketplace:sla')->dailyAt('05:10')->onOneServer(); //
 Schedule::command('onhost:loyalty:campaigns')->dailyAt('05:20')->onOneServer(); // campaign announcements (audit §5l-5)
 Schedule::command('onhost:marketplace:auto-accept')->dailyAt('05:05')->onOneServer(); // deliveries nobody answered (audit §5j-1)
 Schedule::command('onhost:loyalty:missions')->dailyAt('05:15')->withoutOverlapping()->onOneServer(); // missions and streaks (audit §5j-3)
+Schedule::command('onhost:loyalty:expire')->dailyAt('05:35')->withoutOverlapping()->onOneServer(); // G3 (G-R2): points 24 months old expire, a warning 30 days before
 Schedule::command('onhost:chargebacks:analyse')->dailyAt('05:25')->onOneServer(); // chargeback clusters → incidents (audit §5j-6)
 Schedule::command('onhost:commerce:prune')->dailyAt('04:20')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:services:usage-watch')->hourlyAt(50)->withoutOverlapping()->onOneServer();
