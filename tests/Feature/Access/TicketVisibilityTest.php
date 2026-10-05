@@ -127,7 +127,7 @@ it('takes the billing tickets of others from a support contact, but leaves them 
     expect(tvisListed($this, $contact, $org))->toContain($mine)->not->toContain($tickets['billing']->id);
 });
 
-it('still refuses somebody with no ticket right in the organization, and a stranger', function () {
+it('still refuses somebody with no ticket right in the organization, and hides the ticket from a stranger', function () {
     [, $org, $tickets, , $services] = tvisWorld($this);
     $guest = tvisMember($org, 'host@tvis.test', 'guest');
     $h = ['X-Organization' => $org->id];
@@ -135,7 +135,7 @@ it('still refuses somebody with no ticket right in the organization, and a stran
     $this->actingAs($guest, 'sanctum')->getJson('/v1/tickets', $h)->assertForbidden();
     $this->getJson("/v1/tickets/{$tickets['a']->id}", $h)->assertForbidden();
     [$stranger] = $this->customerWithOrganization();
-    $this->actingAs($stranger, 'sanctum')->getJson("/v1/tickets/{$tickets['a']->id}")->assertForbidden();
+    $this->actingAs($stranger, 'sanctum')->getJson("/v1/tickets/{$tickets['a']->id}")->assertNotFound(); // not a member: the ticket does not exist for them (TASK-0091)
     expect(Ticket::query()->where('service_id', $services['a']->id)->count())->toBe(1);
 });
 

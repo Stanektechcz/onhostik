@@ -214,6 +214,128 @@ function e2eHeaders(string $label): array
 }
 
 /**
+ * A mail node on the same ISPConfig instance as the web node (a mail plan is placed on a node with the `mail` role).
+ *
+ * @return array{0:ProviderInstance,1:Node}
+ */
+function e2eMailInfrastructure(): array
+{
+    [$isp] = e2eWebInfrastructure();
+    $node = Node::query()->firstOrCreate(['provider_instance_id' => $isp->id, 'name' => 'mail01'], ['region_code' => 'cz1', 'role' => 'mail', 'state' => 'active', 'capacity' => ['mailboxes' => 5000], 'usage' => []]);
+
+    return [$isp, $node];
+}
+
+/**
+ * The mail half of the stateful ISPConfig. Register it BEFORE `e2eIspPanel()` on the same `$panel`: it answers the mail functions
+ * and passes (null) on everything else, so the login, the client and the job queue stay with `e2eIspPanel`.
+ *
+ * State it keeps: `mail_domains`, `mail_users`, `mail_aliases` (id => row; forwards live in `mail_aliases` with type `forward`),
+ * `mail_updates` (every mail_user_update: id + params, so a test can see what a password change really sent); `calls` is kept by e2eIspPanel.
+ * Rows put into the state by a test before the flow starts are the panel's HISTORICAL mail: nothing the platform made.
+ * An array lookup by `email`/`source` with a leading `%` is a suffix match, as ISPConfig's LIKE is.
+ *
+ * @param  array<string,mixed>  $panel
+ */
+function e2eIspMail(array &$panel): void
+{
+    $panel += ['mail_domains' => [], 'mail_users' => [], 'mail_aliases' => [], 'mail_updates' => [], 'calls' => [], 'queue' => 0, 'clients' => []];
+    $envelope = fn (mixed $response): array => ['code' => 'ok', 'message' => '', 'response' => $response];
+    $match = function (array $rows, mixed $key): array {
+        if (! is_array($key)) {
+            return [];
+        }
+
+        return array_values(array_filter($rows, function (array $row) use ($key) {
+            foreach ($key as $column => $wanted) {
+                $have = mb_strtolower((string) ($row[$column] ?? ''));
+                $wanted = mb_strtolower((string) $wanted);
+                if (str_starts_with($wanted, '%') ? ! str_ends_with($have, substr($wanted, 1)) : $have !== $wanted) {
+                    return false;
+                }
+            }
+
+            return true;
+        }));
+    };
+    Http::fake(function (Request $request) use (&$panel, $envelope, $match) {
+        if (! str_contains($request->url(), E2E_ISP)) {
+            return null;
+        }
+        $function = (string) parse_url($request->url(), PHP_URL_QUERY);
+        if (! str_starts_with($function, 'mail') && $function !== 'mailquota_get_by_user') {
+            return null;
+        }
+        $data = $request->data(); // (the call itself is logged by e2eIspPanel, which sees every request of the panel too)
+        $key = $data['primary_id'] ?? null;
+        $params = (array) ($data['params'] ?? []);
+        $client = (int) ($data['client_id'] ?? 0);
+        $group = (int) ($panel['clients'][$client]['sys_groupid'] ?? $client);
+        $add = function (string $table, string $idColumn, int $base, array $row) use (&$panel, $group): int {
+            $id = max([$base, ...array_map('intval', array_keys($panel[$table]))]) + 1; // never a number a deleted row had left to a living one
+            $panel[$table][$id] = [$idColumn => $id, 'sys_groupid' => $group] + $row;
+            $panel['queue'] = 2; // the panel's job queue works the change off
+
+            return $id;
+        };
+
+        return Http::response($envelope(match ($function) {
+            'mail_domain_get' => is_array($key) ? $match($panel['mail_domains'], $key) : ($panel['mail_domains'][(int) $key] ?? false),
+            'mail_domain_add' => $add('mail_domains', 'domain_id', 900, $params),
+            'mail_domain_delete' => (function () use (&$panel, $key) {
+                unset($panel['mail_domains'][(int) $key]);
+
+                return 1;
+            })(),
+            'mail_user_get' => is_array($key) ? $match($panel['mail_users'], $key) : ($panel['mail_users'][(int) $key] ?? false),
+            'mail_user_add' => $add('mail_users', 'mailuser_id', 5000, $params),
+            'mail_user_update' => (function () use (&$panel, $key, $params) {
+                $panel['mail_updates'][] = ['id' => (int) $key, 'params' => $params];
+                $panel['mail_users'][(int) $key] = array_merge($panel['mail_users'][(int) $key] ?? [], $params);
+                $panel['queue'] = 2;
+
+                return 1;
+            })(),
+            'mail_user_delete' => (function () use (&$panel, $key) {
+                unset($panel['mail_users'][(int) $key]);
+                $panel['queue'] = 2;
+
+                return 1;
+            })(),
+            'mail_alias_get', 'mail_forward_get' => $match(array_filter($panel['mail_aliases'], fn (array $row) => $row['type'] === ($function === 'mail_alias_get' ? 'alias' : 'forward')), $key),
+            'mail_alias_add', 'mail_forward_add' => $add('mail_aliases', 'forwarding_id', 300, $params),
+            'mail_alias_delete', 'mail_forward_delete' => (function () use (&$panel, $key) {
+                unset($panel['mail_aliases'][(int) $key]);
+                $panel['queue'] = 2;
+
+                return 1;
+            })(),
+            default => [], // the other mail listings (catch-all, filters, lists, policies, quota) have nothing yet
+        }));
+    });
+}
+
+/**
+ * A PowerDNS that accepts whatever the platform publishes and remembers it: `$dns['calls']` = "METHOD path" in order. The zone the
+ * platform keeps is its own record of truth; this is only the node it is pushed to.
+ *
+ * @param  array<string,mixed>  $dns
+ */
+function e2ePowerDnsFake(array &$dns): void
+{
+    $dns += ['calls' => []];
+    $_ENV['POWERDNS_HIDDEN01_API_KEY'] = 'pdns-key';
+    Http::fake(function (Request $request) use (&$dns) {
+        if (! str_contains($request->url(), 'pdns.mgmt.test')) {
+            return null;
+        }
+        $dns['calls'][] = $request->method().' '.parse_url($request->url(), PHP_URL_PATH);
+
+        return Http::response(['name' => 'zone.', 'serial' => 2, 'rrsets' => []]);
+    });
+}
+
+/**
  * Sign up and verify an account over the real routes (Notification::fake() must be active). Leaves the session signed in as the
  * new owner. `$org` is the organization the registration created.
  *
@@ -422,5 +544,207 @@ function e2ePveCluster(array &$pve): void
         $pve['unknown'][] = $method.' '.$path;
 
         return Http::response(['data' => null], 501);
+    });
+}
+
+/*
+ * E5 — game server flow.
+ *
+ *   e2eGameInfrastructure()        region cz1 + an active Pterodactyl instance (egg minecraft-paper mapped) + one game node with a panel id
+ *   e2eGamePanel(array &$panel)    a STATEFUL Pterodactyl (application + client API): users, servers, allocations, power, variables, backups.
+ *                                  `$panel['refuse']` lists "METHOD path-regex" rules that answer 500; an endpoint it does not know is a 404
+ *                                  the platform must cope with (or the flow fails out loud). `calls` is the ordered "METHOD path" log.
+ */
+
+const E2E_PTERO = 'https://games01.mgmt.test';
+
+/** @return array{0:ProviderInstance,1:Node} */
+function e2eGameInfrastructure(): array
+{
+    $_ENV['PTERODACTYL_GAMES01_APPLICATION_KEY'] = 'ptla_E2EAPPLICATIONKEY1234567890';
+    $_ENV['PTERODACTYL_GAMES01_CLIENT_KEY'] = 'ptlc_E2ECLIENTKEY1234567890';
+    Region::query()->firstOrCreate(['code' => 'cz1'], ['name' => 'Praha', 'country' => 'CZ', 'state' => 'active']);
+    $instance = ProviderInstance::query()->firstOrCreate(['key' => 'pterodactyl-games01'], ['provider' => 'pterodactyl', 'name' => 'Game panel games01', 'region_code' => 'cz1', 'base_url' => E2E_PTERO, 'secret_ref' => 'env://PTERODACTYL_GAMES01', 'state' => 'active', 'capabilities' => ['game.create' => true, 'console' => true], 'options' => ['eggs' => ['minecraft-paper' => ['nest' => 1, 'egg' => 5]]], 'adapter_version' => '1.0.0']);
+    $node = Node::query()->firstOrCreate(['provider_instance_id' => $instance->id, 'name' => 'games01'], ['region_code' => 'cz1', 'role' => 'game', 'state' => 'active', 'capacity' => ['cpu_cores' => 32, 'ram_mb' => 131072, 'disk_gb' => 2000], 'usage' => [], 'remote_id' => '2']);
+
+    return [$instance, $node];
+}
+
+/**
+ * A stateful Pterodactyl 1.11. Keys it keeps: `users` (id => attributes), `servers` (id => attributes), `allocations` (list), `power`
+ * (server id => running|offline), `variables`, `name`, `backups` (uuid => row), `commands` (sent to the console), `calls`, `refuse`,
+ * `install_reads` (GETs of a new server before its install is over), `daemon` (the node's fqdn, the only host a transfer link may name),
+ * `download_host` (what a backup download link names; defaults to the daemon), `created` (bodies of every server create).
+ *
+ * @param  array<string,mixed>  $panel
+ */
+function e2eGamePanel(array &$panel): void
+{
+    $panel += ['users' => [], 'servers' => [], 'allocations' => [['id' => 11, 'ip' => '89.187.160.10', 'port' => 25565, 'alias' => null, 'assigned' => false], ['id' => 12, 'ip' => '89.187.160.10', 'port' => 25566, 'alias' => null, 'assigned' => false]],
+        'power' => [], 'variables' => [], 'name' => [], 'backups' => [], 'commands' => [], 'calls' => [], 'refuse' => [], 'install_reads' => 2, 'reads' => [], 'daemon' => 'wings.mgmt.test', 'download_host' => null, 'created' => []];
+    Http::fake(function (Request $request) use (&$panel) {
+        if (! str_starts_with($request->url(), E2E_PTERO)) {
+            return null; // not the panel: the gateway fake (or a stray-request failure) answers
+        }
+        $path = (string) parse_url($request->url(), PHP_URL_PATH);
+        $m = $request->method();
+        $panel['calls'][] = $m.' '.$path;
+        foreach ($panel['refuse'] as $rule) {
+            [$ruleMethod, $rulePath] = explode(' ', $rule, 2);
+            if ($ruleMethod === $m && preg_match('~^'.$rulePath.'$~', $path) === 1) {
+                return Http::response(['errors' => [['code' => 'HttpException', 'status' => '500', 'detail' => 'The panel refused this.']]], 500);
+            }
+        }
+        $notFound = Http::response(['errors' => [['code' => 'NotFoundHttpException', 'status' => '404', 'detail' => "no fake for {$m} {$path}"]]], 404);
+        $one = fn (string $object, array $attributes, int $status = 200) => Http::response(['object' => $object, 'attributes' => $attributes], $status);
+        $list = fn (string $object, array $rows) => Http::response(['object' => 'list', 'data' => array_map(fn ($a) => ['object' => $object, 'attributes' => $a], array_values($rows)), 'meta' => ['pagination' => ['total_pages' => 1]]]);
+        $serverView = function (array $server) use (&$panel): array {
+            $reads = ($panel['reads'][$server['id']] = ($panel['reads'][$server['id']] ?? 0) + 1);
+            if ($server['status'] === 'installing' && $reads >= $panel['install_reads']) { // the daemon finished the install
+                $panel['servers'][$server['id']]['status'] = null;
+                $panel['servers'][$server['id']]['container']['installed'] = 1;
+                $panel['power'][$server['id']] = 'running'; // start_on_completion
+            }
+
+            return $panel['servers'][$server['id']];
+        };
+
+        // ── application API ──
+        if ($path === '/api/application/nodes' && $m === 'GET') {
+            return $list('node', [['id' => 2, 'name' => 'games01', 'fqdn' => $panel['daemon'], 'memory' => 131072, 'disk' => 2000000, 'maintenance_mode' => false, 'allocated_resources' => ['memory' => 0, 'disk' => 0]]]);
+        }
+        if ($path === '/api/application/nodes/2/allocations' && $m === 'GET') {
+            return $list('allocation', $panel['allocations']);
+        }
+        if (preg_match('~^/api/application/users/external/(.+)$~', $path, $x) === 1 && $m === 'GET') {
+            foreach ($panel['users'] as $user) {
+                if (($user['external_id'] ?? null) !== null && $user['external_id'] === rawurldecode($x[1])) {
+                    return $one('user', $user);
+                }
+            }
+
+            return $notFound;
+        }
+        if ($path === '/api/application/users' && $m === 'POST') {
+            $id = max(array_keys($panel['users']) ?: [100]) + 1;
+            $panel['users'][$id] = ['id' => $id, 'external_id' => $request['external_id'], 'email' => $request['email'], 'username' => $request['username'], 'first_name' => $request['first_name'], 'last_name' => $request['last_name'], 'language' => 'en', 'root_admin' => (bool) $request['root_admin']];
+
+            return $one('user', $panel['users'][$id], 201);
+        }
+        if ($path === '/api/application/users' && $m === 'GET') {
+            return $list('user', $panel['users']); // an e-mail lookup must never be how the platform finds a customer's panel user: the flow asserts it never asks
+        }
+        if (preg_match('~^/api/application/users/(\d+)$~', $path, $x) === 1 && $m === 'GET') {
+            return isset($panel['users'][(int) $x[1]]) ? $one('user', $panel['users'][(int) $x[1]]) : $notFound;
+        }
+        if (preg_match('~^/api/application/servers/external/(.+)$~', $path, $x) === 1 && $m === 'GET') {
+            foreach ($panel['servers'] as $server) {
+                if ($server['external_id'] === rawurldecode($x[1])) {
+                    return $one('server', $server);
+                }
+            }
+
+            return $notFound;
+        }
+        if ($path === '/api/application/servers' && $m === 'POST') {
+            $id = 101 + count($panel['servers']);
+            $identifier = substr(md5('e2e-server-'.$id), 0, 8);
+            $allocationId = (int) $request['allocation']['default'];
+            foreach ($panel['allocations'] as $i => $allocation) {
+                if ($allocation['id'] === $allocationId) {
+                    $panel['allocations'][$i]['assigned'] = true;
+                }
+            }
+            $panel['created'][] = $request->data();
+            $panel['servers'][$id] = ['id' => $id, 'external_id' => $request['external_id'], 'uuid' => $identifier.'-e2e-uuid', 'identifier' => $identifier, 'name' => $request['name'], 'user' => (int) $request['user'], 'node' => 2, 'allocation' => $allocationId, 'egg' => (int) $request['egg'],
+                'status' => 'installing', 'suspended' => false, 'container' => ['installed' => 0], 'limits' => $request['limits'], 'feature_limits' => $request['feature_limits'], 'environment' => $request['environment']];
+            $panel['variables'][$id] = (array) $request['environment'];
+            $panel['name'][$id] = $request['name'];
+
+            return $one('server', $panel['servers'][$id], 201);
+        }
+        if (preg_match('~^/api/application/servers/(\d+)$~', $path, $x) === 1 && $m === 'GET') {
+            return isset($panel['servers'][(int) $x[1]]) ? $one('server', $serverView($panel['servers'][(int) $x[1]])) : $notFound;
+        }
+        if (preg_match('~^/api/application/servers/(\d+)/(suspend|unsuspend)$~', $path, $x) === 1 && $m === 'POST') {
+            if (! isset($panel['servers'][(int) $x[1]])) {
+                return $notFound;
+            }
+            $panel['servers'][(int) $x[1]]['suspended'] = $x[2] === 'suspend';
+            if ($x[2] === 'suspend') {
+                $panel['power'][(int) $x[1]] = 'offline'; // the panel stops a suspended server
+            }
+
+            return Http::response('', 204);
+        }
+        if ($path === '/api/application/nests' && $m === 'GET') {
+            return $list('nest', [['id' => 1, 'name' => 'Minecraft']]);
+        }
+        if ($path === '/api/application/nests/1/eggs' && $m === 'GET') {
+            return $list('egg', [['id' => 5, 'name' => 'Paper', 'docker_image' => 'ghcr.io/games/java:21', 'docker_images' => [], 'startup' => 'java -jar {{SERVER_JARFILE}}', 'config' => ['startup' => ['privileged' => false]]]]);
+        }
+        if ($path === '/api/application/nests/1/eggs/5' && $m === 'GET') {
+            $variable = fn (string $env, string $default) => ['object' => 'egg_variable', 'attributes' => ['env_variable' => $env, 'default_value' => $default, 'rules' => 'required|string', 'user_editable' => true]];
+
+            return $one('egg', ['id' => 5, 'name' => 'Paper', 'docker_image' => 'ghcr.io/games/java:21', 'docker_images' => [], 'startup' => 'java -jar {{SERVER_JARFILE}}', 'config' => ['startup' => ['privileged' => false]],
+                'relationships' => ['variables' => ['data' => [$variable('MINECRAFT_VERSION', 'latest'), $variable('SERVER_JARFILE', 'server.jar'), $variable('MOTD', 'A Minecraft Server')]]]]);
+        }
+
+        // ── client API (one server, by its short identifier) ──
+        if (preg_match('~^/api/client/servers/([0-9a-f]{8})(/.*)?$~', $path, $x) !== 1) {
+            return $notFound;
+        }
+        $server = collect($panel['servers'])->firstWhere('identifier', $x[1]);
+        if ($server === null) {
+            return $notFound;
+        }
+        $id = $server['id'];
+        $rest = $x[2] ?? '';
+        if ($server['suspended'] && $rest !== '' && $rest !== '/resources') {
+            return Http::response(['errors' => [['code' => 'ServerSuspendedException', 'status' => '403', 'detail' => 'This server is suspended.']]], 403);
+        }
+        switch (true) {
+            case $rest === '' && $m === 'GET':
+                return $one('server', ['identifier' => $server['identifier'], 'name' => $panel['name'][$id], 'sftp_details' => ['ip' => $panel['daemon'], 'port' => 2022], 'limits' => $server['limits'], 'is_installing' => $server['status'] === 'installing', 'is_suspended' => $server['suspended'], 'egg_features' => ['eula'], 'docker_image' => 'ghcr.io/games/java:21', 'invocation' => 'java -jar server.jar',
+                    'relationships' => ['allocations' => ['data' => array_values(array_map(fn (array $a) => ['attributes' => ['id' => $a['id'], 'ip' => $a['ip'], 'ip_alias' => null, 'port' => $a['port'], 'is_default' => $a['id'] === $server['allocation']]], array_filter($panel['allocations'], fn (array $a) => $a['id'] === $server['allocation'])))]]]);
+            case $rest === '/resources':
+                return $one('stats', ['current_state' => $server['suspended'] ? 'offline' : ($panel['power'][$id] ?? 'offline'), 'is_suspended' => $server['suspended'], 'resources' => ['memory_bytes' => 2 * 1024 ** 3, 'cpu_absolute' => 12.0, 'disk_bytes' => 1024 ** 3, 'network_rx_bytes' => 10, 'network_tx_bytes' => 20, 'uptime' => 5000]]);
+            case $rest === '/power' && $m === 'POST':
+                $panel['power'][$id] = match ((string) $request['signal']) {
+                    'start', 'restart' => 'running', 'stop', 'kill' => 'offline', default => $panel['power'][$id] ?? 'offline',
+                };
+
+                return Http::response('', 204);
+            case $rest === '/command' && $m === 'POST':
+                $panel['commands'][] = (string) $request['command'];
+
+                return Http::response('', 204);
+            case $rest === '/websocket' && $m === 'GET':
+                return Http::response(['data' => ['token' => 'wings-e2e-session-token', 'socket' => 'wss://'.$panel['daemon'].':8080/api/servers/'.$server['uuid'].'/ws']]);
+            case $rest === '/startup' && $m === 'GET':
+                return Http::response(['object' => 'list', 'data' => array_map(fn ($k, $v) => ['object' => 'egg_variable', 'attributes' => ['name' => $k, 'description' => '', 'env_variable' => $k, 'default_value' => 'x', 'server_value' => $v, 'is_editable' => true, 'rules' => 'required|string']], array_keys($panel['variables'][$id]), $panel['variables'][$id]),
+                    'meta' => ['startup_command' => 'java -jar server.jar', 'raw_startup_command' => 'java -jar {{SERVER_JARFILE}}', 'docker_image' => 'ghcr.io/games/java:21', 'docker_images' => ['Java 21' => 'ghcr.io/games/java:21']]]);
+            case $rest === '/startup/variable' && $m === 'PUT':
+                $panel['variables'][$id][(string) $request['key']] = (string) $request['value'];
+
+                return $one('egg_variable', ['env_variable' => $request['key'], 'server_value' => $request['value']]);
+            case $rest === '/settings/rename' && $m === 'POST':
+                $panel['name'][$id] = (string) $request['name'];
+
+                return Http::response('', 204);
+            case $rest === '/backups' && $m === 'POST':
+                $uuid = 'bk-e2e-'.(count($panel['backups']) + 1);
+                $panel['backups'][$uuid] = ['uuid' => $uuid, 'name' => (string) $request['name'], 'is_successful' => true, 'is_locked' => false, 'bytes' => 4096, 'completed_at' => now()->toIso8601String(), 'created_at' => now()->toIso8601String()];
+
+                return $one('backup', $panel['backups'][$uuid]);
+            case $rest === '/backups' && $m === 'GET':
+                return $list('backup', $panel['backups']);
+            case preg_match('~^/backups/([\w-]+)/download$~', $rest) === 1:
+                return Http::response(['object' => 'signed_url', 'attributes' => ['url' => 'https://'.($panel['download_host'] ?? $panel['daemon']).':8080/download/backup?token=e2e-signed']]);
+            case preg_match('~^/backups/([\w-]+)$~', $rest, $y) === 1 && $m === 'GET':
+                return isset($panel['backups'][$y[1]]) ? $one('backup', $panel['backups'][$y[1]]) : $notFound;
+        }
+
+        return $notFound;
     });
 }

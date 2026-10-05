@@ -62,7 +62,7 @@ final class CustomerController extends ApiController
         return response()->json(['data' => Presenters::organization($org) + [
             'members' => $members, 'wallet' => $wallets->balances($org, $org->currency),
             'registrar_connections' => RegistrarConnection::query()->where('organization_id', $org->id)->orderByDesc('created_at')->get()->map(fn (RegistrarConnection $c) => Presenters::registrarConnection($c))->all(),
-            'services' => Service::query()->where('organization_id', $org->id)->orderByDesc('created_at')->limit(100)->get()->map(fn (Service $s) => Presenters::service($s))->all(),
+            'services' => Service::query()->where('organization_id', $org->id)->orderByDesc('created_at')->limit(100)->get()->map(fn (Service $s) => Presenters::service($s, true))->all(),
             'domains' => Domain::query()->where('organization_id', $org->id)->orderBy('expires_at')->limit(100)->get()->map(fn (Domain $d) => Presenters::domain($d))->all(),
             'orders' => Order::query()->where('organization_id', $org->id)->orderByDesc('placed_at')->limit(50)->get()->map(fn (Order $o) => Presenters::order($o, false) + ['source' => $o->source, 'bank_instructions' => $o->meta['bank_instructions'] ?? null])->all(), // §5y: staff confirm a transfer by its variable symbol
             'spendable' => $wallets->spendable($org, $org->currency),
@@ -287,7 +287,7 @@ final class CustomerController extends ApiController
             }
         }
 
-        return $this->api->paginate($request, $query, fn (Service $s) => Presenters::service($s) + ['organization_id' => $s->organization_id, 'provider_instance_id' => $s->provider_instance_id, 'node_id' => $s->node_id]);
+        return $this->api->paginate($request, $query, fn (Service $s) => Presenters::service($s, true) + ['organization_id' => $s->organization_id, 'provider_instance_id' => $s->provider_instance_id, 'node_id' => $s->node_id]);
     }
 
     /** All customer domains for the admin domains/DNS view (`OnhostDomains` API module in staff mode). */
