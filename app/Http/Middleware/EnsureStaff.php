@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Authorization\PermissionCatalog;
 use Onhost\Domain\Identity\Authorization\StaffActor;
+use Onhost\Domain\Identity\Models\ServiceAccount;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
@@ -34,6 +35,9 @@ final class EnsureStaff
     public function handle(Request $request, Closure $next): Response
     {
         $user = $request->user();
+        if ($user instanceof ServiceAccount) { // a signed-in principal, just not staff: 403, not a 401 that tells a valid pipeline credential to sign in again
+            throw new DomainError('staff_only', 'This endpoint is for ONhost staff with a staff permission.', 403);
+        }
         if (! $user instanceof User) {
             throw new DomainError('unauthenticated', 'Sign in to continue.', 401);
         }
