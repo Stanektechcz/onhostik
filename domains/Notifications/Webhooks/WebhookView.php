@@ -20,6 +20,7 @@ final class WebhookView
         return [
             'id' => $e->id, 'url' => $e->url, 'events' => $e->events, 'state' => $e->isSuspended() ? WebhookEndpoint::SUSPENDED : $e->state,
             'failures' => $e->failures, 'last_delivered_at' => $e->last_delivered_at?->toIso8601String(), 'created_at' => $e->created_at?->toIso8601String(),
+            'previous_secret_valid_until' => $e->previousSecret() === null ? null : $e->previous_secret_expires_at?->toIso8601String(), // G7: the rotation overlap, never the secret
         ];
     }
 

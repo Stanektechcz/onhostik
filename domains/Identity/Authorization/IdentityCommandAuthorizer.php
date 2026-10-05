@@ -18,6 +18,7 @@ use Onhost\Platform\Commands\CommandContext;
 /**
  * Policy gate in front of the command bus:
  *  1. capability at scope,
+ *  1b. an API token only within its scopes (TokenScopes; G7, TASK-0115) — a command with no permission is never a token's,
  *  2. step-up for high/critical permissions (valid grant in this session),
  *  3. two-person approval for critical permissions (approval id in context, matching payload hash, different approver);
  *     with ONHOST_FOUR_EYES=false only the sole approver's own critical action is spared the second person, and it waits a
@@ -28,6 +29,8 @@ use Onhost\Platform\Commands\CommandContext;
  */
 final class IdentityCommandAuthorizer implements CommandAuthorizer
 {
+    private const TOKEN_REFUSED = 'This action is not available to API tokens; use the portal.';
+
     public function __construct(
         private readonly Authorizer $authorizer,
         private readonly StepUpService $stepUp,
@@ -37,6 +40,10 @@ final class IdentityCommandAuthorizer implements CommandAuthorizer
     {
         $permission = StaffActor::permissionOf($command, $context); // TASK-0039 P0-16 re-check: staff mode asks the staff key
         if ($permission === null) {
+            if ($context->actorType !== 'system' && self::byToken($context)) {
+                return AuthorizationDecision::deny(self::TOKEN_REFUSED); // G7: a command that asks for no permission is the portal's
+            }
+
             return $context->actorType === 'system' || $context->actorType === 'user' || $context->actorType === 'service_account'
                 ? AuthorizationDecision::allow()
                 : AuthorizationDecision::deny('AI actors cannot run unscoped commands');
@@ -49,6 +56,10 @@ final class IdentityCommandAuthorizer implements CommandAuthorizer
         $principal = $this->principal($context);
         if ($principal === null) {
             return AuthorizationDecision::deny('Unauthenticated');
+        }
+        $tokenRefusal = self::tokenRefusal($principal, $permission);
+        if ($tokenRefusal !== null) {
+            return AuthorizationDecision::deny($tokenRefusal);
         }
 
         // TASK-0037 (program IF-13, principle 6): the risk is never below the permission's — max(declared, catalogue floor).
@@ -148,6 +159,34 @@ final class IdentityCommandAuthorizer implements CommandAuthorizer
         }
 
         return AuthorizationDecision::allow($stepUpMethod, $approvalIds);
+    }
+
+    /**
+     * G7 (TASK-0115): an API token is held to its scopes on the bus too, not only at the HTTP layer. The scopes were asked by
+     * ApiController::dispatch and a few controllers; a command dispatched from inside the platform on a token's context (the
+     * assistant opening a handoff ticket, a handler dispatching another command) ran with every right of the person behind the
+     * token. The scope a command needs is the one its permission maps to in TokenScopes — the same map the routes and the
+     * OpenAPI scopes read — and what that map does not name (null) is not available to tokens. Deny by default.
+     * Null = the token may; otherwise the reason the bus gives.
+     */
+    private static function tokenRefusal(User|ServiceAccount $principal, string $permission): ?string
+    {
+        $token = TokenScopes::tokenOf($principal);
+        if ($token === null) {
+            return null; // the portal's own session
+        }
+        $needed = TokenScopes::for($permission);
+        if ($needed === null) {
+            return self::TOKEN_REFUSED;
+        }
+
+        return $token->can($needed) ? null : "The API token lacks the {$needed} scope.";
+    }
+
+    /** Whether the context is a request made with an API token (ApiContext::sessionId writes `token:<id>` for every one). */
+    private static function byToken(CommandContext $context): bool
+    {
+        return str_starts_with((string) $context->sessionId, 'token:');
     }
 
     private function principal(CommandContext $context): User|ServiceAccount|null

@@ -9,21 +9,36 @@ use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use Onhost\Domain\Billing\Models\Subscription;
+use Onhost\Domain\Compliance\Models\AbuseCase;
+use Onhost\Domain\Compliance\Models\DataRequest;
 use Onhost\Domain\Dns\Models\DnsZone;
 use Onhost\Domain\Domains\DomainStateMachine;
 use Onhost\Domain\Domains\Models\Domain;
+use Onhost\Domain\Domains\Models\RegistrarConnection;
 use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
 use Onhost\Domain\Identity\Models\ServiceAccount;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Identity\StepUp\StepUpService;
+use Onhost\Domain\Identity\WebSessions;
+use Onhost\Domain\Integrations\Models\ActionHook;
+use Onhost\Domain\Integrations\Models\DiscordLink;
 use Onhost\Domain\Invoicing\Models\Invoice;
+use Onhost\Domain\Marketplace\Models\MarketplaceListing;
+use Onhost\Domain\Marketplace\Models\MarketplaceOrder;
+use Onhost\Domain\Notifications\Models\WebhookDelivery;
+use Onhost\Domain\Notifications\Models\WebhookEndpoint;
 use Onhost\Domain\Orders\CheckoutService;
 use Onhost\Domain\Orders\QuoteService;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Organizations\Models\OrganizationInvitation;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Organizations\Models\Project;
+use Onhost\Domain\Partners\Models\Partner;
+use Onhost\Domain\Payments\Models\PaymentMethod;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
+use Onhost\Domain\Support\Models\WorkOffer;
+use Onhost\Domain\Support\TicketService;
 use Onhost\Platform\Commands\CommandContext;
 
 /*
@@ -191,3 +206,131 @@ it('keeps the 403 for a guest who holds a share on one service and asks for its 
     PolicyBinding::query()->where('principal_id', $guest->id)->where('scope_type', 'organization')->delete();
     expect(eoStatus($this, $guest, 'GET', "/v1/services/{$sibling->id}"))->toBe(403);
 });
+
+// ── G7 (TASK-0115): the sweep over every customer controller ──
+/*
+ * The first sweep above covers the ten controllers of TASK-0098. Every other authenticated customer route that addresses a row by
+ * an identifier — abuse cases, data requests, marketplace orders and listings, registrar connections, service accounts and their
+ * tokens, tickets and work offers, payment methods, web sessions, personal tokens, invitations, members, hooks, Discord links,
+ * archives, ISOs — must answer a stranger the same for organization A's identifier as for one that does not exist. The router is
+ * the list: a new route with a parameter and no row below fails the sweep until it gets one.
+ */
+
+/** Organization A's further rows for the other controllers. Keys: `Controller@param` where one parameter name means different rows. @return array<string,string> */
+function eoMoreRowsOfA(User $owner, Organization $org, array $ids): array
+{
+    $service = Service::query()->findOrFail($ids['service']);
+    $partner = Partner::query()->create(['organization_id' => $org->id, 'code' => 'EOPARTNER', 'state' => 'active']);
+    $listing = MarketplaceListing::query()->create(['partner_id' => $partner->id, 'key' => 'eo-care', 'title' => 'Care', 'price_minor' => 10000, 'state' => 'draft']);
+    $marketOrder = MarketplaceOrder::query()->create(['listing_id' => $listing->id, 'partner_id' => $partner->id, 'organization_id' => $org->id, 'ordered_by' => $owner->id, 'state' => 'ordered', 'price_minor' => 10000]);
+    $ticket = app(TicketService::class)->create(['subject' => 'Oracle', 'body' => 'Ticket of A.'], new CommandContext('user', $owner->id, $org->id, null, '127.0.0.1', 'pest', 'test-session'), $org, $owner);
+    $offer = WorkOffer::query()->create(['ticket_id' => $ticket->id, 'organization_id' => $org->id, 'scope' => 'administration', 'description' => 'Work', 'price_net_minor' => 10000, 'currency' => 'CZK', 'state' => 'proposed']);
+    $account = ServiceAccount::query()->create(['organization_id' => $org->id, 'name' => 'CI of A', 'state' => 'active', 'created_by' => $owner->id]);
+    $accountToken = $account->createToken('ci', ['services:read', 'org:'.$org->id], now()->addDays(30))->accessToken;
+    $personal = $owner->createToken('mine', ['services:read', 'org:'.$org->id])->accessToken;
+    $personal->forceFill(['organization_id' => $org->id])->save();
+    $invitation = OrganizationInvitation::query()->create(['organization_id' => $org->id, 'email' => 'eo-invited@oracle.test', 'role_key' => 'viewer', 'token_hash' => hash('sha256', 'eo-invite'), 'expires_at' => now()->addDays(7)]);
+    $hook = ActionHook::query()->create(['organization_id' => $org->id, 'service_id' => $service->id, 'created_by' => $owner->id, 'name' => 'restart', 'action' => 'restart', 'params' => [], 'token_hash' => hash('sha256', 'eo-hook'), 'enabled' => true]);
+    $link = DiscordLink::query()->create(['organization_id' => $org->id, 'user_id' => $owner->id, 'discord_user_id' => '7001', 'discord_username' => 'owner-a', 'state' => 'linked', 'linked_at' => now(), 'locale' => 'cs']);
+    $connection = RegistrarConnection::query()->create(['organization_id' => $org->id, 'provider' => 'wedos', 'label' => 'WEDOS', 'login' => 'a@b.cz', 'secret_ref' => 'db://registrar-connections/eo', 'state' => 'active']);
+    $method = PaymentMethod::query()->create(['organization_id' => $org->id, 'provider' => 'comgate', 'provider_token' => 'tok-eo', 'kind' => 'card', 'brand' => 'visa', 'last4' => '4242', 'state' => 'active']);
+    $abuse = AbuseCase::query()->create(['number' => 'ABU-2026-9101', 'reporter' => ['name' => 'R', 'email' => 'r@example.cz'], 'category' => 'phishing', 'allegation' => 'A phishing page.', 'organization_id' => $org->id, 'service_id' => $service->id]);
+    $dataRequest = DataRequest::query()->create(['organization_id' => $org->id, 'requested_by' => $owner->id, 'kind' => 'export', 'state' => 'requested', 'meta' => []]);
+    $session = app(WebSessions::class)->open($owner->id, '127.0.0.1', 'pest');
+    $endpoint = WebhookEndpoint::query()->create(['organization_id' => $org->id, 'url' => 'https://hooks.example.com/a', 'secret' => 'whsec-eo', 'events' => ['*'], 'state' => 'active', 'created_by' => $owner->id]);
+    $delivery = WebhookDelivery::query()->create(['endpoint_id' => $endpoint->id, 'event' => 'service.activated', 'payload' => ['x' => 1], 'state' => 'failed', 'attempts' => 1]);
+
+    return [
+        'case' => $abuse->id, 'dataRequest' => $dataRequest->id, 'hook' => $hook->id, 'link' => $link->id, 'listing' => $listing->id,
+        'MarketplaceController@order' => $marketOrder->id, 'entry' => 'evidence-1', 'key' => 'file-1', 'connection' => $connection->id, 'account' => $account->id,
+        'ServiceAccountController@token' => (string) $accountToken->getKey(), 'MeController@token' => (string) $personal->getKey(), 'ticket' => $ticket->id, 'offer' => $offer->id,
+        'method' => $method->id, 'session' => $session, 'invitation' => $invitation->id, 'user' => $owner->id, 'endpoint' => $endpoint->id, 'delivery' => $delivery->id,
+    ];
+}
+
+/** The status and the error code a request is answered with. @return array{0:int,1:string} */
+function eoAnswer(object $test, $who, string $method, string $uri): array
+{
+    $test->actingAs($who, 'sanctum');
+    $response = $test->json($method, $uri, [], ['Idempotency-Key' => 'eo-'.md5($method.$uri.spl_object_id($who)), 'Accept' => 'application/json']);
+    app('auth')->forgetGuards();
+
+    return [$response->getStatusCode(), (string) ($response->json('error') ?? '')];
+}
+
+/** What stands in for each parameter when the row does not exist, shaped like a real one so a format check cannot tell them apart. @return array<string,string> */
+function eoMissingOf(array $ids): array
+{
+    $missing = [];
+    foreach ($ids as $key => $value) {
+        $missing[$key] = match (true) {
+            in_array($key, ['entry', 'key', 'kind', 'action', 'token', 'grant', 'monitor'], true) => $value,
+            ctype_digit($value) => '987654321',
+            str_starts_with($value, 'ws_') => 'ws_01jzzzzzzzzzzzzzzzzzzzzzzz',
+            default => '01JZZZZZZZZZZZZZZZZZZZZZZZ',
+        };
+    }
+
+    return $missing;
+}
+
+/**
+ * Every authenticated customer route with a parameter, filled from `$ids` (`Controller@param` first, then `param`); routes with a
+ * parameter nobody filled come back apart. @return array{0:list<array{0:string,1:string,2:string}>, 1:list<string>}
+ */
+function eoEveryCustomerRoute(array $ids): array
+{
+    $out = [];
+    $unfilled = [];
+    foreach (Route::getRoutes()->getRoutes() as $route) {
+        $uri = $route->uri();
+        if (! str_starts_with($uri, 'v1/') || str_starts_with($uri, 'v1/staff') || ! in_array('auth:sanctum', $route->gatherMiddleware(), true)) {
+            continue; // public, staff and inbound routes answer to nobody's organization
+        }
+        if (preg_match_all('/\{(\w+)\??\}/', $uri, $m) === 0) {
+            continue;
+        }
+        $controller = class_basename((string) $route->getControllerClass());
+        $notFilled = array_filter($m[1], fn (string $p) => ! isset($ids["{$controller}@{$p}"]) && ! isset($ids[$p]));
+        if ($notFilled !== []) {
+            $unfilled[] = "{$uri} ({$controller}: ".implode(', ', $notFilled).')';
+
+            continue;
+        }
+        $path = '/'.preg_replace_callback('/\{(\w+)\??\}/', fn ($p) => (string) ($ids["{$controller}@{$p[1]}"] ?? $ids[$p[1]]), $uri);
+        foreach (array_diff($route->methods(), ['HEAD', 'OPTIONS']) as $method) {
+            $out[] = [$method, $path, $controller];
+        }
+    }
+
+    return [$out, $unfilled];
+}
+
+it('answers a stranger the same for organization A\'s identifier as for a missing one on every customer controller', function () {
+    [$owner, $org, $ctx] = eoOwnerOf($this->customerWithOrganization());
+    [, $ids] = eoOrganizationA($owner, $org, $ctx);
+    $ids += eoMoreRowsOfA($owner, $org, $ids) + ['kind' => 'databases', 'action' => 'restart', 'grant' => 'grt_missing', 'monitor' => 'mon_missing', 'token' => 'dl_abcdefghijklmnopqrstuvwx'];
+    [$stranger] = $this->customerWithOrganization();
+    app(StepUpService::class)->grant($stranger, 'totp', null, '127.0.0.1');
+
+    [$foreign, $unfilled] = eoEveryCustomerRoute($ids);
+    [$absent] = eoEveryCustomerRoute(eoMissingOf($ids));
+    expect($unfilled)->toBe([], "Routes with a parameter the sweep has no row of A for — add one to eoMoreRowsOfA():\n".implode("\n", $unfilled))
+        ->and(count($foreign))->toBe(count($absent));
+
+    $oracles = [];
+    $controllers = [];
+    foreach ($foreign as $i => [$method, $uri, $controller]) {
+        // the status AND the error code: a refusal that does not depend on the row (the stranger is no partner, a browser-only
+        // route) is the same for both and tells nothing; a 403 for A's row next to a 404 for a missing one is the oracle
+        $there = eoAnswer($this, $stranger, $method, $uri);
+        $nowhere = eoAnswer($this, $stranger, $method, $absent[$i][1]);
+        if ($there !== $nowhere || $there[0] < 300) {
+            $oracles[] = "{$controller}: {$method} {$uri} → {$there[0]} {$there[1]} (a missing one → {$nowhere[0]} {$nowhere[1]})";
+        }
+        $controllers[$controller] = true;
+    }
+    expect($oracles)->toBe([], "A stranger can tell organization A's identifier from a missing one:\n".implode("\n", $oracles))
+        ->and(array_keys($controllers))->toContain('MarketplaceController', 'RegistrarConnectionController', 'ServiceAccountController', 'SupportController', 'WalletController', 'WebSessionController', 'MeController', 'OrganizationController', 'ComplianceController', 'IntegrationController', 'ArchiveController', 'CustomIsoController', 'WebhookController');
+});
+// ── end G7 ──
