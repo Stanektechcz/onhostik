@@ -287,7 +287,7 @@ final class Presenters
 
     public static function zone(DnsZone $zone, bool $withRecords = true): array
     {
-        $out = ['id' => $zone->id, 'name' => $zone->name, 'provider' => $zone->provider, 'state' => $zone->state, 'serial' => $zone->serial, 'version' => $zone->version, 'dnssec' => (bool) $zone->dnssec, 'ds' => $zone->dnssec_ds ?? [], 'nameservers' => $zone->nameservers, 'domain_id' => $zone->domain_id, 'committed_at' => $zone->committed_at?->toIso8601String(), 'pending_changes' => $zone->pendingChanges()->count()];
+        $out = ['id' => $zone->id, 'name' => $zone->name, 'provider' => 'onhost', 'state' => $zone->state, 'serial' => $zone->serial, 'version' => $zone->version, 'dnssec' => (bool) $zone->dnssec, 'ds' => $zone->dnssec_ds ?? [], 'nameservers' => $zone->nameservers, 'domain_id' => $zone->domain_id, 'committed_at' => $zone->committed_at?->toIso8601String(), 'pending_changes' => $zone->pendingChanges()->count()];
         $out['drift'] = ['checked_at' => $zone->drift_checked_at?->toIso8601String(), 'differs' => $zone->drift !== null, 'summary' => $zone->drift, 'error' => $zone->getAttribute('drift_error')];
         if ($withRecords) {
             $out['records'] = $zone->records()->get()->map(fn (DnsRecord $r) => self::record($r))->all();

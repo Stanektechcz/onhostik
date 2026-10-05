@@ -220,3 +220,65 @@ Stav každého nálezu P0 a P1 po fázi C. „Hotovo“ znamená sloučeno do `d
 * Časový limit načtení přes relay (relay fetch timeout).
 * `InvoiceController` předává do busu klíč bez id faktury (LOW).
 * Vedlejší efekt rotace remember tokenu.
+
+## Stav po fázi D (2026-10-04)
+
+Stav nálezů P1-9 až P1-12 a položek P2/P3 z oblasti A5 (veřejné API) po fázi D. „Hotovo“ znamená sloučeno do `development` s testy; „otevřeno“ znamená, že práce neproběhla, nebo čeká na rozhodnutí či zásah vlastníka. Čísla PR jsou z repozitáře `Stanektechcz/onhostik`.
+
+### P1
+
+| Nález | Stav | Task / PR | Poznámka |
+|---|---|---|---|
+| P1-9 | hotovo | TASK-0074 #67 (D1) | Platný OpenAPI: unikátní `operationId`, `x-token-scope`, `--check` v CI, deploy kontrakt jen porovnává. |
+| P1-10 | hotovo | TASK-0073 #66 (D2) | `EnsureStaff` na staff API, `GET panel-login` odstraněno, sweep ověřuje odmítnutí zákazníka. |
+| P1-11 | hotovo | TASK-0078 #71 (D3) | Pravdivé `/dokumentace/api` (Redoc hostovaný lokálně pod CSP), index slugů chyb, průvodce prvním voláním, changelog. Zbývá úklid prototypových tvrzení (viz otevřené body). |
+| P1-12 | hotovo | TASK-0077 #70 (D4) | Veřejný allow-list payloadu (opravený únik 7 staff událostí), doručení přes frontu, jeden podpis, příkazy přes bus, oznámení o pozastavení, limity ping/redeliver, porty 443/8443, 6 pokusů (~14,6 h). |
+
+### P2 a P3 (oblast A5)
+
+| Položka | Stav | Task / PR | Poznámka |
+|---|---|---|---|
+| Idempotence bez organizace a bez zámku | hotovo | TASK-0075 #68 (D5) | Rozsah uživatel + token + organizace, atomická rezervace s tokenem vlastníka, `409 idempotency_in_progress`, `DELETE`, query string v hashi. |
+| Pole `provider` v chybách vidí zákazník | hotovo | TASK-0075 #68 (D5) | Pole se skrývá; stav je i v odpovědích 4xx. |
+| Limiter `probes` jde obejít | hotovo | TASK-0076 #69 (D7) | Probes podle IP; limiter callbacků Discordu; throttle neúspěšné autentizace jen pro bearer. |
+| Paginace bez tiebreakeru | hotovo | TASK-0076 #69 (D7) | Tiebreaker podle `id`. |
+| Politika verzí API (P3) | hotovo | TASK-0076 #69 (D7) | `X-API-Version`, `Deprecation`, `Sunset`; verze API 1.0.0 je oddělená od verze aplikace 4.0. |
+| Tokeny bez expirace | hotovo jako dokumentace | TASK-0079 #72 (D6) | Rozhodnutí R9 se v této fázi řeší dokumentací; servisní účty jsou hotové. |
+| DNS scopy (P3) | hotovo | TASK-0079 #72 (D6) | Scope `dns:read` a aliasy zón. |
+| Servisní účty | hotovo | TASK-0079 #72 (D6) | API a oprávnění; portálové UI a `/v1/me` zbývají (viz otevřené body). |
+| Staging: `openapi` jen porovnávat | hotovo | TASK-0074 #67 (D1) | `deploy.sh` kontrakt porovnává, nepřepisuje soubor vlastněný rootem. |
+
+### Další sloučená práce fáze D
+
+| Task | PR |
+|---|---|
+| TASK-0073 / D2 | #66 |
+| TASK-0074 / D1 | #67 |
+| TASK-0075 / D5 | #68 |
+| TASK-0076 / D7 | #69 |
+| TASK-0077 / D4 | #70 |
+| TASK-0078 / D3 | #71 |
+| TASK-0079 / D6 | #72 |
+
+### Otevřené navazující body
+
+* S1-05: automatizační grants. Otázka pro vlastníka; operace HIGH/CRITICAL přes token zůstávají odmítnuté.
+* `TRUSTED_PROXIES` v produkci: hodnotu musí nastavit operátor.
+* `ONHOST_API_BASE_URL`: nastavit, pokud API poběží na vlastním hostu.
+* RateLimiter potřebuje sdílený cache store, jinak limity neplatí napříč workery.
+* Webhooky běží na výchozí frontě (bez vyhrazené).
+* Rotace tajného klíče webhooku bez překryvného okna.
+* Replay bez původních hlaviček (M3).
+* Klíče busu `invoice.credit` a `invoice.markpaid` se předávají bez id faktury.
+* `/v1/me` pro servisní účty.
+* Portálové UI pro servisní účty.
+* Tvrzení prototypu (`api.onhost.cz`, sliby 90 dní / 12 měsíců) v `onhost-svc-*.js`.
+* `brain.ps1 task start -Paths` ukládá cesty jako jeden řetězec.
+* Nestabilní `DiscordIntegrationTest` (deduplikace dávky).
+* Dva testy používají neexistující roli `support_agent` (`AdminLoyaltyCapacityViewsTest`, `GameQuickCreateTest`).
+* Webová routa `/sprava/konzole` není pod staff middlewarem; ověřit kontrolu v controlleru.
+* Generované API klienty je nutné znovu vygenerovat (změnily se `operationId`).
+* Runbook revize katalogu.
+* `DestructivePreview` jen česky.
+* UX rotace remember tokenu.
+* Test přeinstalace VPS na testovacím uzlu se souhlasem vlastníka.
