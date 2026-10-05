@@ -4,6 +4,9 @@ Každý záznam je nadpis `## datum | druh | název | okno` a odstavec pod ním.
 `security`; okno je volitelné. Stránka `/dokumentace/api` i `/api` čtou tenhle soubor (`PublicApiDocs::changelog()`),
 takže tu nikdy nestojí nic jiného než na webu. Nový záznam patří nahoru.
 
+## 2026-10-05 | compatible | Klíč servisního účtu na staff cestě dostane 403, ne 401
+Klíč servisního účtu, který zavolá cestu pod `/v1/staff/`, dostává `403 staff_only` (účet je přihlášený, jen to není zaměstnanec). Dřív odpověď zněla `401 unauthenticated` "Sign in to continue", což klienta vyzývalo k novému přihlášení s platným klíčem.
+
 ## 2026-10-04 | new | Servisní účty organizace a rozsah dns:read (D6)
 Vlastník organizace spravuje servisní účty (`/v1/service-accounts`, vydání a zrušení klíče účtu pod `/v1/service-accounts/{account}/tokens`); tajemství klíče se ukáže jen v odpovědi, která ho vydala, a každý zápis chce čerstvé potvrzení. Klíč servisního účtu jedná za svou organizaci; koncový bod určený člověku odpoví `403 person_required`. Čtení DNS zóny má vlastní rozsah `dns:read` (`dns:write` ho dál zahrnuje, takže dosavadní klíče čtou dál) a aliasy `/v1/domains/{zone}/zone` se řídí stejnými rozsahy jako `/v1/dns/zones/{zone}`.
 
