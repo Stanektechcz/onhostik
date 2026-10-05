@@ -997,7 +997,8 @@ it('repairs an installed site without starting its units, without following a li
     expect($preloaded['rc'])->toBe(0, $preloaded['out'])->and($preloaded['out'])->toContain('usranalyse')->toContain('ProtectSystem=no')
         ->and($preloaded['stub'])->not->toContain('systemctl enable')->not->toContain('systemctl start');
     foreach (['onhost-queue@.service', 'onhost-scheduler.service'] as $unit) {
-        expect((string) @file_get_contents($dropIn($unit)))->toContain("[Service]\nProtectSystem=no\n");
+        expect((string) @file_get_contents($dropIn($unit)))->toContain("[Service]\nProtectSystem=no\n")
+            ->toContain('ProtectKernelTunables=yes')->toContain("CapabilityBoundingSet=\n");
     }
 });
 
@@ -1659,24 +1660,67 @@ function stagingRecord(string $path): array
 
 it('writes the ProtectSystem=no drop-ins only while aaPanel preloads usranalyse, and takes them away once it is gone', function () {
     $box = $this->deployBox = stagingSandbox();
-    $dropIns = array_map(fn (string $unit) => $box['dir'].'/systemd/'.$unit.'.d/10-aapanel-usranalyse.conf', ['onhost-queue@.service', 'onhost-scheduler.service', 'php-fpm-85.service']);
+    $dropIn = fn (string $unit) => $box['dir'].'/systemd/'.$unit.'.d/10-aapanel-usranalyse.conf';
+    $workers = ['onhost-queue@.service', 'onhost-scheduler.service'];
+    // security review M2: what ProtectSystem=no gives up is partly made good without the read-only file system view
+    $compensating = ['ProtectKernelTunables=yes', 'ProtectKernelModules=yes', 'ProtectControlGroups=yes', 'RestrictSUIDSGID=yes', 'LockPersonality=yes', "CapabilityBoundingSet=\n"];
 
-    $first = stagingRun($box, ['harden']);
+    $first = stagingRun($box, ['harden']);   // php-fpm-85.service does not exist here: no drop-in for it
     expect($first['rc'])->toBe(0, $first['out'])->and($first['stub'])->toContain('systemctl daemon-reload')
-        ->and($first['out'])->toContain('usranalyse');
-    foreach ($dropIns as $file) {
-        expect(is_file($file))->toBeTrue($file)->and((string) file_get_contents($file))->toContain("[Service]\nProtectSystem=no\n");
+        ->and($first['out'])->toContain('usranalyse')
+        ->and(is_file($dropIn('php-fpm-85.service')))->toBeFalse();
+    foreach ($workers as $unit) {
+        expect(is_file($dropIn($unit)))->toBeTrue($unit)->and((string) file_get_contents($dropIn($unit)))->toContain("[Service]\nProtectSystem=no\n");
+        foreach ($compensating as $line) {
+            expect((string) file_get_contents($dropIn($unit)))->toContain($line);
+        }
     }
 
     $again = stagingRun($box, ['harden']);   // nothing changed: no reload
     expect($again['rc'])->toBe(0, $again['out'])->and($again['stub'])->not->toContain('daemon-reload');
 
+    // a directive that brings the crash back on the host is named in the omit list and left out from then on
+    file_put_contents($box['dir'].'/state/usranalyse-omit', "ProtectControlGroups\n");
+    $omitted = stagingRun($box, ['harden']);
+    expect($omitted['rc'])->toBe(0, $omitted['out'])->and($omitted['stub'])->toContain('systemctl daemon-reload')
+        ->and((string) file_get_contents($dropIn('onhost-scheduler.service')))->not->toContain('ProtectControlGroups')
+        ->toContain('ProtectKernelTunables=yes')->toContain("ProtectSystem=no\n");
+    unlink($box['dir'].'/state/usranalyse-omit');
+
+    // PHP-FPM under systemd (precaution only): ProtectSystem=no, and none of the worker hardening — its master runs as
+    // root and needs its capabilities to switch to www
+    $fpm = stagingRun($box, ['harden'], [], ['STUB_UNITS_PRESENT' => 'php-fpm-85.service']);
+    $fpmDropIn = (string) @file_get_contents($dropIn('php-fpm-85.service'));
+    expect($fpm['rc'])->toBe(0, $fpm['out'])->and($fpmDropIn)->toContain("[Service]\nProtectSystem=no\n")
+        ->not->toContain('CapabilityBoundingSet')->not->toContain('RestrictSUIDSGID')
+        ->and($fpm['stub'])->toContain('systemctl daemon-reload');
+    $fpmGone = stagingRun($box, ['harden']);   // the unit is gone: so is its drop-in
+    expect($fpmGone['rc'])->toBe(0, $fpmGone['out'])->and(is_file($dropIn('php-fpm-85.service')))->toBeFalse();
+
     file_put_contents($box['dir'].'/etc/ld.so.preload', "# /usr/local/usranalyse/lib/libusranalyse.so (switched off)\n");
     $gone = stagingRun($box, ['harden']);
     expect($gone['rc'])->toBe(0, $gone['out'])->and($gone['stub'])->toContain('systemctl daemon-reload');
-    foreach ($dropIns as $file) {
-        expect(is_file($file))->toBeFalse($file);
+    foreach ($workers as $unit) {
+        expect(is_file($dropIn($unit)))->toBeFalse($unit);
     }
+});
+
+// security review M1: a secret reached awk on its command line (-v), readable by every user in /proc/<pid>/cmdline,
+// and awk -v turned its backslashes into escapes. setkey hands it over in the environment.
+it('writes a key into app.env with its backslashes intact and never on a command line', function () {
+    $box = $this->deployBox = stagingSandbox();
+    // an awk that logs its arguments, then runs the real one
+    file_put_contents($box['dir'].'/bin/awk', "#!/usr/bin/env bash\nhere=\"\$(cd \"\$(dirname \"\$0\")\" && pwd)\"\n. \"\$here/stub.env\"\nprintf 'awk %s\\n' \"\$*\" >> \"\$STUB_LOG\"\n"
+        ."IFS=: read -r -a dirs <<< \"\$PATH\"\nfor d in \"\${dirs[@]}\"; do if [ -x \"\$d/awk\" ] && ! [ \"\$d/awk\" -ef \"\$0\" ]; then exec \"\$d/awk\" \"\$@\"; fi; done\nexit 127\n");
+    chmod($box['dir'].'/bin/awk', 0755);
+    file_put_contents($box['dir'].'/etc/app.env', "APP_ENV=staging\nDB_PASSWORD=old\nREDIS_PASSWORD=\n");
+
+    $r = stagingRun($box, [], [], [], "setkey DB_PASSWORD 'pa\\ss\\n\\tw0rd'; setkey REDIS_PASSWORD 'r\\e'; setkey NEW_KEY 'n\\1'; exit 0");
+    $env = (string) file_get_contents($box['dir'].'/etc/app.env');
+    expect($r['rc'])->toBe(0, $r['out'])
+        ->and($env)->toContain("DB_PASSWORD=pa\\ss\\n\\tw0rd\n")->toContain("REDIS_PASSWORD=r\\e\n")->toContain("NEW_KEY=n\\1\n")
+        ->not->toContain('DB_PASSWORD=old')
+        ->and($r['stub'])->toContain('awk ')->not->toContain('w0rd')->not->toContain('r\\e');
 });
 
 it('hands public/build to the run user, keeps the code root\'s and app.env root:www 0640, and refuses a linked build directory', function () {
@@ -1692,8 +1736,14 @@ it('hands public/build to the run user, keeps the code root\'s and app.env root:
 
     if (PHP_OS_FAMILY !== 'Windows') { // NTFS keeps no group/other write bit for Git Bash to find, and no symlink unprivileged
         chmod($box['dir'].'/app/config/app.php', 0666);
+        // security review M3: root's chmod follows a link — a link in the code to a writable file elsewhere is never chmodded
+        file_put_contents($box['dir'].'/outside.txt', 'not the site');
+        chmod($box['dir'].'/outside.txt', 0666);
+        symlink($box['dir'].'/outside.txt', $box['dir'].'/app/config/linked.php');
         $writable = stagingRun($box, ['harden']);
-        expect($writable['rc'])->toBe(0, $writable['out'])->and($writable['stub'])->toContain('chmod go-w ./app.php');
+        expect($writable['rc'])->toBe(0, $writable['out'])->and($writable['stub'])->toContain('chmod go-w ./app.php')
+            ->not->toContain('linked.php')->not->toContain('outside.txt');
+        unlink($box['dir'].'/app/config/linked.php');
 
         File::deleteDirectory($box['dir'].'/app/public/build');
         File::ensureDirectoryExists($box['dir'].'/elsewhere');
@@ -1724,12 +1774,19 @@ it('parks a release the deployer refuses or fails, keeps the last good release c
             ->and($park['operator'] ?? null)->toBe('test-operator')
             ->and(is_file($box['dir'].'/state/releases/current'))->toBeFalse()
             ->and($r['out'])->toContain('PARKED')->toContain('deploy '.$box['SHA_A']);
+        // security review M5: after the switch the migrations have run — going back to the old code does not undo them
+        $rc === 5
+            ? expect($r['out'])->toContain('migrations')->toContain('release-and-rollback.md')
+            : expect($r['out'])->not->toContain('migrations');
     }
     // rc 5 switched the tree in place (VERSION names B): the last good release is still A, never what VERSION says
     expect((string) file_get_contents($box['dir'].'/app/VERSION'))->toStartWith($box['SHA_B']);
 
     $bad = stagingRun($box, ['deploy', 'not-a-sha']);
     expect($bad['rc'])->toBe(2)->and($bad['stub'])->not->toContain('onhost-deploy');
+    // security review L6: the deployer mode takes nothing but a full SHA either (it feeds `git show <sha>:…`)
+    $badDeployer = stagingRun($box, ['deployer', 'HEAD~1']);
+    expect($badDeployer['rc'])->toBe(2)->and($badDeployer['out'])->toContain('40-character');
 });
 
 it('records a good release as current, clears its earlier park, and builds the frontend as the run user', function () {
@@ -1761,7 +1818,8 @@ it('parks a release whose frontend bundle cannot be built and exits non-zero (th
     $r = stagingRun($box, ['deploy', $box['SHA_B']], [], ['STUB_NPM_BUILD_EXIT' => '1']);
     $park = stagingRecord($box['dir'].'/state/releases/'.$box['SHA_B'].'.parked');
     expect($r['rc'])->toBe(8, $r['out'])->and($park['stage'] ?? null)->toBe('frontend')->and($park['previous'] ?? null)->toBe($box['SHA_A'])
-        ->and(is_file($box['dir'].'/state/releases/current'))->toBeFalse();
+        ->and(is_file($box['dir'].'/state/releases/current'))->toBeFalse()
+        ->and($r['out'])->toContain('migrations')->toContain('release-and-rollback.md');
 
     file_put_contents($box['dir'].'/bin/node', "#!/usr/bin/env bash\necho v22.1.0\n");   // no Node 24: a failure now, no longer a skipped step
     $noNode = stagingRun($box, ['deploy', $box['SHA_B']]);
@@ -1792,6 +1850,12 @@ it('sets up the tip of development, records and prints that commit, and never pa
         ->toContain("deploy {$given}")
         ->and(stagingRecord($box['dir'].'/state/setup-sha')['target'] ?? null)->toBe($given);
 
+    // security review L9: a host check that fails has changed nothing — no release is parked for it
+    $other = str_repeat('e', 40);
+    $checkFails = stagingRun($box, ['setup', $other], [], [], $prelude.'; check() { die "fix the host first"; }');
+    expect($checkFails['rc'])->toBe(2, $checkFails['out'])->and($checkFails['out'])->not->toContain('PARKED')
+        ->and(is_file($box['dir'].'/state/releases/'.$other.'.parked'))->toBeFalse();
+
     // a failing step parks the target and setup exits non-zero
     $failing = stagingRun($box, ['setup', $given], [], [], $prelude.'; deployer() { return 3; }');
     $park = stagingRecord($box['dir'].'/state/releases/'.$given.'.parked');
@@ -1803,8 +1867,15 @@ it('keeps the staging script in step with install.sh and the deployer where they
         expect(deployGateShellFunction('staging.sh', $name))->not->toBe('')->toBe(deployGateShellFunction('deploy.sh', $name));
     }
     expect(deployGateShellLine('staging.sh', 'usranalyse_loaded'))->not->toBe('')->toBe(deployGateShellLine('install.sh', 'usranalyse_loaded'))
-        ->and(deployGateShellFunction('staging.sh', 'usranalyse_dropins'))->not->toBe('')->toBe(deployGateShellFunction('install.sh', 'usranalyse_dropins'));
+        ->and(deployGateShellFunction('staging.sh', 'usranalyse_dropins'))->not->toBe('')->toBe(deployGateShellFunction('install.sh', 'usranalyse_dropins'))
+        ->and(deployGateShellFunction('staging.sh', 'usranalyse_dropin_text'))->not->toBe('')->toBe(deployGateShellFunction('install.sh', 'usranalyse_dropin_text'));
     $source = (string) file_get_contents(base_path('infra/aapanel/staging.sh'));
+    // security review L7: the doctor reports root keeps are root's alone from the moment they are created
+    preg_match_all('#^.*>\s*/root/doctor-[a-z0-9-]+\.json.*$#m', $source, $writes);
+    expect($writes[0])->not->toBeEmpty();
+    foreach ($writes[0] as $line) {
+        expect($line)->toContain('umask 077');
+    }
     expect($source)->not->toMatch('#chown -R#')->not->toMatch('#chmod -R#')
         // setup deploys the commit it resolved once, never whatever VERSION says
         ->and(preg_match('/^setup\(\) \{.*?^\}$/ms', $source, $m))->toBe(1)->and($m[0])->not->toContain('VERSION');

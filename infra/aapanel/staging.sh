@@ -37,6 +37,7 @@ PHP=${PHP:-/www/server/php/85/bin/php}
 PHP_FPM_RELOAD=${PHP_FPM_RELOAD:-/etc/init.d/php-fpm-85 reload}
 PHP_FPM_UNIT=${PHP_FPM_UNIT:-php-fpm-85.service}
 STATE=${DEPLOY_STATE_DIR:-/var/lib/onhost-deploy/$SITE}
+DEPLOY_STATE_DIR=$STATE   # install.sh's name, used by the functions the two scripts share
 R=$STATE/repo.git
 ENV_DIR=${ENV_DIR:-/etc/onhost}
 DG=/usr/local/lib/onhost-deploy/deploy-gate.php
@@ -97,15 +98,37 @@ repair_ownership() {
 # ProtectSystem did). While it is preloaded, a drop-in sets ProtectSystem=no for the units the run user's processes run
 # in; once it is gone the drop-in is removed and the unit's own ProtectSystem=strict applies again (a hardening is not
 # given up where nothing needs it). NoNewPrivileges and PrivateTmp stay. Identical in install.sh and staging.sh.
+#
+# Security review M2: the platform's own units (onhost-*, unprivileged, run as the run user) get back part of what
+# ProtectSystem gave up, without making / /usr /etc read-only: no writes to kernel tunables, no module loading, a
+# read-only cgroup tree, no set-uid/set-gid files, one execution domain, no capabilities at all. Three of these
+# (ProtectKernelTunables, ProtectKernelModules, ProtectControlGroups) still use systemd's mount namespace, so each is
+# verified on the host with the module loaded (docs/runbooks/staging-aapanel.md). A directive that brings the crash back
+# is named, one per line, in $DEPLOY_STATE_DIR/usranalyse-omit and left out from then on (a hand edit of the drop-in
+# would be rewritten). Any other unit (PHP-FPM) is a precaution: a drop-in only while the unit exists, ProtectSystem=no
+# alone — its master runs as root and needs its capabilities to switch to the run user.
 usranalyse_loaded() { grep -qsE '^[^#]*usranalyse' "$USRANALYSE_PRELOAD_FILE"; }
+usranalyse_dropin_text() { # $1 = unit
+  local line
+  printf '%s\n' "# infra/aapanel: $USRANALYSE_PRELOAD_FILE loads aaPanel's libusranalyse.so, which crashes the run user's" \
+    '# processes under any ProtectSystem= (staging 2026-09-28, deploy rc 7). Removed again once the module is gone.' \
+    '[Service]' 'ProtectSystem=no'
+  case $1 in onhost-*) ;; *) return 0 ;; esac
+  echo "# verified on this host? docs/runbooks/staging-aapanel.md; a directive that crashes goes into $DEPLOY_STATE_DIR/usranalyse-omit"
+  for line in ProtectKernelTunables=yes ProtectKernelModules=yes ProtectControlGroups=yes RestrictSUIDSGID=yes LockPersonality=yes CapabilityBoundingSet=; do
+    grep -qsxF "${line%%=*}" "$DEPLOY_STATE_DIR/usranalyse-omit" || echo "$line"
+  done
+}
 usranalyse_dropins() { # $@ = units
-  local u d changed=0
+  local u d want changed=0
   for u in "$@"; do
     d="$SYSTEMD_DIR/$u.d"
+    want=0
     if usranalyse_loaded; then
-      mkdir -p "$d" && printf '%s\n' "# infra/aapanel: $USRANALYSE_PRELOAD_FILE loads aaPanel's libusranalyse.so, which crashes the run user's" \
-        '# processes under any ProtectSystem= (staging 2026-09-28, deploy rc 7). Removed again once the module is gone.' \
-        '[Service]' 'ProtectSystem=no' > "$d/$USRANALYSE_DROPIN.new" || return 1
+      case $u in onhost-*) want=1 ;; *) systemctl cat "$u" >/dev/null 2>&1 && want=1 ;; esac
+    fi
+    if [ "$want" = 1 ]; then
+      mkdir -p "$d" && usranalyse_dropin_text "$u" > "$d/$USRANALYSE_DROPIN.new" || return 1
       if cmp -s "$d/$USRANALYSE_DROPIN.new" "$d/$USRANALYSE_DROPIN"; then
         rm -f "$d/$USRANALYSE_DROPIN.new"
       else
@@ -207,8 +230,10 @@ db() {
   ok "created; password kept in /root/.onhost-staging-dbpw (0600) until 'env' writes it into app.env"
 }
 
+# the value reaches awk in its environment (root-only /proc/<pid>/environ), never on its command line (world-readable
+# /proc/<pid>/cmdline), and ENVIRON keeps its backslashes where awk -v turned them into escapes (security review M1)
 setkey() { ( umask 077; f=$ENV_DIR/app.env
-  if grep -q "^$1=" "$f"; then awk -v k="$1" -v v="$2" 'index($0, k"=")==1 { if (!d) print k"="v; d=1; next } { print }' "$f" > "$f.new"
+  if grep -q "^$1=" "$f"; then K="$1" V="$2" awk 'index($0, ENVIRON["K"]"=")==1 { if (!d) print ENVIRON["K"]"="ENVIRON["V"]; d=1; next } { print }' "$f" > "$f.new"
   else { cat "$f"; printf '%s=%s\n' "$1" "$2"; } > "$f.new"; fi
   cat "$f.new" > "$f" && rm -f "$f.new" ); }
 
@@ -286,6 +311,7 @@ install_app() {
 
 deployer() {
   local sha=${1:-}; [ -n "$sha" ] || sha=$(cut -d' ' -f1 "$APP_DIR/VERSION")
+  [[ $sha =~ ^[0-9a-f]{40}$ ]] || die "give the full 40-character SHA (it is read with git show <sha>:...)"
   say "Gated deployer from $sha"
   env GIT_DIR="$R" GIT_CONFIG_GLOBAL=/dev/null git fetch -q --tags origin
   env GIT_DIR="$R" git show "$sha:infra/aapanel/install-deployer.sh" > /root/install-deployer.sh
@@ -302,7 +328,7 @@ deployer() {
   if [ ! -f "$STATE/expected-nonok" ]; then
     # staging phase 1 runs without panels, so some doctor rows are non-OK by design: the rows non-OK TODAY are accepted
     # once (a snapshot); a row that turns non-OK later still stops a release (docs/runbooks/staging-launch.md O11)
-    art onhost:doctor --json > /root/doctor-s4b.json 2>/dev/null || true
+    (umask 077; art onhost:doctor --json > /root/doctor-s4b.json 2>/dev/null) || true
     (umask 077; "$PHP" "$DG" nonok --report /root/doctor-s4b.json --production 0 > "$STATE/expected-nonok")
     ok "expected-nonok: $(wc -l < "$STATE/expected-nonok") rows accepted as non-OK on staging ($STATE/expected-nonok)"
   fi
@@ -410,7 +436,8 @@ EOF
 harden() {
   say "aaPanel host: systemd drop-ins, ownership and modes"
   if usranalyse_loaded; then
-    echo "  ➜ aaPanel's usranalyse is preloaded ($USRANALYSE_PRELOAD_FILE): ProtectSystem=no drop-ins for $(units_of_run_user)"
+    echo "  ➜ aaPanel's usranalyse is preloaded ($USRANALYSE_PRELOAD_FILE): ProtectSystem=no drop-ins for onhost-queue@ and onhost-scheduler"
+    echo "    (with the compensating hardening; omit list: $STATE/usranalyse-omit) and, only if it runs under systemd, $PHP_FPM_UNIT"
   fi
   # shellcheck disable=SC2046 # unit names are plain words
   usranalyse_dropins $(units_of_run_user) || die "cannot write the systemd drop-ins under $SYSTEMD_DIR"
@@ -450,6 +477,9 @@ web_build_dir() { # vite writes public/build as the run user (npm run build); pu
 # directory itself is www's (aaPanel), so www can replace a top-level entry anyway and nothing there is worth a race. A
 # top-level code directory that is not root's is reported, not taken over. Entries are re-owned with chown -h from
 # inside their directory; modes are fixed in pre-order (\;) so a directory is closed before its entries are read.
+# chmod follows a link (security review M3): only entries that are root's and no link when find looks at them are
+# chmodded, from inside their directory, and every directory above them is root's and closed by then, so nobody else
+# can swap the name for a link in between.
 code_read_only() {
   local d top bad="" keep=( \( -path "$APP_DIR/bootstrap/cache" -o -path "$APP_DIR/public/build" \) -prune -o )
   top=$(GIT_DIR="$R" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null git ls-tree -d --name-only HEAD) \
@@ -459,7 +489,7 @@ code_read_only() {
     [ -d "$APP_DIR/$d" ] && [ ! -L "$APP_DIR/$d" ] || continue
     if [ -n "$(find -P "$APP_DIR/$d" -maxdepth 0 \( ! -uid "$DEPLOY_OWNER_UID" -o -perm /022 \) -print)" ]; then bad="$bad $d"; continue; fi
     PATH="$DEPLOY_SAFE_PATH" find -P "$APP_DIR/$d" -mindepth 1 "${keep[@]}" ! -type l ! -uid "$DEPLOY_OWNER_UID" -execdir chown -h "$DEPLOY_OWNER_UID" {} + || return 1
-    PATH="$DEPLOY_SAFE_PATH" find -P "$APP_DIR/$d" -mindepth 1 "${keep[@]}" ! -type l -perm /022 -execdir chmod go-w {} \; || return 1
+    PATH="$DEPLOY_SAFE_PATH" find -P "$APP_DIR/$d" -mindepth 1 "${keep[@]}" ! -type l -uid "$DEPLOY_OWNER_UID" -perm /022 -execdir chmod go-w {} \; || return 1
   done
   [ -z "$bad" ] || { echo "  ✖ top-level code directories not uid $DEPLOY_OWNER_UID's or writable by others:$bad — find out what wrote them, then chown root / chmod go-w by hand" >&2; return 1; }
 }
@@ -512,6 +542,12 @@ park_release() { # $1 sha, $2 rc, $3 stage — the release failed: marked parked
     printf '  no earlier good release is recorded: fix the cause and run the same command again\n' >&2
   fi
   [ "${3:-}" != deployer ] || printf '  the deployer printed its own recovery above (maintenance and drained units follow its exit code)\n' >&2
+  # after the switch the target's migrations may have run: the old code then meets the new schema (security review M5)
+  case "${3:-}:$2" in
+    deployer:4|deployer:5|deployer:6|deployer:7|frontend:*)
+      printf '  WARNING: the migrations of %s may already have run. Going back deploys the old code onto the NEW schema\n' "$1" >&2
+      printf '  (migrations are additive for one release); a database restore needs the owner: docs/runbooks/release-and-rollback.md, Rollback\n' >&2 ;;
+  esac
 }
 
 on_exit() {
@@ -558,7 +594,7 @@ status() {
   usranalyse_loaded && echo "  usranalyse preloaded; drop-ins: $(ls "$SYSTEMD_DIR"/*.d/"$USRANALYSE_DROPIN" 2>/dev/null | tr '\n' ' ')"
   systemctl list-units --plain --no-legend 'onhost-*' || true
   tail -1 "$STATE/deploy.log" 2>/dev/null || true
-  art onhost:doctor --json 2>/dev/null > /root/doctor-status.json || true
+  (umask 077; art onhost:doctor --json 2>/dev/null > /root/doctor-status.json) || true
   "$PHP" -r '$d=json_decode(file_get_contents("/root/doctor-status.json"),true)?:[]; array_walk_recursive($d,function(){}); foreach(($d["checks"]??$d) as $c){ if(!is_array($c)) continue; $n=($c["area"]??"")."|".($c["check"]??$c["name"]??""); $s=$c["status"]??""; if($s!=="OK"||str_contains($n,"alive")||str_contains($n,"scheduler")) echo "  $s  $n\n"; }' || true
   curl -s -o /dev/null -w '  /up over loopback: %{http_code}\n' --resolve $SITE:443:127.0.0.1 https://$SITE/up || true
 }
@@ -580,9 +616,9 @@ setup() { # the whole first launch at one commit, resolved once; stops at the fi
   local sha=${1:-} origin="given"
   if [ -z "$sha" ]; then sha=$(latest_sha); origin="tip of development"; fi
   [[ $sha =~ ^[0-9a-f]{40}$ ]] || die "no setup target: give the full 40-character SHA (development tip read as '$sha')"
-  RELEASE_SHA=$sha
   say "setup target: $sha ($origin)"
-  RELEASE_STAGE=check; check
+  check   # read-only: a host that fails it has changed nothing, so nothing is parked (security review L9)
+  RELEASE_SHA=$sha
   if [ -d "$APP_DIR" ] && [ -n "$(ls -A "$APP_DIR" 2>/dev/null)" ] && ! own_install; then RELEASE_STAGE=contain; contain; park; fi
   [ -d "$APP_DIR" ] || install -d -o "$RUN_USER" -g "$RUN_USER" -m 0755 "$APP_DIR"
   record_setup "$sha"

@@ -65,7 +65,17 @@ printf '$1 %s\n' "\$*" >> "\$STUB_LOG"
 exit "\${STUB_$(printf '%s' "$1" | tr 'a-z-' 'A-Z_')_EXIT:-0}"
 EOF
 }
-for tool in chown chmod systemctl fpm-reload; do log_stub "$tool"; done
+for tool in chown chmod fpm-reload; do log_stub "$tool"; done
+# systemctl: logs; `cat <unit>` answers whether the unit exists (the units named in STUB_UNITS_PRESENT)
+cat > "$box/bin/systemctl" <<'EOF'
+#!/usr/bin/env bash
+here="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck disable=SC1091
+. "$here/stub.env"
+printf 'systemctl %s\n' "$*" >> "$STUB_LOG"
+if [ "${1:-}" = cat ]; then case " ${STUB_UNITS_PRESENT:-} " in *" ${2:-} "*) exit 0 ;; esac; exit 1; fi
+exit 0
+EOF
 cat > "$box/bin/id" <<'EOF'
 #!/usr/bin/env bash
 # root for staging.sh's own check; anything else is the real id

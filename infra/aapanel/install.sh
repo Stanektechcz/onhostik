@@ -138,15 +138,37 @@ repo_is_roots() { [ -d "$DEPLOY_GIT_DIR" ] && [ ! -L "$DEPLOY_GIT_DIR" ] && [ -z
 # ProtectSystem did). While it is preloaded, a drop-in sets ProtectSystem=no for the units the run user's processes run
 # in; once it is gone the drop-in is removed and the unit's own ProtectSystem=strict applies again (a hardening is not
 # given up where nothing needs it). NoNewPrivileges and PrivateTmp stay. Identical in install.sh and staging.sh.
+#
+# Security review M2: the platform's own units (onhost-*, unprivileged, run as the run user) get back part of what
+# ProtectSystem gave up, without making / /usr /etc read-only: no writes to kernel tunables, no module loading, a
+# read-only cgroup tree, no set-uid/set-gid files, one execution domain, no capabilities at all. Three of these
+# (ProtectKernelTunables, ProtectKernelModules, ProtectControlGroups) still use systemd's mount namespace, so each is
+# verified on the host with the module loaded (docs/runbooks/staging-aapanel.md). A directive that brings the crash back
+# is named, one per line, in $DEPLOY_STATE_DIR/usranalyse-omit and left out from then on (a hand edit of the drop-in
+# would be rewritten). Any other unit (PHP-FPM) is a precaution: a drop-in only while the unit exists, ProtectSystem=no
+# alone — its master runs as root and needs its capabilities to switch to the run user.
 usranalyse_loaded() { grep -qsE '^[^#]*usranalyse' "$USRANALYSE_PRELOAD_FILE"; }
+usranalyse_dropin_text() { # $1 = unit
+  local line
+  printf '%s\n' "# infra/aapanel: $USRANALYSE_PRELOAD_FILE loads aaPanel's libusranalyse.so, which crashes the run user's" \
+    '# processes under any ProtectSystem= (staging 2026-09-28, deploy rc 7). Removed again once the module is gone.' \
+    '[Service]' 'ProtectSystem=no'
+  case $1 in onhost-*) ;; *) return 0 ;; esac
+  echo "# verified on this host? docs/runbooks/staging-aapanel.md; a directive that crashes goes into $DEPLOY_STATE_DIR/usranalyse-omit"
+  for line in ProtectKernelTunables=yes ProtectKernelModules=yes ProtectControlGroups=yes RestrictSUIDSGID=yes LockPersonality=yes CapabilityBoundingSet=; do
+    grep -qsxF "${line%%=*}" "$DEPLOY_STATE_DIR/usranalyse-omit" || echo "$line"
+  done
+}
 usranalyse_dropins() { # $@ = units
-  local u d changed=0
+  local u d want changed=0
   for u in "$@"; do
     d="$SYSTEMD_DIR/$u.d"
+    want=0
     if usranalyse_loaded; then
-      mkdir -p "$d" && printf '%s\n' "# infra/aapanel: $USRANALYSE_PRELOAD_FILE loads aaPanel's libusranalyse.so, which crashes the run user's" \
-        '# processes under any ProtectSystem= (staging 2026-09-28, deploy rc 7). Removed again once the module is gone.' \
-        '[Service]' 'ProtectSystem=no' > "$d/$USRANALYSE_DROPIN.new" || return 1
+      case $u in onhost-*) want=1 ;; *) systemctl cat "$u" >/dev/null 2>&1 && want=1 ;; esac
+    fi
+    if [ "$want" = 1 ]; then
+      mkdir -p "$d" && usranalyse_dropin_text "$u" > "$d/$USRANALYSE_DROPIN.new" || return 1
       if cmp -s "$d/$USRANALYSE_DROPIN.new" "$d/$USRANALYSE_DROPIN"; then
         rm -f "$d/$USRANALYSE_DROPIN.new"
       else
@@ -204,7 +226,8 @@ run_uid="$(id -u "$RUN_USER" 2>/dev/null || true)"
 [ "$(as_run id -u 2>/dev/null || true)" = "$run_uid" ] || die "cannot run the site's PHP as $RUN_USER (setpriv, and setsid --wait from util-linux 2.31+, run as root)"
 if usranalyse_loaded; then
   warn "aaPanel's usranalyse module is preloaded ($USRANALYSE_PRELOAD_FILE): it crashes every process of $RUN_USER that systemd starts under ProtectSystem= (the workers die with SIGSEGV, a deploy ends with rc 7)."
-  warn "  this script writes $SYSTEMD_DIR/onhost-queue@.service.d/$USRANALYSE_DROPIN and $SYSTEMD_DIR/onhost-scheduler.service.d/$USRANALYSE_DROPIN (ProtectSystem=no; NoNewPrivileges and PrivateTmp stay) when it renders the units, and removes them once the module is gone (docs/runbooks/staging-aapanel.md)"
+  warn "  this script writes $SYSTEMD_DIR/onhost-queue@.service.d/$USRANALYSE_DROPIN and $SYSTEMD_DIR/onhost-scheduler.service.d/$USRANALYSE_DROPIN (ProtectSystem=no plus hardening that keeps / writable: kernel tunables, modules, cgroups, no set-uid, no capabilities; NoNewPrivileges and PrivateTmp stay) when it renders the units, and removes them once the module is gone."
+  warn "  verify each directive on this host; one that brings the crash back goes into $DEPLOY_STATE_DIR/usranalyse-omit (docs/runbooks/staging-aapanel.md)"
 fi
 
 # An installed site is never installed again (the old script re-ran `db:seed` on a live database)
