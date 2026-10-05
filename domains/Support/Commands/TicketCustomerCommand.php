@@ -16,6 +16,10 @@ use Onhost\Platform\Commands\OrganizationCommand;
  * A customer's write on their organization's tickets, dispatched by `op` (TASK-0098 — the portal opened and answered tickets
  * in TicketService straight from the controller, past the bus, its idempotency and its audit of the command):
  *  create{subject, body, category?, priority?, service_id?, domain_id?, attachments?} · reply{ticket_id, body, attachments?}
+ *  close{ticket_id} · rate{ticket_id, score, comment?} · handoff{ai_run_id, reason, subject, body, category?, summary, topic?, facts?}
+ *
+ * F12b: closing and rating a ticket, and the ticket the assistant opens when it hands a conversation to a person (handoff), went
+ * past the bus too; they are ops here now. A handoff is opened in the name of the person who was chatting, never by the platform.
  *
  * The scope is what the ticket concerns, as TicketVisibility reads it: a ticket about a service is written at that service (a
  * project developer opens one about their own service), any other at the organization. The service and its project are the
@@ -26,9 +30,12 @@ use Onhost\Platform\Commands\OrganizationCommand;
  */
 final class TicketCustomerCommand extends OrganizationCommand implements RiskAwareCommand
 {
-    public const OPS = ['create', 'reply'];
+    public const OPS = ['create', 'reply', 'close', 'rate', 'handoff'];
 
-    protected const AUDIT_STRIP = ['password', 'auth_info', 'secret', 'code', 'token', 'totp', 'recovery_code', 'subject', 'body', 'attachments'];
+    /** The ops that act on a ticket that exists: written at the scope of that ticket. */
+    private const ON_TICKET = ['reply', 'close', 'rate'];
+
+    protected const AUDIT_STRIP = ['password', 'auth_info', 'secret', 'code', 'token', 'totp', 'recovery_code', 'subject', 'body', 'attachments', 'comment', 'summary', 'facts', 'topic'];
 
     public function op(): string
     {
@@ -47,7 +54,7 @@ final class TicketCustomerCommand extends OrganizationCommand implements RiskAwa
 
     public function scope(): CommandScope
     {
-        $serviceId = $this->op() === 'reply'
+        $serviceId = in_array($this->op(), self::ON_TICKET, true)
             ? Ticket::query()->where('organization_id', $this->organizationId)->whereKey((string) $this->get('ticket_id'))->value('service_id')
             : $this->get('service_id');
         if (! is_string($serviceId) || $serviceId === '') {

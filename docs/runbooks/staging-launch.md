@@ -696,7 +696,7 @@ it; the site stays down and S4b–S7 are the only next steps (nothing else may r
 QUEUES='default mails' REF=<STAGING_SHA> EXPECTED_SHA=<STAGING_SHA> START_UNITS=0 bash /root/onhost-install.sh
 cd $APP && $AS_WWW $P artisan onhost:provisioning:freeze "staging phase 1 - no panels"
 touch $STATE/expect-freeze
-# staff console → Integrations: wedos-main (created by InfrastructureSeeder) → state "disabled" (a staff-view signal; its credentials are empty, O4)
+# staff console → Integrations: wedos-main (created by InfrastructureSeeder) shows state "disabled" — seeded so while its credentials are empty (O4, F12b); nothing to switch
 ```
 
 Verify: `$STATE/installed` exists; `cat $STATE/expected-units` = the scheduler, `default`, `mails`; the doctor JSON has

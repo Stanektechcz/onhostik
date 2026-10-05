@@ -74,7 +74,8 @@ final class InvoiceController extends ApiController
         $model = $this->resolve($request, $invoice, 'billing.invoice.manage');
         $data = $request->validate(['reason' => ['required', 'string', 'min:5', 'max:250'], 'line_ids' => ['nullable', 'array', 'max:100'], 'line_ids.*' => ['string', 'max:40'], 'amounts' => ['nullable', 'array', 'max:100'], 'amounts.*' => ['integer', 'min:1'], 'return_to_credit' => ['nullable', 'boolean'], 'incident_ref' => ['nullable', 'string', 'max:40']]);
 
-        return $this->dispatch(new InvoiceCommand($model->organization_id, $this->idempotencyKey($request, 'invoice.credit'), ['op' => 'credit_note', 'invoice_id' => $model->id] + $data), $this->api->context($request, Organization::query()->find($model->organization_id), $data['reason']), 201);
+        // the key names the invoice, as invoice.pay's (F12b): one header on two invoices of an organization is two credit notes
+        return $this->dispatch(new InvoiceCommand($model->organization_id, $this->idempotencyKey($request, 'invoice.credit:'.$model->id), ['op' => 'credit_note', 'invoice_id' => $model->id] + $data), $this->api->context($request, Organization::query()->find($model->organization_id), $data['reason']), 201);
     }
 
     public function markPaid(Request $request, string $invoice): JsonResponse
@@ -82,7 +83,8 @@ final class InvoiceController extends ApiController
         $model = $this->resolve($request, $invoice, 'billing.invoice.manage');
         $data = $request->validate(['method' => ['required', 'in:bank,card,cash,other'], 'reference' => ['required', 'string', 'max:60'], 'reason' => ['required', 'string', 'max:250']]);
 
-        return $this->dispatch(new InvoiceCommand($model->organization_id, $this->idempotencyKey($request, 'invoice.markpaid'), ['op' => 'mark_paid', 'invoice_id' => $model->id] + $data), $this->api->context($request, Organization::query()->find($model->organization_id), $data['reason']));
+        // the key names the invoice (F12b)
+        return $this->dispatch(new InvoiceCommand($model->organization_id, $this->idempotencyKey($request, 'invoice.markpaid:'.$model->id), ['op' => 'mark_paid', 'invoice_id' => $model->id] + $data), $this->api->context($request, Organization::query()->find($model->organization_id), $data['reason']));
     }
 
     private function resolve(Request $request, string $id, string $permission = 'billing.invoice.read'): Invoice

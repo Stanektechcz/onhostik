@@ -18,8 +18,6 @@ use Onhost\Domain\Support\Commands\WorkOfferDecisionCommand;
 use Onhost\Domain\Support\Models\Ticket;
 use Onhost\Domain\Support\Models\TicketMessage;
 use Onhost\Domain\Support\Models\WorkOffer;
-use Onhost\Domain\Support\TicketService;
-use Onhost\Domain\Support\TicketStateMachine;
 use Onhost\Domain\Support\TicketVisibility;
 use Onhost\Domain\Support\WorkOfferService;
 use Onhost\Platform\Commands\CommandScope;
@@ -71,8 +69,7 @@ final class SupportController extends ApiController
         $data = $request->validate(['body' => ['required', 'string', 'max:20000'], 'attachments' => ['nullable', 'array', 'max:10']]);
         // TASK-0098: through the bus; without an Idempotency-Key the key carries the ticket's present version — a double click is one
         // message, the next message on the changed ticket a new one (as the staff desk, Staff\SupportController::onTicket)
-        $header = $request->headers->get('Idempotency-Key');
-        $prefix = "ticket.reply:{$model->id}".(is_string($header) && $header !== '' ? '' : ':'.TicketCustomerCommand::versionOf($model));
+        $prefix = $this->ticketKeyPrefix($request, 'ticket.reply', $model);
         $payload = ['op' => 'reply', 'ticket_id' => $model->id, 'body' => $data['body'], 'attachments' => (array) ($data['attachments'] ?? [])];
         $this->bus->dispatch(new TicketCustomerCommand((string) $model->organization_id, $this->idempotencyKey($request, $prefix), $payload), $this->api->context($request, Organization::query()->find($model->organization_id)));
 
@@ -128,23 +125,33 @@ final class SupportController extends ApiController
         $this->api->assertTokenScope($request, $permission);
     }
 
-    public function close(Request $request, TicketService $tickets, string $ticket): JsonResponse
+    public function close(Request $request, string $ticket): JsonResponse
     {
         $model = $this->resolve($request, $ticket, TicketVisibility::WRITE);
-        if (! $model->isOpen()) {
-            throw new DomainError('ticket_not_open', 'Tiket už je vyřešený.', 409);
-        }
-        $tickets->transition($model, TicketStateMachine::RESOLVED, $this->api->context($request), 'Zákazník označil požadavek za vyřešený.', 'public'); // the customer's own words: public (TicketService made a transition note internal by default, TASK-0054)
+        // F12b: through the bus (TicketCustomerCommand op close); without an Idempotency-Key the key carries the ticket's present
+        // version, so a ticket reopened and closed again is closed again, not the first close replayed
+        $this->bus->dispatch(new TicketCustomerCommand((string) $model->organization_id, $this->idempotencyKey($request, $this->ticketKeyPrefix($request, 'ticket.close', $model)), ['op' => 'close', 'ticket_id' => $model->id]), $this->api->context($request, Organization::query()->find($model->organization_id)));
 
         return response()->json(['data' => self::ticket($model->fresh(), true)]);
     }
 
-    public function rate(Request $request, TicketService $tickets, string $ticket): JsonResponse
+    public function rate(Request $request, string $ticket): JsonResponse
     {
         $model = $this->resolve($request, $ticket, TicketVisibility::WRITE);
         $data = $request->validate(['score' => ['required', 'integer', 'min:1', 'max:5'], 'comment' => ['nullable', 'string', 'max:500']]);
+        // F12b: through the bus (op rate); the comment stays out of the bus's audit row
+        $payload = ['op' => 'rate', 'ticket_id' => $model->id, 'score' => (int) $data['score'], 'comment' => $data['comment'] ?? null];
+        $this->bus->dispatch(new TicketCustomerCommand((string) $model->organization_id, $this->idempotencyKey($request, $this->ticketKeyPrefix($request, 'ticket.rate', $model)), $payload), $this->api->context($request, Organization::query()->find($model->organization_id)));
 
-        return response()->json(['data' => self::ticket($tickets->rate($model, (int) $data['score'], $data['comment'] ?? null, $this->api->context($request)))]);
+        return response()->json(['data' => self::ticket($model->fresh())]);
+    }
+
+    /** The bus key of a write on a ticket: with an Idempotency-Key the header decides, without one the ticket's present version (as reply). */
+    private function ticketKeyPrefix(Request $request, string $operation, Ticket $ticket): string
+    {
+        $header = $request->headers->get('Idempotency-Key');
+
+        return "{$operation}:{$ticket->id}".(is_string($header) && $header !== '' ? '' : ':'.TicketCustomerCommand::versionOf($ticket));
     }
 
     public function assistant(Request $request, AssistantService $assistant, Authorizer $authorizer): JsonResponse

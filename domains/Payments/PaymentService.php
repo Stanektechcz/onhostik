@@ -325,34 +325,64 @@ final class PaymentService
         }, 3);
     }
 
-    /** Refund to the original payment source; wallet refund record is completed when the provider confirms. */
+    /**
+     * Refund to the original payment source; wallet refund record is completed when the provider confirms.
+     *
+     * F12b (security review of PR #99): the payment is locked and read again before the cap is checked, so two refunds under
+     * different keys cannot both pass it; the refund is in the payment's own currency; a key is one refund — a retry asking for
+     * the same thing gets it back, another amount, currency or payment under the key is refused before the provider is called.
+     */
     public function refund(PaymentIntent $intent, Money $amount, string $reason, string $idempotencyKey, CommandContext $context, ?string $walletRefundId = null): PaymentRefund
     {
-        if (! $intent->isSucceeded()) {
-            throw new DomainError('payment_not_refundable', 'Only successful payments can be refunded.', 409);
-        }
-        if ($intent->refunded_minor + $amount->minor > $intent->amount_minor) {
-            throw new DomainError('refund_exceeds_payment', 'Refund exceeds the captured amount.', 409);
-        }
-        $existing = PaymentRefund::query()->where('idempotency_key', $idempotencyKey)->first();
-        if ($existing !== null) {
-            return $existing;
-        }
-        $provider = $this->providers->get($intent->provider);
-        $result = $provider->refund((string) $intent->provider_id, $amount, $idempotencyKey, $reason);
-        $refund = PaymentRefund::query()->create([
-            'payment_intent_id' => $intent->id, 'provider_refund_id' => $result['provider_refund_id'], 'amount_minor' => $amount->minor, 'currency' => $amount->currency->value,
-            'state' => in_array($result['state'], ['succeeded', 'FINISHED', 'PAID', 'REFUNDED', 'succeeded_pending'], true) ? 'succeeded' : 'pending', 'reason' => $reason,
-            'idempotency_key' => $idempotencyKey, 'wallet_refund_id' => $walletRefundId, 'created_by' => $context->actorType.':'.($context->actorId ?? 'system'),
-        ]);
-        $refunded = $intent->refunded_minor + $amount->minor;
-        $intent->forceFill(['refunded_minor' => $refunded, 'state' => $refunded >= $intent->amount_minor ? S::REFUNDED : S::PARTIALLY_REFUNDED])->save();
-        if ($walletRefundId !== null) {
-            WalletRefund::query()->where('id', $walletRefundId)->update(['state' => $refund->state === 'succeeded' ? 'completed' : 'pending', 'payment_refund_id' => $refund->id]);
-        }
-        $this->audit->record($context->withScope($intent->organization_id), 'payment.refund', 'succeeded', ['amount' => $amount, 'reason' => $reason, 'provider_refund' => $result['provider_refund_id']], 'payment_intent', $intent->id);
+        return DB::transaction(function () use ($intent, $amount, $reason, $idempotencyKey, $context, $walletRefundId) {
+            $intent = PaymentIntent::query()->lockForUpdate()->findOrFail($intent->id);
+            $existing = PaymentRefund::query()->where('idempotency_key', $idempotencyKey)->first();
+            if ($existing !== null) {
+                $same = $existing->payment_intent_id === $intent->id && (int) $existing->amount_minor === $amount->minor && (string) $existing->getRawOriginal('currency') === $amount->currency->value;
 
-        return $refund;
+                return $same ? $existing : throw new DomainError('idempotency_key_reused', 'This idempotency key was already used for another refund.', 409);
+            }
+            if (! $intent->isSucceeded()) {
+                throw new DomainError('payment_not_refundable', 'Only successful payments can be refunded.', 409);
+            }
+            if ($amount->currency->value !== strtoupper((string) $intent->currency)) {
+                throw new DomainError('refund_currency_mismatch', 'A refund is made in the currency of the payment.', 422, ['field' => 'currency']);
+            }
+            if ($intent->refunded_minor + $amount->minor > $intent->amount_minor) {
+                throw new DomainError('refund_exceeds_payment', 'Refund exceeds the captured amount.', 409);
+            }
+            $provider = $this->providers->get($intent->provider);
+            $result = $provider->refund((string) $intent->provider_id, $amount, $idempotencyKey, $reason);
+            $refund = PaymentRefund::query()->create([
+                'payment_intent_id' => $intent->id, 'provider_refund_id' => $result['provider_refund_id'], 'amount_minor' => $amount->minor, 'currency' => $amount->currency->value,
+                'state' => in_array($result['state'], ['succeeded', 'FINISHED', 'PAID', 'REFUNDED', 'succeeded_pending'], true) ? 'succeeded' : 'pending', 'reason' => $reason,
+                'idempotency_key' => $idempotencyKey, 'wallet_refund_id' => $walletRefundId, 'created_by' => $context->actorType.':'.($context->actorId ?? 'system'),
+            ]);
+            $refunded = $intent->refunded_minor + $amount->minor;
+            $intent->forceFill(['refunded_minor' => $refunded, 'state' => $refunded >= $intent->amount_minor ? S::REFUNDED : S::PARTIALLY_REFUNDED])->save();
+            if ($walletRefundId !== null) {
+                WalletRefund::query()->where('id', $walletRefundId)->update(['state' => $refund->state === 'succeeded' ? 'completed' : 'pending', 'payment_refund_id' => $refund->id]);
+            }
+            $this->audit->record($context->withScope($intent->organization_id), 'payment.refund', 'succeeded', ['amount' => $amount, 'reason' => $reason, 'provider_refund' => $result['provider_refund_id']], 'payment_intent', $intent->id);
+            if ($refund->state === 'succeeded') {
+                $this->announceRefund($intent, $refund, $amount, $refunded);
+            }
+
+            return $refund;
+        }, 3);
+    }
+
+    /**
+     * F12b: money went back to its source and no credit note says so — the customer is told and loyalty takes the payment's points
+     * back. Only a refund the gateway confirmed: a pending one (a bank payout finance still has to make) is announced when it is
+     * confirmed — nothing confirms one yet, so it is not announced at all rather than announced early.
+     */
+    private function announceRefund(PaymentIntent $intent, PaymentRefund $refund, Money $amount, int $refunded): void
+    {
+        $this->outbox->publish(GenericEvent::of('payment.refunded', 'payment', $intent->id, [
+            'refund_id' => $refund->id, 'amount' => $amount, 'refunded' => Money::minor($refunded, $amount->currency), 'full' => $refunded >= $intent->amount_minor,
+            'provider' => $intent->provider, 'purpose' => $intent->purpose, 'reference' => [$intent->reference_type, $intent->reference_id],
+        ], $intent->organization_id));
     }
 
     /** Daily settlement reconciliation (§64.6): provider settlement vs intents vs ledger. */
