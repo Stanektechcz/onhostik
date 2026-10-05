@@ -6665,11 +6665,14 @@ paths:
           content:
             application/json:
               schema:
-                oneOf:
-                  -
-                    $ref: '#/components/schemas/Envelope'
-                  -
-                    $ref: '#/components/schemas/List'
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    oneOf:
+                      - { type: object, title: Person, required: [type, user], properties: { type: { const: person }, user: { type: object }, organizations: { type: array, items: { type: object } }, organization: { type: [object, 'null'] }, step_up: { type: [object, 'null'] }, surface: { type: string, enum: [panel, admin] } } }
+                      - { type: object, title: ServiceAccount, required: [type, account, organization, role, scopes], properties: { type: { const: service_account }, account: { type: object, required: [id, name], properties: { id: { type: string }, name: { type: string } } }, organization: { type: object, required: [id, name], properties: { id: { type: string }, name: { type: string } } }, role: { type: [string, 'null'] }, scopes: { type: array, items: { type: string } }, token: { type: object, properties: { id: { type: string }, expires_at: { type: [string, 'null'], format: date-time } } } } }
         422:
           description: 'Validation or domain rule violation'
           content:
@@ -6706,6 +6709,7 @@ paths:
         -
           bearer: []
       x-token-scope: []
+      description: "Who is calling. A person (session or personal token) gets `type: person` with the account, the organizations and the step-up state; a service account token gets `type: service_account` with the account, its organization, its role and the token's scopes (F12a). The endpoints that act for a person still answer a service account `403 person_required`."
     patch:
       operationId: patchMe
       tags:

@@ -216,8 +216,10 @@ it('never lets a service account token take a step-up action or act as a person'
     [$owner, $org] = $this->customerWithOrganization();
     $plain = (string) saApiCreate($this, $owner, $org, ['role' => 'org_admin', 'scopes' => ['services:read', 'tickets:write']])->assertCreated()->json('token');
 
-    // the person-only endpoints answer that they are for a person, not a 500 and not somebody else's data
-    saApiBearer($this, $plain, $org)->getJson('/v1/me')->assertForbidden()->assertJsonPath('error', 'person_required');
+    // the person-only endpoints answer that they are for a person, not a 500 and not somebody else's data; GET /v1/me answers
+    // who the account is (F12a)
+    saApiBearer($this, $plain, $org)->getJson('/v1/tickets')->assertForbidden()->assertJsonPath('error', 'person_required');
+    saApiBearer($this, $plain, $org)->getJson('/v1/me')->assertOk()->assertJsonPath('data.type', 'service_account')->assertJsonPath('data.role', 'org_admin');
     // it cannot step up (the route is no token's) …
     saApiBearer($this, $plain, $org)->postJson('/v1/auth/step-up', ['method' => 'password', 'password' => 'x'])->assertForbidden();
     // … so a HIGH command it sends is refused by the bus, even with the organization admin's role behind it

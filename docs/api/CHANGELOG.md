@@ -4,6 +4,15 @@ Každý záznam je nadpis `## datum | druh | název | okno` a odstavec pod ním.
 `security`; okno je volitelné. Stránka `/dokumentace/api` i `/api` čtou tenhle soubor (`PublicApiDocs::changelog()`),
 takže tu nikdy nestojí nic jiného než na webu. Nový záznam patří nahoru.
 
+## 2026-10-05 | compatible | Testovací událost webhooku bez Idempotency-Key narazí na limit
+`POST /v1/webhooks/{endpoint}/ping` bez hlavičky `Idempotency-Key` je pokaždé nový požadavek: druhý ping v době čekání odpoví `429 webhook_ping_cooldown` s `retry_after`. Dřív se dva pingy během jedné minuty sloučily a druhý dostal znovu první odpověď `202`. Se stejnou hlavičkou `Idempotency-Key` se ping dál jen zopakuje; založení, otočení tajemství a ostatní zápisy webhooků zůstávají bez hlavičky idempotentní v rámci minuty.
+
+## 2026-10-05 | new | GET /v1/me odpoví i klíči servisního účtu
+Klíč servisního účtu se na `GET /v1/me` dozví, kdo je: `type: service_account`, účet (id, název), organizace (id, název), role účtu, rozsahy klíče a jeho platnost. Dřív dostal `403 person_required`. Odpověď osobě nese nově `type: person`, jinak je beze změny. Ostatní koncové body určené člověku odpovídají servisnímu účtu dál `403 person_required`.
+
+## 2026-10-05 | security | Cizí organizace v X-Organization odpoví 404
+Kdo pošle `X-Organization` (nebo `?organization=`) organizace, do které nepatří, dostane `404 not_found` stejně jako u identifikátoru, který neexistuje; dřív odpověď `403` prozradila, že organizace existuje. Člen organizace, kterému chybí oprávnění, dostává dál `403` s názvem chybějícího oprávnění.
+
 ## 2026-10-05 | compatible | Klíč servisního účtu na staff cestě dostane 403, ne 401
 Klíč servisního účtu, který zavolá cestu pod `/v1/staff/`, dostává `403 staff_only` (účet je přihlášený, jen to není zaměstnanec). Dřív odpověď zněla `401 unauthenticated` "Sign in to continue", což klienta vyzývalo k novému přihlášení s platným klíčem.
 
