@@ -108,6 +108,7 @@ final class OutboxPublisher
             ->where('available_at', '<=', now())
             ->where('attempts', '<', 10)
             ->orderBy('available_at')
+            ->orderBy('id') // TASK-0101: messages published in one instant tie; without this Postgres picks any subset of them
             ->limit($limit)
             ->get();
         foreach ($messages as $message) {

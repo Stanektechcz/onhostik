@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Http;
 use Onhost\Domain\Notifications\Lexicon;
 use Onhost\Domain\Notifications\Models\Notification;
 use Onhost\Platform\Events\GenericEvent;
+use Onhost\Platform\Outbox\OutboxMessage;
 use Onhost\Platform\Outbox\OutboxPublisher;
 
 /*
@@ -49,10 +50,16 @@ it('leaves no Czech phrase in any customer or user notification of an English or
             // an event whose publisher insists on a shape is covered by its own feature test
         }
     }
-    try {
-        $outbox->relayPending();
-    } catch (Throwable) {
+    // TASK-0101: drain the outbox — one relay delivers only a batch, and which events fell into it used to depend on
+    // the database (ties in available_at), so the events past the batch were checked on some runs and not on others
+    $waiting = fn () => OutboxMessage::query()->whereNull('published_at')->where('available_at', '<=', now())->where('attempts', 0)->count();
+    for ($round = 0; $round < 20 && $waiting() > 0; $round++) {
+        try {
+            $outbox->relayPending();
+        } catch (Throwable) {
+        }
     }
+    expect($waiting())->toBe(0); // every event reached the router (a handler that refused one is retried later, not here)
     $left = [];
     Notification::query()->where('locale', 'en')->get()->each(function (Notification $n) use (&$left) {
         $words = array_merge(Lexicon::untranslated((string) $n->title), Lexicon::untranslated((string) $n->body));
