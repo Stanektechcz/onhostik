@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Providers\IspConfig;
 
 use Illuminate\Support\Str;
+use Onhost\Domain\Support\Assistant\SecretMask;
 use Onhost\Platform\Errors\ProviderErrorCode;
 use Onhost\Platform\Errors\ProviderException;
 use Onhost\Platform\Secrets\SecretRef;
@@ -33,14 +34,14 @@ trait IspConfigTools
     private array $siteShells = [];
 
     /** Test seam: a factory returning the shell to use for a site (ScriptedShell in the suite); null = real SSH. Set it on the adapter class (`IspConfigWebProvider::$shellFactory`), not on the trait. */
-    public static $shellFactory = null;
+    public static ?\Closure $shellFactory = null;
 
     /** Test seam: a factory `(ResourceRef $site, string $root): ?FileTransport` for the SFTP half of the toolkit (files, dumps, panel-backup download); null = real SFTP over the agent user. Set on the adapter class like `$shellFactory`. */
-    public static $transportFactory = null;
+    public static ?\Closure $transportFactory = null;
 
     public function shell(ResourceRef $site): NodeShell
     {
-        if (self::$shellFactory !== null) {
+        if (self::$shellFactory !== null && app()->runningUnitTests()) { // a seam is honoured in the test suite only
             $scripted = (self::$shellFactory)($site, $this->instance);
             if ($scripted instanceof NodeShell) {
                 return $scripted;
@@ -60,7 +61,7 @@ trait IspConfigTools
 
     public function transport(ResourceRef $site): FileTransport
     {
-        $seam = self::$transportFactory === null ? null : (self::$transportFactory)($site, $this->agentDocroot($site));
+        $seam = self::$transportFactory === null || ! app()->runningUnitTests() ? null : (self::$transportFactory)($site, $this->agentDocroot($site));
         if ($seam instanceof FileTransport) {
             return $seam;
         }
@@ -325,7 +326,7 @@ trait IspConfigTools
         $cmd = sprintf('mkdir -p "$HOME/private" && mysqldump --single-transaction --quick --routines --triggers -h %s -u %s -p%s %s | gzip > "$HOME/%s"', Q::arg($host), Q::arg($user), Q::arg($password), Q::arg($name), $remote);
         $run = $this->shell($site)->run($cmd, ['timeout' => 900]);
         if (! $run->ok()) {
-            throw new ProviderException('ispconfig', ProviderErrorCode::VALIDATION, 'The dump failed: '.$run->output());
+            throw new ProviderException('ispconfig', ProviderErrorCode::VALIDATION, 'The dump failed: '.app(SecretMask::class)->text($run->output()));
         }
         $transport = $this->siteDirTransport($site);
         $transport->download($remote, $localFile);
@@ -348,7 +349,7 @@ trait IspConfigTools
         $run = $this->shell($site)->run($cmd, ['timeout' => 900]);
         $this->shell($site)->run('rm -f "$HOME/'.$remote.'"', ['timeout' => 20]);
         if (! $run->ok()) {
-            throw new ProviderException('ispconfig', ProviderErrorCode::VALIDATION, 'The import failed: '.$run->output());
+            throw new ProviderException('ispconfig', ProviderErrorCode::VALIDATION, 'The import failed: '.app(SecretMask::class)->text($run->output()));
         }
 
         return ProviderResult::completed(new ResourceRef('database', $remoteId, $site->node, ['name' => $name], $site->serviceId), ['imported' => true]);
@@ -594,7 +595,7 @@ trait IspConfigTools
     private function siteDirTransport(ResourceRef $site): FileTransport
     {
         $root = $this->siteDirInShell($site);
-        $seam = self::$transportFactory === null ? null : (self::$transportFactory)($site, $root);
+        $seam = self::$transportFactory === null || ! app()->runningUnitTests() ? null : (self::$transportFactory)($site, $root);
         if ($seam instanceof FileTransport) {
             return $seam;
         }
