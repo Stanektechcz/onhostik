@@ -31,3 +31,13 @@ jako směr**. Jejich provedení na živých systémech dál potřebuje výslovn�
 | D-4 | Okno rozpracované idempotentní operace je `max(600, 2 × max_execution_time + 60)` sekund. | D5 | TASK-0075 #68. |
 | D-5 | Odchozí webhooky smějí na porty 443 a 8443. | D4 | TASK-0077 #70. |
 | D-6 | R9 (platnost tokenů) se ve fázi D řeší jako dokumentace. | D6 | TASK-0079 #72. |
+
+## Rozhodnutí přijatá ve fázi E
+
+| # | Rozhodnutí | Provedeno | Poznámka |
+|---|---|---|---|
+| E-R1 | R7 platí od nasazení dál a i pro marketplace; existující řádky svůj stav nemění. | TASK-0097 #89 | Migrace se zastaví nad skutečným dvojím naúčtováním (rozhoduje finance). |
+| E-R2 | Pořadí čerpání kreditu: nejdřív zakoupený. | TASK-0099 #92 | Změna je na jednom místě, `RefundableCredit::replay`. |
+| E-R3 | R5 je zavedeno úzce podle textu rozhodnutí (objednávky nad 5 000 Kč, výplaty partnerům). | TASK-0096 #88 | Rozdělení objednávky na menší je známý limit. |
+| E-R4 | Drop-in usranalyse se dosazuje jen tam, kde je knihovna zjištěna, s výjimkami podle hostu. | TASK-0082 #77 | Ověření direktivy na serveru provede operátor. |
+| E-R5 | `EnsureStaff` a oracle existence: člen organizace bez oprávnění dostane 403, cizí 404. | TASK-0098 #91 | |

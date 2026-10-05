@@ -282,3 +282,93 @@ Stav nálezů P1-9 až P1-12 a položek P2/P3 z oblasti A5 (veřejné API) po f�
 * `DestructivePreview` jen česky.
 * UX rotace remember tokenu.
 * Test přeinstalace VPS na testovacím uzlu se souhlasem vlastníka.
+
+## Stav po fázi E (2026-10-05)
+
+Stav nálezů P0-5, P0-6, P1-13, P1-14 a P1-16 a rozhodnutí R3, R5, R6 a R7 po fázi E. „Hotovo“ znamená sloučeno do `development` s testy; „otevřeno“ znamená, že práce neproběhla, nebo čeká na rozhodnutí či zásah vlastníka. Čísla PR jsou z repozitáře `Stanektechcz/onhostik`.
+
+### P0
+
+| Nález | Stav | Task / PR | Poznámka |
+|---|---|---|---|
+| P0-5 | hotovo v kódu, ověření na serveru otevřeno | TASK-0082 #77 (E0) | `staging.sh` dosadí drop-in `ProtectSystem=no` jen tam, kde detekuje `libusranalyse` (`install.sh` totéž), s kompenzačním zpevněním a seznamem výjimek pro každý host. Přítomnost direktivy na stagingu musí ověřit operátor podle `docs/runbooks/staging-aapanel.md`. |
+| P0-6 | hotovo | TASK-0082 #77 (E0) | SHA se zapíše do `setup`, při selhání se strom zaparkuje a heslo k DB se neztratí, `public/build` vlastní www, `chmod` se týká jen souborů vlastněných rootem. |
+
+### P1
+
+| Nález | Stav | Task / PR | Poznámka |
+|---|---|---|---|
+| P1-13 | hotovo | TASK-0095 #87 (E12, R6) | Body jen od platby 100 Kč, dobropis body odebere (zpětné odebrání pod zámkem organizace). Uplatnění bodů R6 neřeší. |
+| P1-14 | částečně hotovo | #78 (E1), #84 (E6) | Platební a dunning tok jde přes skutečné HTTP routy a příkazy cronu s fake bránou. Samostatná sada nad nahranými odpověďmi Comgate zde není doložena; před uzavřením potvrdit. |
+| P1-16 | hotovo, ověření na serveru otevřeno | TASK-0084 #76 (E11), TASK-0082 #77 | Doctor má nápravy u každého nálezu a go-live runbook pořadí kroků; `public/build` vlastní www; runbook `staging-aapanel.md`. Kroky TOTP a obnovu `expected-nonok` provádí operátor (viz níže). |
+
+### Rozhodnutí R3, R5, R6, R7
+
+| Rozhodnutí | Stav | Task / PR | Poznámka |
+|---|---|---|---|
+| R3 | otevřeno | – | Compute zálohy (P0-4): čeká na výsledek kontroly PBS vlastníkem. |
+| R5 | hotovo (úzce) | TASK-0096 #88 | Neověřený e-mail blokuje objednávky nad 5 000 Kč a výplaty partnerům; přibyl endpoint pro opakované odeslání. Rozdělení objednávky na menší je známý limit. |
+| R6 | hotovo | TASK-0095 #87 | Minimum 100 Kč a odebrání bodů při dobropisu. Událost `payment.refunded` viz otevřené body. |
+| R7 | hotovo | TASK-0097 #89 | Splatnost 30 dní, platí od nasazení dál a i pro marketplace. Migrace se zastaví při skutečném dvojím naúčtování. |
+
+### Sloučená práce fáze E
+
+| Task | Obsah | PR |
+|---|---|---|
+| TASK-0083 | E-tool: seznam cest v `brain.ps1` | #75 |
+| TASK-0084 | E11: nápravy v doctoru a pořadí kroků v go-live runbooku | #76 |
+| TASK-0082 | E0: `staging.sh`, `install.sh`, runbook `staging-aapanel.md` | #77 |
+| E1 | Registrace až po web | #78 |
+| E2 | Doména, DNS, transfer (opraven únik `provider: powerdns`) | #79 |
+| E3 | Mail (opraveno: DKIM se nikdy nepublikoval; únik chyby ISPConfigu) | #80 |
+| E5 | Game (lístek konzole prozrazoval URL Wings a id panelu; cizí host v chybě) | #81 |
+| E4 | VPS (úniky vmid/node/executor; dvojklik na konzoli přehrál lístek) | #82 |
+| E7 | Podpora (osiřelý ticket; únik existence čísla ticketu) | #83 |
+| E6 | Billing a dunning | #84 |
+| E8 | Sdílení a role | #85 |
+| E9 | Automatizace přes API (servisní účet: 401 změněno na 403 `staff_only`) | #86 |
+| E12 | Věrnost, R6 | #87 |
+| R5 | Neověřený e-mail | #88 |
+| R7 | Odklad provize 30 dní | #89 |
+| E10 | Zrušení a konec účtu (obnova automatického prodloužení; ISPConfig web s databází šel zrušit; chybějící e-mailová šablona; test seamy jen v testech) | #90 |
+| – | Oracle existence vrací 404, zákaznické tickety přes bus, klíče podle požadavku pro staff | #91 |
+| – | Vratný zůstatek nejvýše do nevyčerpaného zakoupeného kreditu; pravdivý stav po selhání závěrečné archivace; `service.termination.failed` | #92 |
+
+### Otevřené navazující body
+
+Vlastník (rozhodnutí):
+
+* R3: výsledek kontroly PBS, teprve potom `backups.compute`.
+* S1-05: automatizační grants.
+* `TRUSTED_PROXIES`: přesné adresy.
+* Dvojí doklad DPH: při zaplacení vystavené faktury vzniká i příjmový doklad.
+* Uplatnění věrnostních bodů (R6 žádné nemá).
+* `services.reinstate` zůstává ve výchozím stavu vypnuté.
+* Pořadí čerpání kreditu: zvoleno nejdřív zakoupený.
+* Vrácení v hotovosti u vratek zaplacených z kreditu.
+
+Vlastník (kroky na serveru):
+
+* Ověřit direktivu usranalyse na stagingu podle `docs/runbooks/staging-aapanel.md`.
+* Revize katalogu (`onhost:catalog:revise --apply`).
+* Zápis TOTP.
+
+Technické navazující body:
+
+* `X-Organization` s cizí organizací stále vrací 403.
+* Zavření a hodnocení ticketu a předání asistenta nejdou přes bus.
+* Událost `payment.refunded` pro odebrání bodů.
+* Dvojí započtení základu fragmentu (partnerské tiery).
+* Webhooky: výchozí fronta, překryv při rotaci tajného klíče, souběžný ping.
+* `/v1/me` pro servisní účty a portálové UI.
+* Tvrzení prototypu (`api.onhost.cz`, 90 dní / 12 měsíců).
+* Znovu vygenerovat API klienty.
+* `DestructivePreview` jen česky.
+* UX rotace remember tokenu.
+* Test přeinstalace VPS na testovacím uzlu se souhlasem vlastníka.
+* Typ vazby „qemu“ je vidět zákazníkovi.
+* Nestabilní testy: `DiscordIntegrationTest` (dávka), `LexiconCoverageTest`, selhání `getenv()` jen při paralelním běhu, `ArchiveRestoreScopeTest`.
+* Neexistující role `support_agent` v `AdminLoyaltyCapacityViewsTest`, `StaffConsolePageTest`, `GameQuickCreateTest`.
+* `WalletService::refund` zatím nikdo nevolá.
+* R7: migrace se na nasazení může zastavit, pokud produkce obsahuje skutečné dvojí naúčtování; musí je vyřešit finance (viz go-live checklist §9).
+* Panel nemá UI pro opakované odeslání a ověření e-mailu (R5).

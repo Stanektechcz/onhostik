@@ -268,6 +268,14 @@ From `docs/security/grant-policy.md` §7. No plan, price or issued document chan
   owner and admins are told of any member's reset.
 - There is no screen for these yet: undo, the ownership offer and the recovery notice are API endpoints until the access
   wizard (S1-04).
+
+## 9. Operator steps after Phase E
+
+| Step | Read first | Command | Verify | Status |
+| --- | --- | --- | --- | --- |
+| Deploy migration `000950` (R7: partner commissions wait 30 days after payment; unique `(invoice_id, kind)`) | `database/migrations/0001_01_01_000950_partner_commissions_wait_out_their_grace.php` | `infra/aapanel/deploy.sh` | The migration stops with `partner_commissions: N (invoice, kind) group(s) hold more than one commission …` when production holds a genuine double accrual. Nothing was changed before it stopped. **Finance** decides per listed `invoice/kind` which row is right and cancels or merges the other one through the usual correction path (never by editing amounts by hand); then the deploy is run again. Payout remainders are recognised and marked automatically | finance |
+| Staging usranalyse directive (aaPanel `libusranalyse.so`) | `docs/runbooks/staging-aapanel.md` | Verify the drop-in as that runbook describes, after `staging.sh setup` | Queue workers stay up (no exit code 7); the per-host omit list was reviewed | operator |
+
 ## One report of how the installation stands
 
 `php artisan onhost:staging:report --check` asks every panel the read-only questions (`SelfProbing`), runs the doctor
