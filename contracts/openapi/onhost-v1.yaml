@@ -2043,7 +2043,7 @@ paths:
         -
           $ref: '#/components/parameters/Organization'
       responses:
-        201:
+        '201':
           description: Success
           content:
             application/json:
@@ -2053,7 +2053,7 @@ paths:
                     $ref: '#/components/schemas/Envelope'
                   -
                     $ref: '#/components/schemas/List'
-        422:
+        '422':
           description: 'Validation or domain rule violation — error: `loyalty_below_minimum`, `loyalty_points_unavailable`, `loyalty_points_invalid`'
           content:
             application/json:
@@ -2064,31 +2064,31 @@ paths:
                   -
                     properties:
                       error: { enum: [loyalty_below_minimum, loyalty_points_unavailable, loyalty_points_invalid] }
-        429:
+        '429':
           description: 'Rate limited'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
-        200:
+        '200':
           description: 'Success (idempotent replay or synchronous result)'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Envelope'
-        401:
+        '401':
           description: Unauthenticated
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
-        403:
+        '403':
           description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
-        404:
+        '404':
           description: 'Not found'
           content:
             application/json:
@@ -8026,7 +8026,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
-        409:
+        '409':
           description: 'Conflict with the current state — error: `loyalty_points_unavailable`, `quote_already_used`'
           content:
             application/json:
@@ -26834,7 +26834,7 @@ paths:
         -
           $ref: '#/components/parameters/Organization'
       responses:
-        200:
+        '200':
           description: Success
           content:
             application/json:
@@ -26844,31 +26844,31 @@ paths:
                     $ref: '#/components/schemas/Envelope'
                   -
                     $ref: '#/components/schemas/List'
-        422:
+        '422':
           description: 'Validation or domain rule violation'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
-        429:
+        '429':
           description: 'Rate limited'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
-        401:
+        '401':
           description: Unauthenticated
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
-        403:
+        '403':
           description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
-        404:
+        '404':
           description: 'Not found'
           content:
             application/json:
@@ -26896,7 +26896,7 @@ paths:
         -
           $ref: '#/components/parameters/Organization'
       responses:
-        201:
+        '201':
           description: Success
           content:
             application/json:
@@ -26906,43 +26906,43 @@ paths:
                     $ref: '#/components/schemas/Envelope'
                   -
                     $ref: '#/components/schemas/List'
-        422:
+        '422':
           description: 'Validation or domain rule violation'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
-        429:
+        '429':
           description: 'Rate limited'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
-        200:
+        '200':
           description: 'Success (idempotent replay or synchronous result)'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Envelope'
-        401:
+        '401':
           description: Unauthenticated
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
-        403:
+        '403':
           description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
-        404:
+        '404':
           description: 'Not found'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
-        409:
+        '409':
           description: 'Conflict with the current state — error: `refund_not_pending`'
           content:
             application/json:
@@ -26994,7 +26994,7 @@ paths:
         -
           $ref: '#/components/parameters/Organization'
       responses:
-        201:
+        '201':
           description: Success
           content:
             application/json:
@@ -27004,7 +27004,7 @@ paths:
                     $ref: '#/components/schemas/Envelope'
                   -
                     $ref: '#/components/schemas/List'
-        422:
+        '422':
           description: 'Validation or domain rule violation — error: `topup_not_refundable`, `refund_payment_not_order`, `withdrawal_sent_before_order`'
           content:
             application/json:
@@ -27015,25 +27015,25 @@ paths:
                   -
                     properties:
                       error: { enum: [topup_not_refundable, refund_payment_not_order, withdrawal_sent_before_order] }
-        429:
+        '429':
           description: 'Rate limited'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
-        200:
+        '200':
           description: 'Success (idempotent replay or synchronous result)'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Envelope'
-        401:
+        '401':
           description: Unauthenticated
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
-        403:
+        '403':
           description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes) — error: `withdrawal_consumers_only`, `approval_required`'
           content:
             application/json:
@@ -27044,13 +27044,13 @@ paths:
                   -
                     properties:
                       error: { enum: [withdrawal_consumers_only, approval_required] }
-        404:
+        '404':
           description: 'Not found'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
-        409:
+        '409':
           description: 'Conflict with the current state — error: `refund_exceeds_payment`, `refund_exceeds_document`, `refund_document_booked`, `refund_document_missing`, `withdrawal_period_over`, `payment_not_refundable`, `idempotency_key_reused`'
           content:
             application/json:
