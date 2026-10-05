@@ -2,10 +2,12 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\Http;
 use Onhost\Domain\Identity\Authorization\TokenScopes;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Organizations\Commands\CreateOrganizationCommand;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Support\Assistant\AssistantService;
 use Onhost\Domain\Support\Commands\TicketCustomerCommand;
 use Onhost\Domain\Support\Models\Ticket;
@@ -90,4 +92,33 @@ it('refuses a revoked token on the bus as an unauthenticated principal', functio
 
     expect(fn () => app(CommandBus::class)->dispatch(tokenCommandTicket($org, 'g7-ticket-4'), $context))->toThrow(DomainError::class);
     expect(Ticket::query()->where('organization_id', $org->id)->count())->toBe(0);
+});
+
+// ── review LOW (a): what a token may do still runs through the bus, the handoff and a handler's chained commands included ──
+it('still lets the assistant hand a token conversation over when the token may write tickets', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $context = tokenCommandContext($owner, $org, [TokenScopes::TICKETS_WRITE]);
+
+    $answer = app(AssistantService::class)->chat('Chci mluvit s člověkem', $org, $owner, 'g7-chat-ok', $context, 'cs');
+
+    expect($answer['handoff'])->not->toBeNull()->and($answer['handoff']['reason'])->toBe('user_request')
+        ->and(Ticket::query()->whereKey($answer['handoff']['ticket_id'])->where('organization_id', $org->id)->exists())->toBeTrue()
+        ->and(AuditEvent::query()->where('action', 'ticket.customer.handoff')->where('result', 'succeeded')->count())->toBe(1);
+});
+
+it('still runs the commands a spec apply chains for a token whose scope covers them', function () {
+    // PUT /spec is one command for the token; the handler chains a service action per section, each decided by the bus on the
+    // same token context (ServiceSpecService) — a power token's backup schedule must still become an operation
+    [$owner, $org] = $this->customerWithOrganization();
+    $game = featureGameService($org);
+    Http::fake(fn () => Http::response(['object' => 'list', 'data' => [], 'meta' => ['pagination' => ['total_pages' => 1]]]));
+    $token = $owner->createToken('g7-spec', [TokenScopes::SERVICES_READ, TokenScopes::SERVICES_POWER, 'org:'.$org->id]);
+    $token->accessToken->forceFill(['organization_id' => $org->id])->save();
+    app('auth')->forgetGuards();
+    $spec = ['schedules' => [['name' => 'zaloha', 'cron' => '0 4 * * *', 'actions' => [['action' => 'backup', 'payload' => '']]]]];
+
+    $result = $this->withToken($token->plainTextToken)->putJson("/v1/services/{$game->id}/spec", ['spec' => $spec], ['X-Organization' => $org->id, 'Idempotency-Key' => 'g7-spec-chain'])->assertOk()->json();
+
+    expect($result['skipped'])->toBe([])->and(array_column($result['operations'], 'action'))->toBe(['schedule.create'])
+        ->and(Operation::query()->findOrFail($result['operations'][0]['operation_id'])->organization_id)->toBe($org->id);
 });
