@@ -10,6 +10,7 @@ use Onhost\Domain\Provisioning\Models\IpPool;
 use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\Models\Region;
+use Onhost\Domain\Provisioning\ProviderInstanceService;
 
 /**
  * Production infrastructure registry, driven entirely by the environment
@@ -38,7 +39,8 @@ final class InfrastructureSeeder extends Seeder
                 'options' => ['eggs' => $this->eggs('PTERODACTYL_GAMES01_EGGS')]],
             ['key' => 'powerdns-hidden01', 'provider' => 'powerdns', 'name' => 'PowerDNS hidden primary', 'region' => null, 'url' => env('POWERDNS_HIDDEN01_URL'), 'secret' => $secrets.'POWERDNS_HIDDEN01', 'capabilities' => ['dns' => true, 'dnssec' => true],
                 'options' => ['server_id' => 'localhost', 'nameservers' => config('onhost.dns.nameservers.powerdns'), 'also_notify' => $this->list('POWERDNS_HIDDEN01_ALSO_NOTIFY'), 'allow_axfr_from' => $this->list('POWERDNS_HIDDEN01_ALLOW_AXFR_FROM')]],
-            ['key' => 'wedos-main', 'provider' => 'wedos', 'name' => 'WEDOS WAPI', 'region' => null, 'url' => config('onhost.wapi.endpoint'), 'secret' => $secrets.'WEDOS_MAIN', 'capabilities' => ['registrar' => true, 'poll' => true, 'credit' => true], 'options' => ['egress_ip' => config('onhost.wapi.egress_ip')]],
+            ['key' => 'wedos-main', 'provider' => 'wedos', 'name' => 'WEDOS WAPI', 'region' => null, 'url' => config('onhost.wapi.endpoint'), 'secret' => $secrets.'WEDOS_MAIN', 'capabilities' => ['registrar' => true, 'poll' => true, 'credit' => true], 'options' => ['egress_ip' => config('onhost.wapi.egress_ip')],
+                'needs_credentials' => true], // the endpoint has a default, so this row exists everywhere: usable only with a WAPI login
             ['key' => 'wedos-zone', 'provider' => 'wedos_zone', 'name' => 'WEDOS Zone (secondary DNS)', 'region' => null, 'url' => env('WEDOS_ZONE_ENABLED') ? config('onhost.wapi.endpoint') : null, 'secret' => $secrets.'WEDOS_MAIN', 'capabilities' => ['dns' => 'secondary'], 'options' => []],
             ['key' => 'rke2-apps-cz1', 'provider' => 'kubernetes', 'name' => 'RKE2 apps CZ1', 'region' => 'cz1', 'url' => env('RKE2_CZ1_API_URL'), 'secret' => $secrets.'RKE2_CZ1', 'capabilities' => ['namespace.tenant' => true, 'deploy' => true, 'build' => true],
                 'options' => ['ingress_class' => env('RKE2_CZ1_INGRESS_CLASS', 'traefik'), 'ingress_namespace' => env('RKE2_CZ1_INGRESS_NAMESPACE', 'kube-system'), 'cluster_issuer' => env('RKE2_CZ1_CLUSTER_ISSUER', 'letsencrypt'), 'build_namespace' => env('RKE2_CZ1_BUILD_NAMESPACE', 'onhost-build'), 'registry' => env('RKE2_CZ1_REGISTRY', 'registry.onhost.internal'), 'tls_ca' => env('RKE2_CZ1_TLS_CA')]],
@@ -49,11 +51,25 @@ final class InfrastructureSeeder extends Seeder
             }
             ProviderInstance::query()->updateOrCreate(['key' => $i['key']], [
                 'provider' => $i['provider'], 'name' => $i['name'], 'region_code' => $i['region'], 'base_url' => rtrim((string) $i['url'], '/'), 'secret_ref' => $i['secret'],
-                'state' => 'active', 'capabilities' => $i['capabilities'], 'options' => array_filter($i['options'], fn ($v) => $v !== null), 'adapter_version' => '1.0.0',
+                'state' => ! empty($i['needs_credentials']) && ! $this->hasCredentials($i) ? 'disabled' : 'active', 'capabilities' => $i['capabilities'], 'options' => array_filter($i['options'], fn ($v) => $v !== null), 'adapter_version' => '1.0.0',
             ]);
         }
         $this->nodes();
         $this->pools();
+    }
+
+    /**
+     * F12b: a connection whose URL comes from a default (WEDOS) is seeded disabled until its secret holds every required key,
+     * so a registrar that cannot sign in never looks usable; the doctor lists it with the missing keys. An operator enables it
+     * (staff console → Integrations) once the credentials are stored, or a re-run of this seeder does.
+     *
+     * @param  array<string,mixed>  $i
+     */
+    private function hasCredentials(array $i): bool
+    {
+        $probe = (new ProviderInstance)->forceFill(['provider' => $i['provider'], 'secret_ref' => $i['secret']]);
+
+        return app(ProviderInstanceService::class)->credentialStatus($probe)['missing'] === [];
     }
 
     /** @return array<string, array<string,mixed>> */
