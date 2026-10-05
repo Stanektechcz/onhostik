@@ -58,7 +58,7 @@ final class PaymentController extends ApiController
         if ($model === null) {
             throw DomainError::notFound('payment');
         }
-        $this->api->authorize($request, 'billing.wallet.read', CommandScope::organization($model->organization_id));
+        $this->api->authorizeOrNotFound($request, 'billing.wallet.read', CommandScope::organization($model->organization_id), 'payment'); // a stranger: 404 (TASK-0098)
 
         return $model;
     }

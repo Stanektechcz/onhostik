@@ -407,7 +407,7 @@ final class ServiceController extends ApiController
             return $service;
         }
         // ── end TASK-0039 P0-16 re-check ──
-        $this->api->authorize($request, $permission, CommandScope::resource($service->id, $service->organization_id, $service->project_id), $tokenPermission); // a project role covers the services of that project
+        $this->api->authorizeOrNotFound($request, $permission, CommandScope::resource($service->id, $service->organization_id, $service->project_id), 'service', $tokenPermission); // a stranger: 404 (TASK-0098); a project role covers the services of that project
 
         return $service;
     }

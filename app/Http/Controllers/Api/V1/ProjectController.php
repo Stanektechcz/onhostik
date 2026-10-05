@@ -105,7 +105,7 @@ final class ProjectController extends ApiController
         if ($model === null) {
             throw DomainError::notFound('service');
         }
-        $this->api->authorize($request, 'service.manage', CommandScope::resource($model->id, $model->organization_id, $model->project_id));
+        $this->api->authorizeOrNotFound($request, 'service.manage', CommandScope::resource($model->id, $model->organization_id, $model->project_id), 'service'); // a stranger: 404 (TASK-0098)
         $org = $this->organization($request, $model->organization_id, 'project.manage');
         $data = $request->validate(['project_id' => ['present', 'nullable', 'string', 'max:40']]);
         if ($data['project_id'] !== null) {
@@ -121,7 +121,7 @@ final class ProjectController extends ApiController
         if ($org === null) {
             throw DomainError::notFound('organization');
         }
-        $this->api->authorize($request, $permission, CommandScope::organization($org->id));
+        $this->api->authorizeOrNotFound($request, $permission, CommandScope::organization($org->id), 'organization'); // a stranger: 404 (TASK-0098)
 
         return $org;
     }

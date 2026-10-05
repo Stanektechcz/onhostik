@@ -10,6 +10,7 @@ use App\Http\StaffReadAudit;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Provisioning\BulkActionService;
@@ -149,7 +150,7 @@ final class ProvisioningController extends ApiController
     {
         $data = $request->validate(['reason' => ['nullable', 'string', 'max:250'], 'acknowledge_vendor_task' => ['nullable', 'boolean']]); // H327: a timed-out provider task has to be looked at before the workflow starts over
 
-        return $this->dispatch(new ProvisioningCommand("op.retry:{$operation}:".now()->timestamp, ['op' => 'retry', 'operation_id' => $operation] + $data), $this->api->context($request, null, $data['reason'] ?? null), 202);
+        return $this->dispatch(new ProvisioningCommand($this->requestKey($request, "op.retry:{$operation}"), ['op' => 'retry', 'operation_id' => $operation] + $data), $this->api->context($request, null, $data['reason'] ?? null), 202);
     }
 
     public function cancel(Request $request, string $operation): JsonResponse
@@ -317,7 +318,7 @@ final class ProvisioningController extends ApiController
     {
         $data = $request->validate(['reason' => ['required', 'string', 'min:5', 'max:250']]);
 
-        return $this->dispatch(new ProvisioningCommand('freeze:'.now()->timestamp, ['op' => 'freeze'] + $data), $this->api->context($request, null, $data['reason']));
+        return $this->dispatch(new ProvisioningCommand($this->requestKey($request, 'freeze'), ['op' => 'freeze'] + $data), $this->api->context($request, null, $data['reason']));
     }
 
     /** Are reports and overviews being refused right now, why, and what the scheduled pass measured (H139). */
@@ -338,12 +339,12 @@ final class ProvisioningController extends ApiController
 
     public function thaw(Request $request): JsonResponse
     {
-        return $this->dispatch(new ProvisioningCommand('thaw:'.now()->timestamp, ['op' => 'thaw']), $this->api->context($request));
+        return $this->dispatch(new ProvisioningCommand($this->requestKey($request, 'thaw'), ['op' => 'thaw']), $this->api->context($request));
     }
 
     public function reconcile(Request $request, string $service): JsonResponse
     {
-        return $this->dispatch(new ProvisioningCommand("reconcile:{$service}:".now()->timestamp, ['op' => 'reconcile', 'service_id' => $service]), $this->api->context($request));
+        return $this->dispatch(new ProvisioningCommand($this->requestKey($request, "reconcile:{$service}"), ['op' => 'reconcile', 'service_id' => $service]), $this->api->context($request));
     }
 
     // ── provider instances (admin onboarding of Proxmox / ISPConfig / aaPanel / Pterodactyl / PowerDNS / WEDOS / RKE2) ──
@@ -432,5 +433,17 @@ final class ProvisioningController extends ApiController
         $data = $request->validate(['name' => ['required', 'string', 'max:120'], 'role' => ['required', 'in:compute,web,managed,game,mail,dns,apps,backup'], 'region_code' => ['nullable', 'string', 'max:16'], 'state' => ['nullable', 'in:active,draining,maintenance,unreachable,disabled'], 'capacity' => ['nullable', 'array'], 'failure_domain' => ['nullable', 'string', 'max:60'], 'remote_id' => ['nullable', 'string', 'max:120'], 'tags' => ['nullable', 'array']]);
 
         return $this->dispatch(new ProvisioningCommand($this->idempotencyKey($request, "node.upsert:{$instance}:{$data['name']}"), ['op' => 'node.upsert', 'instance_key' => $instance, 'node' => $data]), $this->api->context($request), 201);
+    }
+
+    /**
+     * TASK-0098: the key of one staff request — the caller's `Idempotency-Key` when given (its retry is the same command, replayed),
+     * otherwise one of its own. Keyed by the second, a deliberate repeat within it was answered from the replay store: a stale
+     * answer (freeze, thaw, freeze, thaw left the platform frozen while saying `frozen: false`), a masked token, or a 409.
+     */
+    private function requestKey(Request $request, string $prefix): string
+    {
+        $header = $request->headers->get('Idempotency-Key');
+
+        return is_string($header) && $header !== '' ? $this->idempotencyKey($request, $prefix) : $prefix.':'.Str::lower((string) Str::ulid());
     }
 }

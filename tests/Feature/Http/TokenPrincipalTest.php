@@ -77,10 +77,10 @@ it('refuses a token the resources of another organization by id — the service,
     Operation::query()->create(['organization_id' => $b->id, 'service_id' => $theirs->id, 'kind' => 'service.action', 'workflow' => 'x', 'state' => Operation::PENDING, 'idempotency_key' => 'tpt-queued', 'queue' => 'default', 'desired' => ['action' => 'backup']]);
 
     foreach (["/v1/services/{$theirs->id}", "/v1/services/{$theirs->id}/operations"] as $url) {
-        $this->withToken($plain)->getJson($url)->assertForbidden();
+        $this->withToken($plain)->getJson($url)->assertNotFound(); // a stranger to the organization: 404, as for a missing id (TASK-0098)
         app('auth')->forgetGuards();
     }
-    $this->withToken($plain)->withHeader('Idempotency-Key', 'tpt-act')->postJson("/v1/services/{$theirs->id}/actions", ['action' => 'backup'])->assertForbidden();
+    $this->withToken($plain)->withHeader('Idempotency-Key', 'tpt-act')->postJson("/v1/services/{$theirs->id}/actions", ['action' => 'backup'])->assertNotFound(); // a stranger to the organization: 404, as for a missing id (TASK-0098)
     app('auth')->forgetGuards();
     $this->flushHeaders();
     expect(Operation::query()->where('service_id', $theirs->id)->count())->toBe(1);
@@ -104,7 +104,7 @@ it('never lends a token the global reach of a staff role', function () {
     $token = $staff->createToken('tpt-staff', TokenScopes::ALL);
     $token->accessToken->forceFill(['organization_id' => $own->id])->save();
 
-    $this->withToken($token->plainTextToken)->getJson("/v1/services/{$foreign->id}")->assertForbidden();
+    $this->withToken($token->plainTextToken)->getJson("/v1/services/{$foreign->id}")->assertNotFound(); // a stranger to the organization: 404, as for a missing id (TASK-0098)
     app('auth')->forgetGuards();
     $this->withToken($token->plainTextToken)->withHeader('X-Organization', $customerOrg->id)->getJson('/v1/services')->assertForbidden();
     app('auth')->forgetGuards();

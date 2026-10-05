@@ -189,8 +189,8 @@ it('starts, stops and reboots a server, and refuses what is no power action', fu
     $this->flushSession();
     app('auth')->forgetGuards();
     e2eSignUp($this, 'vps.stranger@example.cz', 'Cizi s.r.o.');
-    $this->withHeaders(e2eHeaders('vps-stranger-read'))->getJson("/v1/services/{$service->id}")->assertStatus(403);
-    $this->withHeaders(e2eHeaders('vps-stranger-stop'))->postJson("/v1/services/{$service->id}/power", ['power_action' => 'stop'])->assertStatus(403);
+    $this->withHeaders(e2eHeaders('vps-stranger-read'))->getJson("/v1/services/{$service->id}")->assertNotFound(); // a stranger to the organization: 404, as for a missing id (TASK-0098)
+    $this->withHeaders(e2eHeaders('vps-stranger-stop'))->postJson("/v1/services/{$service->id}/power", ['power_action' => 'stop'])->assertNotFound(); // a stranger to the organization: 404, as for a missing id (TASK-0098)
     expect(e2eVpsGuest($pve, $service)['status'])->toBe('running')->and($pve['unknown'])->toBe([]);
 });
 
