@@ -13,6 +13,8 @@ use Onhost\Platform\Eloquent\Model;
  * customer; final). `paused` is how a suspension was written before D4 and is read as one.
  *
  * @property ?Carbon $last_delivered_at
+ * @property ?string $previous_secret the secret the last rotation replaced (encrypted at rest; G7)
+ * @property ?Carbon $previous_secret_expires_at until when it still signs
  * @property ?Carbon $created_at
  */
 final class WebhookEndpoint extends Model
