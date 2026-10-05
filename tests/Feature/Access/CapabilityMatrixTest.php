@@ -41,7 +41,9 @@ beforeEach(function () {
 const CMX_OPERATE = ['power', 'php.set', 'wp.cache', 'cdn.purge', 'ssl.issue', 'https.force'];
 
 /** The per-object deletes of data that the `data_delete` tick carries (copies stay the owner's: backup.delete & co., D29.2). */
-const CMX_DATA_DELETE = ['site.delete', 'database.delete', 'file.delete', 'mailbox.delete', 'gamedb.delete', 'gfile.delete', 'staging.delete'];
+// TASK-0110: + iso.delete — deleting a customer's own installation image deletes a data object of the service (`service.data.delete`,
+// HIGH with a step-up); a VPS shares it through `manage` (the compute data_delete cell stays closed, its copies are the owner's)
+const CMX_DATA_DELETE = ['site.delete', 'database.delete', 'file.delete', 'mailbox.delete', 'gamedb.delete', 'gfile.delete', 'staging.delete', 'iso.delete'];
 
 /** A person already in the organization (a guest) with one service shared with the given capability ticks. */
 function cmxGuest(TestCase $test, User $owner, Organization $org, Service $service, string $email, array $capabilities): User

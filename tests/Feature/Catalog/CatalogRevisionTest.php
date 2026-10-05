@@ -335,3 +335,29 @@ it('withdraws what the web plans sell and their server cannot deliver: e-shop ma
     expect(PlanPromises::grandfatheredGaps(PlanPromises::readInSource()))->toHaveKey('eshop/shop-start@v1')
         ->and(PlanPromises::grandfatheredGaps(PlanPromises::readInSource())['eshop/shop-start@v1'])->toContain('mailboxes');
 });
+
+it('prepares the custom ISO plans as a proposal: never applied by "every revision", previewed and published only by its id (TASK-0110)', function () {
+    // G-R5: the owner decides which plans sell a custom ISO. Until then the doctor and a plain run neither ask for it nor apply it
+    expect(CatalogRevisions::proposals())->toBe(['2026-10-custom-iso'])->and(CatalogRevisions::ids())->not->toContain('2026-10-custom-iso')
+        ->and(app(CatalogRevisions::class)->pending())->not->toHaveKey('2026-10-custom-iso');
+    $this->artisan('onhost:catalog:revise', ['--apply' => true, '--yes' => true])->assertSuccessful();
+    expect(catalogRevisionPlan('vps', 'compute-4')->currentVersion()->entitlements)->not->toHaveKey('custom_iso');
+    $this->artisan('onhost:catalog:revise')->assertSuccessful()->expectsOutputToContain('Proposals waiting for the owner\'s decision (preview with the id): 2026-10-custom-iso');
+
+    // by its id: the preview names every plan and what it would sell; compute-2 is left as it is
+    $this->artisan('onhost:catalog:revise', ['revision' => '2026-10-custom-iso'])->assertSuccessful()
+        ->expectsOutputToContain('vps/compute-4 v1 → v2: custom_iso null → true; custom_iso_max_mb null → 4096')
+        ->expectsOutputToContain('vds/vds-16 v1 → v2: custom_iso null → true; custom_iso_max_mb null → 4096')
+        ->doesntExpectOutputToContain('vps/compute-2');
+    $held = catalogRevisionPlan('vps', 'compute-4')->currentVersion();
+    $this->artisan('onhost:catalog:revise', ['revision' => '2026-10-custom-iso', '--apply' => true, '--yes' => true])->assertSuccessful();
+
+    $new = catalogRevisionPlan('vps', 'compute-4')->currentVersion();
+    expect($new->version)->toBe(2)->and($new->entitlements)->toMatchArray(['custom_iso' => true, 'custom_iso_max_mb' => 4096, 'vcpu' => 4, 'snapshots' => 5])
+        ->and(catalogRevisionPrices($new))->toBe(catalogRevisionPrices($held)) // a revision never changes what anything costs
+        ->and(catalogRevisionPlan('vps', 'compute-2')->current_version)->toBe(1)
+        ->and(catalogRevisionPlan('vds', 'vds-8')->currentVersion()->entitlements['custom_iso_max_mb'])->toBe(4096);
+    // what the new versions sell is kept by the platform: nothing new for the promise guard, nothing the executor cannot deliver
+    expect(PlanPromises::unapplied($new, PlanPromises::readInSource()))->toBe([])->and(PlanPromises::undelivered($new))->toBe([])
+        ->and(app(CatalogRevisions::class)->pending('2026-10-custom-iso'))->toBe([]); // stateless: applied means nothing pending
+});

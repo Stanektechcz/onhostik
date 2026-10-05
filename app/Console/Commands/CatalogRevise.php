@@ -34,6 +34,9 @@ final class CatalogRevise extends Command
         }
         if ($pending === []) {
             $this->info('Nothing pending: every catalogue revision is applied.');
+            if ($id === null && CatalogRevisions::proposals() !== []) { // prepared for the owner, applied only by their id (TASK-0110)
+                $this->line('Proposals waiting for the owner\'s decision (preview with the id): '.implode(', ', CatalogRevisions::proposals()));
+            }
 
             return self::SUCCESS;
         }
@@ -91,7 +94,7 @@ final class CatalogRevise extends Command
             }
             $changes = array_merge(
                 $row['drop'] === [] ? [] : ['− '.implode(', ', array_map(fn (string $key, string $bag) => "{$bag}.{$key}", array_keys($row['drop']), $row['drop']))],
-                array_map(fn (string $key, array $set) => "{$key} {$set['from']} → {$set['to']}", array_keys($row['set']), $row['set']),
+                array_map(fn (string $key, array $set) => $key.' '.self::shown($set['from']).' → '.self::shown($set['to']), array_keys($row['set']), $row['set']),
             );
             $this->line("  {$row['target']} v{$row['from']} → v{$row['to']}: ".implode('; ', $changes));
             $this->line("    {$row['services']} service(s) and {$row['subscriptions']} subscription(s) keep v{$row['from']}; prices carried over unchanged");
@@ -102,6 +105,12 @@ final class CatalogRevise extends Command
                 $this->warn("    a features line still says „{$line}“ — edit it in Nastavení systému → Tarify a verze");
             }
         }
+    }
+
+    /** A value as the preview names it: a word as it is, a number, a switch or nothing (a key the plan never had, TASK-0110) as JSON. */
+    private static function shown(mixed $value): string
+    {
+        return is_string($value) ? $value : (string) json_encode($value);
     }
 
     /** @param list<array<string,mixed>> $done */

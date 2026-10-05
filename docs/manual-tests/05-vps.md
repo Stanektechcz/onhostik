@@ -263,6 +263,61 @@ Plán v příkladech: **Compute 2** (`vps`, plán `compute-2`): 2 vCPU, 4 GB RAM
 
 ---
 
+## F5-08 Vlastní ISO jen tam, kde ho tarif obsahuje (rozhodnutí vlastníka G-R5)
+
+**Předpoklady:** dva běžící servery stejné organizace — jeden na tarifu **bez** vlastního ISO (dnes každý tarif katalogu),
+druhý na tarifu, který ho obsahuje (`custom_iso: true`, velikost jednoho obrazu `custom_iso_max_mb`; dnes jen po schválení návrhu
+[custom-iso-plans](../proposals/custom-iso-plans.md) a jeho revize, na testovacím prostředí verzí tarifu v administraci).
+Instance hypervizoru má nastavené úložiště `custom_iso_storage` a server platformy dostupný clamd (`ONHOST_CLAMAV_HOST`).
+Na skutečném uzlu **jen na určeném testovacím Proxmox uzlu a jen s výslovným souhlasem vlastníka**. Testovací obraz:
+malé instalační ISO (např. netinst, do limitu tarifu) a pro antivirus soubor EICAR zabalený do ISO.
+
+**Kroky (klientská zóna / API)**
+
+1. Server **bez** vlastního ISO: `/panel/sluzby` → detail → záložka **Disky**: řádek „Vlastní ISO“ říká **„Není v tarifu“**, žádné tlačítko.
+   `GET /v1/services/{service}/features` → `custom_iso: {enabled: false, reason: plan}`. `POST /v1/services/{service}/isos` s
+   obrazem → **403** `custom_iso_not_in_plan`; `POST /v1/services/{service}/actions` s `action: iso.attach` → 403 stejně.
+2. Server **s** vlastním ISO: záložka Disky → **Nahrát ISO** (API: `POST /v1/services/{service}/isos`, multipart `file`).
+   Odpověď 201 s obrazem (`name`, `size_bytes`, `sha256`, `scan: clean`); seznam `GET /v1/services/{service}/isos` ukazuje kvótu organizace.
+3. **Připojit** (API: `action: iso.attach`, `params: {iso_id, boot_first: true, reboot: false}`). Operace skončí `SUCCEEDED`; obraz se
+   nahraje na uzel a stane se CD-ROM serveru, první v pořadí bootování. Restartovat tlačítkem napájení a v konzoli (noVNC)
+   ověřit, že server nabootoval z ISO.
+4. **Odpojit** (`action: iso.detach`, volitelně `reboot: true`). Server nabootuje ze svého disku, pořadí bootování je přesně jako před připojením.
+5. **Smazat** (`action: iso.delete`, `params: {iso_id}`) — vysoké riziko, klientská zóna si vyžádá step-up. Připojený obraz se smaže
+   až po odpojení; obraz zmizí ze seznamu, z uzlu i z úložiště platformy.
+
+**Očekávaný výsledek**
+
+- Bez tarifu se vlastní ISO nikde nenabízí a server ho odmítne s důvodem „není v tarifu“; v administraci ho nelze zapnout jedné službě, jen změnou tarifu.
+- Nahrání: soubor projde kontrolou ISO 9660, velikostí z tarifu, antivirem a kvótou organizace; uloží se pod jménem platformy, ne pod jménem souboru zákazníka.
+- Odpovědi zákazníkovi nejmenují hypervizor, jeho uzel ani úložiště.
+- V auditu akce `service.iso.upload`, `service.iso.attach`, `service.iso.detach`, `service.iso.delete`; v outboxu `service.iso.uploaded`,
+  `service.iso.attached`, `service.iso.detached`, `service.iso.deleted` (popis v runbooku [custom-iso](../runbooks/custom-iso.md)).
+
+**Negativní varianty**
+
+| Varianta | Očekávání |
+| --- | --- |
+| Soubor s EICAR (antivirus ho najde) | 422 `upload_infected`, soubor smazán, bezpečnostní hlášení `files.infected`; v knihovně nic. |
+| clamd vypnutý nebo nedostupný | 503 `iso_scan_unavailable` s jasnou zprávou; soubor **není** uložen ani „na později“. |
+| clamd bez `AlertExceedsMax yes` (`php artisan onhost:isos:scanner-check` hlásí FAILED) | Každé nahrání 503 `iso_scanner_untrusted`. |
+| Tři nahrání jedné organizace najednou | Třetí 429 `iso_upload_in_progress`; probíhající nahrání se počítají do kvóty. |
+| Jiný soubor se stejným `Idempotency-Key` | 409 `idempotency_key_reused`. |
+| Nahrání nebo připojení u pozastaveného serveru | 409 `service_not_active`. |
+| Obraz větší než tarif (nebo než antivirus přečte celý) | 422 `iso_too_large` ještě před kontrolou. |
+| Soubor, který není ISO 9660 (např. `.exe` přejmenovaný na `.iso`) | 422 `iso_not_iso9660`. |
+| Plná kvóta organizace (počet nebo velikost) | 422 `iso_quota_exceeded`; stejný soubor podruhé kvótu nečerpá (vrátí se týž obraz). |
+| Připojit nebo odpojit během záchranného režimu | 409 `iso_rescue_active`; záchranný režim po skončení vrátí připojené ISO zpět. |
+| Smazat obraz připojený k jinému serveru | 409 `iso_attached_elsewhere`; nejdřív odpojit tam. |
+| Změna tarifu na takový bez vlastního ISO | Nahrát ani připojit nejde (403), **odpojit a smazat ano** (`custom_iso_exit`). |
+| Druhý zákazník: seznam, nahrání, připojení cizího `iso_id` na vlastní server | 404 všude; cizí obraz ani server se nezmění. |
+| Opakovaný požadavek se stejným `Idempotency-Key` | Stejná odpověď, žádný druhý obraz ani druhá operace. |
+
+**Kde hledat:** záložka Operace (`GET /v1/services/{service}/operations`, druh `service.iso`); seznam `GET /v1/services/{service}/isos`;
+runbook [custom-iso](../runbooks/custom-iso.md) (úložiště, clamd, limity, ruční úklid); doctor řádek antiviru.
+
+---
+
 ## Pokrytí E2E testem
 
 | Případ | Test v `VpsFlowTest` |
@@ -274,6 +329,7 @@ Plán v příkladech: **Compute 2** (`vps`, plán `compute-2`): 2 vCPU, 4 GB RAM
 | F5-05 | „boots a rescue image only behind a step-up … and puts the server back by itself when the window ends“ |
 | F5-06 | „issues a console token to the owner, and to an API token only when it carries the console scope“ |
 | F5-07 | „pauses a server on its owner's word and brings it back as it was …“ |
+| F5-08 | [`CustomIsoTest`](../../tests/Feature/Compute/CustomIsoTest.php) proti stavovému hypervizoru (`e2ePveClusterWithIsoStorage`): bez tarifu 403, nahrání → připojení → odpojení → smazání, antivirus, limity, cizí organizace, opakování, názvy a cesty, záchranný režim, cesta ven po změně tarifu |
 
 Související: [`VmReinstallTest`](../../tests/Feature/Provisioning/VmReinstallTest.php), [`RescueModeTest`](../../tests/Feature/Provisioning/RescueModeTest.php),
 runbooky [provisioning-queue](../runbooks/provisioning-queue.md) a [console-relay](../runbooks/console-relay.md).

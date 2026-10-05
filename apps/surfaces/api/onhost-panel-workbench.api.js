@@ -250,6 +250,8 @@
   function unavailableReason(_, why) {
     if (why === 'state') return _('Služba teď neběží (je pozastavená, ruší se nebo se zřizuje). Tato funkce bude k dispozici, až se vrátí do provozu.', 'The service is not running right now (suspended, being cancelled or still being set up). This feature is available again once it runs.');
     if (why === 'permission') return _('K této funkci nemáte oprávnění. Službu vidíte, ale tuhle změnu smí provést jen člověk s vyšší rolí; požádejte vlastníka nebo správce služby.', 'You do not have permission for this feature. You can see the service, but only someone with a higher role may do this; ask the owner or the service manager.');
+    if (why === 'plan') return _('Není v tarifu. Funkci získáte změnou tarifu na takový, který ji obsahuje.', 'Not in the plan. Change to a plan that includes it to get this feature.');
+    if (why === 'node') return _('Tarif funkci obsahuje, ale server, na kterém služba běží, ji zatím nenabízí. Napište podpoře.', 'The plan includes it, but the server the service runs on does not offer it yet. Write to support.');
     return _('Tuto funkci služba v aktuálním tarifu nenabízí. Napište podpoře, pokud ji potřebujete.', 'This feature is not offered on the current plan. Write to support if you need it.');
   }
 
@@ -628,7 +630,16 @@
         if (snapLimit && snapUsed !== null && snapUsed >= snapLimit) psn.note = _('limit tarifu je vyčerpaný (' + snapLimit + '); nový snapshot vytvoříte po smazání některého ze stávajících', 'the plan limit is used up (' + snapLimit + '); create a new snapshot after deleting one');
         return psn;
       }
-      if (tab === 'disks') return infoPanel(_('Disky · ', 'Disks · ') + sel.name, _('velikost disku určuje tarif; navýšení proběhne změnou tarifu za provozu', 'disk size follows the plan; grow it by changing the plan while running'), [[_('Konfigurace', 'Configuration'), sel.spec], [_('Tarif', 'Plan'), sel.product || '']]);
+      if (tab === 'disks') {
+        var dk = infoPanel(_('Disky · ', 'Disks · ') + sel.name, _('velikost disku určuje tarif; navýšení proběhne změnou tarifu za provozu', 'disk size follows the plan; grow it by changing the plan while running'), [[_('Konfigurace', 'Configuration'), sel.spec], [_('Tarif', 'Plan'), sel.product || '']]);
+        /* TASK-0110 (G-R5): a customer's own installation image as the server's CD drive — only where the plan sells it */
+        var isoF = f.features.custom_iso || {};
+        if (!isoF.enabled && !on('custom_iso_exit')) {
+          dk.rows.push({ cells: [cell(_('Vlastní ISO', 'Custom ISO'), '1 1 220px'), cell(unavailableReason(_, isoF.reason || 'plan'), '1 1 260px')], note: '' });
+          return dk;
+        }
+        return customIsoPanel(cmp, sel, _, H, !!isoF.enabled, dk);
+      }
       if (tab === 'net') {
         if (!on('firewall')) return unavailable('Firewall', 'firewall');
         var fw = resource(cmp, sel, 'firewall');
@@ -927,6 +938,51 @@
         flash(cmp, _('Soubor přijat', 'File accepted'), file.name + _(' se nahrává na server', ' is being uploaded to the server') + (d.operation_id ? ' · ' + String(d.operation_id).slice(-6) : (d.id ? ' · ' + String(d.id).slice(-6) : '')));
         refresh();
       }).catch(function (e) { flash(cmp, _('Soubor se nepodařilo nahrát', 'The file could not be uploaded'), (e && e.message) || ''); });
+    });
+    document.body.appendChild(input);
+    input.click();
+  }
+
+  /* TASK-0110 (owner decision G-R5): the organization's own installation images on the Disks tab — only where the server's plan
+   * sells them. Upload (multipart to POST …/isos: ISO 9660, plan size, virus scan, quota), then the service actions iso.attach
+   * (as the CD drive, first in the boot order), iso.detach (the boot order found before comes back) and iso.delete (a fresh
+   * step-up; detached first). After a plan change without the feature only detach and delete stay (`custom_iso_exit`). */
+  function customIsoPanel(cmp, sel, _, H, offered, base) {
+    var cell = H.cell, A = H.act, key = sel.id + ':isos', d = state.resources[key];
+    if (d === undefined) { state.resources[key] = null; load('i:' + key, '/services/' + sel.id + '/isos', cmp, function (r) { state.resources[key] = r; }); }
+    var mb = function (b) { return b == null ? '—' : Math.max(1, Math.round(b / 1048576)) + ' MB'; };
+    var images = d && !d.__error ? (d.images || []) : [];
+    var rows = base.rows.slice();
+    rows.push({ cells: [cell(_('Vlastní ISO', 'Custom ISO'), '1 1 220px'), cell(d === null ? _('načítám…', 'loading…') : (d && d.__error ? _('Nelze načíst: ', 'Cannot load: ') + d.__error : (offered ? _('jeden obraz do ', 'one image up to ') + mb(d.max_bytes) + _(' · organizace ', ' · organization ') + mb(d.quota && d.quota.used_bytes) + ' / ' + mb(d.quota && d.quota.quota_bytes) + ' (' + ((d.quota && d.quota.images) || 0) + '/' + ((d.quota && d.quota.max_images) || 0) + ')' : unavailableReason(_, 'plan') + _(' Připojené ISO můžete odpojit a smazat.', ' You may still detach and delete an attached image.'))), '1 1 260px')], note: '' });
+    images.forEach(function (iso) {
+      var acts = [];
+      if (iso.attached_here) acts.push(A(_('Odpojit', 'Detach'), function () { act(cmp, sel, 'iso.detach', { reboot: window.confirm(_('Restartovat server hned, aby nabootoval ze svého disku?', 'Reboot the server now so it boots from its own disk?')) }, ['isos'], _('ISO se odpojuje', 'Detaching the image'), _('Pořadí bootování se vrátí přesně na to, jaké bylo před připojením.', 'The boot order goes back exactly to what it was before.')); }));
+      else if (offered && !iso.attached_service_id) acts.push(A(_('Připojit', 'Attach'), function () { if (!window.confirm(_('Připojit ' + iso.name + ' jako CD-ROM a bootovat z něj jako první? Disky zůstanou nedotčené; projeví se po restartu.', 'Attach ' + iso.name + ' as the CD drive and boot from it first? The disks are left alone; it applies after a reboot.'))) return; act(cmp, sel, 'iso.attach', { iso_id: iso.id, boot_first: true, reboot: false }, ['isos'], _('ISO se připojuje', 'Attaching the image'), _('Obraz nahrajeme na server a připojíme; pak server restartujte.', 'The image is copied to the server and attached; then reboot the server.')); }));
+      if (!iso.attached_service_id || iso.attached_here) acts.push(A(_('Smazat', 'Delete'), function () { if (!window.confirm(_('Smazat ' + iso.name + '? Připojený obraz nejdřív odpojíme.', 'Delete ' + iso.name + '? An attached image is detached first.'))) return; act(cmp, sel, 'iso.delete', { iso_id: iso.id }, ['isos'], _('ISO se maže', 'Deleting the image')); }));
+      rows.push({ cells: [cell(iso.name, '1 1 220px', 1), cell(mb(iso.size_bytes) + ' · ' + (iso.attached_here ? _('připojeno k tomuto serveru', 'attached to this server') : (iso.attached_service_id ? _('připojeno k jinému serveru', 'attached to another server') : _('v knihovně', 'in the library'))), '1 1 260px')], note: 'SHA-256 ' + String(iso.sha256 || '').slice(0, 16) + '…', actions: acts });
+    });
+    var extra = [{ label: _('Obnovit', 'Refresh'), on: function () { delete state.resources[key]; rerender(cmp); } }];
+    if (offered) extra.unshift({ label: _('Nahrát ISO', 'Upload an ISO'), primary: true, on: function () { uploadCustomIso(cmp, sel, _, d && d.max_bytes, function () { delete state.resources[key]; rerender(cmp); }); } });
+    return Object.assign({}, base, { rows: rows, extra: extra });
+  }
+
+  function uploadCustomIso(cmp, sel, _, maxBytes, refresh) {
+    var input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.iso,application/x-iso9660-image';
+    input.style.display = 'none';
+    input.addEventListener('change', function () {
+      var file = input.files && input.files[0];
+      input.remove();
+      if (!file) return;
+      if (maxBytes && file.size > maxBytes) { flash(cmp, _('Obraz je příliš velký', 'The image is too large'), _('Tarif dovoluje obraz do ' + Math.round(maxBytes / 1048576) + ' MB.', 'The plan allows an image up to ' + Math.round(maxBytes / 1048576) + ' MB.')); return; }
+      var form = new FormData();
+      form.append('file', file, file.name);
+      flash(cmp, _('Nahrávám ' + file.name + '…', 'Uploading ' + file.name + '…'), _('Obraz nejdřív zkontrolujeme antivirem; bez kontroly ho nepřijmeme.', 'The image is virus-scanned first; it is never accepted unscanned.'));
+      API.post('/services/' + sel.id + '/isos', form, API.key()).then(function () {
+        flash(cmp, _('ISO přijato', 'Image accepted'), file.name + _(' je v knihovně organizace; připojte ho tlačítkem Připojit.', ' is in the organization\'s library; attach it with Attach.'));
+        refresh();
+      }).catch(function (e) { flash(cmp, _('ISO se nepodařilo nahrát', 'The image could not be uploaded'), (e && e.message) || ''); });
     });
     document.body.appendChild(input);
     input.click();

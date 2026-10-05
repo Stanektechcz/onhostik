@@ -56,6 +56,8 @@ final class AppServiceProvider extends ServiceProvider
         // keyed by ADDRESS only: the callers are unauthenticated, so a key that includes the presented bearer gave every rotated value a fresh bucket (D7)
         RateLimiter::for('probes', fn (Request $request) => Limit::perMinute((int) config('onhost.api.probes_rate_limit_per_minute', 600))->by('probe:'.$request->ip()));
         RateLimiter::for('callbacks', fn (Request $request) => Limit::perMinute((int) config('onhost.api.callbacks_rate_limit_per_minute', 120))->by('callback:'.$request->ip())); // signed third-party callbacks (Discord interactions)
+        // TASK-0110 review H1: an image upload is gigabytes of disk and a long virus scan — its own, small budget per person
+        RateLimiter::for('custom-iso-upload', fn (Request $request) => Limit::perHour(max(1, (int) config('onhost.custom_iso.uploads_per_hour', 10)))->by('iso:'.($request->user() ? 'user:'.$request->user()->getAuthIdentifier() : 'ip:'.$request->ip())));
         RateLimiter::for('domain-check', fn (Request $request) => Limit::perMinute(30)->by(($request->user() ? 'user:'.$request->user()->getAuthIdentifier() : 'ip:'.$request->ip())));
         // TASK-0067: the relay asks whether a console may stay open every ONHOST_CONSOLE_ALIVE_SECONDS (15, never below 5 = 12 a
         // minute); 30 a minute per console is room for that and nothing for a loop. A 429 counts as one failed check in the relay
