@@ -123,7 +123,7 @@ final class GoLiveChecks
         return $this->row('security', 'trusted proxies are exact addresses', true, count($list).' address(es): '.implode(', ', array_slice($list, 0, 5)), '');
     }
 
-    /** What the HTTP kernel was actually told, falling back to the environment. @return array<int,string>|string|null */
+    /** What the HTTP kernel was actually told, (set from TRUSTED_PROXIES in bootstrap/app.php). @return array<int,string>|string|null */
     private function configuredProxies(): array|string|null
     {
         try {
@@ -132,7 +132,7 @@ final class GoLiveChecks
             $value = null;
         }
 
-        return $value ?: (env('TRUSTED_PROXIES') ?: null);
+        return $value ?: null; // bootstrap/app.php hands TRUSTED_PROXIES to TrustProxies::at(), so this is what the kernel really trusts
     }
 
     /** Information: where the API documentation says the API answers. */
