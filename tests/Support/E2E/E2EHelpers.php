@@ -10,7 +10,9 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Testing\TestResponse;
+use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Identity\Notifications\VerifyEmailNotification;
+use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\Models\Region;
@@ -30,6 +32,9 @@ use Onhost\Domain\Provisioning\Models\Region;
  *   e2eComgateCallback($test,...)  the gateway's callback, posted to the REAL webhook route with the shared secret
  *   e2eConsents()                  the consent set the checkout asks a web order for
  *   e2eVerificationToken(...)      the single-use token out of the (faked) verification mail
+ *   e2eSignUp($test, $email)      register + verify over the real routes; [user, organization, password]
+ *   e2eStepUp($test, $password)   a fresh step-up through POST /v1/auth/step-up, with the session cookie carried on
+ *   e2eTopUp($test, $gate, $czk)   credit the wallet: POST /v1/wallet/topup + the gateway callback
  *   e2eHeaders()                   headers of a browser session talking to /v1 (stateful cookie auth + a fresh Idempotency-Key)
  */
 
@@ -326,4 +331,43 @@ function e2ePowerDnsFake(array &$dns): void
 
         return Http::response(['name' => 'zone.', 'serial' => 2, 'rrsets' => []]);
     });
+}
+
+/**
+ * Sign up and verify an account over the real routes (Notification::fake() must be active). Leaves the session signed in as the
+ * new owner. `$org` is the organization the registration created.
+ *
+ * @return array{0:User,1:Organization,2:string} user, organization, password
+ */
+function e2eSignUp(object $test, string $email, string $organization = 'Domeny e2e s.r.o.'): array
+{
+    $password = 'Correct-Horse-Battery-9-Staple';
+    $test->withHeaders(e2eHeaders('signup-'.$email))->postJson('/v1/auth/register', [
+        'name' => 'Jana Nováková', 'email' => $email, 'password' => $password, 'organization' => $organization, 'type' => 'company', 'ico' => '12345678', 'country' => 'CZ', 'terms' => true,
+    ])->assertCreated();
+    $user = User::query()->where('email', $email)->firstOrFail();
+    $test->withHeaders(e2eHeaders('verify-'.$email))->postJson('/v1/auth/verify-email', ['token' => e2eVerificationToken($user)])->assertOk();
+
+    return [$user->refresh(), Organization::query()->where('owner_user_id', $user->id)->firstOrFail(), $password];
+}
+
+/** A fresh step-up for the signed-in session, by password (the customer has no authenticator): POST /v1/auth/step-up. */
+function e2eStepUp(object $test, string $password): void
+{
+    $answer = $test->withHeaders(e2eHeaders('stepup'))->postJson('/v1/auth/step-up', ['method' => 'password', 'code' => $password])->assertOk();
+    // the grant belongs to THIS browser session: carry its cookies into the next requests, as a browser does (the test client keeps no jar)
+    $test->withCredentials();
+    foreach ($answer->headers->getCookies() as $cookie) {
+        $test->withUnencryptedCookie($cookie->getName(), (string) $cookie->getValue());
+    }
+}
+
+/** Credit the organization's wallet over the real routes: POST /v1/wallet/topup, then the gateway's callback. */
+function e2eTopUp(object $test, array &$gate, int $amountCzk): void
+{
+    $gate['trans_id'] = 'E2E-TOPUP-'.bin2hex(random_bytes(3));
+    $gate['status'] = 'PAID';
+    $gate['total'] = $amountCzk * 100;
+    $test->withHeaders(e2eHeaders('topup'))->postJson('/v1/wallet/topup', ['amount' => $amountCzk, 'currency' => 'CZK', 'provider' => 'comgate', 'method' => 'card'])->assertCreated();
+    e2eComgateCallback($test, $gate['trans_id'], $gate['total'])->assertOk();
 }
