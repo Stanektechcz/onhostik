@@ -106,7 +106,7 @@ it('changes the plan of a running service: pro-rated charge now, new price from 
     $foreign = Service::query()->create(['organization_id' => $other->id, 'product_key' => 'web-hosting', 'family' => 'web', 'name' => 'Web', 'hostname' => 'other.cz', 'state' => ServiceStateMachine::ACTIVE, 'region_code' => 'cz1', 'entitlements' => [], 'desired_spec' => [], 'sla_class' => 'standard', 'activated_at' => now()]);
     $this->putJson('/v1/cart', ['items' => [['product_key' => 'web-hosting', 'plan_key' => 'standard', 'qty' => 1, 'period' => 'month', 'config' => ['upgrade_of' => $foreign->id]]], 'commit_months' => 1, 'currency' => 'CZK'])->assertOk();
     $this->postJson('/v1/cart/quote')->assertNotFound();
-    $this->getJson("/v1/services/{$foreign->id}/plans")->assertForbidden();
+    $this->getJson("/v1/services/{$foreign->id}/plans")->assertNotFound(); // a stranger to the organization: 404, as for a missing id (TASK-0098)
 });
 
 it('switches the billing period of a running service to yearly: a new period starts now, the unused rest of the month is credited, no node work', function () {

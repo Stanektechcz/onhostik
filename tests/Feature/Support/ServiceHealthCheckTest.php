@@ -54,7 +54,7 @@ it('finds what is wrong with a service from the platform\'s own records and says
     // the API gives the same to whoever may see the service — and to nobody else
     $this->actingAs($owner, 'sanctum')->getJson("/v1/services/{$site->id}/health")->assertOk()->assertJsonPath('data.verdict', 'bad')->assertJsonPath('data.findings.2.key', 'certificate');
     [$stranger] = $this->customerWithOrganization();
-    $this->actingAs($stranger, 'sanctum')->getJson("/v1/services/{$site->id}/health")->assertForbidden();
+    $this->actingAs($stranger, 'sanctum')->getJson("/v1/services/{$site->id}/health")->assertNotFound(); // a stranger to the organization: 404, as for a missing id (TASK-0098)
 });
 
 it('answers "zkontroluj mi web" in the chat without a model, for the service the person named or the only one they see', function () {

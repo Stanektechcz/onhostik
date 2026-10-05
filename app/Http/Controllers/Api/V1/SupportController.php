@@ -13,6 +13,7 @@ use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Support\Assistant\AssistantScope;
 use Onhost\Domain\Support\Assistant\AssistantService;
+use Onhost\Domain\Support\Commands\TicketCustomerCommand;
 use Onhost\Domain\Support\Commands\WorkOfferDecisionCommand;
 use Onhost\Domain\Support\Models\Ticket;
 use Onhost\Domain\Support\Models\TicketMessage;
@@ -41,7 +42,7 @@ final class SupportController extends ApiController
         return $this->api->paginate($request, $query, fn (Ticket $t) => self::ticket($t));
     }
 
-    public function store(Request $request, TicketService $tickets): JsonResponse
+    public function store(Request $request): JsonResponse
     {
         $organization = $this->api->organization($request);
         // TASK-0043 (S1-09): a ticket about a service is written at that service — a project developer opens one about their own
@@ -50,7 +51,11 @@ final class SupportController extends ApiController
         $service = is_string($serviceId) && $serviceId !== '' ? Service::query()->where('organization_id', $organization->id)->find($serviceId) : null;
         $this->api->authorize($request, TicketVisibility::WRITE, $service !== null ? CommandScope::resource($service->id, $organization->id, $service->project_id) : CommandScope::organization($organization->id));
         $data = $request->validate(['subject' => ['required', 'string', 'max:250'], 'body' => ['required', 'string', 'max:20000'], 'category' => ['nullable', 'string', 'max:40'], 'priority' => ['nullable', 'string', 'max:10'], 'service_id' => ['nullable', 'string'], 'domain_id' => ['nullable', 'string'], 'attachments' => ['nullable', 'array', 'max:10']]);
-        $ticket = $tickets->create($data + ['channel' => 'portal'], $this->api->context($request, $organization), $organization, $this->api->user($request));
+        $this->api->user($request); // a person writes a ticket, never a service account's token
+        // TASK-0098: through the bus (TicketCustomerCommand) — its idempotency, its permission check at the ticket's scope, its audit row;
+        // without an Idempotency-Key a double click within the minute is one ticket (onceKey)
+        $result = (array) $this->bus->dispatch(new TicketCustomerCommand((string) $organization->id, $this->onceKey($request, 'ticket.create:'.$organization->id), ['op' => 'create'] + $data), $this->api->context($request, $organization));
+        $ticket = Ticket::query()->findOrFail((string) ($result['ticket_id'] ?? ''));
 
         return response()->json(['data' => self::ticket($ticket, true)], 201);
     }
@@ -60,12 +65,16 @@ final class SupportController extends ApiController
         return response()->json(['data' => self::ticket($this->resolve($request, $ticket), true)]);
     }
 
-    public function reply(Request $request, TicketService $tickets, string $ticket): JsonResponse
+    public function reply(Request $request, string $ticket): JsonResponse
     {
         $model = $this->resolve($request, $ticket, TicketVisibility::WRITE);
         $data = $request->validate(['body' => ['required', 'string', 'max:20000'], 'attachments' => ['nullable', 'array', 'max:10']]);
-        $user = $this->api->user($request);
-        $tickets->reply($model, 'customer', $user->id, $user->name, $data['body'], $this->api->context($request), 'public', (array) ($data['attachments'] ?? []));
+        // TASK-0098: through the bus; without an Idempotency-Key the key carries the ticket's present version — a double click is one
+        // message, the next message on the changed ticket a new one (as the staff desk, Staff\SupportController::onTicket)
+        $header = $request->headers->get('Idempotency-Key');
+        $prefix = "ticket.reply:{$model->id}".(is_string($header) && $header !== '' ? '' : ':'.TicketCustomerCommand::versionOf($model));
+        $payload = ['op' => 'reply', 'ticket_id' => $model->id, 'body' => $data['body'], 'attachments' => (array) ($data['attachments'] ?? [])];
+        $this->bus->dispatch(new TicketCustomerCommand((string) $model->organization_id, $this->idempotencyKey($request, $prefix), $payload), $this->api->context($request, Organization::query()->find($model->organization_id)));
 
         return response()->json(['data' => self::ticket($model->fresh(), true)]);
     }

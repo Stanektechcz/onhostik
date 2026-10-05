@@ -91,7 +91,7 @@ it('keeps only what a customer may choose: no free resize, no skipped archive, n
         paramsPost($this, "{$base}/restore", ['params' => ['backup_id' => $notMine]])->assertNotFound();
     }
     paramsPost($this, "{$base}/restore", ['params' => ['backup_id' => paramsBackup($vps, 'running')->id]])->assertStatus(409)->assertJsonPath('error', 'backup_not_restorable');
-    paramsPost($this, "/v1/services/{$foreign->id}/restore", ['params' => ['backup_id' => $own->id]])->assertForbidden(); // and somebody else's service is not mine to restore onto
+    paramsPost($this, "/v1/services/{$foreign->id}/restore", ['params' => ['backup_id' => $own->id]])->assertNotFound(); // and somebody else's service is not mine to restore onto (a stranger: 404, TASK-0098)
 
     // the archive before a cancellation is not the customer's to switch off: asking for it is refused before anything runs — the
     // flag is `staff.service.delete`, CRITICAL (TASK-0039, IF-9; it used to be dropped silently) — and a word that is no flag is dropped

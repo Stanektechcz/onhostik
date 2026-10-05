@@ -518,8 +518,8 @@ it('keeps tenants apart: nobody withdraws from another organization\'s service',
     $this->actingAs($stranger, 'sanctum');
     app(StepUpService::class)->grant($stranger, 'totp', null, '127.0.0.1');
 
-    $this->getJson("/v1/services/{$service->id}/withdrawal")->assertForbidden();
-    $this->withHeader('Idempotency-Key', 'wd-x')->postJson("/v1/services/{$service->id}/withdrawal", ['confirm_refund_to_credit' => true])->assertForbidden();
+    $this->getJson("/v1/services/{$service->id}/withdrawal")->assertNotFound(); // a stranger to the organization: 404, as for a missing id (TASK-0098)
+    $this->withHeader('Idempotency-Key', 'wd-x')->postJson("/v1/services/{$service->id}/withdrawal", ['confirm_refund_to_credit' => true])->assertNotFound(); // a stranger to the organization: 404, as for a missing id (TASK-0098)
     expect(Withdrawal::query()->count())->toBe(0);
 });
 

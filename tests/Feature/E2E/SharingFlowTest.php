@@ -261,7 +261,7 @@ it('shares one service with an outsider: they see that service and the ticked ac
     $grant = e2eShareGive($this, $world, $shop, 'Agency@Share.test', ['manage'], 'share-shop')->assertCreated()->json('grant');
     expect($grant['state'])->toBe('pending')->and($grant['capabilities'])->toBe(['view', 'manage'])->and($grant['email'])->toBe('agency@share.test');
     e2eShareActAs($this, $agency);
-    e2eShareCall($this, 'GET', "/v1/services/{$shop->id}", $org, 'g-early')->assertForbidden();
+    e2eShareCall($this, 'GET', "/v1/services/{$shop->id}", $org, 'g-early')->assertNotFound(); // a stranger to the organization: 404, as for a missing id (TASK-0098)
     $accepted = e2eShareAcceptShare($this, $world, 'agency');
     expect($accepted)->toMatchArray(['organization_id' => $org->id, 'role' => 'guest', 'shared_services' => 1]);
 
@@ -292,10 +292,10 @@ it('shares one service with an outsider: they see that service and the ticked ac
     // ── somebody who is no member at all is told nothing: the service is not theirs to ask about ──
     e2eShareActAs($this, $world['stranger']['user']);
     $foreign = $world['stranger']['org'];
-    e2eShareCall($this, 'GET', "/v1/services/{$shop->id}", $foreign, 's-own-org')->assertForbidden(); // (answered with a refusal, not a 404: the id is a ULID nobody guesses)
+    e2eShareCall($this, 'GET', "/v1/services/{$shop->id}", $foreign, 's-own-org')->assertNotFound(); // the same answer as an id that leads nowhere: a stranger does not learn the service exists (TASK-0098)
     e2eShareCall($this, 'GET', '/v1/services/srv_01hzzzzzzzzzzzzzzzzzzzzzzz', $foreign, 's-nothing')->assertNotFound();
-    e2eShareCall($this, 'GET', "/v1/services/{$shop->id}", $org, 's-their-org')->assertForbidden();
-    e2eShareCall($this, 'POST', "/v1/services/{$shop->id}/actions", $foreign, 's-act', ['action' => 'php.set', 'params' => ['version' => '8.4']])->assertForbidden();
+    e2eShareCall($this, 'GET', "/v1/services/{$shop->id}", $org, 's-their-org')->assertNotFound(); // a stranger to the organization: 404, as for a missing id (TASK-0098)
+    e2eShareCall($this, 'POST', "/v1/services/{$shop->id}/actions", $foreign, 's-act', ['action' => 'php.set', 'params' => ['version' => '8.4']])->assertNotFound(); // a stranger to the organization: 404, as for a missing id (TASK-0098)
 
     // ── one capability on one service: "manage" is no console; "console" is ──
     $given = e2eShareGive($this, $world, $games, 'gamer@share.test', ['manage'], 'share-games')->assertCreated()->json('grant');
@@ -326,8 +326,8 @@ it('shares one service with an outsider: they see that service and the ticked ac
     e2eShareRelay($this, "/console/ws/{$open}/alive")->assertStatus(410);
     e2eShareRelay($this, "/console/ws/{$waiting}")->assertStatus(410);
     e2eShareActAs($this, $gamer);
-    e2eShareCall($this, 'GET', "/v1/services/{$games->id}", $org, 'after-revoke')->assertForbidden();
-    e2eShareCall($this, 'POST', "/v1/services/{$games->id}/console-token", $org, 'after-revoke-console')->assertForbidden();
+    e2eShareCall($this, 'GET', "/v1/services/{$games->id}", $org, 'after-revoke')->assertNotFound(); // a stranger to the organization: 404, as for a missing id (TASK-0098)
+    e2eShareCall($this, 'POST', "/v1/services/{$games->id}/console-token", $org, 'after-revoke-console')->assertNotFound(); // a stranger to the organization: 404, as for a missing id (TASK-0098)
     expect(OrganizationMembership::query()->where('organization_id', $org->id)->where('user_id', $gamer->id)->exists())->toBeFalse()
         ->and(OrganizationMembership::query()->where('organization_id', $org->id)->where('user_id', $agency->id)->exists())->toBeTrue(); // the other guest keeps theirs
 
@@ -393,7 +393,7 @@ it('ends every side door when a member is removed: session, API token, open cons
     e2eShareActAs($this, $admin['user']);
     e2eShareCall($this, 'GET', '/v1/services', $org, 'gone-list')->assertForbidden();
     e2eShareCall($this, 'GET', "/v1/organizations/{$org->id}", $org, 'gone-org')->assertForbidden();
-    e2eShareCall($this, 'POST', "/v1/services/{$games->id}/console-token", $org, 'gone-console')->assertForbidden();
+    e2eShareCall($this, 'POST', "/v1/services/{$games->id}/console-token", $org, 'gone-console')->assertNotFound(); // a stranger to the organization: 404, as for a missing id (TASK-0098)
     expect(collect(e2eShareCall($this, 'GET', '/v1/me', $admin['org'], 'gone-me')->assertOk()->json('data.organizations'))->pluck('id')->all())->not->toContain($org->id);
     e2eShareBearer($this, $token, $org, '/v1/services')->assertUnauthorized();
     e2eShareRelay($this, "/console/ws/{$open}/alive")->assertStatus(410);
@@ -407,7 +407,7 @@ it('ends every side door when a member is removed: session, API token, open cons
     e2eShareCall($this, 'POST', '/v1/organizations/invitations/accept', $org, 'late-invite', ['token' => $inviteLink])->assertStatus(410)->assertJsonPath('error', 'invitation_invalid');
     expect(OrganizationMembership::query()->where('organization_id', $org->id)->whereIn('user_id', [$world['gamer']['user']->id, $world['stranger']['user']->id])->exists())->toBeFalse();
     e2eShareActAs($this, $world['gamer']['user']);
-    e2eShareCall($this, 'GET', "/v1/services/{$shop->id}", $org, 'late-share-read')->assertForbidden();
+    e2eShareCall($this, 'GET', "/v1/services/{$shop->id}", $org, 'late-share-read')->assertNotFound(); // a stranger to the organization: 404, as for a missing id (TASK-0098)
 
     // ── the owner can give back what the removal took, and the key stays dead ──
     e2eShareActAs($this, $world['owner']['user']);

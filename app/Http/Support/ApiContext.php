@@ -179,6 +179,49 @@ final class ApiContext
         $this->assertTokenScope($request, $tokenPermission ?? $permission);
     }
 
+    // ── TASK-0098 (existence oracle) ──
+    /**
+     * authorize() for a row found by an identifier from the address: somebody with no reach into the row's organization — no
+     * membership, no binding of their own there (a project role, a shared service), no staff customer view — gets the 404 a
+     * missing identifier gets, not a 403 that confirms the service, the invoice number or the domain name exists. A party of
+     * the organization who lacks the permission keeps the 403 that names what to ask for (SupportController::resolve).
+     *
+     * @throws DomainError `not_found` (404) for a stranger, `access_not_approved` (403) for a party without the permission
+     */
+    public function authorizeOrNotFound(Request $request, string $permission, CommandScope $scope, string $what, ?string $tokenPermission = null): void
+    {
+        if (! $this->reaches($request, $scope->organizationId)) {
+            throw DomainError::notFound($what);
+        }
+        $this->authorize($request, $permission, $scope, $tokenPermission);
+    }
+
+    /**
+     * Whether the caller is a party of the organization or may look at it as staff. A token sees only its own organization's
+     * bindings (Authorizer::visibleBindings), so the token of A that addresses B's row is a stranger there even when its person is
+     * a member of B; the membership itself counts only for the portal's own session.
+     */
+    public function reaches(Request $request, ?string $organizationId): bool
+    {
+        $principal = $request->user();
+        if (! $principal instanceof User && ! $principal instanceof ServiceAccount) {
+            return false;
+        }
+        if ($organizationId === null) {
+            return $this->authorizer->can($principal, 'staff.customer.read', CommandScope::global());
+        }
+        if ($this->authorizer->belongsTo($principal, $organizationId)) {
+            return true;
+        }
+        if ($principal instanceof User && TokenScopes::tokenOf($principal) === null
+            && OrganizationMembership::query()->where('organization_id', $organizationId)->where('user_id', $principal->id)->current()->exists()) {
+            return true;
+        }
+
+        return $this->authorizer->can($principal, 'staff.customer.read', CommandScope::organization($organizationId));
+    }
+    // ── end TASK-0098 ──
+
     /**
      * authorize() for a write that does its work WITHOUT the bus: a HIGH permission asks for the same fresh step-up the bus
      * would, with the same answer the console's step-up dialog repeats the request on (audit §4 "Step-up is not enforced on

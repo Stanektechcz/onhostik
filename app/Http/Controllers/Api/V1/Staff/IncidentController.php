@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api\V1\Staff;
 use App\Http\Controllers\Api\V1\ApiController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use Onhost\Domain\Incidents\Commands\IncidentCommand;
 use Onhost\Domain\Incidents\IncidentService;
 use Onhost\Domain\Incidents\IncidentStateMachine;
@@ -156,7 +157,9 @@ final class IncidentController extends ApiController
             'location' => ['required', 'string', 'max:40'], 'expected' => ['nullable', 'array'], 'interval_seconds' => ['nullable', 'integer', 'min:15', 'max:3600'],
         ]);
 
-        return $this->dispatch(new IncidentCommand("probe.register:{$data['key']}:".now()->timestamp, ['op' => 'probe.register'] + $data), $this->api->context($request), 201);
+        // one request, one key (TASK-0098): the answer is the probe's new token, handed out once. Keyed by the second, a repeat within it
+        // was replayed from the store with the token masked — a token the operator never saw, while the probe kept the first one
+        return $this->dispatch(new IncidentCommand("probe.register:{$data['key']}:".Str::lower((string) Str::ulid()), ['op' => 'probe.register'] + $data), $this->api->context($request), 201);
     }
 
     public function slo(Request $request, SlaService $sla): JsonResponse

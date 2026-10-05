@@ -80,7 +80,7 @@ it('lists services, runs a power action through the command bus and issues a con
 
     [$other] = $this->customerWithOrganization();
     $this->actingAs($other, 'sanctum');
-    $this->getJson('/v1/services/'.$service->id)->assertForbidden();
+    $this->getJson('/v1/services/'.$service->id)->assertNotFound(); // a stranger to the organization: 404, as for a missing id (TASK-0098)
     $this->getJson('/v1/services')->assertOk()->assertHeader('X-Total-Count', '0');
 });
 
