@@ -2031,6 +2031,87 @@ paths:
             schema:
               type: object
               additionalProperties: true
+  /cart/loyalty:
+    post:
+      operationId: postCartLoyalty
+      tags:
+        - cart
+      summary: 'POST /cart/loyalty'
+      parameters:
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        201:
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        422:
+          description: 'Validation or domain rule violation — error: `loyalty_below_minimum`, `loyalty_points_unavailable`, `loyalty_points_invalid`'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  -
+                    $ref: '#/components/schemas/Problem'
+                  -
+                    properties:
+                      error: { enum: [loyalty_below_minimum, loyalty_points_unavailable, loyalty_points_invalid] }
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        200:
+          description: 'Success (idempotent replay or synchronous result)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        401:
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        403:
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        404:
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+      x-token-scope: null
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - points
+              properties:
+                points:
+                  type: integer
+                  minimum: 0
+                  description: '0 = no points; otherwise at least 100'
+      description: 'Redeem loyalty points on the cart of the signed-in customer (`loyalty.redeem`, NORMAL, the permission to place orders). `points: 0` removes the choice. 1 point = 1 CZK off the price before VAT (another currency at the Czech National Bank rate of the day), at least 100 points, never more than the organization has free; every discount on the lines points may discount stays within 20 % of their list price before VAT (a promo code shares that room); domains and credit top-ups are never discounted. The next `POST /cart/quote` shows the discount as a line of its own (`sku: loyalty-redeem`) and says in `loyalty` how many points apply and why not more; the order reserves the points (409 `loyalty_points_unavailable` when another order took them meanwhile), the payment spends them, a cancelled unpaid order releases them, a credit note gives them back in proportion.'
   /cart/promo:
     post:
       operationId: postCartPromo
@@ -7945,6 +8026,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
+        409:
+          description: 'Conflict with the current state — error: `loyalty_points_unavailable`, `quote_already_used`'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  -
+                    $ref: '#/components/schemas/Problem'
+                  -
+                    properties:
+                      error: { enum: [loyalty_points_unavailable, quote_already_used] }
       security:
         -
           session: []

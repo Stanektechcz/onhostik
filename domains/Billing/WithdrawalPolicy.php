@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Onhost\Domain\Billing\Models\ChargebackRequest;
 use Onhost\Domain\Billing\Models\Withdrawal;
 use Onhost\Domain\Invoicing\AccountingClock;
+use Onhost\Domain\Loyalty\LoyaltyRedemptions;
 use Onhost\Domain\Orders\Models\Consent;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\Models\OrderItem;
@@ -100,7 +101,7 @@ final class WithdrawalPolicy
             throw new DomainError('withdrawal_not_applicable', in_array($order->state, [OrderStateMachine::NEW, OrderStateMachine::PENDING_PAYMENT], true)
                 ? 'Nezaplacenou objednávku zrušíte přímo, bez odstoupení.' : 'Z objednávky už běží služby; odstoupit lze od každé služby zvlášť.', 422, ['why' => 'order_state', 'state' => $order->state]);
         }
-        if (OrderItem::query()->where('order_id', $order->id)->where(fn ($q) => $q->whereNotNull('service_id')->orWhereNotIn('state', ['pending', 'failed', 'refunded']))->exists()) { // `refunded`: an undelivered line the settlement already gave back
+        if (OrderItem::query()->where('order_id', $order->id)->where('product_key', '!=', LoyaltyRedemptions::PRODUCT)->where(fn ($q) => $q->whereNotNull('service_id')->orWhereNotIn('state', ['pending', 'failed', 'refunded']))->exists()) { // a points discount (G3) is applied, not delivered // `refunded`: an undelivered line the settlement already gave back
             throw new DomainError('withdrawal_not_applicable', 'Z objednávky už běží služby; odstoupit lze od každé služby zvlášť.', 422, ['why' => 'delivered']);
         }
         if (($order->meta['review']['state'] ?? null) === 'pending') { // held for the staff risk review (audit §5f-8): the review decides, the customer cannot end it by withdrawing

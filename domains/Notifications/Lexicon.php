@@ -76,6 +76,10 @@ final class Lexicon
         'Kredit za zrušenou službu připsán' => 'Credit for the cancelled service added', 'Kredit vrácen: ' => 'Credit refunded: ', ' % nevyužitého období) je na vašem účtu.' => ' % of the unused period) is on your account.',
         'Nová úroveň věrnostního programu: ' => 'New loyalty level: ', 'Odměna ' => 'Reward ', ' je na vašem promo kreditu.' => ' is on your promo credit.', 'Díky, že jste s námi.' => 'Thank you for staying with us.',
         'Nový odznak: ' => 'New badge: ', 'Najdete ho v nastavení účtu.' => 'You will find it in your account settings.',
+        // G3 (G-R2): redeemed points, points given back by a credit note, expiry
+        'Věrnostní body uplatněny: ' => 'Loyalty points redeemed: ', 'Sleva za věrnostní body ' => 'Loyalty points discount ', ' · objednávka ' => ' · order ', ' bodů' => ' points',
+        'Uplatněné body se vrátily: ' => 'Redeemed points returned: ', 'Věrnostní body brzy propadnou: ' => 'Loyalty points expire soon: ', 'Propadnou ' => 'They expire on ',
+        '. Uplatněte je v košíku jako slevu na objednávku.' => '. Redeem them in the cart as a discount on an order.', 'Věrnostní body propadly: ' => 'Loyalty points expired: ', 'Propadly body připsané do ' => 'Expired: points credited until ',
         'Věrnostní body vráceny: ' => 'Loyalty points taken back: ', 'Peníze se vrátily' => 'The money was returned', 'Dobropis ' => 'Credit note ', ' · zůstatek ' => ' · balance ', ' bodů. Body se přičítají jen za zaplacené částky.' => ' points. Points are earned only for amounts actually paid.',
         'Na vaše doporučení se registroval nový zákazník' => 'A new customer signed up on your referral', 'Odměnu připíšeme po jeho první zaplacené platbě.' => 'The reward is added after their first paid payment.',
         'Uvítací odměna za doporučení' => 'Referral welcome reward', 'Odměna za doporučení' => 'Referral reward', ' bodů a ' => ' points and ', ' promo kreditu za ' => ' promo credit for ', ' promo kreditu.' => ' promo credit.',

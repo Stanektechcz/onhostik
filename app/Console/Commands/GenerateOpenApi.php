@@ -75,7 +75,17 @@ final class GenerateOpenApi extends Command
             'errors' => ['403' => ['custom_iso_not_in_plan'], '409' => ['service_not_active', 'idempotency_key_reused'], '422' => ['iso_too_large', 'iso_too_large_for_scan', 'iso_not_iso9660', 'iso_quota_exceeded', 'upload_infected', 'iso_scan_incomplete', 'iso_upload_unknown'], '429' => ['iso_upload_in_progress'], '503' => ['iso_scan_unavailable', 'iso_scanner_untrusted', 'custom_iso_storage_unsafe']],
         ],
         'POST /cart/quote' => ['errors' => ['422' => ['domain_action_invalid']]],
-        'POST /orders' => ['errors' => ['422' => ['domain_action_invalid']]],
+        'POST /orders' => ['errors' => ['422' => ['domain_action_invalid'], '409' => ['loyalty_points_unavailable', 'quote_already_used']]],
+        // G3 (owner decision G-R2): loyalty points redeemed on the signed-in customer's cart (command `loyalty.redeem`)
+        'POST /cart/loyalty' => [
+            'description' => 'Redeem loyalty points on the cart of the signed-in customer (`loyalty.redeem`, NORMAL, the permission to place orders). `points: 0` removes the choice. '
+                .'1 point = 1 CZK off the price before VAT (another currency at the Czech National Bank rate of the day), at least 100 points, never more than the organization has free; '
+                .'every discount on the lines points may discount stays within 20 % of their list price before VAT (a promo code shares that room); domains and credit top-ups are never discounted. '
+                .'The next `POST /cart/quote` shows the discount as a line of its own (`sku: loyalty-redeem`) and says in `loyalty` how many points apply and why not more; '
+                .'the order reserves the points (409 `loyalty_points_unavailable` when another order took them meanwhile), the payment spends them, a cancelled unpaid order releases them, a credit note gives them back in proportion.',
+            'body' => ['required' => ['points'], 'properties' => ['points' => ['type' => 'integer', 'minimum' => 0, 'description' => '0 = no points; otherwise at least 100']]],
+            'errors' => ['422' => ['loyalty_below_minimum', 'loyalty_points_unavailable', 'loyalty_points_invalid']],
+        ],
         'POST /checkout/guest' => ['errors' => ['422' => ['domain_action_invalid']]],
         'GET /me' => [
             'description' => 'Who is calling. A person (session or personal token) gets `type: person` with the account, the organizations and the step-up state; a service account token gets `type: service_account` with the account, its organization, its role and the token\'s scopes (F12a). The endpoints that act for a person still answer a service account `403 person_required`.',

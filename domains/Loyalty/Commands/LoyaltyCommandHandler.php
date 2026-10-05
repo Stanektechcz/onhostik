@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Loyalty\Commands;
 
+use Onhost\Domain\Loyalty\LoyaltyRedemptions;
 use Onhost\Domain\Loyalty\LoyaltyService;
 use Onhost\Domain\Loyalty\MissionService;
 use Onhost\Domain\Loyalty\Models\Referral;
 use Onhost\Domain\Loyalty\ReferralService;
+use Onhost\Domain\Orders\Models\Cart;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Platform\Commands\Command;
 use Onhost\Platform\Commands\CommandContext;
@@ -16,10 +18,19 @@ use Onhost\Platform\Errors\DomainError;
 
 final class LoyaltyCommandHandler implements CommandHandler
 {
-    public function __construct(private readonly LoyaltyService $loyalty, private readonly ReferralService $referrals, private readonly MissionService $missions) {}
+    public function __construct(private readonly LoyaltyService $loyalty, private readonly ReferralService $referrals, private readonly MissionService $missions, private readonly LoyaltyRedemptions $redemptions) {}
 
     public function handle(Command $command, CommandContext $context): mixed
     {
+        if ($command instanceof RedeemPointsCommand) { // G3 (G-R2): the customer's own cart, never another person's
+            $organization = Organization::query()->findOrFail($command->organizationId);
+            $cart = Cart::query()->where('state', 'open')->find((string) $command->get('cart_id'));
+            if ($cart === null || $context->actorType !== 'user' || $context->actorId === null || (string) $cart->user_id !== (string) $context->actorId) {
+                throw DomainError::notFound('cart');
+            }
+
+            return $this->redemptions->request($organization, $cart, (int) $command->get('points', 0), $context);
+        }
         if ($command instanceof AccountLoyaltyCommand) {
             $organization = Organization::query()->findOrFail($command->organizationId);
 

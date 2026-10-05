@@ -10,6 +10,7 @@ use Onhost\Domain\Catalog\Models\PlanVersion;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Catalog\Models\PromoCode;
 use Onhost\Domain\Catalog\PricingRules;
+use Onhost\Domain\Loyalty\LoyaltyRedemptions;
 use Onhost\Domain\Orders\Models\ConsentDocument;
 use Onhost\Domain\Orders\Models\Quote;
 use Onhost\Domain\Organizations\Models\Organization;
@@ -122,7 +123,7 @@ final class QuoteService
      * @param  list<array<string,mixed>>  $items
      * @param  array{country?:string,customer_class?:string,vat_id?:?string,vat_status?:string,vat_reason?:?string,vat_name_mismatch?:bool,ip_country?:?string}  $customer
      */
-    public function quote(array $items, Currency|string $currency, array $customer, int $commitMonths = 1, ?string $promoCode = null, ?Organization $organization = null, string $locale = 'cs', ?LimitRaiseWaiver $waiver = null): Quote
+    public function quote(array $items, Currency|string $currency, array $customer, int $commitMonths = 1, ?string $promoCode = null, ?Organization $organization = null, string $locale = 'cs', ?LimitRaiseWaiver $waiver = null, int $loyaltyPoints = 0): Quote
     {
         $currency = $currency instanceof Currency ? $currency : Currency::fromString($currency);
         if ($organization !== null) {
@@ -347,6 +348,14 @@ final class QuoteService
             $renewalTotal = $renewalTotal->add($renewalNet);
         }
 
+        // G3 (owner decision G-R2): points the customer chose to redeem (`loyalty.redeem`) are a line of their own, after every other
+        // discount and within the cap; a domain and a plan change are never discounted by them (LoyaltyRedemptions::price)
+        $loyalty = app(LoyaltyRedemptions::class)->price($organization, $loyaltyPoints, $lines, $currency, $locale);
+        if ($loyalty['line'] !== null) {
+            $lines[] = $loyalty['line'];
+            $discount = $discount->add($loyalty['line']['net']->negate());
+        }
+
         $taxInput = [
             'country' => $country,
             'customer_class' => $customer['customer_class'] ?? 'b2c',
@@ -380,7 +389,7 @@ final class QuoteService
             'renewal_total_minor' => $renewalTotal->minor,
             'tax_calculation_id' => $taxResult['calculation']->id,
             'tax_rule_version_id' => $taxResult['calculation']->rule_version_id,
-            'versions' => array_merge($versions, ['promo' => $promo?->code, 'commit_months' => $commitMonths, 'price_region' => $region['key'], 'price_region_pct' => $region['adjust_pct'], 'loyalty_pct' => $loyaltyPct, 'tax_review_required' => $taxResult['review_required'], 'tax_reasons' => $taxResult['reasons'], 'vat_review' => $taxResult['vat_review'], 'vat' => $organization !== null ? VatStanding::snapshot($organization) : null, 'terms' => $this->currentTermsVersions()]),
+            'versions' => array_merge($versions, ['promo' => $promo?->code, 'commit_months' => $commitMonths, 'price_region' => $region['key'], 'price_region_pct' => $region['adjust_pct'], 'loyalty_pct' => $loyaltyPct, 'loyalty' => $loyaltyPoints > 0 ? $loyalty['info'] : null, 'tax_review_required' => $taxResult['review_required'], 'tax_reasons' => $taxResult['reasons'], 'vat_review' => $taxResult['vat_review'], 'vat' => $organization !== null ? VatStanding::snapshot($organization) : null, 'terms' => $this->currentTermsVersions()]),
             'valid_until' => now()->addHours(2),
             'state' => 'open',
         ]);

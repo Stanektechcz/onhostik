@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Orders;
 
+use Onhost\Domain\Loyalty\LoyaltyRedemptions;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Platform\Commands\CommandContext;
@@ -26,7 +27,7 @@ final class OrderFulfilmentService
         if ($order === null || ! in_array($order->state, [OrderStateMachine::PROVISIONING, OrderStateMachine::PARTIALLY_ACTIVE], true)) {
             return;
         }
-        $states = OrderItem::query()->where('order_id', $order->id)->pluck('state')->all();
+        $states = OrderItem::query()->where('order_id', $order->id)->where('product_key', '!=', LoyaltyRedemptions::PRODUCT)->pluck('state')->all(); // a points discount (G3) is no line to deliver
         if ($states === [] || in_array('pending', $states, true) || in_array('provisioning', $states, true)) {
             return;
         }
