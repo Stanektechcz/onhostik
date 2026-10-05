@@ -36,7 +36,7 @@ Plán v příkladech: **game-8** (8 GB RAM), šablona `minecraft-paper`, verze 1
 - V herním panelu vznikne **uživatel této organizace**: nalezen podle vnějšího id (id organizace), založený se syntetickou adresou končící `.invalid`, **nikdy správce**. Panel se nikdy neptá, komu patří e-mailová adresa; cizí účet, který náhodou nese zákazníkův e-mail, se nepoužije.
 - Server má alokaci (port), limity podle plánu (paměť 8192 MB) a proměnnou verze hry; stav instalace dokončen.
 - Seznam a detail služby i funkce (`GET /v1/services/{service}/features`) ukazují napájení, konzoli, stav hry, startup a zálohy — a **nejmenují** herní panel, démona ani tokeny.
-- Události (každá jednou, organizaci zákazníka): `order.paid`, `service.activated`; po doručení se v outboxu objeví i „order.active“.
+- Události (každá jednou, organizaci zákazníka): `order.paid`, `service.activated`; po doručení se v outboxu objeví i `order.active`.
 
 **Negativní varianty**
 

@@ -35,7 +35,7 @@ runbooky [billing-dunning](../runbooks/billing-dunning.md) a [historical-site-im
 - Po kroku 2 se nic nemaže a hostingový panel nedostane žádné volání.
 - Po kroku 4 je období prodloužené, služba `ACTIVE`, vznikl další výpis z kreditu.
 - Po kroku 5: **nejdřív závěrečný archiv** (soubory webu a každá databáze, ověřený), pak se web **deaktivuje** (odeberou se FTP a SSH přístupy, data zůstávají), služba je `SUSPENDED` s datem odstranění v budoucnu, předplatné `CANCELLED`. Panel hlásí „Zrušená služba“ a „obnovit do …“.
-- Události: `subscription.expired`, `service.delegations.revoked` (delegované přístupy odebrány), `service.deletion.scheduled`, `service.deactivated`. V outboxu dále „subscription.cancel_scheduled“ (2×) a „subscription.cancel_revoked“ (1×).
+- Události: `subscription.expired`, `service.delegations.revoked` (delegované přístupy odebrány), `service.deletion.scheduled`, `service.deactivated`. V outboxu dále `subscription.cancel_scheduled` (2×) a `subscription.cancel_revoked` (1×).
 - Účet žije dál: přihlášení, `GET /v1/invoices`, kredit.
 
 **Negativní varianty**

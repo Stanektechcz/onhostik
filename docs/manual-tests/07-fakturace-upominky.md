@@ -67,7 +67,7 @@ spouštějí po jménu, brána a hostingový panel jsou náhrada). Body a vratn�
 - Při pozastavení se vypne **vhost webu, cron úloha i FTP účet** a platforma si to pamatuje (blokace „payment“), aby se vše dalo vrátit; vhost se přepne přesně jednou.
 - U VPS se server zastaví a zamkne, u herního serveru se pozastaví v herním panelu (stejná pozastavovací sága jako pozastavení zákazníkem, viz F5-07 a F6-06).
 - E-maily: tři `dunning-notice`, po pozastavení `dunning-suspended` a `invoice-overdue`; upozornění v panelu „Upomínka — neuhrazený doklad“ třikrát a „Služba byla pozastavena pro neplacení“.
-- Události v outboxu: `dunning.opened`, `dunning.notice` (3×), `service.suspended`, `invoice.overdue`; v outboxu k tomu přibudou „dunning.grace“ a „dunning.suspended“.
+- Události v outboxu: `dunning.opened`, `dunning.notice` (3×), `service.suspended`, `invoice.overdue`; v outboxu k tomu přibudou `dunning.grace` a `dunning.suspended`.
 - Zákazník to vidí předem: `/panel/fakturace` → „Co se stane, když nezaplatíte“ (lhůty z nastavení účtu), `GET /v1/dunning`.
 
 **Negativní varianty**

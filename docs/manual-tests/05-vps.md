@@ -42,7 +42,7 @@ Plán v příkladech: **Compute 2** (`vps`, plán `compute-2`): 2 vCPU, 4 GB RAM
 - Server má přidělenou IPv4, velikost podle plánu (2 jádra, 4096 MB, disk 80 GB), firewall (výchozí zahazování příchozího provozu) a **vlastní číslo hosta, které nikdo nepoužil** (nová služba nikdy nezíská číslo, pod nímž ještě leží cizí záloha).
 - Cizí servery stejného clusteru zůstaly nedotčené.
 - `GET /v1/services`, `GET /v1/services/{service}`, `GET /v1/services/{service}/features`, `GET /v1/services/{service}/operations` ani `GET /v1/orders/{order}` **nikde nejmenují** hypervizor, jeho uzel ani konzolový ticket.
-- Události, každá právě jednou pro organizaci zákazníka: `order.paid`, `service.activated`; po doručení se v outboxu objeví i „order.active“. V outboxu nezůstane nic nepublikovaného.
+- Události, každá právě jednou pro organizaci zákazníka: `order.paid`, `service.activated`; po doručení se v outboxu objeví i `order.active`. V outboxu nezůstane nic nepublikovaného.
 
 **Negativní varianty**
 
