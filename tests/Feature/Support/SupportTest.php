@@ -47,7 +47,7 @@ it('creates a triaged ticket with SLA clocks, routes it to the right queue and n
     $this->getJson('/v1/tickets')->assertOk()->assertHeader('X-Total-Count', '1');
     [$other] = $this->customerWithOrganization();
     $this->actingAs($other, 'sanctum');
-    $this->getJson('/v1/tickets/'.$ticket->id)->assertForbidden();
+    $this->getJson('/v1/tickets/'.$ticket->id)->assertNotFound();
 });
 
 it('runs the conversation: staff reply pauses clocks, customer reply resumes, resolve measures SLA, CSAT', function () {
