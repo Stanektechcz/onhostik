@@ -6,10 +6,10 @@ on:
     branches: [main, development]
   pull_request:
   workflow_dispatch:
-
+# A newer push to the same PR supersedes the older run; pushes to development/main are never cancelled, so a red commit is always reported.
 # A newer push to the same ref supersedes the older run, so a stale run never holds a runner (or its minutes).
 concurrency:
-  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
   cancel-in-progress: true
 
 jobs:
