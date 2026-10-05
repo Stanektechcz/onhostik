@@ -7,10 +7,9 @@ on:
   pull_request:
   workflow_dispatch:
 # A newer push to the same PR supersedes the older run; pushes to development/main are never cancelled, so a red commit is always reported.
-# A newer push to the same ref supersedes the older run, so a stale run never holds a runner (or its minutes).
 concurrency:
+  group: tests-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-  cancel-in-progress: true
 
 jobs:
   # Spectral over the committed contract (ruleset: .spectral.yaml). Errors and warnings fail; waived rules are documented there.
