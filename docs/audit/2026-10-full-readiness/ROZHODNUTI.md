@@ -20,3 +20,14 @@ jako směr**. Jejich provedení na živých systémech dál potřebuje výslovn�
 | R12 | Doplňky se obnovují spolu s rodičem (`ONHOST_ADDON_RENEWALS=true`) po ověření testem. | C11 | |
 | R13 | Platební dlaždice, které nefungují (Apple Pay, PayPal, krypto, SEPA), se skryjí. | C2 | |
 | R14 | Veřejné stránky produktů bez napojení na katalog zobrazí „připravujeme“ bez ceny a bez tlačítka do košíku. | C2 | |
+
+## Rozhodnutí přijatá ve fázi D (2026-10-04)
+
+| # | Rozhodnutí | Balík | Poznámka |
+|---|---|---|---|
+| D-1 | Opakování webhooku čeká celé zpoždění mezi pokusy: 6 pokusů, dohromady asi 14,6 h. | D4 | TASK-0077 #70. |
+| D-2 | Verze API je 1.0.0 a je oddělená od verze aplikace 4.0. | D7 | TASK-0076 #69; hlavičky `X-API-Version`, `Deprecation`, `Sunset`. |
+| D-3 | Throttle neúspěšné autentizace počítá jen požadavky s bearer tokenem, limit 60 za minutu. | D7 | TASK-0076 #69. |
+| D-4 | Okno rozpracované idempotentní operace je `max(600, 2 × max_execution_time + 60)` sekund. | D5 | TASK-0075 #68. |
+| D-5 | Odchozí webhooky smějí na porty 443 a 8443. | D4 | TASK-0077 #70. |
+| D-6 | R9 (platnost tokenů) se ve fázi D řeší jako dokumentace. | D6 | TASK-0079 #72. |
