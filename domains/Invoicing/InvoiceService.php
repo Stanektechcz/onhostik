@@ -86,12 +86,13 @@ final class InvoiceService
     }
 
     /**
-     * Tax document for a received payment (daňový doklad k přijaté platbě): the money of a paid order (the order's statement
-     * is no tax document, so the receipt is its only one) and a VAT payer's top-up. VAT is extracted from the gross amount using
-     * the tax engine decision for electronically supplied services.
+     * Tax document for a received payment (daňový doklad k přijaté platbě): the money of a paid order or proforma (the order's
+     * statement is no tax document, so the receipt is its only one) and a taxable person's top-up. VAT is extracted from the
+     * gross amount using the tax engine decision for electronically supplied services (reverse charge, 0 % or OSS included).
      *
-     * Never for the payment of a document that is itself a tax document (G1, owner decision G-R1): an issued invoice paid by
-     * card, transfer or from the credit is settled, not documented a second time — see PaymentService::settle().
+     * A seller who is no VAT payer issues no tax document (§ 29): the payment gets a payment confirmation instead. And never for
+     * the payment of a document that is itself a tax document (G1, owner decision G-R1): an issued invoice paid by card, transfer
+     * or from the credit is settled, not documented a second time — see PaymentService::document().
      */
     public function issueReceipt(Organization $organization, Money $gross, string $method, CommandContext $context, ?string $paymentIntentId = null): Invoice
     {
@@ -100,6 +101,9 @@ final class InvoiceService
             if ($existing !== null) {
                 return $existing;
             }
+        }
+        if (! $this->sellerIsVatPayer()) {
+            return $this->issueConfirmation($organization, $gross, $method, $context, $paymentIntentId, 'Přijatá platba (není daňový doklad)');
         }
         $decision = $this->tax->calculate(
             VatStanding::taxCustomer($organization),
@@ -122,9 +126,11 @@ final class InvoiceService
 
     /**
      * The document of money that becomes credit (a top-up, or what an invoice payment brought beyond what the invoice still
-     * owed). A VAT payer gets the tax receipt it deducts from; anybody else — a consumer, a business without a checked VAT
-     * number, or every customer while the seller is not a VAT payer — a payment confirmation that is not a tax document and
-     * states no VAT (G1). The VAT of what the credit later pays is booked when it is spent, as before.
+     * owed). It follows the seller (security review of PR #103): a seller who is a VAT payer issues the tax receipt to a taxable
+     * person or a legal entity — VAT payer or not, domestic or foreign, the tax engine decides the rate — and a payment
+     * confirmation, no tax document, to a consumer; a seller who is no VAT payer issues only confirmations. The VAT of what the
+     * credit later pays is booked when it is spent, as before. Whether the credit is a multi-purpose voucher (§ 10a–10c) — and
+     * so no receipt is due at all — is an open question for the accountant (docs/runbooks/billing-dunning.md).
      */
     public function issueTopupDocument(Organization $organization, Money $gross, string $method, CommandContext $context, ?string $paymentIntentId = null): Invoice
     {
@@ -134,14 +140,42 @@ final class InvoiceService
                 return $existing;
             }
         }
-        if ($this->legalEntity()->vat_payer && VatStanding::registeredForVat($organization)) {
+        if ($this->sellerIsVatPayer() && self::taxablePerson($organization)) {
             return $this->issueReceipt($organization, $gross, $method, $context, $paymentIntentId);
         }
+
+        return $this->issueConfirmation($organization, $gross, $method, $context, $paymentIntentId, 'Přijatá platba — kredit ONhost (není daňový doklad)');
+    }
+
+    /** Whether the seller may issue tax documents at all: its legal entity and the tax rules in force both say it is a VAT payer. */
+    public function sellerIsVatPayer(): bool
+    {
+        return (bool) $this->legalEntity()->vat_payer && (bool) data_get($this->tax->currentRules()->rules, 'supplier.vat_payer', true);
+    }
+
+    /**
+     * A taxable person or a legal entity (§ 28 (2)): a company, a business customer, or anybody who gave a business or VAT
+     * number. Only a consumer — a natural person without any of them — is not one.
+     */
+    public static function taxablePerson(Organization $organization): bool
+    {
+        foreach (['ico', 'dic', 'vat_id'] as $number) {
+            if (trim((string) ($organization->{$number} ?? '')) !== '') {
+                return true;
+            }
+        }
+
+        return $organization->type === 'company' || $organization->customer_class === 'b2b';
+    }
+
+    /** A payment confirmation: the whole amount, no VAT stated (whoever states VAT on a document owes it, § 108 (1) i), no tax document. */
+    private function issueConfirmation(Organization $organization, Money $gross, string $method, CommandContext $context, ?string $paymentIntentId, string $description): Invoice
+    {
         $draft = $this->draft($organization, self::PAYMENT_CONFIRMATION, $gross->currency->value, [[
-            'sku' => 'topup', 'description' => 'Přijatá platba — kredit ONhost (není daňový doklad)', 'qty' => 1, 'unit' => 'ks',
+            'sku' => 'payment', 'description' => $description, 'qty' => 1, 'unit' => 'ks',
             'unit_net' => $gross->minor, 'discount' => 0, 'net' => $gross->minor, 'tax_rate' => '0', 'tax_category' => 'O', 'tax' => 0, 'total' => $gross->minor,
         ]], $context, null, ['payment_method' => $method, 'payment_intent_id' => $paymentIntentId, 'tax_document' => false]);
-        $draft->forceFill(['tax_summary' => []])->save(); // states no VAT: whoever states VAT on a document owes it (§ 108 (1) i)
+        $draft->forceFill(['tax_summary' => []])->save();
         $confirmation = $this->issue($draft, $context, dueDays: 0);
 
         return $this->markPaid($confirmation, $gross, $method, $context, postLedger: false);
@@ -251,7 +285,9 @@ final class InvoiceService
             // a tax document in another currency states its VAT in CZK at the national bank's rate of the supply day (it carried
             // neither); a bank that does not answer does not stop the document — `onhost:fx:sync` completes it
             $invoice->forceFill(['meta' => $this->czk->stamp($invoice)])->save();
-            $invoice->forceFill(['structured' => $this->ubl->structure($invoice)])->save();
+            if (UblExporter::exportable($invoice)) { // a payment confirmation is no invoice of any kind: no EN 16931 form
+                $invoice->forceFill(['structured' => $this->ubl->structure($invoice)])->save();
+            }
             $this->renderPdf($invoice);
             if (($invoice->meta['postpaid'] ?? false) && $invoice->type === 'invoice') {
                 $this->postReceivable($invoice);

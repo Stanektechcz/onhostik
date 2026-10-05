@@ -91,11 +91,15 @@ beforeEach(function () {
     app()->instance(PaymentProviderRegistry::class, $registry);
 });
 
-/** A settled credit top-up by card (the gateway above confirms refunds at once; 'bank' leaves them pending) and its points. */
-function f12bPaidTopup(Organization $org, int $minor, string $provider = 'f12bcard'): PaymentIntent
+/**
+ * A settled order payment by card (the gateway above confirms refunds at once; 'bank' leaves them pending) and its points. An
+ * order payment, not a top-up: credit is never paid back in money (G-R4, PaymentService::refund refuses a top-up).
+ */
+function f12bPaidPayment(Organization $org, int $minor, string $provider = 'f12bcard'): PaymentIntent
 {
-    $intent = PaymentIntent::query()->create(['organization_id' => $org->id, 'provider' => $provider, 'provider_id' => 'vs-'.uniqid(), 'purpose' => 'topup', 'reference_type' => 'wallet', 'reference_id' => $org->id, 'amount_minor' => $minor, 'currency' => 'CZK', 'state' => 'SUCCEEDED', 'idempotency_key' => 'f12b-pi-'.uniqid(), 'paid_at' => now()]);
-    app(OutboxPublisher::class)->publish(GenericEvent::of('payment.succeeded', 'payment', $intent->id, ['purpose' => 'topup', 'reference' => ['wallet', $org->id], 'amount' => ['minor' => $minor, 'currency' => 'CZK']], $org->id));
+    $orderId = 'ord_f12b_'.uniqid();
+    $intent = PaymentIntent::query()->create(['organization_id' => $org->id, 'provider' => $provider, 'provider_id' => 'vs-'.uniqid(), 'purpose' => 'order', 'reference_type' => 'order', 'reference_id' => $orderId, 'amount_minor' => $minor, 'currency' => 'CZK', 'state' => 'SUCCEEDED', 'idempotency_key' => 'f12b-pi-'.uniqid(), 'paid_at' => now()]);
+    app(OutboxPublisher::class)->publish(GenericEvent::of('payment.succeeded', 'payment', $intent->id, ['purpose' => 'order', 'reference' => ['order', $orderId], 'amount' => ['minor' => $minor, 'currency' => 'CZK']], $org->id));
     app(OutboxPublisher::class)->relayPending();
 
     return $intent;
@@ -110,7 +114,7 @@ function f12bRefund(PaymentIntent $intent, int $minor, string $key, string $curr
 it('publishes payment.refunded, tells the customer and takes the payment\'s points back once', function () {
     [, $org] = $this->customerWithOrganization();
     $loyalty = app(LoyaltyService::class);
-    $intent = f12bPaidTopup($org, 50000);
+    $intent = f12bPaidPayment($org, 50000);
     expect($loyalty->points($org->id))->toBe(10);
 
     f12bRefund($intent, 50000, 'f12b-rf-1');
@@ -132,7 +136,7 @@ it('publishes payment.refunded, tells the customer and takes the payment\'s poin
 it('keeps the points while what is left of the payment would still have earned them', function () {
     [, $org] = $this->customerWithOrganization();
     $loyalty = app(LoyaltyService::class);
-    $intent = f12bPaidTopup($org, 50000);
+    $intent = f12bPaidPayment($org, 50000);
 
     f12bRefund($intent, 30000, 'f12b-rf-part-1'); // 200 CZK left: still at least the 100 CZK minimum
     expect($loyalty->points($org->id))->toBe(10);
@@ -145,7 +149,7 @@ it('never takes points of another organization, nor more than the payment earned
     [, $org] = $this->customerWithOrganization();
     [, $other] = $this->customerWithOrganization();
     $loyalty = app(LoyaltyService::class);
-    $intent = f12bPaidTopup($org, 50000);
+    $intent = f12bPaidPayment($org, 50000);
     $loyalty->award($other->id, 'mfa.enabled', 'org', 50, 'MFA', CommandContext::system('test'));
     $intent->forceFill(['refunded_minor' => 50000, 'state' => 'REFUNDED'])->save();
 
@@ -163,7 +167,7 @@ it('never takes points of another organization, nor more than the payment earned
 
 it('tells an English organization in English', function () {
     [, $org] = $this->customerWithOrganization(['locale' => 'en'], ['locale' => 'en']);
-    $intent = f12bPaidTopup($org, 50000);
+    $intent = f12bPaidPayment($org, 50000);
 
     f12bRefund($intent, 50000, 'f12b-rf-en');
 
@@ -173,8 +177,8 @@ it('tells an English organization in English', function () {
 
 it('refuses a refund key already spent on another payment instead of answering with that payment\'s refund', function () {
     [, $org] = $this->customerWithOrganization();
-    $first = f12bPaidTopup($org, 50000);
-    $second = f12bPaidTopup($org, 50000);
+    $first = f12bPaidPayment($org, 50000);
+    $second = f12bPaidPayment($org, 50000);
     f12bRefund($first, 50000, 'f12b-rf-shared');
 
     expect(fn () => f12bRefund($second, 50000, 'f12b-rf-shared'))->toThrow(DomainError::class, 'already used for another refund');
@@ -183,7 +187,7 @@ it('refuses a refund key already spent on another payment instead of answering w
 
 it('refuses a retry under the same key that asks for another amount or currency', function () {
     [, $org] = $this->customerWithOrganization();
-    $intent = f12bPaidTopup($org, 50000);
+    $intent = f12bPaidPayment($org, 50000);
     f12bRefund($intent, 20000, 'f12b-rf-m1');
 
     expect(fn () => f12bRefund($intent, 30000, 'f12b-rf-m1'))->toThrow(DomainError::class, 'already used for another refund');
@@ -193,7 +197,7 @@ it('refuses a retry under the same key that asks for another amount or currency'
 
 it('refuses a refund in another currency than the payment', function () {
     [, $org] = $this->customerWithOrganization();
-    $intent = f12bPaidTopup($org, 50000);
+    $intent = f12bPaidPayment($org, 50000);
 
     expect(fn () => f12bRefund($intent, 1000, 'f12b-rf-cur', 'EUR'))->toThrow(DomainError::class, 'currency');
     expect($intent->fresh()->refunded_minor)->toBe(0)->and(F12bRefundingGateway::$refunds)->toBe(0);
@@ -201,7 +205,7 @@ it('refuses a refund in another currency than the payment', function () {
 
 it('checks the cap against the payment as it stands under a lock, not as the caller last read it', function () {
     [, $org] = $this->customerWithOrganization();
-    $intent = f12bPaidTopup($org, 50000);
+    $intent = f12bPaidPayment($org, 50000);
     $stale = $intent->fresh();
     f12bRefund($intent, 40000, 'f12b-rf-race-1');
 
@@ -212,7 +216,7 @@ it('checks the cap against the payment as it stands under a lock, not as the cal
 
 it('announces nothing and takes no points while a refund is only pending (a bank payout finance has not made yet)', function () {
     [, $org] = $this->customerWithOrganization();
-    $intent = f12bPaidTopup($org, 50000, 'bank');
+    $intent = f12bPaidPayment($org, 50000, 'bank');
 
     f12bRefund($intent, 50000, 'f12b-rf-pending');
 

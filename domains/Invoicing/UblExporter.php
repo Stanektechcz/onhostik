@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Invoicing;
 
 use Onhost\Domain\Invoicing\Models\Invoice;
+use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Money\Money;
 
 /**
@@ -88,8 +89,20 @@ final class UblExporter
         ];
     }
 
+    /**
+     * Whether the document has an EN 16931 form at all. A payment confirmation is no invoice of any kind — exported as type 380
+     * it would be booked as a commercial invoice by whoever imports it (security review of PR #103, G1).
+     */
+    public static function exportable(Invoice $invoice): bool
+    {
+        return $invoice->type !== InvoiceService::PAYMENT_CONFIRMATION;
+    }
+
     public function export(Invoice $invoice): string
     {
+        if (! self::exportable($invoice)) {
+            throw new DomainError('document_not_exportable', 'A payment confirmation is not an invoice and has no structured (UBL) form; download its PDF.', 409);
+        }
         $s = $invoice->structured ?? $this->structure($invoice);
         $isCredit = ($s['InvoiceTypeCode'] ?? '380') === '381';
         $root = $isCredit ? 'CreditNote' : 'Invoice';

@@ -28,13 +28,24 @@ final class BillingDoubleTaxReport extends Command
 
     public function handle(): int
     {
+        $since = null;
+        if (is_string($this->option('since')) && $this->option('since') !== '') {
+            $raw = (string) $this->option('since');
+            $parsed = preg_match('/^\d{4}-\d{2}-\d{2}$/', $raw) === 1 ? Carbon::createFromFormat('!Y-m-d', $raw) : false;
+            if ($parsed === false || $parsed->format('Y-m-d') !== $raw) { // a date it cannot read is refused, never guessed
+                $this->error('--since must be a date YYYY-MM-DD.');
+
+                return self::FAILURE;
+            }
+            $since = $parsed->startOfDay();
+        }
         $pairs = [];
         $receipts = Invoice::query()->where('type', 'receipt')->where('state', '!=', Invoice::DRAFT)->whereNotNull('meta->payment_intent_id');
         if (is_string($this->option('organization')) && $this->option('organization') !== '') {
             $receipts->where('organization_id', (string) $this->option('organization'));
         }
-        if (is_string($this->option('since')) && $this->option('since') !== '') {
-            $receipts->where('issued_at', '>=', Carbon::parse((string) $this->option('since'))->startOfDay());
+        if ($since !== null) {
+            $receipts->where('issued_at', '>=', $since);
         }
         $receipts->chunkById(self::CHUNK, function ($chunk) use (&$pairs) {
             $byIntent = $chunk->keyBy(fn (Invoice $receipt) => (string) ($receipt->meta['payment_intent_id'] ?? ''));

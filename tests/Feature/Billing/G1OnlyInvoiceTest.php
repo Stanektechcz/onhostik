@@ -7,25 +7,36 @@ use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Event;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Invoicing\CzkTaxStatement;
 use Onhost\Domain\Invoicing\InvoicePdfRenderer;
 use Onhost\Domain\Invoicing\InvoiceService;
+use Onhost\Domain\Invoicing\Listeners\SettleInvoicePayment;
 use Onhost\Domain\Invoicing\Models\Invoice;
+use Onhost\Domain\Invoicing\Models\LegalEntity;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Payments\Events\PaymentSucceeded;
 use Onhost\Domain\Payments\Models\PaymentIntent;
+use Onhost\Domain\Payments\Models\PaymentRefund;
 use Onhost\Domain\Payments\Models\PaymentStateMachineStates as S;
+use Onhost\Domain\Payments\Models\ReconciliationItem;
 use Onhost\Domain\Payments\PaymentService;
 use Onhost\Domain\WalletLedger\LedgerService;
+use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Commands\CommandContext;
+use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Money\Money;
 
 /*
  * G1 (owner decision G-R1): only the invoice is a tax document. Paying an invoice that was already issued — by card, by bank
  * transfer or from the credit — settles it; it does not also issue a receipt with VAT, so the same sale is never on two tax
- * documents (both counted in CzkTaxStatement::TYPES, both in the VAT return). A top-up of credit for a customer who is not a VAT
- * payer is confirmed by a payment confirmation that is not a tax document. VAT is booked once in the ledger and stated once on
+ * documents (both counted in CzkTaxStatement::TYPES, both in the VAT return). VAT is booked once in the ledger and stated once on
  * the tax documents.
+ *
+ * The document of money that becomes credit follows the SELLER (security review of PR #103): a seller that is no VAT payer issues
+ * no tax document at all; a VAT payer issues a tax receipt to a taxable person or legal entity (payer or not, domestic or foreign —
+ * the tax engine decides the rate, reverse charge or OSS) and a payment confirmation, no tax document, to a consumer.
  */
 
 beforeEach(function () {
@@ -38,6 +49,18 @@ function g1VatPayer(Organization $org): Organization
     $org->forceFill(['vat_id' => 'CZ12345678', 'vat_status' => 'valid', 'vat_status_source' => 'vies', 'vat_checked_number' => 'CZ12345678', 'vat_checked_at' => now()])->save();
 
     return $org->refresh();
+}
+
+/** A consumer: a natural person with no business number. @return array<string,string> */
+function g1Consumer(): array
+{
+    return ['name' => 'Jana Nováková', 'type' => 'person'];
+}
+
+/** The seller (ONhost's legal entity) is not registered for VAT. */
+function g1SellerNotVatPayer(): void
+{
+    LegalEntity::query()->update(['vat_payer' => false]);
 }
 
 /** An issued postpaid renewal invoice: 89 Kč + 21 % VAT, booked (receivable, revenue, VAT) when it is issued. */
@@ -61,10 +84,26 @@ function g1CardIntent(Organization $org, int $amount, string $purpose, ?string $
     ]);
 }
 
-/** The organization's tax documents (what the VAT return and the CZK recap count). @return \Illuminate\Support\Collection<int, Invoice> */
+function g1Settle(PaymentIntent $intent): bool
+{
+    return app(PaymentService::class)->settle($intent, CommandContext::system('webhook:comgate'), 'card');
+}
+
+/** The organization's tax documents (what the VAT return and the CZK recap count). @return Collection<int, Invoice> */
 function g1TaxDocuments(Organization $org): Collection
 {
     return Invoice::query()->where('organization_id', $org->id)->whereIn('type', CzkTaxStatement::TYPES)->where('state', '!=', Invoice::DRAFT)->get();
+}
+
+/** The one document of a payment. */
+function g1PaymentDocument(PaymentIntent $intent): Invoice
+{
+    return Invoice::query()->whereIn('type', ['receipt', InvoiceService::PAYMENT_CONFIRMATION])->where('meta->payment_intent_id', $intent->id)->sole();
+}
+
+function g1Wallet(Organization $org): int
+{
+    return app(LedgerService::class)->balance(LedgerService::walletAccount($org->id, 'CZK'), 'CZK')->minor;
 }
 
 /** VAT booked once: in the ledger, and on the tax documents, both exactly the invoice's VAT. */
@@ -77,17 +116,26 @@ function g1AssertVatOnce(Organization $org, int $vat): void
         ->and($ledger->balance(LedgerService::receivableAccount($org->id, 'CZK'), 'CZK')->minor)->toBe(0);
 }
 
+/** A payment confirmation: the whole amount, no VAT, not a tax document. */
+function g1AssertConfirmation(Invoice $document, int $amount): void
+{
+    expect($document->type)->toBe(InvoiceService::PAYMENT_CONFIRMATION)->and($document->state)->toBe(Invoice::PAID)
+        ->and((int) $document->total_minor)->toBe($amount)->and((int) $document->subtotal_minor)->toBe($amount)->and((int) $document->tax_minor)->toBe(0)
+        ->and($document->tax_summary)->toBe([])->and(in_array($document->type, CzkTaxStatement::TYPES, true))->toBeFalse()
+        ->and($document->lines()->sole()->tax_minor)->toBe(0);
+}
+
 it('settles an issued invoice paid by card without a second tax document', function () {
     [$owner, $org] = $this->customerWithOrganization();
     $org = g1VatPayer($org); // even a VAT payer, who gets a receipt for a top-up, gets none for paying an invoice
     $invoice = g1IssuedInvoice($owner, $org, $this);
 
-    expect(app(PaymentService::class)->settle(g1CardIntent($org, 10769, 'invoice', 'invoice', $invoice->id), CommandContext::system('webhook:comgate'), 'card'))->toBeTrue();
+    expect(g1Settle(g1CardIntent($org, 10769, 'invoice', 'invoice', $invoice->id)))->toBeTrue();
 
     expect($invoice->refresh()->state)->toBe(Invoice::PAID)->and((int) $invoice->paid_minor)->toBe(10769)
         ->and(Invoice::query()->where('organization_id', $org->id)->where('type', 'receipt')->count())->toBe(0)
         ->and(g1TaxDocuments($org)->pluck('id')->all())->toBe([$invoice->id])
-        ->and(app(LedgerService::class)->balance(LedgerService::walletAccount($org->id, 'CZK'), 'CZK')->minor)->toBe(0);
+        ->and(g1Wallet($org))->toBe(0);
     g1AssertVatOnce($org, 1869);
 });
 
@@ -106,59 +154,61 @@ it('settles an issued invoice paid by bank transfer without a second tax documen
     g1AssertVatOnce($org, 1869);
 });
 
-it('pays an issued invoice from credit without a tax document for the payment, and a non-payer\'s top-up is no tax document either', function () {
-    [$owner, $org] = $this->customerWithOrganization();
+it('pays an issued invoice from credit without a document for the payment; a consumer\'s top-up is no tax document', function () {
+    [$owner, $org] = $this->customerWithOrganization([], g1Consumer());
     $invoice = g1IssuedInvoice($owner, $org, $this);
-    app(PaymentService::class)->settle(g1CardIntent($org, 50000, 'topup', 'wallet', $org->id), CommandContext::system('webhook:comgate'), 'card');
-
-    $confirmation = Invoice::query()->where('organization_id', $org->id)->where('type', InvoiceService::PAYMENT_CONFIRMATION)->sole();
-    expect($confirmation->state)->toBe(Invoice::PAID)->and((int) $confirmation->total_minor)->toBe(50000)->and((int) $confirmation->tax_minor)->toBe(0)
-        ->and((int) $confirmation->subtotal_minor)->toBe(50000)->and($confirmation->tax_summary)->toBe([])
-        ->and(in_array($confirmation->type, CzkTaxStatement::TYPES, true))->toBeFalse()
-        ->and($confirmation->lines()->sole()->tax_minor)->toBe(0)
-        ->and(Invoice::query()->where('organization_id', $org->id)->where('type', 'receipt')->count())->toBe(0);
+    $topup = g1CardIntent($org, 50000, 'topup', 'wallet', $org->id);
+    g1Settle($topup);
+    g1AssertConfirmation(g1PaymentDocument($topup), 50000);
 
     $this->actingAs($owner, 'sanctum');
     $this->postJson("/v1/invoices/{$invoice->id}/pay", ['method' => 'wallet'], ['Idempotency-Key' => 'g1-wallet-1'])->assertOk()->assertJsonPath('state', Invoice::PAID);
 
     expect(g1TaxDocuments($org)->pluck('id')->all())->toBe([$invoice->id])
         ->and(Invoice::query()->where('organization_id', $org->id)->count())->toBe(2) // the invoice and the confirmation of the top-up, nothing for the payment
-        ->and(app(LedgerService::class)->balance(LedgerService::walletAccount($org->id, 'CZK'), 'CZK')->minor)->toBe(50000 - 10769);
+        ->and(g1Wallet($org))->toBe(50000 - 10769);
     g1AssertVatOnce($org, 1869);
 });
 
-it('issues a tax receipt for a VAT payer\'s top-up, and only one document per payment, however often the callback comes', function () {
+it('gives every taxable person a tax receipt for a top-up, payer or not, and one document per payment however often the callback comes', function () {
+    [, $payer] = $this->customerWithOrganization([], ['name' => 'Plátce s.r.o.']);
+    $payer = g1VatPayer($payer);
+    [, $business] = $this->customerWithOrganization([], ['name' => 'Neplátce s.r.o.', 'ico' => '87654321']); // a business that is no VAT payer
+    foreach ([$payer, $business] as $org) {
+        $intent = g1CardIntent($org, 12100, 'topup', 'wallet', $org->id);
+        g1Settle($intent);
+        g1Settle($intent->refresh());
+        $receipt = g1PaymentDocument($intent);
+        expect($receipt->type)->toBe('receipt')->and((int) $receipt->total_minor)->toBe(12100)->and((int) $receipt->tax_minor)->toBe(2100)
+            ->and(Invoice::query()->where('organization_id', $org->id)->count())->toBe(1)
+            ->and(app(InvoiceService::class)->issueTopupDocument($org, Money::minor(12100, 'CZK'), 'card', CommandContext::system('test'), $intent->id)->id)->toBe($receipt->id); // asked again: the same document
+    }
+});
+
+it('issues no tax document at all while the seller is not a VAT payer: top-ups, order and proforma payments get a confirmation', function () {
+    g1SellerNotVatPayer();
     [$owner, $org] = $this->customerWithOrganization();
     $org = g1VatPayer($org);
-    $intent = g1CardIntent($org, 12100, 'topup', 'wallet', $org->id);
-    $payments = app(PaymentService::class);
-    $payments->settle($intent, CommandContext::system('webhook:comgate'), 'card');
-    $payments->settle($intent->refresh(), CommandContext::system('webhook:comgate'), 'card');
+    $topup = g1CardIntent($org, 12100, 'topup', 'wallet', $org->id);
+    g1Settle($topup);
+    g1AssertConfirmation(g1PaymentDocument($topup), 12100);
 
-    $receipt = Invoice::query()->where('organization_id', $org->id)->where('type', 'receipt')->sole();
-    expect((int) $receipt->total_minor)->toBe(12100)->and((int) $receipt->tax_minor)->toBe(2100)->and($receipt->meta['payment_intent_id'])->toBe($intent->id)
-        ->and(Invoice::query()->where('organization_id', $org->id)->count())->toBe(1)
-        ->and(app(InvoiceService::class)->issueTopupDocument($org, Money::minor(12100, 'CZK'), 'card', CommandContext::system('test'), $intent->id)->id)->toBe($receipt->id); // asked again: the same document
+    $service = app(InvoiceService::class);
+    $ctx = $this->contextFor($owner, $org);
+    $proforma = $service->issue($service->draft($org, 'proforma', 'CZK', [
+        ['sku' => 'web-hosting-start', 'description' => 'Webhosting Start', 'qty' => 1, 'unit_net' => 8900, 'discount' => 0, 'net' => 8900, 'tax_rate' => '0', 'tax_category' => 'E', 'tax' => 0, 'total' => 8900],
+    ], $ctx, null, ['payment_method' => 'bank']), $ctx);
+    $paid = g1CardIntent($org, 8900, 'invoice', 'invoice', $proforma->id);
+    g1Settle($paid);
+    g1AssertConfirmation(g1PaymentDocument($paid), 8900);
+    // what an order payment is given directly (PaymentService::document() for purpose `order`)
+    $orderDocument = $service->issueReceipt($org, Money::minor(5000, 'CZK'), 'card', $ctx, 'pi_order_g1');
+    g1AssertConfirmation($orderDocument, 5000);
+
+    expect(Invoice::query()->where('type', 'receipt')->count())->toBe(0);
 });
 
-it('turns what an invoice could not take into credit with its own top-up document, never a second tax document of the invoice', function () {
-    [$owner, $org] = $this->customerWithOrganization();
-    $invoice = g1IssuedInvoice($owner, $org, $this);
-    $intent = g1CardIntent($org, 10769, 'invoice', 'invoice', $invoice->id);
-    // finance credits part of the invoice while the customer is at the gateway: 50 Kč less is owed than the payment brings
-    $note = app(InvoiceService::class)->creditNote($invoice, 'Sleva za výpadek', $this->staffContextFor($this->staff('billing_finance_admin'), $org), null, null, [(string) $invoice->lines()->sole()->id => 5000]);
-
-    app(PaymentService::class)->settle($intent, CommandContext::system('webhook:comgate'), 'card');
-
-    expect($invoice->refresh()->state)->toBe(Invoice::PAID)->and((int) $invoice->paid_minor)->toBe(5769)
-        ->and(Invoice::query()->where('organization_id', $org->id)->where('type', 'receipt')->count())->toBe(0);
-    $confirmation = Invoice::query()->where('organization_id', $org->id)->where('type', InvoiceService::PAYMENT_CONFIRMATION)->sole();
-    expect((int) $confirmation->total_minor)->toBe(5000)->and($confirmation->meta['payment_intent_id'])->toBe($intent->id)
-        ->and(app(LedgerService::class)->balance(LedgerService::walletAccount($org->id, 'CZK'), 'CZK')->minor)->toBe(5000);
-    g1AssertVatOnce($org, 1869 + (int) $note->tax_minor); // the invoice's VAT less what the credit note took back
-});
-
-it('keeps the receipt of a proforma payment: the proforma is no tax document, the receipt is the only one', function () {
+it('keeps the receipt of a proforma payment when the seller is a VAT payer: the proforma is no tax document, the receipt is the only one', function () {
     [$owner, $org] = $this->customerWithOrganization();
     $service = app(InvoiceService::class);
     $ctx = $this->contextFor($owner, $org);
@@ -166,16 +216,92 @@ it('keeps the receipt of a proforma payment: the proforma is no tax document, th
         ['sku' => 'web-hosting-start', 'description' => 'Webhosting Start', 'qty' => 1, 'unit_net' => 8900, 'discount' => 0, 'net' => 8900, 'tax_rate' => '21', 'tax_category' => 'S', 'tax' => 1869, 'total' => 10769],
     ], $ctx, null, ['payment_method' => 'bank']), $ctx);
 
-    app(PaymentService::class)->settle(g1CardIntent($org, 10769, 'invoice', 'invoice', $proforma->id), CommandContext::system('webhook:comgate'), 'card');
+    g1Settle(g1CardIntent($org, 10769, 'invoice', 'invoice', $proforma->id));
 
     expect(g1TaxDocuments($org)->pluck('type')->all())->toBe(['receipt']);
 });
 
-it('names a document that is not a tax document as such on its PDF', function () {
+it('turns what an invoice could not take into credit with its own top-up document, never a second tax document of the invoice', function () {
+    [$owner, $org] = $this->customerWithOrganization([], g1Consumer());
+    $invoice = g1IssuedInvoice($owner, $org, $this);
+    $intent = g1CardIntent($org, 10769, 'invoice', 'invoice', $invoice->id);
+    // finance credits part of the invoice while the customer is at the gateway: 50 Kč less is owed than the payment brings
+    $note = app(InvoiceService::class)->creditNote($invoice, 'Sleva za výpadek', $this->staffContextFor($this->staff('billing_finance_admin'), $org), null, null, [(string) $invoice->lines()->sole()->id => 5000]);
+
+    g1Settle($intent);
+
+    expect($invoice->refresh()->state)->toBe(Invoice::PAID)->and((int) $invoice->paid_minor)->toBe(5769)
+        ->and(Invoice::query()->where('organization_id', $org->id)->where('type', 'receipt')->count())->toBe(0)
+        ->and(g1Wallet($org))->toBe(5000);
+    g1AssertConfirmation(g1PaymentDocument($intent), 5000);
+    g1AssertVatOnce($org, 1869 + (int) $note->tax_minor); // the invoice's VAT less what the credit note took back
+});
+
+it('applies only one of two payments made for the same invoice; the other stays credit with a top-up document', function () {
+    [$owner, $org] = $this->customerWithOrganization([], g1Consumer());
+    $invoice = g1IssuedInvoice($owner, $org, $this);
+    $first = g1CardIntent($org, 10769, 'invoice', 'invoice', $invoice->id); // the customer paid in two tabs
+    $second = g1CardIntent($org, 10769, 'invoice', 'invoice', $invoice->id);
+
+    g1Settle($first);
+    g1Settle($second);
+
+    expect($invoice->refresh()->state)->toBe(Invoice::PAID)->and((int) $invoice->paid_minor)->toBe(10769)
+        ->and(g1Wallet($org))->toBe(10769) // the second payment is the customer's credit, not a second settlement
+        ->and(Invoice::query()->where('organization_id', $org->id)->where('meta->payment_intent_id', $first->id)->count())->toBe(0);
+    g1AssertConfirmation(g1PaymentDocument($second), 10769);
+    g1AssertVatOnce($org, 1869);
+});
+
+it('documents the whole payment as credit when the invoice was paid between the settlement and its application', function () {
+    [$owner, $org] = $this->customerWithOrganization([], g1Consumer());
+    $invoice = g1IssuedInvoice($owner, $org, $this);
+    $late = g1CardIntent($org, 10769, 'invoice', 'invoice', $invoice->id);
+    // the race: the late payment is credited (settle() still saw the invoice open), then another payment pays the invoice first
+    $late->forceFill(['state' => S::SUCCEEDED, 'paid_at' => now()])->save();
+    app(WalletService::class)->topup($org, $late->amount(), 'card', "pi:{$late->id}", CommandContext::system('test')->withScope($org->id), $late->id, bankProvider: 'comgate', purpose: 'invoice');
+    g1Settle(g1CardIntent($org, 10769, 'invoice', 'invoice', $invoice->id));
+    expect($invoice->refresh()->state)->toBe(Invoice::PAID);
+
+    app(SettleInvoicePayment::class)->handle(new PaymentSucceeded($late->refresh(), CommandContext::system('test')->withScope($org->id)));
+
+    expect((int) $invoice->refresh()->paid_minor)->toBe(10769)->and(g1Wallet($org))->toBe(10769);
+    g1AssertConfirmation(g1PaymentDocument($late), 10769);
+    g1AssertVatOnce($org, 1869);
+});
+
+it('documents the credit of a payment that could not be applied, next to the reconciliation item', function () {
+    [$owner, $org] = $this->customerWithOrganization([], g1Consumer());
+    $invoice = g1IssuedInvoice($owner, $org, $this);
+    $intent = g1CardIntent($org, 10769, 'invoice', 'invoice', $invoice->id);
+    Event::listen(PaymentSucceeded::class, fn () => throw new RuntimeException('a listener failed'));
+
+    expect(g1Settle($intent))->toBeTrue();
+
+    expect($invoice->refresh()->state)->toBe(Invoice::ISSUED)->and(g1Wallet($org))->toBe(10769) // rolled back: nothing applied, all of it is credit
+        ->and(ReconciliationItem::query()->where('kind', 'paid_but_not_applied')->where('reference', $intent->id)->exists())->toBeTrue();
+    g1AssertConfirmation(g1PaymentDocument($intent), 10769);
+});
+
+it('exports no payment confirmation as an invoice (UBL)', function () {
+    [$owner, $org] = $this->customerWithOrganization([], g1Consumer());
+    $intent = g1CardIntent($org, 50000, 'topup', 'wallet', $org->id);
+    g1Settle($intent);
+    $confirmation = g1PaymentDocument($intent);
+    expect($confirmation->structured)->toBeNull();
+
+    $this->actingAs($owner, 'sanctum');
+    $this->get("/v1/invoices/{$confirmation->id}/ubl")->assertStatus(409)->assertJsonPath('error', 'document_not_exportable');
+});
+
+it('names on its PDF what a document is, and a seller who is no VAT payer issues no "daňový doklad"', function () {
     expect(InvoicePdfRenderer::titleFor('receipt'))->toContain('Daňový doklad k přijaté platbě')
         ->and(InvoicePdfRenderer::titleFor(InvoiceService::PAYMENT_CONFIRMATION))->toContain('není daňový doklad')
         ->and(InvoicePdfRenderer::titleFor('statement'))->toContain('není daňový doklad')
         ->and(InvoicePdfRenderer::titleFor('invoice'))->toContain('daňový doklad');
+    foreach (['invoice', 'credit_note', 'receipt', 'proforma', 'statement', InvoiceService::PAYMENT_CONFIRMATION] as $type) {
+        expect(mb_strtolower(str_replace('není daňový doklad', '', InvoicePdfRenderer::titleFor($type, false))))->not->toContain('daňový');
+    }
 });
 
 it('reports historical invoices that also got a receipt for their own payment, and changes nothing', function () {
@@ -195,5 +321,17 @@ it('reports historical invoices that also got a receipt for their own payment, a
         ->and($report['totals']['CZK'])->toMatchArray(['pairs' => 1, 'receipt_tax_minor' => 1869]);
     expect(Artisan::call('onhost:billing:double-tax-report'))->toBe(0);
     expect(Artisan::output())->toContain($invoice->number)->toContain($receipt->number);
+    expect(Artisan::call('onhost:billing:double-tax-report', ['--since' => 'last tuesday-ish']))->toBe(1); // a date it cannot read is refused, not guessed
+    expect(Artisan::output())->toContain('--since');
     expect(Invoice::query()->orderBy('id')->get(['id', 'type', 'state', 'meta', 'updated_at'])->toArray())->toBe($before); // read only
+});
+
+it('never pays a top-up back in money: credit is not refundable to its source (G-R4)', function () {
+    [, $org] = $this->customerWithOrganization([], g1Consumer());
+    $intent = g1CardIntent($org, 50000, 'topup', 'wallet', $org->id);
+    g1Settle($intent);
+
+    expect(fn () => app(PaymentService::class)->refund($intent->refresh(), Money::minor(10000, 'CZK'), 'Chci peníze zpět', 'g1-refund-1', CommandContext::system('test')->withScope($org->id)))
+        ->toThrow(fn (DomainError $e) => expect($e->error)->toBe('topup_not_refundable')->and($e->status)->toBe(422));
+    expect(PaymentRefund::query()->count())->toBe(0)->and($intent->refresh()->state)->toBe(S::SUCCEEDED)->and(g1Wallet($org))->toBe(50000);
 });

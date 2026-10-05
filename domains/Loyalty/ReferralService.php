@@ -103,7 +103,8 @@ final class ReferralService
     /** `invoice.paid` of the referred organization: the first paid tax document settles the referral — reward, hold for finance, or refuse. */
     public function onInvoicePaid(Invoice $invoice): ?Referral
     {
-        // a non-payer's top-up is confirmed by a payment confirmation instead of a receipt (G1): the money is the same money
+        // a consumer's top-up (or any payment while the seller is no VAT payer) is confirmed by a payment confirmation instead of a
+        // receipt (G1): the money is the same money
         if (! in_array($invoice->type, ['invoice', 'receipt', InvoiceService::PAYMENT_CONFIRMATION], true) || (int) $invoice->total_minor <= 0) {
             return null;
         }

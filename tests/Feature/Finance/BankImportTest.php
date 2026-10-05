@@ -6,7 +6,6 @@ use Database\Seeders\CatalogSeeder;
 use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Support\Facades\Http;
-use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Payments\BankStatementImporter;
 use Onhost\Domain\Payments\Models\BankStatementLine;
@@ -39,7 +38,7 @@ it('records a statement line by hand, settles the matching top-up once and credi
     expect($first->json('result'))->toBe('matched')->and($first->json('payment_intent_id'))->toBe($intentId)->and($first->json('payment_state'))->toBe(S::SUCCEEDED)->and($first->json('purpose'))->toBe('topup');
     expect(PaymentIntent::query()->findOrFail($intentId)->state)->toBe(S::SUCCEEDED)
         ->and(BankStatementLine::query()->where('external_id', 'stmt-1')->value('state'))->toBe('matched')
-        ->and(Invoice::query()->where('organization_id', $org->id)->where('type', InvoiceService::PAYMENT_CONFIRMATION)->exists())->toBeTrue(); // no VAT payer: a payment confirmation, not a tax receipt (G1)
+        ->and(Invoice::query()->where('organization_id', $org->id)->where('type', 'receipt')->exists())->toBeTrue();
 
     // the same statement line again → nothing is credited twice
     $again = $this->postJson('/v1/staff/payments/bank/lines', ['variable_symbol' => $vs, 'amount' => '5000', 'currency' => 'CZK', 'external_id' => 'stmt-1'], ['Idempotency-Key' => 'bank-line-2'])->assertCreated();

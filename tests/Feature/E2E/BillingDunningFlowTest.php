@@ -49,8 +49,8 @@ require_once __DIR__.'/../../Support/E2E/E2EHelpers.php';
  *
  * The customer's browser session does not outlive the weeks the clock travels, so the flow signs in again (POST /v1/auth/login).
  * The card payment of an invoice is booked the platform's way: credited to the wallet, then spent on the invoice — with no receipt of
- * its own: the invoice is the tax document of the sale (G1, owner decision G-R1). A top-up of a customer who is no VAT payer is
- * confirmed by a payment confirmation, which is no tax document either.
+ * its own: the invoice is the tax document of the sale (G1, owner decision G-R1). A company's top-up gets a tax receipt (the seller
+ * is a VAT payer here); a consumer's would get a payment confirmation, no tax document.
  * Asserts never depend on row order (SQLite and PostgreSQL alike) and nothing the customer reads names a vendor.
  */
 
@@ -363,8 +363,8 @@ it('pays an invoice from credit only when there is credit, and finance credits i
 
     // ── a card top-up through the gateway, then the invoice is paid from the credit ──────────────────────────────
     e2eTopUp($this, $gate, 500);
-    expect($wallet())->toBe(50000)->and(Invoice::query()->where('organization_id', $org->id)->where('type', 'receipt')->count())->toBe(1) // the order's payment: its tax receipt
-        ->and(Invoice::query()->where('organization_id', $org->id)->where('type', InvoiceService::PAYMENT_CONFIRMATION)->sole()->tax_minor)->toBe(0); // the top-up of a customer who is no VAT payer: a confirmation, no tax document (G1)
+    expect($wallet())->toBe(50000)->and(Invoice::query()->where('organization_id', $org->id)->where('type', 'receipt')->count())->toBe(2) // the order's payment and the company's top-up: each a tax receipt
+        ->and(Invoice::query()->where('organization_id', $org->id)->where('type', InvoiceService::PAYMENT_CONFIRMATION)->count())->toBe(0);
     $paid = $this->withHeaders(e2eHeaders('pay-credit'))->postJson("/v1/invoices/{$invoice->id}/pay", ['method' => 'wallet'])->assertOk();
     expect($paid->json('state'))->toBe(Invoice::PAID)->and($paid->json('paid.minor'))->toBe(10769)->and($wallet())->toBe(50000 - 10769)
         ->and($invoice->refresh()->paid_minor)->toBe(10769)->and($ledger->balance(LedgerService::receivableAccount($org->id, 'CZK'), 'CZK')->minor)->toBe(0)
