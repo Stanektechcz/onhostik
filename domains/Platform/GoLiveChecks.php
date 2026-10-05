@@ -4,11 +4,25 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Platform;
 
+use Carbon\CarbonImmutable;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Artisan;
 use Onhost\Domain\Catalog\CatalogRevisions;
+use Onhost\Domain\Catalog\Models\Plan;
 use Onhost\Domain\Identity\Models\User;
+use Onhost\Domain\Loyalty\LoyaltyExpiry;
+use Onhost\Domain\Loyalty\LoyaltyService;
+use Onhost\Domain\Loyalty\Models\LoyaltyPoint;
+use Onhost\Domain\Notifications\Models\WebhookEndpoint;
+use Onhost\Domain\Services\CustomIso\CustomIsoLibrary;
+use Onhost\Domain\Services\CustomIso\CustomIsoPolicy;
+use Onhost\Domain\Services\CustomIso\IsoScanner;
+use Onhost\Domain\Services\Models\CustomIso;
 use Onhost\Domain\Tax\Models\ExchangeRate;
+use Onhost\Domain\Tax\VatPayerMode;
+use Onhost\Platform\Errors\DomainError;
 
 /**
  * Doctor rows an operator meets on the way to go-live (E11, go-live checklist §0): each says what is wrong in `detail` and
@@ -31,6 +45,8 @@ final class GoLiveChecks
         private readonly ?string $phpBinary = null,
         private readonly ?string $phpVersion = null,
         private readonly ?bool $production = null,
+        private readonly ?bool $customIsoSold = null,
+        private readonly ?int $customIsoFreeBytes = null,
     ) {}
 
     /** @return list<array{area:string, check:string, ok:bool, detail:string, remedy:string, blocking:bool}> */
@@ -40,6 +56,8 @@ final class GoLiveChecks
             $this->totp(), $this->phpBinary(), $this->revision(), $this->fx(), $this->trustedProxies(),
             $this->apiBaseUrl(), $this->cacheStore(), $this->tokenOrganization(),
             app(OutboxDeadLetters::class)->row(), // G7 (TASK-0115): events the relay gave up on
+            // G10 (TASK-0119): what phase G added
+            $this->vatMode(), $this->customIsoScanner(), $this->customIsoStorage(), $this->loyalty(), $this->webhookSecretOverlap(),
         ];
     }
 
@@ -166,5 +184,168 @@ final class GoLiveChecks
         return $this->row('security', 'API tokens must name an organisation (R9)', $on,
             $on ? 'ONHOST_TOKEN_ORGANIZATION_REQUIRED=true' : 'off: a token without an organisation still works across organisations',
             'php artisan operator:tokens:unbound --dry-run (tell the holders), then ONHOST_TOKEN_ORGANIZATION_REQUIRED=true and php artisan config:cache');
+    }
+
+    // ── G10 (TASK-0119): the rows of phase G ──
+
+    /** G2: the VAT mode documents are issued in is a decision, and the legal entity that issues them must carry a real VAT number if it is a payer. */
+    private function vatMode(): array
+    {
+        $report = app(VatPayerMode::class)->report();
+        $entity = VatPayerMode::legalEntity();
+        $detail = $report['detail'];
+        $remedy = $report['remedy'];
+        if ($report['consistent'] && $entity !== null && (bool) $entity->vat_payer) {
+            $number = strtoupper(trim((string) ($entity->dic ?: $entity->vat_id)));
+            if (preg_match('/^[A-Z]{2}\d{8,10}$/', $number) !== 1 || preg_match('/^[A-Z]{2}0+$/', $number) === 1) {
+                $detail .= ' · the legal entity has no real VAT number (empty or the seeded placeholder)';
+                $remedy = 'a payer issues tax documents under its VAT number: set the real DIČ in the production legal entity values and run php artisan onhost:production:prepare --legal; not a payer yet: decide the mode first (docs/runbooks/vat-payer-mode.md)';
+            }
+        }
+
+        return $this->row('documents', 'VAT payer mode agrees with the legal entity', $remedy === '', $detail, $remedy, true);
+    }
+
+    /** Whether any plan sells a customer's own ISO image, or an image already exists (then the way out must keep working). */
+    private function customIsoSold(): bool
+    {
+        if ($this->customIsoSold !== null) {
+            return $this->customIsoSold;
+        }
+        if (CustomIso::query()->where('state', '!=', CustomIso::DELETED)->exists()) {
+            return true;
+        }
+        foreach (Plan::query()->get() as $plan) {
+            $entitlements = (array) ($plan->currentVersion()?->entitlements ?? []);
+            if (filter_var($entitlements[CustomIsoPolicy::FEATURE] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** G5: the antivirus finds EICAR and reports a file it could not read in full; only asked once custom ISO is on sale (clamd is cached for minutes). */
+    private function customIsoScanner(): array
+    {
+        $check = 'custom ISO virus scan passes its self-test';
+        if (! $this->customIsoSold()) {
+            return $this->row('security', $check, true, 'no plan sells custom ISO and no image exists: nothing to scan yet', '');
+        }
+        try {
+            $test = app(IsoScanner::class)->selfTest();
+        } catch (\Throwable $e) {
+            $test = ['ok' => false, 'detail' => 'the self-test could not run ('.class_basename($e).')'];
+        }
+
+        return $this->row('security', $check, (bool) $test['ok'], (string) $test['detail'],
+            'every upload is refused (503 iso_scanner_untrusted) until this passes: clamd reachable at ONHOST_CLAMAV_HOST/ONHOST_CLAMAV_PORT, StreamMaxLength/MaxScanSize/MaxFileSize >= ONHOST_CUSTOM_ISO_SCAN_MAX_MB and AlertExceedsMax yes, then php artisan onhost:isos:scanner-check (docs/runbooks/custom-iso.md, step 2)', true);
+    }
+
+    /** G5: the disk of the customers' images is outside the web root and has room for at least one organization filling its quota. */
+    private function customIsoStorage(): array
+    {
+        $check = 'custom ISO storage has room';
+        if (! $this->customIsoSold()) {
+            return $this->row('platform', $check, true, 'no plan sells custom ISO and no image exists: no storage needed yet', '');
+        }
+        try {
+            app(CustomIsoLibrary::class)->disk();
+        } catch (DomainError) {
+            return $this->row('platform', $check, false, 'ONHOST_CUSTOM_ISO_ROOT is empty or inside the web root: uploads are switched off (503 custom_iso_storage_unsafe)',
+                'mount a dedicated volume outside the web root and set ONHOST_CUSTOM_ISO_ROOT to it, owned by the PHP/queue user, mode 0750, then php artisan config:cache (docs/runbooks/custom-iso.md, step 1)', true);
+        }
+        $free = $this->customIsoFreeBytes ?? $this->freeBytesOf((string) config('filesystems.disks.'.config('onhost.custom_iso.disk', 'custom_isos').'.root', ''));
+        $quota = CustomIsoPolicy::quotaBytes();
+        $held = (int) CustomIso::query()->where('state', CustomIso::READY)->sum('size_bytes');
+        $gib = static fn (int $bytes): string => number_format($bytes / 1073741824, 1, '.', '').' GiB';
+        $remedy = 'grow the volume mounted at ONHOST_CUSTOM_ISO_ROOT (docs/runbooks/custom-iso.md, step 1) or lower ONHOST_CUSTOM_ISO_ORG_QUOTA_MB, then php artisan config:cache; php artisan onhost:isos:sweep clears dead uploads';
+        if ($free === null) {
+            return $this->row('platform', $check, false, 'the free space of ONHOST_CUSTOM_ISO_ROOT cannot be read', $remedy);
+        }
+
+        return $this->row('platform', $check, $free >= $quota, $gib($free).' free · one organization may hold '.$gib($quota).' · '.$gib($held).' held by ready images', $remedy);
+    }
+
+    /** Free bytes on the volume that holds `$path` (its nearest existing parent when the directory is not created yet); null when unknown. */
+    private function freeBytesOf(string $path): ?int
+    {
+        while ($path !== '' && ! is_dir($path)) {
+            $parent = dirname($path);
+            if ($parent === $path) {
+                return null;
+            }
+            $path = $parent;
+        }
+        $free = $path === '' ? false : @disk_free_space($path);
+
+        return $free === false ? null : (int) $free;
+    }
+
+    /** G3: the daily expiry is scheduled and has run (nothing past 24 months stays on a balance), and no balance or debt is below zero. */
+    private function loyalty(): array
+    {
+        $check = 'loyalty expiry runs and balances are sane';
+        $remedy = 'php artisan onhost:loyalty:expire runs the expiry by hand; it is scheduled daily at 05:35 (php artisan schedule:list, systemctl status onhost-scheduler); a negative balance or debt is a loyalty bug: open an incident (docs/runbooks/incident-response.md), correct it with a staff award or clawback that carries a reason, never edit rows';
+        Artisan::all(); // loads routes/console.php, where the schedule is declared
+        $scheduled = collect(app(Schedule::class)->events())->contains(fn ($event) => str_contains((string) ($event->command ?? ''), 'onhost:loyalty:expire'));
+        $negative = LoyaltyPoint::query()->select('organization_id')->groupBy('organization_id')->havingRaw('sum(points) < 0')->get()->count();
+        $overRepaid = LoyaltyPoint::query()->select('organization_id')->whereIn('rule', [LoyaltyService::CARRY_RULE, LoyaltyService::DEBT_RULE])
+            ->groupBy('organization_id')->havingRaw('sum(points) < 0')->get()->count();
+        [$late, $latePoints] = $this->expiryOverdue();
+        $debt = (int) LoyaltyPoint::query()->where('rule', LoyaltyService::CARRY_RULE)->sum('points') + (int) LoyaltyPoint::query()->where('rule', LoyaltyService::DEBT_RULE)->sum('points');
+        $problems = array_values(array_filter([
+            $scheduled ? null : 'onhost:loyalty:expire is not scheduled',
+            $late === 0 ? null : "{$late} organization(s) hold {$latePoints} point(s) past their ".LoyaltyExpiry::months().' months',
+            $negative === 0 ? null : "{$negative} organization(s) with a negative balance",
+            $overRepaid === 0 ? null : "{$overRepaid} organization(s) with a debt repaid beyond what was owed",
+        ]));
+
+        return $this->row('billing', $check, $problems === [], $problems === [] ? 'expiry scheduled and up to date · points owed by organizations in total: '.max(0, $debt) : implode(' · ', $problems), $remedy);
+    }
+
+    /**
+     * Organizations whose points credited on or before yesterday's cutoff are still on the balance: yesterday's run did not happen.
+     * Bounded (200 organizations) so the doctor stays fast; the daily run itself never skips one.
+     *
+     * @return array{0:int, 1:int} organizations, points
+     */
+    private function expiryOverdue(): array
+    {
+        $cutoff = CarbonImmutable::now()->subDay()->subMonthsNoOverflow(LoyaltyExpiry::months());
+        if (CarbonImmutable::parse((string) config('loyalty.expiry.counted_from', '2026-10-05'), 'UTC')->startOfDay()->greaterThan($cutoff)) {
+            return [0, 0];
+        }
+        $expiry = app(LoyaltyExpiry::class);
+        $organizations = LoyaltyPoint::query()->where('points', '>', 0)->where('created_at', '<=', $cutoff)->distinct()->orderBy('organization_id')->limit(200)->pluck('organization_id');
+        $count = 0;
+        $points = 0;
+        foreach ($organizations as $id) {
+            $due = $expiry->dueBy((string) $id, $cutoff);
+            if ($due > 0) {
+                $count++;
+                $points += $due;
+            }
+        }
+
+        return [$count, $points];
+    }
+
+    /** G7: a rotated webhook secret signs alongside the new one for a short time only, and the minute pass clears it afterwards. */
+    private function webhookSecretOverlap(): array
+    {
+        $maxMinutes = 1440; // the ceiling of ONHOST_WEBHOOK_SECRET_OVERLAP_MINUTES
+        $signing = WebhookEndpoint::query()->whereNotNull('previous_secret')->where('previous_secret_expires_at', '>', now());
+        $active = (clone $signing)->count();
+        $tooLong = (clone $signing)->where('previous_secret_expires_at', '>', now()->addMinutes($maxMinutes + 5))->count();
+        $stale = WebhookEndpoint::query()->whereNotNull('previous_secret')->where('previous_secret_expires_at', '<=', now()->subMinutes(5))->count();
+        $problems = array_values(array_filter([
+            $tooLong === 0 ? null : "{$tooLong} endpoint(s) keep an old secret signing for more than {$maxMinutes} minutes",
+            $stale === 0 ? null : "{$stale} endpoint(s) still store a secret whose overlap ended (the minute pass that clears it is not running)",
+        ]));
+
+        return $this->row('security', 'rotated webhook secrets overlap only briefly', $problems === [],
+            $problems === [] ? "{$active} endpoint(s) in a rotation overlap now (limit {$maxMinutes} min, ONHOST_WEBHOOK_SECRET_OVERLAP_MINUTES = ".(int) config('onhost.webhooks.secret_overlap_minutes', 60).')' : implode(' · ', $problems),
+            'the overlap is ONHOST_WEBHOOK_SECRET_OVERLAP_MINUTES (at most 1440); rotate the endpoint again without overlap (POST /v1/webhooks/{endpoint}/rotate-secret with overlap=false) to end the old secret at once; check the scheduler and the webhooks queue worker (systemctl status onhost-scheduler onhost-queue@webhooks; docs/runbooks/webhooks.md)');
     }
 }
