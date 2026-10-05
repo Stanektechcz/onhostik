@@ -1,0 +1,8 @@
+{
+  "code": 0,
+  "message": "OK",
+  "items": [
+    { "transId": "AB12-CD34-EF56", "price": 200000, "curr": "CZK", "fee": 3000, "refId": "pi_local_ref" },
+    { "transId": "WX56-YZ78-AB90", "price": 100000, "curr": "CZK", "fee": 1500, "refId": "pi_local_ref4" }
+  ]
+}

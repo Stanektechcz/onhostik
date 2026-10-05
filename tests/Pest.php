@@ -48,20 +48,26 @@ pest()->beforeEach(function () {
     $this->envBaseline = ['env' => $_ENV, 'process' => getenv()];
 })->afterEach(fn () => restoreEnvironment($this->envBaseline))->in('Feature', 'Contract', 'Unit');
 
-/** Undoes every $_ENV and putenv() key a test added, changed or removed, leaving the rest of the process environment alone. */
+/**
+ * Undoes every $_ENV and putenv() key a test added, changed or removed, leaving the rest of the process environment alone.
+ *
+ * Environment names that are all digits (a shell run from Git Bash or paratest can export one) become INT array keys in PHP;
+ * getenv() and putenv() take strings, so every key is cast before it is used (strict_types made the bare key fatal in a
+ * parallel run: "getenv(): Argument #1 must be of type ?string, int given").
+ */
 function restoreEnvironment(array $baseline): void
 {
-    foreach (array_diff_key($_ENV, $baseline['env']) as $key => $value) {
+    foreach (array_keys(array_diff_key($_ENV, $baseline['env'])) as $key) {
         unset($_ENV[$key]);
     }
     foreach ($baseline['env'] as $key => $value) {
         $_ENV[$key] = $value;
     }
-    foreach (array_diff_key(getenv(), $baseline['process']) as $key => $value) {
-        putenv($key);
+    foreach (array_keys(array_diff_key(getenv(), $baseline['process'])) as $key) {
+        putenv((string) $key);
     }
     foreach ($baseline['process'] as $key => $value) {
-        if (getenv($key) !== $value) {
+        if (getenv((string) $key) !== $value) {
             putenv($key.'='.$value);
         }
     }
