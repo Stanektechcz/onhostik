@@ -201,7 +201,7 @@ curl -s "$ONHOST_API/services" -H "Authorization: Bearer $ONHOST_TOKEN_INVALID" 
 
 Klíč jedná za jednu organizaci, tu, ve které vznikl. Hlavička `X-Organization` s jeho vlastní organizací nic nemění,
 s cizí je `403 token_organization_mismatch`. Člověk s relací panelu, který je ve víc organizacích, hlavičkou vybírá, za kterou
-organizaci se ptá.
+organizaci se ptá; organizace, do které nepatří, pro něj neexistuje (`404 not_found`, stejně jako neexistující id).
 
 ```bash
 # expect: 200
@@ -397,8 +397,9 @@ Webhook je adresa, na kterou ONhost pošle podepsané `POST` s událostí. Zakl�
 panelu, vždy se čerstvým potvrzením. Adresa musí být `https` na portu **443 nebo 8443**; jinak je odmítnuta.
 
 Každý zápis na webhooky posílejte s novým `Idempotency-Key`, jako to dělají ukázky níže. Bez něj se klíč příkazu odvodí z minuty,
-takže dva stejné příkazy v téže minutě (dva pingy, dvě zapnutí odběru) se berou jako jeden a druhý jen zopakuje odpověď
-prvního: ping, který čekáte jako `429 webhook_ping_cooldown`, by dopadl jako `202` a žádné nové doručení by nevzniklo.
+takže dva stejné příkazy v téže minutě (dvě zapnutí odběru, dvě otočení tajemství) se berou jako jeden a druhý jen zopakuje
+odpověď prvního. Ping je výjimka: bez hlavičky je každý požadavek nový, takže druhý ping během čekání dostane
+`429 webhook_ping_cooldown`; se stejnou hlavičkou se ping jen zopakuje.
 
 Čistě `http` se odmítne při ověření těla:
 
@@ -663,12 +664,15 @@ Klíč účtu jedná za organizaci a čte, co má v rozsazích:
 curl -s "$ONHOST_API/services" -H "Authorization: Bearer $SA_TOKEN" -H "Accept: application/json"
 ```
 
-Servisní účet není člověk. Koncový bod pro člověka (`/me`) odpoví `403 person_required`, ne `401` (klíč je platný):
+Servisní účet není člověk, ale `/me` mu řekne, kdo je: `type: service_account`, účet, jeho organizaci, roli a rozsahy klíče.
+Koncové body, které jednají za člověka (třeba tikety), mu odpovídají `403 person_required`, ne `401` (klíč je platný):
 
 ```bash
-# expect: 403
+# expect: 200
 # scope: any
-# expect-error: person_required
+# expect-json: data.type=service_account
+# expect-json: data.organization.id=$ORG_ID
+# expect-json: data.role=viewer
 curl -s "$ONHOST_API/me" -H "Authorization: Bearer $SA_TOKEN" -H "Accept: application/json"
 ```
 
@@ -738,4 +742,4 @@ proměnných s tajemstvími.
 - [ ] 7: `X-RateLimit-*` na odpovědích, `429 rate_limited` s `Retry-After`
 - [ ] 8: chyba má `error`, `message`, `status` a `help`
 - [ ] 9: webhook jen na `https` 443/8443, podpis `v1=HMAC` sedí, duplicita podle `X-ONhost-Delivery`, po 20 neúspěších `suspended`
-- [ ] 10: servisní účet jen vlastník, `/me` s ním je `403 person_required`, po zrušení klíče `401`
+- [ ] 10: servisní účet jen vlastník, `/me` s ním řekne `type: service_account` s rolí a rozsahy, po zrušení klíče `401`
