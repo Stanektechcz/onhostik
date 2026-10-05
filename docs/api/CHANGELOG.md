@@ -4,6 +4,9 @@ Každý záznam je nadpis `## datum | druh | název | okno` a odstavec pod ním.
 `security`; okno je volitelné. Stránka `/dokumentace/api` i `/api` čtou tenhle soubor (`PublicApiDocs::changelog()`),
 takže tu nikdy nestojí nic jiného než na webu. Nový záznam patří nahoru.
 
+## 2026-10-05 | security | Cizí organizace v X-Organization odpoví 404
+Kdo pošle `X-Organization` (nebo `?organization=`) organizace, do které nepatří, dostane `404 not_found` stejně jako u identifikátoru, který neexistuje; dřív odpověď `403` prozradila, že organizace existuje. Člen organizace, kterému chybí oprávnění, dostává dál `403` s názvem chybějícího oprávnění.
+
 ## 2026-10-05 | compatible | Klíč servisního účtu na staff cestě dostane 403, ne 401
 Klíč servisního účtu, který zavolá cestu pod `/v1/staff/`, dostává `403 staff_only` (účet je přihlášený, jen to není zaměstnanec). Dřív odpověď zněla `401 unauthenticated` "Sign in to continue", což klienta vyzývalo k novému přihlášení s platným klíčem.
 

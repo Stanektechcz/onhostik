@@ -27,7 +27,7 @@ use Onhost\Platform\Errors\DomainError;
  * Request → CommandContext / organization resolution / list pagination for the v1 API.
  * The organization comes from `X-Organization` (or `?organization=`); without it the
  * user's first active membership is used. Staff with `staff.customer.read` may address
- * any organization; customers only those they belong to.
+ * any organization; customers only those they belong to (another one is not found, F12a).
  *
  * TASK-0039 (permission program P0-08/P0-09): a context built for a /v1/staff/* request by a member of staff is in staff mode
  * (StaffActor) — nowhere else. An API token acts for its own organization only: another one named in the request is refused,
@@ -65,6 +65,12 @@ final class ApiContext
             }
             $member = OrganizationMembership::query()->where('organization_id', $organization->id)->where('user_id', $user->id)->current()->exists(); // active and not past its end date (H343)
             if (! $member && ! $this->authorizer->can($user, 'staff.customer.read', CommandScope::organization($organization->id))) {
+                // F12a (TASK-0106): a stranger hears what a missing identifier gets — a 403 confirmed the organization exists (the
+                // oracle TASK-0098 closed for rows). A party of it by a binding of their own keeps the 403; a member who lacks a
+                // permission is refused by authorize() afterwards, with the permission named
+                if (! $this->reaches($request, $organization->id)) {
+                    throw DomainError::notFound('organization');
+                }
                 throw DomainError::forbidden('You are not a member of this organization.');
             }
 
