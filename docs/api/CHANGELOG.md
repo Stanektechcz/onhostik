@@ -4,6 +4,9 @@ Každý záznam je nadpis `## datum | druh | název | okno` a odstavec pod ním.
 `security`; okno je volitelné. Stránka `/dokumentace/api` i `/api` čtou tenhle soubor (`PublicApiDocs::changelog()`),
 takže tu nikdy nestojí nic jiného než na webu. Nový záznam patří nahoru.
 
+## 2026-10-05 | new | GET /v1/me odpoví i klíči servisního účtu
+Klíč servisního účtu se na `GET /v1/me` dozví, kdo je: `type: service_account`, účet (id, název), organizace (id, název), role účtu, rozsahy klíče a jeho platnost. Dřív dostal `403 person_required`. Odpověď osobě nese nově `type: person`, jinak je beze změny. Ostatní koncové body určené člověku odpovídají servisnímu účtu dál `403 person_required`.
+
 ## 2026-10-05 | security | Cizí organizace v X-Organization odpoví 404
 Kdo pošle `X-Organization` (nebo `?organization=`) organizace, do které nepatří, dostane `404 not_found` stejně jako u identifikátoru, který neexistuje; dřív odpověď `403` prozradila, že organizace existuje. Člen organizace, kterému chybí oprávnění, dostává dál `403` s názvem chybějícího oprávnění.
 

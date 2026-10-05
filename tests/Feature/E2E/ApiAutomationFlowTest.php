@@ -313,7 +313,10 @@ it('lets only the owner make a service account whose token acts for the organiza
     apiFlowToken($this, $plain);
     $services = apiFlowCall($this, 'GET', '/v1/services', [], [], TokenScopes::SERVICES_READ)->assertOk()->assertHeader('X-API-Version', (string) config('onhost.api.version'));
     expect(collect($services->json('data'))->pluck('id')->all())->toBe([$service->id]);
-    apiFlowCall($this, 'GET', '/v1/me')->assertForbidden()->assertJsonPath('error', 'person_required');
+    // it may ask who it is (F12a): the account, its organization, its role and the token's scopes — and acts for no person
+    apiFlowCall($this, 'GET', '/v1/me')->assertOk()->assertJsonPath('data.type', 'service_account')->assertJsonPath('data.account.id', $accountId)
+        ->assertJsonPath('data.organization.id', $org->id)->assertJsonPath('data.role', 'viewer')->assertJsonPath('data.scopes', ['services:read', 'tickets:write']);
+    apiFlowCall($this, 'GET', '/v1/tickets', [], [], TokenScopes::TICKETS_WRITE)->assertForbidden()->assertJsonPath('error', 'person_required');
     apiFlowCall($this, 'GET', '/v1/services', [], ['X-Organization' => $otherOrg->id])->assertForbidden()->assertJsonPath('error', 'token_organization_mismatch');
     apiFlowCall($this, 'GET', "/v1/services/{$service->id}", [], ['X-Organization' => $otherOrg->id])->assertForbidden();
     apiFlowCall($this, 'GET', '/v1/invoices')->assertForbidden()->assertJsonPath('message', 'The API token lacks the invoices:read scope.');
