@@ -71,8 +71,8 @@ spotřebitel výslovně souhlasí a nevzniknou mu tím náklady. Proto platí:
   (`PaymentService::refund` platby objednávky), převod převodem. Nejde o výplatu kreditu a nikdy víc, než kolik stála
   odstoupená smlouva. Objednávka zaplacená z kreditu se vrací na kredit (to je stejný způsob). Zda lze odstoupit i od
   **dobití kreditu** a vrátit jeho nevyčerpanou část na kartu, je **otevřené rozhodnutí** vlastníka a právníka (otázka 1
-  níže); do jeho rozhodnutí systém dobití nevrací a `PaymentService::refund` má platbu s `purpose = topup` odmítnout
-  (strážce přidává G1, TASK-0111).
+  níže); do jeho rozhodnutí systém dobití nevrací: `PaymentService::refund` platbu s `purpose = topup` odmítne
+  (`422 topup_not_refundable`, G1 #103, TASK-0111).
 - **Stav dnes:** tato cesta v systému není. Panel i staff odstoupení bez souhlasu odmítnou (422), poučení slibuje vrácení
   původním způsobem „na žádost podpoře“ a `PaymentService::refund` nikdo nevolá. Napojení (staff akce se step-upem, jen
   platba objednávky, nikdy `purpose = topup`) patří do G6.

@@ -172,15 +172,11 @@ it('refuses to give a credit top-up back to the card: that would be credit paid 
         'reference_id' => $org->id, 'amount_minor' => 100000, 'currency' => 'CZK', 'state' => 'SUCCEEDED', 'idempotency_key' => 'g4-pi-'.uniqid(), 'paid_at' => now()]);
 
     expect(fn () => app(PaymentService::class)->refund($intent, Money::minor(100000, 'CZK'), 'customer request', 'g4-topup-refund', CommandContext::system('test')->withScope($org->id)))
-        ->toThrow(DomainError::class);
+        ->toThrow(DomainError::class, 'A top-up became credit');
+    try {
+        app(PaymentService::class)->refund($intent, Money::minor(1, 'CZK'), 'customer request', 'g4-topup-refund-2', CommandContext::system('test')->withScope($org->id));
+    } catch (DomainError $e) {
+        expect($e->error)->toBe('topup_not_refundable')->and($e->status)->toBe(422);
+    }
     expect(PaymentRefund::query()->count())->toBe(0)->and((int) $intent->fresh()->refunded_minor)->toBe(0);
-})->skip(fn () => ! str_contains(g4MethodSource(PaymentService::class, 'refund'), 'topup'), 'the purpose=topup guard of PaymentService::refund lands with G1 (TASK-0111); this test runs by itself once it is on the branch');
-
-/** The source of one method, to see whether a guard another task adds is already on this branch. */
-function g4MethodSource(string $class, string $method): string
-{
-    $reflection = new ReflectionMethod($class, $method);
-    $lines = file((string) $reflection->getFileName()) ?: [];
-
-    return implode('', array_slice($lines, $reflection->getStartLine() - 1, $reflection->getEndLine() - $reflection->getStartLine() + 1));
-}
+});

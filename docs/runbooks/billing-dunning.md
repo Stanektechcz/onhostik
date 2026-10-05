@@ -253,8 +253,9 @@ The one statutory exception is not a payout of credit: a consumer who withdraws 
 refund to the credit is owed the **payment** for that contract back the way it was paid (§ 1831 OZ) — a card payment of the
 order back to the card through `PaymentService::refund`. Whether an unused top-up can be withdrawn to the card is an open
 owner/counsel question (ROZHODNUTI.md G-R4); until it is decided, top-ups are not refunded and `PaymentService::refund`
-refuses a `purpose = topup` payment (guard in G1, TASK-0111). The order path is not wired yet (G6); until it is, finance
-refunds it by hand. The § 1831 OZ reading needs counsel confirmation. Decision and open questions: `docs/audit/2026-10-full-readiness/ROZHODNUTI.md`, G-R4.
+refuses a `purpose = topup` payment (`422 topup_not_refundable`, G1 #103). The order path is not wired yet (G6); until it is, finance
+refunds it by hand. The § 1831 OZ reading needs counsel confirmation. Decision and open questions:
+`docs/audit/2026-10-full-readiness/ROZHODNUTI.md`, G-R4.
 
 **Spend order: purchased credit first** (owner decision G-R3, TASK-0099, `RefundableCredit`). The main wallet is one ledger
 account, so the purchased part is replayed from its postings in the order the money moved, with one spend order for the
