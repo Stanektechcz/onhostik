@@ -81,7 +81,13 @@ final class WebhookController extends ApiController
         return $this->api->paginate($request, WebhookDelivery::query()->where('endpoint_id', $model->id)->latest(), fn (WebhookDelivery $d) => WebhookView::delivery($d));
     }
 
-    /** @param array<string, mixed> $payload */
+    /**
+     * Every caller names its key explicitly (F12a review): `onceKey()` for the writes that must not repeat within a minute without
+     * an `Idempotency-Key` (create, rotate, enable, disable, redeliver), `eachRequestKey()` for the ping alone, whose repetition is
+     * bounded by its cooldown and must be heard as a 429. A new write chooses one of the two here, never a bare string.
+     *
+     * @param  array<string, mixed>  $payload
+     */
     private function command(Request $request, string $idempotencyKey, array $payload, int $status = 200): JsonResponse
     {
         $organization = $this->api->organization($request);

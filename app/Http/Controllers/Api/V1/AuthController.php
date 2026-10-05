@@ -178,7 +178,7 @@ final class AuthController extends ApiController
             'type' => 'service_account',
             'account' => ['id' => (string) $account->getKey(), 'name' => $account->name],
             'organization' => ['id' => $organization->id, 'name' => $organization->name],
-            'role' => ServiceAccountView::account($account)['role'],
+            'role' => ServiceAccountView::role($account), // the binding alone, not the account's whole token list
             'scopes' => $view['scopes'],
             'token' => ['id' => $view['id'], 'expires_at' => $view['expires_at']],
         ]]);
