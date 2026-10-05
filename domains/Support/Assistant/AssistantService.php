@@ -30,22 +30,20 @@ use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Domain\Services\ServiceHealthCheck;
 use Onhost\Domain\Services\ServiceSummary;
+use Onhost\Domain\Support\Commands\TicketCustomerCommand;
 use Onhost\Domain\Support\Models\AiRun;
-use Onhost\Domain\Support\Models\Handoff;
 use Onhost\Domain\Support\Models\KnowledgeArticle;
 use Onhost\Domain\Support\Models\Ticket;
-use Onhost\Domain\Support\TicketService;
 use Onhost\Domain\Support\TicketStateMachine;
 use Onhost\Domain\Support\TicketVisibility;
 use Onhost\Domain\Support\Triage;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditRecorder;
+use Onhost\Platform\Commands\CommandBus;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Errors\ProviderException;
-use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Money\Money;
-use Onhost\Platform\Outbox\OutboxPublisher;
 use Onhost\Platform\Redaction\Redactor;
 use Onhost\Providers\Contracts\AiProvider;
 use Symfony\Component\Yaml\Yaml;
@@ -122,16 +120,15 @@ final class AssistantService
 
     public function __construct(
         private readonly AiProviderRegistry $providers,
-        private readonly TicketService $tickets,
         private readonly Redactor $redactor,
         private readonly AuditRecorder $audit,
-        private readonly OutboxPublisher $outbox,
         private readonly ServiceFeatures $features,
         private readonly ServiceSummary $summary,
         private readonly Authorizer $authorizer,
         private readonly ServiceHealthCheck $health,
         private readonly SecretMask $mask,
         private readonly AssistantBudget $budget,
+        private readonly CommandBus $bus,
     ) {}
 
     /**
@@ -253,7 +250,7 @@ final class AssistantService
         $handoff = null;
         $actions = [];
         if ($handoffReason !== null) {
-            $handoff = $organization !== null ? $this->handoff($run, $transcript, $sessionTriage, $facts, $handoffReason, $organization, $user, $context) : null;
+            $handoff = $organization !== null && $user !== null ? $this->handoff($run, $transcript, $sessionTriage, $facts, $handoffReason, $organization, $user, $context) : null;
             $answer = $handoff !== null
                 ? ($locale === 'en' ? "I have passed this to a human colleague as ticket {$handoff['number']} together with a summary of our conversation. Support replies within 30 minutes, high priority within 15." : "Předal jsem to kolegovi z podpory jako tiket {$handoff['number']} i se shrnutím naší konverzace. Podpora odpovídá do 30 minut, u vysoké priority do 15.")
                 : ($locale === 'en' ? 'Sign in and I will hand this over to a human colleague with the full context.' : 'Přihlaste se a předám to kolegovi z podpory i s celým kontextem.');
@@ -595,18 +592,21 @@ final class AssistantService
         return $actions;
     }
 
-    private function handoff(AiRun $run, array $transcript, array $triage, array $facts, string $reason, Organization $organization, ?User $user, CommandContext $context): array
+    /**
+     * F12b: the ticket is opened through the CommandBus in the name of the person chatting (TicketCustomerCommand op handoff) — its
+     * permission check, its audit row without the transcript, one ticket per conversation turn (the key is the run).
+     */
+    private function handoff(AiRun $run, array $transcript, array $triage, array $facts, string $reason, Organization $organization, User $user, CommandContext $context): array
     {
         $first = collect($transcript)->firstWhere('role', 'user')['content'] ?? 'Požadavek z asistenta';
         $summary = $this->summary($triage, $facts, $transcript, $organization->locale ?? 'cs');
         $body = "AI shrnutí (vygenerováno asistentem):\n{$summary}\n\n--- přepis ---\n".implode("\n", array_map(fn ($m) => strtoupper((string) $m['role']).': '.$this->redactor->redactString((string) $m['content']), $transcript));
-        $ticket = $this->tickets->create([
-            'subject' => mb_substr((string) $first, 0, 120), 'body' => $body, 'category' => $triage['topic'] === 'ostatni' ? null : $triage['topic'], 'priority' => in_array($reason, ['security'], true) ? 'vysoka' : null, 'channel' => 'ai',
-            'tags' => ['ai-handoff', $reason], 'email' => $user?->email ?? $organization->billing_email,
-        ], $context, $organization, $user);
-        $ticket->forceFill(['ai_summary' => $summary])->save();
-        Handoff::query()->create(['ai_run_id' => $run->id, 'ticket_id' => $ticket->id, 'reason' => $reason, 'diagnostics' => ['facts' => $facts, 'topic' => $triage]]);
-        $this->outbox->publish(GenericEvent::of('ticket.handoff', 'ticket', $ticket->id, ['number' => $ticket->number, 'reason' => $reason, 'topic' => $triage['topic']], $organization->id));
+        $payload = [
+            'op' => 'handoff', 'ai_run_id' => $run->id, 'reason' => $reason, 'subject' => mb_substr((string) $first, 0, 120), 'body' => $body,
+            'category' => $triage['topic'] === 'ostatni' ? null : $triage['topic'], 'summary' => $summary, 'topic' => $triage, 'facts' => $facts,
+        ];
+        $result = (array) $this->bus->dispatch(new TicketCustomerCommand($organization->id, 'ticket.handoff:'.$run->id, $payload), $context->withScope($organization->id));
+        $ticket = Ticket::query()->findOrFail((string) ($result['ticket_id'] ?? ''));
 
         return ['ticket_id' => $ticket->id, 'number' => $ticket->number, 'reason' => $reason];
     }
