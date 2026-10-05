@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -11,6 +12,7 @@ use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Notifications\Models\WebhookDelivery;
 use Onhost\Domain\Notifications\Models\WebhookEndpoint;
+use Onhost\Domain\Notifications\Webhooks\WebhookCommandHandler;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 
@@ -154,4 +156,31 @@ it('answers a second ping without an Idempotency-Key inside the cooldown with 42
     $keyed = $this->postJson("/v1/webhooks/{$first['id']}/ping", [], ['Idempotency-Key' => 'f12a-ping-1'])->assertStatus(202)->json('data.id');
     expect($this->postJson("/v1/webhooks/{$first['id']}/ping", [], ['Idempotency-Key' => 'f12a-ping-1'])->assertStatus(202)->json('data.id'))->toBe($keyed)
         ->and(WebhookDelivery::query()->where('endpoint_id', $first['id'])->where('event', 'webhook.ping')->count())->toBe(2);
+});
+it('lets only one of two parallel pings through: the cooldown is claimed atomically, not read from the deliveries', function () {
+    // SQLite runs one request at a time, so the race is staged: the first request's claim is held, its delivery row not yet
+    // visible to the second (removed here, as an uncommitted row would be) — the second must still be refused
+    Http::preventStrayRequests();
+    Http::fake(['hooks.f12a.cz/*' => Http::response('', 204)]);
+    $this->freezeTime();
+    [$owner] = $this->customerWithOrganization(['email' => 'race@f12a.cz']);
+    $this->actingAs($owner, 'sanctum');
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
+    $hook = $this->postJson('/v1/webhooks', ['url' => 'https://hooks.f12a.cz/race', 'events' => ['*']])->assertCreated()->json('data');
+
+    // a ping still in flight elsewhere holds the claim: this one is refused and sends nothing
+    expect(Cache::add(WebhookCommandHandler::pingLockKey($hook['id']), 'elsewhere', WebhookCommandHandler::PING_COOLDOWN_SECONDS))->toBeTrue();
+    $this->postJson("/v1/webhooks/{$hook['id']}/ping")->assertStatus(429)->assertJsonPath('error', 'webhook_ping_cooldown');
+    expect(WebhookDelivery::query()->where('endpoint_id', $hook['id'])->count())->toBe(0);
+    Cache::forget(WebhookCommandHandler::pingLockKey($hook['id']));
+
+    // the first ping claims the window; the second does not get through even when it cannot see the first one's delivery
+    $this->postJson("/v1/webhooks/{$hook['id']}/ping")->assertStatus(202);
+    WebhookDelivery::query()->where('endpoint_id', $hook['id'])->delete();
+    $this->postJson("/v1/webhooks/{$hook['id']}/ping")->assertStatus(429)->assertJsonPath('error', 'webhook_ping_cooldown');
+    expect(WebhookDelivery::query()->where('endpoint_id', $hook['id'])->count())->toBe(0);
+
+    // the claim lasts the cooldown, no longer
+    $this->travel(WebhookCommandHandler::PING_COOLDOWN_SECONDS + 1)->seconds();
+    $this->postJson("/v1/webhooks/{$hook['id']}/ping")->assertStatus(202);
 });
