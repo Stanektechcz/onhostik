@@ -328,15 +328,16 @@ final class PaymentService
     /** Refund to the original payment source; wallet refund record is completed when the provider confirms. */
     public function refund(PaymentIntent $intent, Money $amount, string $reason, string $idempotencyKey, CommandContext $context, ?string $walletRefundId = null): PaymentRefund
     {
+        // a retry of a refund that went through is that refund (F12b): asked again after a full refund it used to fail as "exceeds the payment"
+        $existing = PaymentRefund::query()->where('idempotency_key', $idempotencyKey)->first();
+        if ($existing !== null) {
+            return $existing->payment_intent_id === $intent->id ? $existing : throw new DomainError('idempotency_key_reused', 'This idempotency key was already used for another refund.', 409);
+        }
         if (! $intent->isSucceeded()) {
             throw new DomainError('payment_not_refundable', 'Only successful payments can be refunded.', 409);
         }
         if ($intent->refunded_minor + $amount->minor > $intent->amount_minor) {
             throw new DomainError('refund_exceeds_payment', 'Refund exceeds the captured amount.', 409);
-        }
-        $existing = PaymentRefund::query()->where('idempotency_key', $idempotencyKey)->first();
-        if ($existing !== null) {
-            return $existing;
         }
         $provider = $this->providers->get($intent->provider);
         $result = $provider->refund((string) $intent->provider_id, $amount, $idempotencyKey, $reason);
@@ -351,6 +352,11 @@ final class PaymentService
             WalletRefund::query()->where('id', $walletRefundId)->update(['state' => $refund->state === 'succeeded' ? 'completed' : 'pending', 'payment_refund_id' => $refund->id]);
         }
         $this->audit->record($context->withScope($intent->organization_id), 'payment.refund', 'succeeded', ['amount' => $amount, 'reason' => $reason, 'provider_refund' => $result['provider_refund_id']], 'payment_intent', $intent->id);
+        // F12b: money went back to its source and no credit note says so — the customer is told and loyalty takes the payment's points back
+        $this->outbox->publish(GenericEvent::of('payment.refunded', 'payment', $intent->id, [
+            'refund_id' => $refund->id, 'amount' => $amount, 'refunded' => Money::minor($refunded, $amount->currency), 'full' => $refunded >= $intent->amount_minor, 'state' => $refund->state,
+            'provider' => $intent->provider, 'purpose' => $intent->purpose, 'reference' => [$intent->reference_type, $intent->reference_id],
+        ], $intent->organization_id));
 
         return $refund;
     }

@@ -91,6 +91,30 @@ final class LoyaltyClawback
         return [$take > 0 ? $this->loyalty->clawback($organizationId, self::ORDER_RULE, $order->id.':'.$noteId, $take, "Dobropis {$number}", $context)['taken'] : 0, $full];
     }
 
+    /**
+     * F12b: a payment given back to its source without a credit note (`payment.refunded`, PaymentService::refund). Its points
+     * (`payment.on_time` — an order payment or a credit top-up) go back once what is left of it would not have earned them:
+     * refunded in full, or below the minimum payment (R6). The rule and reference are the credit-note path's, so a payment that
+     * is both credited and refunded loses its points once. Only the payment of this organization counts.
+     *
+     * @return int points taken back (positive), 0 when nothing applied
+     */
+    public function onPaymentRefunded(string $organizationId, string $intentId, CommandContext $context): int
+    {
+        return DB::transaction(function () use ($organizationId, $intentId, $context) {
+            Organization::query()->whereKey($organizationId)->lockForUpdate()->first();
+            $intent = PaymentIntent::query()->where('organization_id', $organizationId)->find($intentId);
+            if ($intent === null || $this->loyalty->qualifies(max(0, (int) $intent->amount_minor - (int) $intent->refunded_minor), (string) $intent->currency)) {
+                return 0;
+            }
+            $earned = (int) LoyaltyPoint::query()->where('organization_id', $organizationId)->where('rule', 'payment.on_time')->where('reference', $intent->id)->sum('points');
+            $already = -(int) LoyaltyPoint::query()->where('organization_id', $organizationId)->where('rule', self::PAYMENT_RULE)->where('reference', $intent->id)->sum('points');
+            $take = $earned - $already;
+
+            return $take > 0 ? $this->loyalty->clawback($organizationId, self::PAYMENT_RULE, (string) $intent->id, $take, 'Peníze se vrátily', $context)['taken'] : 0;
+        });
+    }
+
     /** The points of the payments for the order go with the order credited in full, those for the document with the document. */
     private function takePaymentPoints(string $organizationId, Invoice $original, bool $orderFull, string $number, CommandContext $context): int
     {
