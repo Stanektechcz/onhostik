@@ -173,7 +173,9 @@ final class ServiceController extends ApiController
     {
         $model = $this->resolve($request, $service, 'service.console'); // asked of the person and the token before anything else (C13-H2c)
 
-        return $this->dispatch(new IssueConsoleTokenCommand($model->organization_id, 'console:'.$model->id.':'.now()->timestamp, ['service_id' => $model->id, 'project_id' => $model->project_id]), $this->api->context($request, Organization::query()->find($model->organization_id)));
+        // a ticket of its own per request: keyed by the second, a second tab opened in the same second got the replay of the first answer —
+        // its `token` redacted and its `socket` the first ticket's, which the first tab had spent (E8)
+        return $this->dispatch(new IssueConsoleTokenCommand($model->organization_id, 'console:'.$model->id.':'.Str::ulid(), ['service_id' => $model->id, 'project_id' => $model->project_id]), $this->api->context($request, Organization::query()->find($model->organization_id)));
     }
 
     public function usage(Request $request, ServiceService $services, string $service): JsonResponse
