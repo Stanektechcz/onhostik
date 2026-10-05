@@ -119,7 +119,7 @@ it('archives the mailboxes of a web service before anything of it is removed', f
     $adapter->shouldReceive('getActualState')->andReturn(new ActualState(true, ['domain' => 'shop.cz', 'system_user' => 'web7'], 'active', now()->toISOString()));
     $adapter->shouldReceive('listMailboxes')->andReturn([['remote_id' => '5001', 'address' => 'info@shop.cz', 'name' => 'Info', 'quota_mb' => 2048, 'used_mb' => null, 'active' => true]]);
     $adapter->shouldReceive('listAliases')->andReturn([]);
-    $adapter->shouldReceive('dkim')->andReturn(['selector' => 'onhost202609', 'public' => 'MIIBIjAN']);
+    $adapter->shouldReceive('dkim')->andReturn(['selector' => 'onhost202609', 'public_key' => 'MIIBIjAN', 'dns_record' => 'v=DKIM1; k=rsa; p=MIIBIjAN']);
 
     $archive = app(FinalArchive::class)->create($service->refresh(), $adapter, $service->primaryBinding()->ref(), CommandContext::system('test'));
 
