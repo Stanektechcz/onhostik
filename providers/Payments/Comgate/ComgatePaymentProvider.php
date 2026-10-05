@@ -63,22 +63,23 @@ final class ComgatePaymentProvider implements PaymentProvider, StoredMethodCharg
             default => 'ALL',
         };
         $save = ! empty($input['save_method']);
+        $locale = (string) ($input['locale'] ?? 'cs'); // G6: optional — a missing or unsupported language is Czech, never an undefined key
         $response = $this->send('POST', '/payment', 'payment.create', array_filter([
             'price' => $amount->minor,
             'curr' => $amount->currency->value,
-            'label' => mb_substr((string) $input['description'], 0, 16),
-            'refId' => (string) $input['reference'],
+            'label' => mb_substr((string) ($input['description'] ?? ''), 0, 16),
+            'refId' => (string) ($input['reference'] ?? ''),
             'method' => $save ? 'CARD_CZ_CSOB_2' : $method, // a method the customer wants to keep must be a card
-            'email' => (string) $input['email'],
+            'email' => (string) ($input['email'] ?? ''),
             'prepareOnly' => true,
             'initRecurring' => $save ?: null,
             'test' => (bool) config('onhost.payments.comgate.test', true),
-            'lang' => in_array($input['locale'] ?? 'cs', ['cs', 'sk', 'en', 'pl'], true) ? $input['locale'] : 'cs',
+            'lang' => in_array($locale, ['cs', 'sk', 'en', 'pl'], true) ? $locale : 'cs',
             'country' => strtoupper((string) ($input['country'] ?? 'CZ')),
             'expirationTime' => '2h',
-            'url_paid' => $input['return_url'],
-            'url_cancelled' => $input['cancel_url'],
-            'url_pending' => $input['pending_url'],
+            'url_paid' => $input['return_url'] ?? null, // G6: absent = the URLs set at the merchant (array_filter drops it)
+            'url_cancelled' => $input['cancel_url'] ?? null,
+            'url_pending' => $input['pending_url'] ?? null,
         ], fn ($v) => $v !== null), $input['idempotency_key'] ?? null);
         $this->assertOk($response, 'payment.create');
 
