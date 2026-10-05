@@ -26,7 +26,9 @@ Contract: `contracts/openapi/onhost-v1.yaml` (generated — `php artisan onhost:
   https on port 443 or 8443 only, otherwise 422 `webhook_port_not_allowed` — checked again at every attempt, so an older
   `http://` or other-port endpoint gets failed deliveries),
   `DELETE /v1/webhooks/{id}` (removed for good), `POST …/{id}/enable` (a suspended endpoint, failure count reset),
-  `POST …/{id}/rotate-secret` (HIGH; the new secret signs every attempt from then on, retries included), `POST …/{id}/ping`
+  `POST …/{id}/rotate-secret` (HIGH; the new secret signs every attempt from then on, retries included; the answer carries the
+  new `secret` and `previous_secret_valid_until` — for 60 minutes by default the replaced secret still signs, see Request;
+  `{"overlap": false}` ends the replaced secret at once, for a secret that leaked), `POST …/{id}/ping`
   (a `webhook.ping` delivery, 202; one per endpoint every 30 s, otherwise 429 `webhook_ping_cooldown` with `retry_after`),
   `GET …/{id}/deliveries`, `POST …/{id}/deliveries/{delivery}/redeliver` (202; the same delivery id and body again, as one
   more attempt — a delivery is attempted at most 10 times in all, then 409 `webhook_redeliver_limit`; 20 redelivery requests
@@ -36,14 +38,18 @@ Contract: `contracts/openapi/onhost-v1.yaml` (generated — `php artisan onhost:
   retries and redeliveries; delivery is at least once, so a receiver **must** deduplicate on it), `X-ONhost-Timestamp: <unix seconds>` and
   `X-ONhost-Signature: v1=<hex HMAC-SHA256(secret, "<timestamp>.<raw body>")>`. The secret is the whole `whsec_…` string.
   Verify over the raw bytes, compare in constant time and refuse timestamps older than 5 minutes. This is the only
-  signature format; the endpoint list answers it under `signature`.
+  signature format; the endpoint list answers it under `signature`. **Secret rotation:** for the overlap window after
+  `rotate-secret` (`previous_secret_valid_until`, 60 minutes unless the operator set `ONHOST_WEBHOOK_SECRET_OVERLAP_MINUTES`)
+  the same bytes are also signed with the replaced secret in `X-ONhost-Signature-Previous: v1=<hex>`. `X-ONhost-Signature`
+  always carries exactly one value, signed with the current secret. Accept a delivery when either signature verifies with
+  the secret you hold; switch to the new secret within the window, after it only `X-ONhost-Signature` is sent.
 * Body: `{id, event, created_at, data: {aggregate: {type, id}, organization_id, payload}}`. `payload` carries only the
   public fields listed per event (`WebhookEvents`, see `docs/architecture/events-catalog.md` → Consumers): ids, numbers,
   dates, amounts, short codes and the customer's own names — never free text written by staff or the platform (reasons,
   notes, incident and ticket titles); a secret pasted into a field is masked. Events of the
   platform's own work (reconciliation, provider notices, staff assignments, settlement failures) are never sent. Slack,
   Teams and Discord incoming-webhook URLs get that tool's message format with the same headers.
-* Delivery: from the queue, only to public addresses (checked again at every attempt, pinned, no redirects; IPv4-mapped
+* Delivery: from the queue (its own `webhooks` lane while a worker runs it, otherwise the default one), only to public addresses (checked again at every attempt, pinned, no redirects; IPv4-mapped
   IPv6 is refused), 8 s timeout, a 2xx answer counts, at most 60 attempts per endpoint and minute (the rest waits). Retries after 1, 5, 30, 120 and 720 minutes — six attempts, the last one about 14.6 h after the first; dead only when that fails; after 20 failed attempts in a row the endpoint is
   suspended and the organization is told (`webhook.endpoint.suspended`: portal notice and mail).
 

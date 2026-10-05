@@ -33,7 +33,8 @@ final class WebhookController extends ApiController
             'data' => $endpoints->map(fn (WebhookEndpoint $e) => WebhookView::endpoint($e))->all(),
             'events' => WebhookEvents::catalog(),
             'families' => WebhookEvents::FAMILIES,
-            'signature' => ['headers' => ['X-ONhost-Timestamp', 'X-ONhost-Signature'], 'scheme' => WebhookSigner::VERSION.'=hex(hmac_sha256(secret, timestamp + "." + body))', 'tolerance_seconds' => WebhookSigner::TOLERANCE_SECONDS],
+            'signature' => ['headers' => ['X-ONhost-Timestamp', 'X-ONhost-Signature'], 'scheme' => WebhookSigner::VERSION.'=hex(hmac_sha256(secret, timestamp + "." + body))', 'tolerance_seconds' => WebhookSigner::TOLERANCE_SECONDS,
+                'during_rotation' => ['header' => 'X-ONhost-Signature-Previous', 'accept' => 'either signature verifying with the secret you hold', 'overlap_minutes' => (int) config('onhost.webhooks.secret_overlap_minutes', 60)]],
         ]);
     }
 
@@ -56,7 +57,10 @@ final class WebhookController extends ApiController
 
     public function rotateSecret(Request $request, string $endpoint): JsonResponse
     {
-        return $this->command($request, $this->onceKey($request, 'webhook.rotate'), ['op' => 'rotate_secret', 'endpoint_id' => $endpoint]);
+        // G7: `overlap: false` ends the replaced secret at once (a leaked secret must not stay valid for the overlap window)
+        $data = $request->validate(['overlap' => ['sometimes', 'boolean']]);
+
+        return $this->command($request, $this->onceKey($request, 'webhook.rotate'), ['op' => 'rotate_secret', 'endpoint_id' => $endpoint, 'overlap' => (bool) ($data['overlap'] ?? true)]);
     }
 
     public function ping(Request $request, string $endpoint): JsonResponse

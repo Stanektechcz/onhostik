@@ -211,7 +211,9 @@ final class OrganizationController extends ApiController
         if ($org === null) {
             throw DomainError::notFound('organization');
         }
-        $this->api->authorize($request, $permission, CommandScope::organization($org->id));
+        // G7 (TASK-0115): somebody with no reach into the organization gets the 404 of a missing one, not a 403 that confirms it
+        // exists (ExistenceOracleTest, every customer controller); a party of it who lacks the permission keeps the 403
+        $this->api->authorizeOrNotFound($request, $permission, CommandScope::organization($org->id), 'organization');
 
         return $org;
     }

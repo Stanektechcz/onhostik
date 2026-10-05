@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Middleware;
 
+use App\Http\StaffReadAudit;
 use App\Http\Support\ApiContext;
 use Closure;
 use Illuminate\Http\Request;
@@ -30,7 +31,7 @@ use Symfony\Component\HttpFoundation\Response;
  */
 final class EnsureStaff
 {
-    public function __construct(private readonly ApiContext $api, private readonly Authorizer $authorizer) {}
+    public function __construct(private readonly ApiContext $api, private readonly Authorizer $authorizer, private readonly StaffReadAudit $reads) {}
 
     public function handle(Request $request, Closure $next): Response
     {
@@ -41,11 +42,14 @@ final class EnsureStaff
         if (! $user instanceof User) {
             throw new DomainError('unauthenticated', 'Sign in to continue.', 401);
         }
-        if (! StaffActor::acts($this->api->context($request)) || ! $this->holdsStaffPermission($user)) {
+        $context = $this->api->context($request);
+        if (! StaffActor::acts($context) || ! $this->holdsStaffPermission($user)) {
             throw new DomainError('staff_only', 'This endpoint is for ONhost staff with a staff permission.', 403);
         }
+        $response = $next($request);
+        $this->reads->afterResponse($request, $response, $context); // G7: a staff look at customer data leaves a trail (StaffReadAudit::ROUTES)
 
-        return $next($request);
+        return $response;
     }
 
     private function holdsStaffPermission(User $user): bool

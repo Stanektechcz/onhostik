@@ -39,6 +39,7 @@ final class GoLiveChecks
         return [
             $this->totp(), $this->phpBinary(), $this->revision(), $this->fx(), $this->trustedProxies(),
             $this->apiBaseUrl(), $this->cacheStore(), $this->tokenOrganization(),
+            app(OutboxDeadLetters::class)->row(), // G7 (TASK-0115): events the relay gave up on
         ];
     }
 
