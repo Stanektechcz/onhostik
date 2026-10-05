@@ -107,6 +107,8 @@ return [
         'step_up_ttl_minutes' => (int) env('ONHOST_STEP_UP_TTL', 10),
         'session_ttl_minutes' => (int) env('ONHOST_SESSION_TTL', 720),
         'staff_mfa_required' => (bool) env('ONHOST_STAFF_MFA_REQUIRED', true),
+        // R5 (TASK-0096): an order above this (minor units per currency) needs a verified e-mail; EmailVerificationGuard::DEFAULT_ORDER_LIMIT_MINOR
+        'unverified_order_limit_minor' => ['CZK' => 500000, 'EUR' => 20000],
         'max_failed_logins' => 8,
         'lockout_minutes' => 15,
         'trusted_device_days' => 30,
