@@ -299,7 +299,7 @@ Stav nálezů P0-5, P0-6, P1-13, P1-14 a P1-16 a rozhodnutí R3, R5, R6 a R7 po 
 | Nález | Stav | Task / PR | Poznámka |
 |---|---|---|---|
 | P1-13 | hotovo | TASK-0095 #87 (E12, R6) | Body jen od platby 100 Kč, dobropis body odebere (zpětné odebrání pod zámkem organizace). Uplatnění bodů R6 neřeší. |
-| P1-14 | částečně hotovo | #78 (E1), #84 (E6) | Platební a dunning tok jde přes skutečné HTTP routy a příkazy cronu s fake bránou. Samostatná sada nad nahranými odpověďmi Comgate zde není doložena; před uzavřením potvrdit. |
+| P1-14 | částečně hotovo | #78 (E1), #84 (E6) | Platební a dunning tok jde přes skutečné HTTP routy a příkazy cronu s fake bránou. Sada nad uloženými odpověďmi Comgate je od G9 v `tests/Contract/ComgateRecordedResponsesTest.php` (fixtures tvarované podle dokumentace; záznam z testovacího účtu zůstává na vlastníkovi). |
 | P1-16 | hotovo, ověření na serveru otevřeno | TASK-0084 #76 (E11), TASK-0082 #77 | Doctor má nápravy u každého nálezu a go-live runbook pořadí kroků; `public/build` vlastní www; runbook `staging-aapanel.md`. Kroky TOTP a obnovu `expected-nonok` provádí operátor (viz níže). |
 
 ### Rozhodnutí R3, R5, R6, R7
@@ -381,7 +381,7 @@ Opravy proti starším tabulkám:
 - Seeder `wedos-main` je opravený v #99: zakládá se vypnutý a bez přihlašovacích údajů, stav poskytovatele se nastaví jen při vytvoření záznamu.
 - Klíče busu `invoice.credit` a `invoice.markpaid` jsou opravené v #99.
 - Expirace tokenů (P2-10) je v kódu hotová od #53 (365 dní, `TokenLifetime`). Starší tabulka fáze D ji vedla jen jako dokumentaci.
-- Spectral v CI není. CI spouští jen `onhost:openapi --check` a `OpenApiContractTest`. Spectral je otevřený navazující bod.
+- Spectral běží v CI od G9 (TASK-0116, úloha `openapi-lint`, pravidla `.spectral.yaml`) vedle `onhost:openapi --check` a `OpenApiContractTest`.
 
 ### Všechny nálezy
 
@@ -408,7 +408,7 @@ Opravy proti starším tabulkám:
 | P1-6 | hotovo | #60, #64 | – |
 | P1-7 | hotovo | #59 | – |
 | P1-8 | hotovo | #60 | – |
-| P1-9 | hotovo | #67 | V CI běží `onhost:openapi --check` a `OpenApiContractTest`. Spectral v CI není (inženýrství). |
+| P1-9 | hotovo | #67 | V CI běží `onhost:openapi --check` a `OpenApiContractTest`. Spectral je v CI od G9 (#109, TASK-0116). |
 | P1-10 | hotovo | #66 | – |
 | P1-11 | hotovo | #71 | Zbývá úklid tvrzení prototypu `onhost-svc-*.js`. |
 | P1-12 | hotovo | #70 | Zbývá vyhrazená fronta webhooků a překryv při rotaci tajného klíče (inženýrství). |
@@ -423,14 +423,14 @@ Opravy proti starším tabulkám:
 
 | Nález | Stav | PR | Vlastník / poznámka |
 |---|---|---|---|
-| P2-1a DNS: verze, rollback, export | hotovo | fáze C | PR upřesnit při příští revizi. |
-| P2-1b Domény: převod na ONhost, kontakty | hotovo | fáze C | PR upřesnit při příští revizi. |
+| P2-1a DNS: verze, rollback, export | hotovo | #46 | Obrazovky domén a DNS (TASK-0056). |
+| P2-1b Domény: převod na ONhost, kontakty | hotovo | #46 | Obrazovky domén a DNS (TASK-0056); cena převodu v #50. |
 | P2-1c Služby: health check, náhled destruktivní akce, spec | hotovo | fáze C | `DestructivePreview` je jen česky. |
 | P2-1d Konzole: noVNC, živá konzole herního serveru | hotovo v kódu | fáze C, #81 | Nasazení relay konzole je krok operátora. |
-| P2-1e Pošta: `sending.set` | hotovo | fáze C | PR upřesnit při příští revizi. |
+| P2-1e Pošta: `sending.set` | hotovo | #62 | Obrazovky webu a pošty (TASK-0069). |
 | P2-1f Admin: SSO do panelu v UI | otevřeno | – | Inženýrství. |
 | P2-2 Reinstalace VPS a vlastní ISO | částečně | – | Reinstalace VPS je hotová v kódu, test na testovacím uzlu zbývá. Vlastní ISO otevřeno (vlastník). |
-| P2-3 `ONHOST_ADDON_RENEWALS=false` | hotovo | fáze C (R12) | – |
+| P2-3 `ONHOST_ADDON_RENEWALS=false` | hotovo | #61 (R12) | – |
 | P2-4 Změna tarifu na aaPanelu | otevřeno (známý limit) | – | Resize na uzlu nic nemění. |
 | P2-5 Role: spící oprávnění | otevřeno | – | Vlastník rozhodne. |
 | P2-6 Role: SS-7, zákaznický sidebar, nekonzistence rolí | hotovo | #55, #44, #91 | – |
@@ -453,7 +453,7 @@ Opravy proti starším tabulkám:
 
 | Nález | Stav | PR | Vlastník / poznámka |
 |---|---|---|---|
-| P3-1 Přístupnost: `lang`, `:focus-visible` | hotovo | fáze C | `window.prompt` je samostatně v P3-2. |
+| P3-1 Přístupnost: `lang`, `:focus-visible` | hotovo | #64 | `window.prompt` je samostatně v P3-2. |
 | P3-2 `window.prompt` | otevřeno | – | Asi 98 výskytů. |
 | P3-3 České plurály | otevřeno | – | Neověřeno. |
 | P3-4 Mrtvý modul `OnhostDomains` | otevřeno | – | – |
@@ -504,8 +504,8 @@ Opravy proti starším tabulkám:
 
 #### Inženýrské navazující body
 
-* Spectral v CI.
-* Sada nahraných odpovědí Comgate.
+* ~~Spectral v CI.~~ Hotovo v G9 (TASK-0116): úloha `openapi-lint`, pravidla `.spectral.yaml`; vzdané jsou jen `operation-description` a `oas3-unused-component` (důvod je v souboru).
+* Sada nahraných odpovědí Comgate: přehrávání uložených odpovědí adaptérem je hotové v G9 (`tests/Contract/ComgateRecordedResponsesTest.php`); fixtures jsou tvarované podle dokumentace API v2.0, skutečný záznam z testovacího účtu Comgate zůstává na vlastníkovi.
 * Webhooky: vyhrazená fronta a překryv při rotaci tajného klíče.
 * Portálové UI pro service accounty.
 * Tvrzení prototypu v `onhost-svc-*.js`.
@@ -523,8 +523,8 @@ Opravy proti starším tabulkám:
 * Resize aaPanelu.
 * Alert pro dead letters.
 * StaffReadAudit všude.
-* `window.prompt`, plurály, `OnhostDomains`, exec bit `staging.sh`.
+* `window.prompt`, plurály, `OnhostDomains`. Exec bit `staging.sh` je v indexu již `100755` (ověřeno v G9).
 * Rozšířit `ExistenceOracleTest`.
-* Nestabilní testy: #74 (Discord, PR otevřen), `LexiconCoverageTest`, `getenv()` jen při paralelním běhu, `ArchiveRestoreScopeTest`.
-* Stavové řádky v `.ai/tasks`.
-* README neobsahuje #65, #73 a #74.
+* Nestabilní testy: #74 (Discord, PR otevřen) a #96 (`LexiconCoverageTest`, PR otevřen) jsou věc jiných relací. `getenv()` při paralelním běhu (číselný název proměnné prostředí, int klíč pod `strict_types`) a náhodné hodnoty v `ArchiveRestoreScopeTest` opraveny v G9.
+* ~~Stavové řádky v `.ai/tasks`.~~ Sloučené úkoly jsou sjednocené na `INTEGRATED` (G9, TASK-0116).
+* ~~README neobsahuje #65, #73 a #74.~~ Doplněno: #65 = uzavření fáze C (TASK-0072), #73 = uzavření fáze D (TASK-0080), #74 = oprava okna dávky action hooků (otevřený PR).

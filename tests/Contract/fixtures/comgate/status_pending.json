@@ -1,0 +1,13 @@
+{
+  "code": 0,
+  "message": "OK",
+  "test": "true",
+  "price": 50000,
+  "curr": "EUR",
+  "label": "ONhost credit",
+  "refId": "pi_local_ref2",
+  "method": "BANK_CZ_CSOB",
+  "email": "customer@example.cz",
+  "transId": "KL34-MN56-OP78",
+  "status": "PENDING"
+}

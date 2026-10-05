@@ -6,8 +6,26 @@ on:
     branches: [main, development]
   pull_request:
   workflow_dispatch:
+# A newer push to the same PR supersedes the older run; pushes to development/main are never cancelled, so a red commit is always reported.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Spectral over the committed contract (ruleset: .spectral.yaml). Errors and warnings fail; waived rules are documented there.
+  openapi-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Spectral
+        run: npx --yes @stoplight/spectral-cli@6 lint contracts/openapi/onhost-v1.yaml --ruleset .spectral.yaml --fail-severity=warn
+
   pest:
     runs-on: ubuntu-latest
     timeout-minutes: 20

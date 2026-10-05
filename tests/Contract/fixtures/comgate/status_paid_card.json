@@ -1,0 +1,17 @@
+{
+  "code": 0,
+  "message": "OK",
+  "test": "true",
+  "price": 200000,
+  "curr": "CZK",
+  "label": "ONhost credit",
+  "refId": "pi_local_ref",
+  "method": "CARD_CZ_CSOB_2",
+  "email": "customer@example.cz",
+  "transId": "AB12-CD34-EF56",
+  "status": "PAID",
+  "fee": "unknown",
+  "cardNumber": "4242xxxxxxxx1234",
+  "cardBrand": "VISA",
+  "cardExpiration": "2031-12"
+}

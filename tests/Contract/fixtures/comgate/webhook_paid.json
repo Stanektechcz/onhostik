@@ -1,0 +1,8 @@
+{
+  "transId": "AB12-CD34-EF56",
+  "refId": "pi_local_ref",
+  "status": "PAID",
+  "price": 200000,
+  "curr": "CZK",
+  "secret": "recorded-callback-secret"
+}
