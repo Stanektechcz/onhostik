@@ -64,6 +64,7 @@ use Onhost\Domain\Support\Assistant\AssistantBudget;
 use Onhost\Domain\Tax\CnbRates;
 use Onhost\Domain\Tax\Models\ExchangeRate;
 use Onhost\Domain\Tax\VatHealth;
+use Onhost\Domain\Tax\VatPayerMode;
 use Onhost\Domain\WalletLedger\AutoTopup;
 use Onhost\Platform\Files\VirusScanner;
 use Onhost\Platform\Ops\PlatformBackup;
@@ -563,6 +564,9 @@ final class Doctor extends Command
             $this->add('documents', 'legal entity bank details real', ! $placeholder, $placeholder ? 'seeded placeholder IBAN — run LegalEntitySeeder with production values' : (string) $entity->iban);
             $this->add('documents', 'legal entity identification', (string) $entity->ico !== '' && (string) $entity->name !== '', "{$entity->name} · IČO {$entity->ico}");
         }
+        // G2: the VAT mode documents are issued in, and the way out when the declaration (ONHOST_VAT_PAYER) and the legal entity disagree
+        $vat = app(VatPayerMode::class)->report();
+        $this->add('documents', 'VAT payer mode', $vat['consistent'], $vat['detail'], true, $vat['remedy']);
     }
 
     private function identity(): void
