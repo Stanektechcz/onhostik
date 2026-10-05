@@ -98,9 +98,9 @@ spouštějí po jménu, brána a hostingový panel jsou náhrada). Body a vratn�
 
 - Faktura `PAID`, případ upomínek vyřešen, **novější faktura se nezaplatí** (zůstává vystavená a běží jí vlastní žebříček).
 - Služba `ACTIVE`, **vhost, cron i FTP zpět zapnuté**, blokace zmizela; v panelu právě jedno vypnutí a jedno zapnutí (žádné blikání).
-- Karta se zaúčtuje po platformním způsobu: nejdřív kredit s příjmovým dokladem, pak úhrada této faktury; kredit zůstane 0.
+- Karta se zaúčtuje po platformním způsobu: nejdřív kredit, pak úhrada této faktury; kredit zůstane 0. **Žádný příjmový doklad s DPH nevznikne** — daňovým dokladem je jen faktura, platba se k ní jen přiřadí (F7-10).
 - Události `dunning.resolved`, `service.active`, `payment.succeeded`, `invoice.paid`; upozornění „Platba přijata, vše v pořádku“.
-- Hlavní kniha je vyvážená; DPH se účtuje jednou za prodej.
+- Hlavní kniha je vyvážená; DPH se účtuje jednou za prodej a jednou je i na daňových dokladech (DPH na dokladech = DPH v knize).
 
 **Negativní varianty**
 
@@ -131,6 +131,7 @@ spouštějí po jménu, brána a hostingový panel jsou náhrada). Body a vratn�
 - Po dobití: kredit zaplatí období, které zákazník využil; mrtvé dny se **neúčtují dvakrát**; předplatné `ACTIVE`, počet neúspěchů 0, případ vyřešen, služba `ACTIVE`, vše zapnuté.
 - Další cron: období, které začalo za pozastavení, se strhne **jednou**, za ceníkovou cenu (89 Kč + DPH), bez slevy.
 - Události: `subscription.renewal_failed` (u každého pokusu), `dunning.opened`, `wallet.topup.completed`, `subscription.renewed`, `dunning.resolved`.
+- Doklad k dobití: firma nebo podnikatel (IČO, DIČ; plátce i neplátce DPH) dostane daňový doklad k přijaté platbě; spotřebitel dostane **potvrzení o přijetí platby** (typ `confirmation`, bez DPH, není daňový doklad). Když ONhost není plátce DPH, dostane potvrzení každý (F7-10).
 
 **Negativní varianty**
 
@@ -237,6 +238,42 @@ spouštějí po jménu, brána a hostingový panel jsou náhrada). Body a vratn�
 - Zakoupený kredit se utrácí jako první.
 
 **Poznámka:** v této verzi k výplatě **není HTTP cesta ani tlačítko**; provádí se příkazem finance (právo „billing.refund.execute“, vysoké riziko, nad prahem 20 000 Kč čtyři oči). Ruční ověření je proto jen přes zákazníkův zůstatek a hlavní knihu; plné pokrytí dává `RefundableBalanceTest`.
+
+---
+
+## F7-10 Daňovým dokladem je jen faktura (G1)
+
+**Pravidlo (rozhodnutí vlastníka G-R1):** jeden prodej má jeden daňový doklad. Zaplacení už vystavené faktury — kartou, převodem
+nebo z kreditu — fakturu jen uhradí; **žádný další doklad s DPH nevzniká**. Dříve se každá platba kartou či převodem připsala na
+kredit s příjmovým dokladem (s DPH) a pak se z kreditu zaplatila faktura, takže faktura i příjmový doklad byly oba daňovými doklady.
+
+| Platba | Doklad |
+| --- | --- |
+| Faktura zaplacená kartou, převodem nebo z kreditu | žádný nový; faktura je daňový doklad |
+| Platba vyšší, než kolik faktura ještě dluží (mezitím dobropis) | zbytek jde na kredit a dostane doklad k dobití |
+| Objednávka zaplacená kartou nebo převodem | daňový doklad k přijaté platbě (vyúčtování z kreditu daňovým dokladem není) |
+| Dobití kreditu firmou nebo podnikatelem (IČO, DIČ; plátce i neplátce DPH, i zahraniční) | daňový doklad k přijaté platbě (sazbu, přenesení daňové povinnosti či OSS určí daňový modul) |
+| Dobití kreditu spotřebitelem | potvrzení o přijetí platby, **není daňový doklad**, bez DPH |
+| Cokoli z výše uvedeného, když ONhost **není plátce DPH** | potvrzení o přijetí platby; faktura je jen „Faktura“, žádný doklad se nejmenuje daňový |
+| Dvě platby téže faktury (dvě záložky, karta i převod) | uhradí ji jen jedna; druhá zůstane kreditem s dokladem k dobití |
+
+**Kroky**
+
+1. Zákazník na fakturu zaplatí vystavenou fakturu kartou (F7-03) a druhou převodem (`POST /v1/invoices/{invoice}/pay` s `method: bank`, finance zapíše řádek výpisu `POST /v1/staff/payments/bank/lines`).
+2. Spotřebitel (osoba bez IČO a DIČ) dobije kredit (`POST /v1/wallet/topup`) a zaplatí z něj další fakturu (F7-05); firma dobije také.
+3. Otevřít doklady (`/panel/fakturace`, `GET /v1/invoices`) a PDF (`GET /v1/invoices/{invoice}/pdf`).
+4. Finance spustí `php artisan onhost:billing:double-tax-report` (volitelně `--organization=`, `--since=2026-01-01`, `--json`).
+
+**Očekávaný výsledek**
+
+- Po kroku 1 a 2: u každé zaplacené faktury **žádný příjmový doklad**; u dobití spotřebitele jen potvrzení o přijetí platby (DPH 0), u dobití firmy daňový doklad k přijaté platbě.
+- Potvrzení o přijetí platby nemá UBL: stažení UBL odpoví 409 `document_not_exportable`.
+- PDF potvrzení, vyúčtování z kreditu a zálohové faktury nese „není daňový doklad“; daňový doklad k přijaté platbě se tak jmenuje.
+- DPH na daňových dokladech organizace = DPH v hlavní knize (účtuje se jednou).
+- Report vypíše **historické** dvojice faktura + příjmový doklad k její vlastní platbě (číslo faktury, číslo dokladu, DPH dokladu, součty za měnu). **Nic neoznačí, nestornuje ani nesmaže**; opravu (např. dobropis dokladu) rozhoduje účetní.
+
+**Kde hledat:** runbook [billing-dunning](../runbooks/billing-dunning.md), oddíl „Only the invoice is a tax document“. Automaticky:
+[`G1OnlyInvoiceTest`](../../tests/Feature/Billing/G1OnlyInvoiceTest.php) a E2E `BillingDunningFlowTest` (F7-03, F7-05).
 
 ---
 

@@ -8,7 +8,9 @@ use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Onhost\Domain\Invoicing\CzkTaxStatement;
 use Onhost\Domain\Invoicing\InvoiceService;
+use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Payments\Events\PaymentFailed;
 use Onhost\Domain\Payments\Events\PaymentSucceeded;
@@ -23,7 +25,6 @@ use Onhost\Domain\Payments\Models\ReconciliationRun;
 use Onhost\Domain\Payments\Models\Settlement;
 use Onhost\Domain\Payments\Models\SettlementItem;
 use Onhost\Domain\WalletLedger\Models\AutoTopupSetting;
-use Onhost\Domain\WalletLedger\Models\WalletRefund;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
@@ -38,8 +39,8 @@ use Throwable;
 /**
  * Payment orchestration (§63): intents, verified callbacks, dedupe, settlement to
  * the wallet, refunds, daily reconciliation against provider settlements and bank
- * statements. Every successful payment becomes a wallet top-up + receipt; orders
- * and invoices are settled by listeners of PaymentSucceeded.
+ * statements. Every successful payment becomes a wallet top-up with its document (see document(): an issued
+ * invoice gets none, it is the tax document); orders and invoices are settled by listeners of PaymentSucceeded.
  */
 final class PaymentService
 {
@@ -210,7 +211,7 @@ final class PaymentService
     }
 
     /**
-     * Idempotent settlement: wallet top-up + receipt, then PaymentSucceeded. Returns false if already settled.
+     * Idempotent settlement: wallet top-up + its document (document()), then PaymentSucceeded. Returns false if already settled.
      *
      * The money was taken by the provider, so crediting it is one thing and applying it (marking an order or an invoice
      * paid) is another: the credit commits on its own, and what is built on it runs afterwards. A listener that fails —
@@ -230,7 +231,7 @@ final class PaymentService
             $organization = Organization::query()->findOrFail($intent->organization_id);
             $ctx = $context->withScope($organization->id);
             $this->wallets->topup($organization, $intent->amount(), $intent->method ?? 'card', "pi:{$intent->id}", $ctx, $intent->id, "Payment {$intent->provider} {$intent->provider_id}", bankProvider: $intent->provider, purpose: (string) ($intent->purpose ?: 'topup'));
-            $this->invoices->issueReceipt($organization, $intent->amount(), $intent->method ?? $intent->provider, $ctx, $intent->id);
+            $this->document($organization, $intent, $ctx);
             $this->audit->record($ctx, 'payment.succeeded', 'succeeded', ['provider' => $intent->provider, 'provider_id' => $intent->provider_id, 'amount' => $intent->amount(), 'purpose' => $intent->purpose], 'payment_intent', $intent->id);
             $this->outbox->publish(GenericEvent::of('payment.succeeded', 'payment', $intent->id, ['purpose' => $intent->purpose, 'reference' => [$intent->reference_type, $intent->reference_id], 'amount' => $intent->amount()], $organization->id));
             if (! empty($intent->return_urls['save_method']) && $intent->provider_id) {
@@ -250,9 +251,46 @@ final class PaymentService
             $reason = $e instanceof DomainError ? $e->error : class_basename($e);
             $this->audit->record($ctx, 'payment.apply', 'failed', ['intent' => $intent->id, 'purpose' => $intent->purpose, 'reference' => [$intent->reference_type, $intent->reference_id], 'reason' => $reason], 'payment_intent', $intent->id);
             $this->openReconciliationItem('paid_but_not_applied', $intent->id, $intent->amount_minor, $intent->amount_minor, "The payment is credited to the wallet, but {$intent->purpose} {$intent->reference_id} could not be marked paid: {$reason}");
+            try { // the money stays credit until finance resolves the item: documented as credit (a document already issued is kept, one per payment)
+                $this->invoices->issueTopupDocument(Organization::query()->findOrFail($intent->organization_id), $intent->amount(), $intent->method ?? $intent->provider, $ctx, $intent->id);
+            } catch (Throwable $documentFailed) {
+                report($documentFailed);
+            }
         }
 
         return true;
+    }
+
+    /**
+     * The document of a received payment (G1, owner decision G-R1: only the invoice is a tax document).
+     *
+     *  · the payment of an issued tax document (an invoice still open): none — the invoice is the tax document, the payment is
+     *    matched to it by SettleInvoicePayment. It used to get a receipt with VAT, so one sale stood on two tax documents;
+     *    whatever the invoice cannot take any more becomes credit there, with a top-up document of its own;
+     *  · an order (its statement is no tax document) and a proforma: the tax receipt, the sale's one tax document;
+     *  · a top-up: a tax receipt for a taxable person or legal entity, a payment confirmation (no tax document) for a consumer;
+     *  · while the seller is no VAT payer, every one of these is a payment confirmation (InvoiceService::sellerIsVatPayer()).
+     */
+    private function document(Organization $organization, PaymentIntent $intent, CommandContext $ctx): void
+    {
+        $method = $intent->method ?? $intent->provider;
+        if ($intent->purpose === 'topup') {
+            $this->invoices->issueTopupDocument($organization, $intent->amount(), $method, $ctx, $intent->id);
+
+            return;
+        }
+        if ($intent->purpose === 'invoice' && $intent->reference_type === 'invoice') {
+            $invoice = Invoice::query()->whereKey((string) $intent->reference_id)->where('organization_id', $organization->id)->first();
+            if ($invoice !== null && in_array($invoice->type, CzkTaxStatement::TYPES, true)) {
+                if (! in_array($invoice->state, [Invoice::ISSUED, Invoice::OVERDUE], true) || ! $invoice->outstanding()->isPositive()) {
+                    // paid or credited meanwhile: the money stays as credit, documented as a top-up
+                    $this->invoices->issueTopupDocument($organization, $intent->amount(), $method, $ctx, $intent->id);
+                }
+
+                return;
+            }
+        }
+        $this->invoices->issueReceipt($organization, $intent->amount(), $method, $ctx, $intent->id);
     }
 
     /**
@@ -326,16 +364,21 @@ final class PaymentService
     }
 
     /**
-     * Refund to the original payment source; wallet refund record is completed when the provider confirms.
+     * Refund to the original payment source: money of an order or an invoice, never a top-up. Credit is never paid out in money
+     * (owner decision G-R4) — a top-up became credit and is spent, not returned to the card (`topup_not_refundable`). The
+     * wallet-refund link is gone with WalletService::refund (G4); `payment_refunds.wallet_refund_id` stays NULL.
      *
      * F12b (security review of PR #99): the payment is locked and read again before the cap is checked, so two refunds under
      * different keys cannot both pass it; the refund is in the payment's own currency; a key is one refund — a retry asking for
      * the same thing gets it back, another amount, currency or payment under the key is refused before the provider is called.
      */
-    public function refund(PaymentIntent $intent, Money $amount, string $reason, string $idempotencyKey, CommandContext $context, ?string $walletRefundId = null): PaymentRefund
+    public function refund(PaymentIntent $intent, Money $amount, string $reason, string $idempotencyKey, CommandContext $context): PaymentRefund
     {
-        return DB::transaction(function () use ($intent, $amount, $reason, $idempotencyKey, $context, $walletRefundId) {
+        return DB::transaction(function () use ($intent, $amount, $reason, $idempotencyKey, $context) {
             $intent = PaymentIntent::query()->lockForUpdate()->findOrFail($intent->id);
+            if ($intent->purpose === 'topup') {
+                throw new DomainError('topup_not_refundable', 'A top-up became credit; credit is spent on services and is never paid back in money.', 422);
+            }
             $existing = PaymentRefund::query()->where('idempotency_key', $idempotencyKey)->first();
             if ($existing !== null) {
                 $same = $existing->payment_intent_id === $intent->id && (int) $existing->amount_minor === $amount->minor && (string) $existing->getRawOriginal('currency') === $amount->currency->value;
@@ -356,13 +399,10 @@ final class PaymentService
             $refund = PaymentRefund::query()->create([
                 'payment_intent_id' => $intent->id, 'provider_refund_id' => $result['provider_refund_id'], 'amount_minor' => $amount->minor, 'currency' => $amount->currency->value,
                 'state' => in_array($result['state'], ['succeeded', 'FINISHED', 'PAID', 'REFUNDED', 'succeeded_pending'], true) ? 'succeeded' : 'pending', 'reason' => $reason,
-                'idempotency_key' => $idempotencyKey, 'wallet_refund_id' => $walletRefundId, 'created_by' => $context->actorType.':'.($context->actorId ?? 'system'),
+                'idempotency_key' => $idempotencyKey, 'created_by' => $context->actorType.':'.($context->actorId ?? 'system'),
             ]);
             $refunded = $intent->refunded_minor + $amount->minor;
             $intent->forceFill(['refunded_minor' => $refunded, 'state' => $refunded >= $intent->amount_minor ? S::REFUNDED : S::PARTIALLY_REFUNDED])->save();
-            if ($walletRefundId !== null) {
-                WalletRefund::query()->where('id', $walletRefundId)->update(['state' => $refund->state === 'succeeded' ? 'completed' : 'pending', 'payment_refund_id' => $refund->id]);
-            }
             $this->audit->record($context->withScope($intent->organization_id), 'payment.refund', 'succeeded', ['amount' => $amount, 'reason' => $reason, 'provider_refund' => $result['provider_refund_id']], 'payment_intent', $intent->id);
             if ($refund->state === 'succeeded') {
                 $this->announceRefund($intent, $refund, $amount, $refunded);
