@@ -777,7 +777,10 @@ consumes them (history row `redeem`, event `loyalty.redeemed`), a cancelled unpa
 order's document credits the points line in step with the lines it discounted (`RedemptionShare`, also in
 `OrderSettlement` for undelivered lines) and `LoyaltyRedemptions::onCreditNote` gives back the same share of the points
 (`redeem.return`, `loyalty.points_returned`). Levels follow the earned points (`LoyaltyService::standing`), so spending
-or expiry never lowers a level.
+or expiry never lowers a level. Add-on lines and limit raises are never discounted. A clawback the free points cannot cover
+(points reserved by an unpaid order are not free) is a debt (`debt.carry`, shown as `debt` in `GET /v1/account/rewards`) that the
+next earned, released or returned points pay first (`clawback.debt`, `LoyaltyService::settleDebt`): the balance never goes below
+zero. Two requests placing one quote: the second gets `409 quote_already_used` (the quote row is locked).
 
 **Points expire (G3).** `php artisan onhost:loyalty:expire` (daily 05:35) takes away the points credited more than 24 months
 ago that nothing used up (oldest spent first, reserved points count as spent; points credited before 2026-10-05 count as

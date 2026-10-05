@@ -8,6 +8,7 @@ use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
+use Onhost\Domain\Identity\Authorization\TokenScopes;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Invoicing\InvoiceService;
@@ -32,12 +33,14 @@ use Onhost\Domain\Orders\QuoteService;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Domain\Provisioning\AutomationLedger;
+use Onhost\Domain\Services\Limits\LimitRaises;
 use Onhost\Domain\Tax\Models\ExchangeRate;
 use Onhost\Domain\WalletLedger\LedgerService;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Commands\CommandBus;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
+use Onhost\Platform\Money\Currency;
 use Onhost\Platform\Money\Money;
 use Onhost\Platform\Outbox\OutboxPublisher;
 use Symfony\Component\Process\ExecutableFinder;
@@ -439,4 +442,67 @@ it('shows redeemed points in the cart as a line of their own and names them in t
     expect($out)->toBeArray('harness output: '.$process->getOutput().$process->getErrorOutput())
         ->and($out['failures'])->toBe([])->and($process->getExitCode())->toBe(0)
         ->and(file_get_contents(base_path('app/Http/Support/SurfaceRenderer.php')))->toContain('window.OnhostCart.discountLabel(s, cs)');
+});
+
+it('never leaves a negative balance when reserved points are clawed back: the shortfall is a debt the next points pay first', function () {
+    [$owner, $org] = $this->customerWithOrganization(['email' => 'g3r1@example.cz']);
+    g3Credit($this, $owner, $org);
+    LoyaltyPoint::query()->create(['organization_id' => $org->id, 'rule' => 'order.paid', 'reference' => 'ord_g3_earned', 'points' => 500, 'note' => 'earned']);
+    $loyalty = app(LoyaltyService::class);
+    $ctx = CommandContext::system('test')->withScope($org->id);
+    $order = g3Place($this, g3Quote($org, g3Hosting(), 300), $owner, $org, 'bank', 'g3-debt'); // 300 reserved, not paid yet
+
+    // the order that earned the 500 is credited: 400 of them go back while 300 are held by the unpaid order
+    $taken = $loyalty->clawback($org->id, 'clawback.order', 'ord_g3_earned:cn1', 400, 'Dobropis', $ctx);
+    app(CheckoutService::class)->markPaid($order, $ctx, 'bank', $order->payment_intent_id); // the reserved 300 are spent
+    expect($loyalty->points($org->id))->toBe(0) // never below zero
+        ->and($taken['taken'])->toBe(200)->and($loyalty->debt($org->id))->toBe(200); // the rest is a debt, recorded
+
+    // the next points pay the debt first, in the history as rows of their own
+    $loyalty->award($org->id, 'manual', 'g3-after-1', 150, 'Odměna', $ctx);
+    expect($loyalty->points($org->id))->toBe(0)->and($loyalty->debt($org->id))->toBe(50);
+    $loyalty->award($org->id, 'manual', 'g3-after-2', 100, 'Odměna', $ctx);
+    expect($loyalty->points($org->id))->toBe(50)->and($loyalty->debt($org->id))->toBe(0)
+        ->and((int) LoyaltyPoint::query()->where('organization_id', $org->id)->where('rule', LoyaltyService::DEBT_RULE)->sum('points'))->toBe(-200)
+        ->and(LoyaltyPoint::query()->where('organization_id', $org->id)->min('points'))->toBeGreaterThanOrEqual(-400);
+});
+
+it('never discounts an add-on line or a limit raise by points: only the service lines count, for the cap too', function () {
+    [, $org] = $this->customerWithOrganization(['email' => 'g3r2@example.cz']);
+    g3Points($org, 1000);
+
+    // a hosting (1 890 Kč a year) with a CDN add-on (1 900 Kč a year): only the hosting is the base of the 20 %
+    $quote = g3Quote($org, [['line_id' => 'l1', 'product_key' => 'web-hosting', 'plan_key' => 'standard'], ['line_id' => 'l2', 'product_key' => 'cdn', 'plan_key' => 'cdn-start', 'config' => ['parent_line_id' => 'l1']]], 1000);
+    expect($quote->versions['loyalty'])->toMatchArray(['applied' => 378, 'max_points' => 378, 'eligible' => ['l1']])
+        ->and(g3Line($quote, 'cdn-cdn-start')['discount'])->toBe(0);
+
+    // a limit raise is a paid change of a running service: never discounted either
+    $lines = [
+        ['line_id' => 'l1', 'product_key' => 'web-hosting', 'family' => 'web', 'net' => Money::minor(G3_YEAR_NET, 'CZK'), 'discount' => Money::zero('CZK'), 'config' => []],
+        ['line_id' => 'l2', 'product_key' => LimitRaises::PRODUCT, 'family' => 'web', 'net' => Money::minor(500000, 'CZK'), 'discount' => Money::zero('CZK'), 'config' => []],
+    ];
+    $priced = app(LoyaltyRedemptions::class)->price($org, 1000, $lines, Currency::CZK);
+    expect($priced['info'])->toMatchArray(['max_points' => 378, 'eligible' => ['l1']]);
+});
+
+it('answers 409 when one quote is placed twice at once, never a 500', function () {
+    [$owner, $org] = $this->customerWithOrganization(['email' => 'g3r3@example.cz']);
+    g3Points($org, 1000); // enough for both: the points check cannot be what stops the second
+    g3Credit($this, $owner, $org);
+    $quote = g3Quote($org, g3Hosting(), 300);
+    $stale = Quote::query()->findOrFail($quote->id); // what the second of two simultaneous requests read before the first committed
+
+    g3Place($this, $quote, $owner, $org, 'wallet', 'g3-race-1');
+    expect(fn () => g3Place($this, $stale, $owner, $org, 'wallet', 'g3-race-2'))->toThrow(fn (DomainError $e) => expect($e->status)->toBe(409)->and($e->error)->toBe('quote_already_used'));
+    expect(Order::query()->where('organization_id', $org->id)->count())->toBe(1)->and(LoyaltyRedemption::query()->where('organization_id', $org->id)->count())->toBe(1);
+});
+
+it('refuses an API token on the redeem route: points are chosen by a person in the panel', function () {
+    [$owner, $org] = $this->customerWithOrganization(['email' => 'g3r4@example.cz']);
+    g3Points($org, 500);
+    $token = $owner->createToken('g3', TokenScopes::ALL);
+    $token->accessToken->forceFill(['organization_id' => $org->id])->save();
+
+    $this->withHeaders(['Authorization' => 'Bearer '.$token->plainTextToken, 'Idempotency-Key' => 'g3-token'])->postJson('/v1/cart/loyalty', ['points' => 300])->assertForbidden();
+    expect(Cart::query()->where('user_id', $owner->id)->value('loyalty_points'))->toBeNull();
 });

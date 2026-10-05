@@ -111,6 +111,10 @@ final class CheckoutService
         $risk = $this->risk->assess($quote, $organization, $user, $context, $source);
 
         return DB::transaction(function () use ($quote, $organization, $user, $consents, $payment, $idempotencyKey, $context, $source, $mode, $fingerprint, $risk, $awaitApproval, $standingDefault) {
+            // two requests with one quote: the second waits for the first and finds it accepted (a 409, never a second order or a 500)
+            if (Quote::query()->whereKey($quote->id)->lockForUpdate()->value('state') !== 'open') {
+                throw new DomainError('quote_already_used', 'Tato nabídka už byla objednána; obnovte košík.', 409, ['field' => 'quote_id']);
+            }
             $quote->forceFill(['state' => 'accepted', 'organization_id' => $organization->id])->save();
             // a promo code is used when an order is placed with it — counted here, under a lock, so "the first hundred" is a
             // hundred even when two checkouts race. The counter existed and nothing ever wrote to it: every limited code was unlimited.

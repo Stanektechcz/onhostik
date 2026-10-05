@@ -255,6 +255,8 @@ Doména, změna tarifu a dobití kreditu se body nezlevňují. Body propadají 2
   1 143,45 − 181,50 = 961,95 Kč) a **150 bodů** se vrátí (událost `loyalty.points_returned`, „Uplatněné body se vrátily: 150“). Body se nikdy nemění v kredit.
 - Krok 7: po objednání ukazuje `redeem.reserved` 100 a `redeem.available` o 100 méně; po zrušení je rezervace pryč a body jsou volné.
   Dvě objednávky tytéž body neutratí: druhá dostane 409 `loyalty_points_unavailable` a obnoví košík.
+- Doplněk (např. CDN k webhostingu) ani navýšení limitu se body nezlevňují a nejsou v základu stropu 20 %.
+- Dluh bodů: když dobropis bere zpět body, které už drží nezaplacená objednávka, zůstatek po zaplacení zůstane **0** a v `GET /v1/account/rewards` je `debt`; další připsané body ho splatí jako první (řádky historie „Splátka dluhu bodů“).
 - Krok 8: domény se body nezlevňují — košík řekne „domény a dobití kreditu se body nezlevňují“, cena domény je ceníková.
 - Propadnutí (QA na stagingu, `php artisan onhost:loyalty:expire`, denně 05:35): 30 dní před propadnutím přijde upozornění v panelu
   a e-mail „Věrnostní body propadnou …“ (`loyalty.expiring`, jednou za měsíc propadnutí); v den propadnutí odejdou nevyčerpané body

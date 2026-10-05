@@ -91,6 +91,13 @@ Vlastník rozhodl, že body lze uplatnit jako slevu; konkrétní pravidla jsou d
    programu se řídí **získanými** body: uplatnění ani propadnutí úroveň nesnižují.
 9. **Idempotence a oddělení:** každý pohyb bodů je řádek s vlastním pravidlem a referencí (dvakrát doručená událost nic
    nezdvojí); organizace vidí, rezervuje a dostává zpět jen své body a jen svůj košík.
+10. **Dluh bodů (review G3):** zůstatek bodů **nikdy neklesne pod nulu**. Když dobropis bere zpět víc bodů, než je volných
+    (zůstatek minus body zarezervované nezaplacenou objednávkou, které se při zaplacení spotřebují), zapíše se celé odebrání
+    (pravidlo `clawback.*`) a nepokrytá část jako **dluh** (`debt.carry`). Dluh se **započte proti dalším bodům**: nově
+    získaným, uvolněným zrušením nezaplacené objednávky i vráceným dobropisem (řádky `clawback.debt`), dokud není splacen.
+    Zákazník vidí dluh v `GET /v1/account/rewards` (`debt`). Úroveň dluh nesnižuje znovu, odebrání ji snížilo už jednou.
+11. **Co body nezlevňují dál:** řádky doplňků (add-on k službě) a dokoupené navýšení limitu se body nezlevňují a nejsou
+    ani v základu stropu, stejně jako domény.
 
 **Otevřená otázka pro účetní:** sleva za body je sleva poskytnutá při prodeji (snižuje základ daně stejně jako promo kód),
 ne platba; potvrďte prosím, že to tak účetní vede (řádek dokladu se zápornou cenou a DPH).

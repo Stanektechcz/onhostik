@@ -8,6 +8,7 @@ use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Loyalty\Models\LoyaltyBadge;
 use Onhost\Domain\Loyalty\Models\LoyaltyPoint;
+use Onhost\Domain\Loyalty\Models\LoyaltyRedemption;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditRecorder;
@@ -84,7 +85,7 @@ final class LoyaltyService
     }
 
     /** Rules that move the spendable balance without being earned or taken back (G3): they never change the level. */
-    public const SPENDING_RULES = ['redeem', 'redeem.return', 'expiry'];
+    public const SPENDING_RULES = ['redeem', 'redeem.return', 'expiry', 'debt.carry', 'clawback.debt']; // the clawback row took the whole amount off the level already
 
     /** The points the level is measured by: everything earned, less what was taken back — not what was spent or expired. */
     public function standing(string $organizationId): int
@@ -119,6 +120,9 @@ final class LoyaltyService
         } catch (QueryException $e) { // unique (organization, rule, reference): already counted
             return ['awarded' => false, 'points' => 0, 'total' => $this->points($organizationId), 'level' => $levelBefore, 'level_up' => null];
         }
+        if ($points > 0) {
+            $this->settleDebt($organizationId, 'award:'.$rule.':'.$reference, $context); // a debt of points (G3 review) is paid from the next points first
+        }
         $level = $this->levelFor($before + $points);
         $total = $this->points($organizationId); // the balance after the award (the level is measured by the standing)
         $levelUp = null;
@@ -150,28 +154,81 @@ final class LoyaltyService
     }
 
     /**
-     * Takes points back (R6: a credit note or chargeback refund gave the money back). A row of its own, so the same
-     * reference is taken once; the balance never goes below zero and the level reward already booked stays.
+     * Takes points back (R6: a credit note or chargeback refund gave the money back). A row of its own for the whole amount, so
+     * the same reference is taken once and LoyaltyClawback counts what was already taken right. The level reward already booked
+     * stays.
+     *
+     * The balance never goes below zero (G3 review): what the free points (the balance less what unpaid orders reserved) cannot
+     * cover is a debt — a `debt.carry` row keeps the balance at what it may be, and the next points the organization gets (earned,
+     * freed by a cancelled order, given back by a credit note) pay the debt first (`clawback.debt` rows, settleDebt()).
      *
      * @return array{taken:int, total:int}
      */
     public function clawback(string $organizationId, string $rule, string $reference, int $points, string $note, CommandContext $context): array
     {
         $before = $this->points($organizationId);
-        $points = min(max(0, $points), max(0, $before));
+        $points = max(0, $points);
         if ($points === 0) {
             return ['taken' => 0, 'total' => $before];
         }
+        $free = max(0, $before - $this->reserved($organizationId));
+        $short = max(0, $points - $free);
         try {
-            DB::transaction(fn () => LoyaltyPoint::query()->create(['organization_id' => $organizationId, 'rule' => $rule, 'reference' => mb_substr($reference, 0, 120), 'points' => -$points, 'note' => mb_substr($note, 0, 200)]));
+            DB::transaction(function () use ($organizationId, $rule, $reference, $points, $note, $short) {
+                LoyaltyPoint::query()->create(['organization_id' => $organizationId, 'rule' => $rule, 'reference' => mb_substr($reference, 0, 120), 'points' => -$points, 'note' => mb_substr($note, 0, 200)]);
+                if ($short > 0) {
+                    LoyaltyPoint::query()->create(['organization_id' => $organizationId, 'rule' => self::CARRY_RULE, 'reference' => mb_substr($rule.':'.$reference, 0, 120), 'points' => $short, 'note' => mb_substr('Dluh '.$short.' bodů: '.$note, 0, 200)]);
+                }
+            }); // savepoint: an already-taken reference never aborts the caller's transaction (PostgreSQL)
         } catch (QueryException) { // unique (organization, rule, reference): already taken back
             return ['taken' => 0, 'total' => $before];
         }
-        $total = $before - $points;
-        $this->audit->record($context->withScope($organizationId), 'loyalty.clawback', 'succeeded', ['rule' => $rule, 'reference' => $reference, 'points' => -$points, 'total' => $total], 'organization', $organizationId);
+        $taken = $points - $short;
+        $total = $before - $taken;
+        $this->audit->record($context->withScope($organizationId), 'loyalty.clawback', 'succeeded', ['rule' => $rule, 'reference' => $reference, 'points' => -$points, 'taken' => $taken, 'debt' => $short, 'total' => $total], 'organization', $organizationId);
         $this->outbox->publish(GenericEvent::of('loyalty.clawback', 'organization', $organizationId, ['points' => $points, 'total' => $total, 'reason' => $note], $organizationId));
 
-        return ['taken' => $points, 'total' => $total];
+        return ['taken' => $taken, 'total' => $total];
+    }
+
+    /** A clawback the free points could not cover (positive: it keeps the balance at zero) … */
+    public const CARRY_RULE = 'debt.carry';
+
+    /** … and its repayment from the next points (negative). */
+    public const DEBT_RULE = 'clawback.debt';
+
+    /** Points owed: clawbacks the free points could not cover, less what later points paid. */
+    public function debt(string $organizationId): int
+    {
+        return max(0, (int) LoyaltyPoint::query()->where('organization_id', $organizationId)->whereIn('rule', [self::CARRY_RULE, self::DEBT_RULE])->sum('points'));
+    }
+
+    /** Points held by orders not paid yet (G3); they are neither taken back nor used to pay a debt. */
+    public function reserved(string $organizationId): int
+    {
+        return (int) LoyaltyRedemption::query()->where('organization_id', $organizationId)->where('state', LoyaltyRedemption::RESERVED)->sum('points');
+    }
+
+    /**
+     * Pays the debt from the free points, once per `$reference` (the award, release or return that brought the points).
+     *
+     * @return int points paid
+     */
+    public function settleDebt(string $organizationId, string $reference, CommandContext $context): int
+    {
+        $debt = $this->debt($organizationId);
+        $pay = min($debt, max(0, $this->points($organizationId) - $this->reserved($organizationId)));
+        if ($pay <= 0) {
+            return 0;
+        }
+        try {
+            DB::transaction(fn () => LoyaltyPoint::query()->create(['organization_id' => $organizationId, 'rule' => self::DEBT_RULE, 'reference' => mb_substr($reference, 0, 120), 'points' => -$pay, 'note' => 'Splátka dluhu bodů']));
+        } catch (QueryException) {
+            return 0; // paid from these points already
+        }
+        $this->audit->record($context->withScope($organizationId), 'loyalty.debt.settle', 'succeeded', ['reference' => $reference, 'points' => -$pay, 'debt' => $debt - $pay], 'organization', $organizationId);
+
+        return $pay;
     }
 
     /** Grants a badge once; a repeated grant is a no-op. */
@@ -203,7 +260,7 @@ final class LoyaltyService
         $badges = LoyaltyBadge::query()->where('organization_id', $organizationId)->orderBy('earned_at')->get()->map(fn (LoyaltyBadge $b) => ['badge' => $b->badge, 'name' => self::BADGES[$b->badge][$locale] ?? self::BADGES[$b->badge]['cs'] ?? $b->badge, 'earned_at' => $b->earned_at?->toIso8601String()])->all();
         $history = LoyaltyPoint::query()->where('organization_id', $organizationId)->orderByDesc('created_at')->orderByDesc('id')->limit(20)->get()->map(fn (LoyaltyPoint $p) => ['rule' => $p->rule, 'points' => $p->points, 'note' => $p->note, 'at' => $p->created_at?->toIso8601String()])->all();
 
-        return ['points' => $total, 'standing' => $standing, 'level' => $level, 'next' => $next, 'levels' => $this->levels(), 'badges' => $badges, 'history' => $history, 'rules' => (array) config('onhost.loyalty.points', []),
+        return ['points' => $total, 'standing' => $standing, 'debt' => $this->debt($organizationId), 'level' => $level, 'next' => $next, 'levels' => $this->levels(), 'badges' => $badges, 'history' => $history, 'rules' => (array) config('onhost.loyalty.points', []),
             'redeem' => app(LoyaltyRedemptions::class)->summary($organizationId), 'expiring' => app(LoyaltyExpiry::class)->upcoming($organizationId)];
     }
 }

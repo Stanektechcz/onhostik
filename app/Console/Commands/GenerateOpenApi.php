@@ -75,7 +75,7 @@ final class GenerateOpenApi extends Command
             'errors' => ['403' => ['custom_iso_not_in_plan'], '409' => ['service_not_active', 'idempotency_key_reused'], '422' => ['iso_too_large', 'iso_too_large_for_scan', 'iso_not_iso9660', 'iso_quota_exceeded', 'upload_infected', 'iso_scan_incomplete', 'iso_upload_unknown'], '429' => ['iso_upload_in_progress'], '503' => ['iso_scan_unavailable', 'iso_scanner_untrusted', 'custom_iso_storage_unsafe']],
         ],
         'POST /cart/quote' => ['errors' => ['422' => ['domain_action_invalid']]],
-        'POST /orders' => ['errors' => ['422' => ['domain_action_invalid'], '409' => ['loyalty_points_unavailable']]],
+        'POST /orders' => ['errors' => ['422' => ['domain_action_invalid'], '409' => ['loyalty_points_unavailable', 'quote_already_used']]],
         // G3 (owner decision G-R2): loyalty points redeemed on the signed-in customer's cart (command `loyalty.redeem`)
         'POST /cart/loyalty' => [
             'description' => 'Redeem loyalty points on the cart of the signed-in customer (`loyalty.redeem`, NORMAL, the permission to place orders). `points: 0` removes the choice. '

@@ -8027,7 +8027,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Problem'
         409:
-          description: 'Conflict with the current state — error: `loyalty_points_unavailable`'
+          description: 'Conflict with the current state — error: `loyalty_points_unavailable`, `quote_already_used`'
           content:
             application/json:
               schema:
@@ -8036,7 +8036,7 @@ paths:
                     $ref: '#/components/schemas/Problem'
                   -
                     properties:
-                      error: { enum: [loyalty_points_unavailable] }
+                      error: { enum: [loyalty_points_unavailable, quote_already_used] }
       security:
         -
           session: []

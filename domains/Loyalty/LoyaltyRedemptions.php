@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Loyalty;
 
 use Illuminate\Database\QueryException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Invoicing\InvoiceService;
@@ -16,6 +17,7 @@ use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\Orders\Models\Quote;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Services\Limits\LimitRaises;
 use Onhost\Domain\Tax\CnbRates;
 use Onhost\Domain\Tax\Models\ExchangeRate;
 use Onhost\Platform\Audit\AuditRecorder;
@@ -80,7 +82,7 @@ final class LoyaltyRedemptions
     /** Points reserved by orders that are not paid yet. */
     public function reserved(string $organizationId): int
     {
-        return (int) LoyaltyRedemption::query()->where('organization_id', $organizationId)->where('state', LoyaltyRedemption::RESERVED)->sum('points');
+        return $this->loyalty->reserved($organizationId);
     }
 
     /** What the organization may redeem now: its balance less what unpaid orders hold. */
@@ -148,7 +150,9 @@ final class LoyaltyRedemptions
         foreach ($lines as $line) {
             $net = $line['net'] instanceof Money ? $line['net']->minor : (int) $line['net'];
             $discount = $line['discount'] instanceof Money ? $line['discount']->minor : (int) $line['discount'];
-            if (in_array((string) ($line['family'] ?? ''), $excluded, true) || ($line['product_key'] ?? '') === 'domain' || ! empty($line['config']['plan_change']) || self::isRedemption($line) || $net <= 0) {
+            if (in_array((string) ($line['family'] ?? ''), $excluded, true) || in_array((string) ($line['product_key'] ?? ''), ['domain', LimitRaises::PRODUCT], true) // a domain at its list price, a limit raise at its option price
+                || ! empty($line['config']['plan_change']) || ! empty($line['config']['parent_line_id']) // a plan change carries no discounts, an add-on line is no service line
+                || self::isRedemption($line) || $net <= 0) {
                 continue;
             }
             $list += $net + $discount;
@@ -220,18 +224,31 @@ final class LoyaltyRedemptions
         if ($points < self::minPoints() || $points > $available) {
             throw new DomainError('loyalty_points_unavailable', 'Body z košíku už nejsou k dispozici (uplatnila je jiná objednávka nebo propadly); obnovte košík.', 409, ['field' => 'loyalty_points', 'available' => $available, 'points' => $points]);
         }
-        $redemption = LoyaltyRedemption::query()->create([
+        $redemption = self::once(fn () => LoyaltyRedemption::query()->create([
             'organization_id' => $order->organization_id, 'order_id' => $order->id, 'quote_id' => $quote->id, 'user_id' => $user?->id, 'state' => LoyaltyRedemption::RESERVED,
             'points' => $points, 'value_minor' => (int) data_get($line, 'config.loyalty.value_minor', 0), 'currency' => $order->currency,
             'rate_micro' => data_get($line, 'config.loyalty.rate_micro'), 'rate_amount' => data_get($line, 'config.loyalty.rate_amount'), 'rate_valid_on' => data_get($line, 'config.loyalty.rate_valid_on'),
             'reserved_at' => now(),
-        ]);
+        ]));
         if ($user !== null) { // the wish was for this order: the next cart starts without it (nothing is redeemed nobody asked for)
             Cart::query()->where('user_id', $user->id)->where('state', 'open')->where('loyalty_organization_id', $order->organization_id)->update(['loyalty_points' => null, 'loyalty_organization_id' => null]);
         }
         $this->audit->record($context->withScope($order->organization_id), 'loyalty.redeem.reserve', 'succeeded', ['order' => $order->number, 'points' => $points, 'value' => Money::minor($redemption->value_minor, $order->currency)], 'order', $order->id);
 
         return $redemption;
+    }
+
+    /**
+     * The reservation row is unique per order and per quote; a second order of the same quote (two requests at once) is refused with a
+     * 409, not a database error. A savepoint, so PostgreSQL does not abort the order's transaction.
+     */
+    private static function once(\Closure $create): LoyaltyRedemption
+    {
+        try {
+            return DB::transaction($create);
+        } catch (UniqueConstraintViolationException) {
+            throw new DomainError('quote_already_used', 'Tato nabídka už byla objednána; obnovte košík.', 409, ['field' => 'quote_id']);
+        }
     }
 
     /** Payment: the reserved points are spent — a row of their own in the history, once per order. */
@@ -262,6 +279,7 @@ final class LoyaltyRedemptions
         }
         $redemption->forceFill(['state' => LoyaltyRedemption::RELEASED, 'released_at' => now()])->save();
         $this->audit->record($context->withScope($order->organization_id), 'loyalty.redeem.release', 'succeeded', ['order' => $order->number, 'points' => $redemption->points, 'reason' => $reason], 'order', $order->id);
+        $this->loyalty->settleDebt($order->organization_id, 'release:'.$order->id, $context); // points freed again pay a debt first
     }
 
     /**
@@ -304,6 +322,7 @@ final class LoyaltyRedemptions
                 return 0; // this credit note was counted already
             }
             $redemption->forceFill(['returned_points' => $redemption->returned_points + $give])->save();
+            $this->loyalty->settleDebt($organizationId, 'return:'.$note->id, $context); // returned points pay a debt first
             $total = $this->loyalty->points($organizationId);
             $this->audit->record($context->withScope($organizationId), 'loyalty.redeem.return', 'succeeded', ['credit_note' => $note->number, 'points' => $give, 'total' => $total], 'organization', $organizationId);
             $this->outbox->publish(GenericEvent::of('loyalty.points_returned', 'organization', $organizationId, ['points' => $give, 'total' => $total, 'credit_note' => $note->number, 'order_id' => $original->order_id], $organizationId));
