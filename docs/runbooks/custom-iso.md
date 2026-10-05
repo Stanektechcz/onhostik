@@ -23,8 +23,7 @@ runbook is for the operator: what has to exist on the servers, what the platform
 Events (outbox, not routed to a notification — the customer acted and got the answer): `service.iso.uploaded`
 (`iso_id`, `name`, `size_bytes`), `service.iso.attached` (`iso_id`, `name`, `boot_first`), `service.iso.detached` (`iso_id`, `reason`),
 `service.iso.deleted` (`iso_id`, `name`). Audit actions: `service.iso.upload` (also `denied` for a refused scan), `service.iso.attach`,
-`service.iso.detach`, `service.iso.delete`. **To do:** list the four events in `docs/architecture/events-catalog.md` (the file was locked
-by TASK-0112 when this landed) and add a doctor row for `onhost:isos:scanner-check` (`Doctor.php` was locked by TASK-0113).
+`service.iso.detach`, `service.iso.delete`. The four events are listed in `docs/architecture/events-catalog.md`. **To do:** a doctor row for `onhost:isos:scanner-check` (`Doctor.php` was locked by TASK-0113).
 
 ## Server steps (operator, before a plan with `custom_iso` goes on sale)
 
