@@ -238,7 +238,7 @@ final class AssistantService
         }
         if ($refusedHandoff !== null && $scope !== null && ! $scope->staff && in_array($refusedHandoff, ['user_request', 'security', 'legal'], true)) {
             // somebody who cannot open tickets here (a guest of the organization) is told who can, instead of a ticket being opened in their name
-            $answer = $locale === 'en' ? 'I cannot open a support ticket for this organization on your behalf. Ask the owner of the service to contact support, or write to us from your own account.' : 'Za tuto organizaci nemohu vaším jménem založit tiket podpory. Požádejte majitele služby, aby podporu kontaktoval, nebo nám napište ze svého vlastního účtu.';
+            $answer = self::cannotOpenTicket($locale);
         }
 
         $run = AiRun::query()->create([
@@ -251,9 +251,11 @@ final class AssistantService
         $actions = [];
         if ($handoffReason !== null) {
             $handoff = $organization !== null && $user !== null ? $this->handoff($run, $transcript, $sessionTriage, $facts, $handoffReason, $organization, $user, $context) : null;
-            $answer = $handoff !== null
-                ? ($locale === 'en' ? "I have passed this to a human colleague as ticket {$handoff['number']} together with a summary of our conversation. Support replies within 30 minutes, high priority within 15." : "Předal jsem to kolegovi z podpory jako tiket {$handoff['number']} i se shrnutím naší konverzace. Podpora odpovídá do 30 minut, u vysoké priority do 15.")
-                : ($locale === 'en' ? 'Sign in and I will hand this over to a human colleague with the full context.' : 'Přihlaste se a předám to kolegovi z podpory i s celým kontextem.');
+            $answer = match (true) {
+                $handoff !== null => $locale === 'en' ? "I have passed this to a human colleague as ticket {$handoff['number']} together with a summary of our conversation. Support replies within 30 minutes, high priority within 15." : "Předal jsem to kolegovi z podpory jako tiket {$handoff['number']} i se shrnutím naší konverzace. Podpora odpovídá do 30 minut, u vysoké priority do 15.",
+                $user !== null => self::cannotOpenTicket($locale), // signed in, but the bus refused the ticket (F12b, review L6)
+                default => $locale === 'en' ? 'Sign in and I will hand this over to a human colleague with the full context.' : 'Přihlaste se a předám to kolegovi z podpory i s celým kontextem.',
+            };
         } else {
             $actions = self::mergeProposals(array_merge($intents, $llmProposals), $this->actions($triage['topic'], $organization, $facts, $articles, $locale, $scope));
         }
@@ -596,7 +598,7 @@ final class AssistantService
      * F12b: the ticket is opened through the CommandBus in the name of the person chatting (TicketCustomerCommand op handoff) — its
      * permission check, its audit row without the transcript, one ticket per conversation turn (the key is the run).
      */
-    private function handoff(AiRun $run, array $transcript, array $triage, array $facts, string $reason, Organization $organization, User $user, CommandContext $context): array
+    private function handoff(AiRun $run, array $transcript, array $triage, array $facts, string $reason, Organization $organization, User $user, CommandContext $context): ?array
     {
         $first = collect($transcript)->firstWhere('role', 'user')['content'] ?? 'Požadavek z asistenta';
         $summary = $this->summary($triage, $facts, $transcript, $organization->locale ?? 'cs');
@@ -605,10 +607,24 @@ final class AssistantService
             'op' => 'handoff', 'ai_run_id' => $run->id, 'reason' => $reason, 'subject' => mb_substr((string) $first, 0, 120), 'body' => $body,
             'category' => $triage['topic'] === 'ostatni' ? null : $triage['topic'], 'summary' => $summary, 'topic' => $triage, 'facts' => $facts,
         ];
-        $result = (array) $this->bus->dispatch(new TicketCustomerCommand($organization->id, 'ticket.handoff:'.$run->id, $payload), $context->withScope($organization->id));
+        try {
+            $result = (array) $this->bus->dispatch(new TicketCustomerCommand($organization->id, 'ticket.handoff:'.$run->id, $payload), $context->withScope($organization->id));
+        } catch (DomainError $e) {
+            if ($e->status !== 403) {
+                throw $e;
+            }
+
+            return null; // the bus said no (and audited it): the person hears who can open a ticket, the chat does not fail
+        }
         $ticket = Ticket::query()->findOrFail((string) ($result['ticket_id'] ?? ''));
 
         return ['ticket_id' => $ticket->id, 'number' => $ticket->number, 'reason' => $reason];
+    }
+
+    /** Told to a signed-in person the assistant may not open a ticket for (a guest of the organization, or the bus refused it). */
+    private static function cannotOpenTicket(string $locale): string
+    {
+        return $locale === 'en' ? 'I cannot open a support ticket for this organization on your behalf. Ask the owner of the service to contact support, or write to us from your own account.' : 'Za tuto organizaci nemohu vaším jménem založit tiket podpory. Požádejte majitele služby, aby podporu kontaktoval, nebo nám napište ze svého vlastního účtu.';
     }
 
     private function summary(array $triage, array $facts, array $transcript, string $locale): string

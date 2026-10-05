@@ -4,14 +4,20 @@ declare(strict_types=1);
 
 use Database\Seeders\LegalEntitySeeder;
 use Illuminate\Support\Facades\Http;
+use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
+use Onhost\Domain\Organizations\OrganizationService;
+use Onhost\Domain\Services\Access\ServiceAccessService;
+use Onhost\Domain\Support\Assistant\AssistantScope;
+use Onhost\Domain\Support\Assistant\AssistantService;
 use Onhost\Domain\Support\Models\Handoff;
 use Onhost\Domain\Support\Models\Ticket;
 use Onhost\Domain\Support\TicketService;
 use Onhost\Domain\Support\TicketStateMachine;
 use Onhost\Platform\Audit\AuditEvent;
+use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Outbox\OutboxMessage;
 
 /*
@@ -88,4 +94,34 @@ it('opens the assistant\'s handoff ticket through the bus with the same rows and
         ->and(OutboxMessage::query()->where('name', 'ticket.handoff')->where('aggregate_id', $ticket->id)->count())->toBe(1)
         ->and(Handoff::query()->where('ticket_id', $ticket->id)->where('reason', 'user_request')->count())->toBe(1);
     expect(json_encode(AuditEvent::query()->pluck('detail')->all()))->not->toContain('ZK-998877');
+});
+
+it('answers a guest who asks for a human with the friendly refusal, not a 403, and dispatches nothing', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $shop = featureWebService($org, 'aapanel');
+    $guest = $this->customer(['email' => 'f12b-guest@example.cz']);
+    app(OrganizationService::class)->attachMember($org, $guest, 'guest', CommandContext::system('test'), true);
+    app(ServiceAccessService::class)->share($org, $shop, 'f12b-guest@example.cz', ['view', 'assistant'], $this->contextFor($owner, $org, 'totp'));
+    $this->actingAs($guest, 'sanctum');
+
+    $human = $this->postJson('/v1/assistant/chat', ['text' => 'Chci mluvit s člověkem', 'session_id' => 'f12b-g'], ['X-Organization' => $org->id])->assertOk()->json('data');
+
+    expect($human['handoff'])->toBeNull()->and($human['text'])->toContain('majitele služby')
+        ->and(Ticket::query()->where('organization_id', $org->id)->count())->toBe(0)
+        ->and(AuditEvent::query()->where('action', 'ticket.customer.handoff')->count())->toBe(0);
+});
+
+it('degrades to the friendly refusal when the bus refuses the handoff the assistant expected to open', function () {
+    [, $org] = $this->customerWithOrganization();
+    $contact = $this->customer(['email' => 'f12b-contact@example.cz']);
+    app(OrganizationService::class)->attachMember($org, $contact, 'support_contact', CommandContext::system('test'), true);
+    $scope = AssistantScope::for($org, $contact, app(Authorizer::class)); // read while the person could still write tickets
+    PolicyBinding::query()->where('principal_type', 'user')->where('principal_id', $contact->id)->delete();
+    app(Authorizer::class)->flush();
+
+    $answer = app(AssistantService::class)->chat('Chci mluvit s člověkem', $org, $contact, 'f12b-d', $this->contextFor($contact, $org), 'cs', $scope);
+
+    expect($answer['handoff'])->toBeNull()->and($answer['text'])->toContain('nemohu vaším jménem založit tiket')
+        ->and(Ticket::query()->where('organization_id', $org->id)->count())->toBe(0)
+        ->and(AuditEvent::query()->where('action', 'ticket.customer.handoff')->where('result', 'denied')->count())->toBe(1);
 });
