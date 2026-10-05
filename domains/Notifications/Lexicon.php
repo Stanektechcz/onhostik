@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Notifications;
 
+use Onhost\Domain\Loyalty\LoyaltyService;
+
 /**
  * In-app notifications in the organization's language (audit §5q-7). The router composes Czech titles and bodies
  * from fixed phrases and live values (names, amounts, dates); for an English organization the fixed phrases are
@@ -212,6 +214,42 @@ final class Lexicon
         'Partnerský portál už neukazuje kontakty klientů' => 'The partner portal no longer shows client contacts',
         'Kontaktní e-maily klientů a jejich upomínky v portálu nevidíte; provize, klienti a jejich služby zůstávají. Kontakty uvidíte znovu jen se souhlasem klienta.' => 'Your clients\' contact e-mails and their payment reminders are no longer shown in the portal; commissions, clients and their services stay. Contacts come back only with the client\'s consent.',
         // ── end TASK-0040 ──
+        // ── TASK-0101 phrases the coverage test never reached (it relayed one batch of the outbox, not all of it) ──
+        'Převod domény ' => 'Transfer of the domain ', ' čeká na kód' => ' is waiting for its code',
+        ' je zaplacená. Zadejte v panelu kód pro převod (AUTH-ID) od současného registrátora do ' => ' is paid. Enter the transfer code (AUTH-ID) from the current registrar in the panel within ',
+        ' dnů, jinak převod zrušíme a platbu vrátíme.' => ' days, otherwise we cancel the transfer and refund the payment.',
+        'Vlastnictví organizace převedeno' => 'Organization ownership transferred', 'Novým vlastníkem je ' => 'The new owner is ', '; předchozí vlastník je správcem organizace.' => '; the previous owner is now an administrator of the organization.',
+        'Nabídka vlastnictví odmítnuta' => 'Ownership offer declined', 'Člen, kterému bylo nabídnuto vlastnictví organizace, ji odmítl. Vlastník se nemění.' => 'The member offered ownership of the organization declined it. The owner stays the same.',
+        'Nabídka vlastnictví zrušena' => 'Ownership offer withdrawn', 'Nabídka převodu vlastnictví organizace byla stažena; nic se nezměnilo.' => 'The offer to transfer ownership of the organization was withdrawn; nothing has changed.',
+        'Váš přístup do organizace ' => 'Your access to the organization ', ' byl obnoven' => ' was restored', 'Pokud ho nechcete, organizaci opusťte v Týmu.' => 'If you do not want it, leave the organization under Team.',
+        'Přístup obnoven: ' => 'Access restored: ',
+        'Přístup této osoby byl obnoven ze zálohy oprávnění do stavu před odebráním nebo změnou role. SSH klíče a účty spolupracovníka na panelech si osoba přidá znovu.' => 'This person\'s access was restored from the permission backup to what it was before the removal or role change. The person adds their SSH keys and collaborator accounts on the panels again.',
+        'Přístupy od člena, který už je nemůže udělit' => 'Access granted by a member who can no longer grant it', 'Odebrali jsme ' => 'We removed ', 'Evidujeme ' => 'We hold ',
+        ' přístupů, které udělil člen, jenž je už udělit nemůže (odešel nebo má nižší roli). ' => ' access grants given by a member who can no longer give them (they left or have a lower role). ',
+        'Každý lze v Týmu obnovit ze zálohy oprávnění.' => 'Each can be restored from the permission backup under Team.', 'Zatím zůstávají platné; zkontrolujte je v Týmu.' => 'They stay valid for now; please review them under Team.',
+        'Probíhá obnova přístupu vlastníka' => 'Owner access recovery in progress', 'Podpora ONhost zahájila ' => 'ONhost support started ',
+        'převod vlastnictví na jiného člena organizace' => 'a transfer of ownership to another member of the organization', 'zrušení dvoufázového ověření vlastníka' => 'removing the owner\'s two-factor authentication',
+        'zrušení dvoufázového ověření vašeho správce ' => 'removing the two-factor authentication of your administrator ', ' (vlastníka jiné organizace)' => ' (the owner of another organization)',
+        '. Provede se nejdříve ' => '. It takes effect no earlier than ', '; pokud o tom nevíte, zrušte ji v Týmu.' => '; if you do not know about it, cancel it under Team.',
+        'Obnova přístupu vlastníka zrušena' => 'Owner access recovery cancelled', 'Obnova přístupu vlastníka organizace byla zrušena; nic se nezměnilo.' => 'The recovery of the organization owner\'s access was cancelled; nothing has changed.',
+        'Obnova přístupu vlastníka dokončena' => 'Owner access recovery completed', 'Vlastnictví organizace přešlo na určeného člena.' => 'Ownership of the organization passed to the designated member.',
+        'Dvoufázové ověření vlastníka bylo zrušeno; při příštím přihlášení si ho nastaví znovu.' => 'The owner\'s two-factor authentication was removed; they set it up again at their next sign-in.',
+        'Vlastník se ohradil proti obnově přístupu' => 'The owner objected to the access recovery', 'Převod vlastnictví čeká na posouzení podporou; do té doby se nic nemění.' => 'The ownership transfer is waiting for review by support; nothing changes until then.',
+        'Obnova přístupu vlastníka pokračuje' => 'Owner access recovery continues', 'Podpora námitku posoudila spolu s druhou osobou; obnova pokračuje od ' => 'Support reviewed the objection together with a second person; the recovery continues from ',
+        'Dodání ' => 'Delivery of ', ' se zpozdilo' => ' is delayed', '; po ' => '; after ',
+        ' se prostor tarifu služby ' => ' the plan space of the service ', ' počítá celkem' => ' is counted as a total',
+        'Do limitu tarifu se bude počítat součet souborů, databází a pošty. Dnes: ' => 'The plan limit will count files, databases and mail together. Today: ', ' z ' => ' of ', 'nezměřeno' => 'not measured',
+        ' (alespoň; část zatím neměříme)' => ' (at least; part is not measured yet)', 'Služba se dnes do tarifu vejde; nic nemusíte dělat.' => 'The service fits the plan today; you do not need to do anything.',
+        'Služba dnes zabírá víc, než tarif nabízí. Do data účinnosti uvolněte místo (staré zálohy, logy, nepoužívané databáze nebo schránky), nebo přejděte na vyšší tarif — jinak po tomto datu nepůjde přidávat další obsah.' => 'The service takes more today than the plan offers. Free up space before the effective date (old backups, logs, unused databases or mailboxes) or move to a higher plan — otherwise no further content can be added after that date.',
+        'Limit služby ' => 'Limit of the service ', ' navýšen' => ' raised', ' · na jedno období zdarma' => ' · free for one period', ' · účtuje se s každým obdobím' => ' · billed every period', 'Navýšení limitu služby ' => 'Limit raise of the service ',
+        'Služba je zpět: ' => 'Service is back: ', 'Zaplaceno ' => 'Paid ', 'Zaplacené období trvá · ' => 'The paid period continues · ', 'plánované odstranění jsme zrušili, služba se znovu spouští.' => 'the planned removal is cancelled and the service is starting again.',
+        'Obnovení služby čeká na platbu: ' => 'Service reinstatement awaiting payment: ', 'K úhradě ' => 'To pay ', ' · na kreditu chybí ' => ' · credit is short by ', ' · obnovit lze do ' => ' · it can be reinstated until ',
+        'Žádost o obnovení služby zrušena: ' => 'Service reinstatement request cancelled: ',
+        'Kdo o obnovení požádal, už nesmí platit z kreditu organizace, a tak jsme nic nestrhli. Obnovit ji může vlastník nebo správce fakturace do ' => 'The person who asked for the reinstatement may no longer pay from the organization\'s credit, so nothing was charged. The owner or a billing administrator can reinstate it until ',
+        'Konzole služby odebrána: ' => 'Service console removed: ', ' · přístup zůstává (' => ' · access stays (', '), SSH klíče a herní sub-uživatelé této osoby se odebírají' => '), this person\'s SSH keys and game sub-users are being removed',
+        'Podpora ONhost se přihlásila do panelu služby ' => 'ONhost support signed in to the panel of the service ', 'Podpora ONhost' => 'ONhost support', ' · k tiketu ' => ' · for ticket ',
+        ' UTC. Pokud o tom nevíte, odpovězte prosím v tiketu.' => ' UTC. If you do not know about it, please reply in the ticket.',
+        // ── end TASK-0101 ──
     ];
 
     public static function translate(?string $text, string $locale): ?string
@@ -235,11 +273,24 @@ final class Lexicon
         return array_values(array_diff(array_unique($m[0]), ['Kč'])); // the currency symbol is a value, not a phrase
     }
 
+    /** The loyalty badge names travel in the event as Czech values; their English names live with the badges. @return array<string,string> */
+    private static function badgeNames(string $locale): array
+    {
+        $names = [];
+        foreach (LoyaltyService::BADGES as $badge) {
+            if (isset($badge['cs'], $badge[$locale])) {
+                $names[$badge['cs']] = $badge[$locale];
+            }
+        }
+
+        return $names;
+    }
+
     /** @return array<string,string> */
     private static function table(string $locale): array
     {
         return match ($locale) {
-            'en' => self::EN,
+            'en' => self::EN + self::badgeNames('en'),
             default => [],
         };
     }
