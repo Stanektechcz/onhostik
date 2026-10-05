@@ -140,8 +140,9 @@ final class AuthController extends ApiController
 
     public function me(Request $request): JsonResponse
     {
-        if ($request->user() instanceof ServiceAccount) {
-            return $this->serviceAccountMe($request);
+        $principal = $request->user();
+        if ($principal instanceof ServiceAccount) {
+            return $this->serviceAccountMe($request, $principal);
         }
         $user = $this->api->user($request);
         $memberships = OrganizationMembership::query()->with('organization')->where('user_id', $user->id)->current()->get();
@@ -164,12 +165,11 @@ final class AuthController extends ApiController
      * and the token's scopes, never another token of the account and never a secret. ApiContext::organization refuses a disabled
      * account (401) and another organization named (403) as on every route.
      */
-    private function serviceAccountMe(Request $request): JsonResponse
+    private function serviceAccountMe(Request $request, ServiceAccount $account): JsonResponse
     {
         $organization = $this->api->organization($request);
-        $account = $request->user();
-        $token = $account instanceof ServiceAccount ? $account->currentAccessToken() : null;
-        if (! $account instanceof ServiceAccount || ! $token instanceof PersonalAccessToken || $organization === null) {
+        $token = $account->currentAccessToken();
+        if (! $token instanceof PersonalAccessToken || $organization === null) {
             throw new DomainError('unauthenticated', 'Sign in to continue.', 401);
         }
         $view = ServiceAccountView::token($token);
