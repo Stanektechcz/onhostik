@@ -173,7 +173,7 @@ it('archives every mail domain before the service is removed', function () {
     // each mail domain is asked for its own mailboxes
     $adapter->shouldReceive('listMailboxes')->andReturnUsing(fn ($ref) => [['remote_id' => $ref->remoteId === '909' ? '11' : '21', 'address' => 'info@'.($ref->meta['domain'] ?? ''), 'name' => 'Info', 'quota_mb' => 2048, 'used_mb' => null, 'active' => true]]);
     $adapter->shouldReceive('listAliases')->andReturn([]);
-    $adapter->shouldReceive('dkim')->andReturn(['selector' => 'onhost202609', 'public' => 'MIIBIjAN']);
+    $adapter->shouldReceive('dkim')->andReturn(['selector' => 'onhost202609', 'public_key' => 'MIIBIjAN', 'dns_record' => 'v=DKIM1; k=rsa; p=MIIBIjAN']);
 
     $archive = app(FinalArchive::class)->create($service->refresh(), $adapter, $service->primaryBinding()->ref(), CommandContext::system('test'));
 

@@ -77,14 +77,15 @@ final class Presenters
         ];
     }
 
-    public static function service(Service $service): array
+    /** @param bool $staff whether the reader is staff: the failure text of a failed service keeps its `[provider:CODE]` prefix only for them (E3 end-to-end: a customer read `[ispconfig:CONFLICT]` in health.error) */
+    public static function service(Service $service, bool $staff = false): array
     {
         $ui = ServiceStateMachine::machine()->toArray()[$service->state]['ui'] ?? strtolower($service->state);
 
         return [
             'id' => $service->id, 'product_key' => $service->product_key, 'family' => $service->family, 'name' => $service->name, 'label' => $service->label, 'hostname' => $service->hostname,
             'state' => $service->state, 'ui' => $ui, 'region' => $service->region_code, 'sla_class' => $service->sla_class, 'entitlements' => $service->entitlements, 'access' => $service->tags['access'] ?? [], 'migration' => ServiceMigrationService::status($service),
-            'health' => $service->health, 'freshness' => ServiceFreshness::of($service), 'control_plane' => ControlPlaneStatus::of($service), 'suspension' => SuspensionHold::of($service), 'activated_at' => $service->activated_at?->toIso8601String(), 'suspended_at' => $service->suspended_at?->toIso8601String(), 'suspended_reason' => $service->suspended_reason,
+            'health' => $staff ? $service->health : self::customerHealth((array) $service->health), 'freshness' => ServiceFreshness::of($service), 'control_plane' => ControlPlaneStatus::of($service), 'suspension' => SuspensionHold::of($service), 'activated_at' => $service->activated_at?->toIso8601String(), 'suspended_at' => $service->suspended_at?->toIso8601String(), 'suspended_reason' => $service->suspended_reason,
             // a cancelled service is only deactivated and waits out its restore window (audit §5ab)
             'deletion' => $service->terminate_at === null ? null : [
                 'grace_until' => $service->terminate_at->toIso8601String(), 'days_left' => max(0, (int) now()->diffInDays($service->terminate_at, false)),
@@ -95,6 +96,21 @@ final class Presenters
             'dns' => self::dnsCheck($service),
             'terminate_at' => $service->terminate_at?->toIso8601String(), 'subscription_id' => $service->subscription_id, 'project_id' => $service->project_id, 'created_at' => $service->created_at?->toIso8601String(),
         ];
+    }
+
+    /**
+     * The service's health record for a customer: a failure reads as its class, never as the vendor's `[panel:CODE] message`.
+     *
+     * @param  array<string,mixed>  $health
+     * @return array<string,mixed>
+     */
+    private static function customerHealth(array $health): array
+    {
+        if (isset($health['error']) && is_string($health['error'])) {
+            $health['error'] = self::customerError($health['error']);
+        }
+
+        return $health;
     }
 
     /**
