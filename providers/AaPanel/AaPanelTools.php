@@ -26,11 +26,11 @@ trait AaPanelTools
     private ?AaPanelShell $apiShell = null;
 
     /** Test seam: a factory returning the shell to use for a site (ScriptedShell in the suite); null = real shells. Set it on the adapter class (`AaPanelWebProvider::$shellFactory`), not on the trait. */
-    public static $shellFactory = null;
+    public static ?\Closure $shellFactory = null;
 
     public function shell(ResourceRef $site): NodeShell
     {
-        if (self::$shellFactory !== null) {
+        if (self::$shellFactory !== null && app()->runningUnitTests()) {
             $scripted = (self::$shellFactory)($site, $this->instance);
             if ($scripted instanceof NodeShell) {
                 return $scripted;
