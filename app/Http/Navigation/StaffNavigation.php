@@ -33,7 +33,9 @@ final class StaffNavigation
      * @var array<string, string>
      */
     public const API_ALLOW_LIST = [
-        // empty since D2: the staff panel sign-on (staff/services/{service}/panel-login) is POST only (P1-10), no GET is left outside an item
+        // D2 left this empty (the staff panel sign-on is POST only, P1-10). G2: the seller's VAT mode is API-only — finance reads it
+        // (billing.tax_rule.manage) before the four-eyes switch, the doctor row "VAT payer mode" shows it to operators; no console screen
+        'staff/tax/vat-payer-mode' => 'G2: VAT payer mode report before the four-eyes switch (API-only, billing.tax_rule.manage; doctor shows it)',
     ];
 
     /**
@@ -63,7 +65,7 @@ final class StaffNavigation
         'billing.refund.execute' => 'bus: refunds and recorded withdrawals',
         'billing.refund.execute_large' => 'bus: large refunds (four eyes)',
         'billing.credit.adjust_mass' => 'bus: mass credit (four eyes)',
-        'billing.tax_rule.manage' => 'bus: a VAT status set by hand (four eyes)',
+        'billing.tax_rule.manage' => 'bus: a VAT status set by hand and the VAT payer mode switch (four eyes); its one GET, the mode report, is in API_ALLOW_LIST',
         'billing.credit_line.manage' => 'bus: credit lines',
         'incident.publish' => 'bus: publishing to the status page from the incidents view',
         'notification.mass.send' => 'dormant: no mass notice endpoint yet',

@@ -245,7 +245,7 @@ it('renews by invoice, reminds on the dunning schedule, suspends the unpaid host
     // the ledger booked — the order's receipt and the two renewal invoices, nothing twice
     $taxDocuments = Invoice::query()->where('organization_id', $org->id)->whereIn('type', CzkTaxStatement::TYPES)->get();
     expect($taxDocuments->where('type', 'receipt')->filter(fn (Invoice $r) => $r->issued_at->toDateString() === '2026-12-19'))->toHaveCount(0)
-        ->and($taxDocuments->countBy('type')->all())->toBe(['receipt' => 1, 'invoice' => 2])
+        ->and($taxDocuments->countBy('type')->sortKeys()->all())->toBe(['invoice' => 2, 'receipt' => 1]) // keys sorted: PostgreSQL returns unordered rows in any order
         ->and((int) $taxDocuments->sum('tax_minor'))->toBe(3 * 1869)->and($ledger->balance(LedgerService::vatAccount('CZK'), 'CZK')->minor)->toBe(3 * 1869);
 
     // ── the second invoice runs its own course: nothing of the first one's history is replayed on it ─────────────

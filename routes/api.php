@@ -51,6 +51,7 @@ use App\Http\Controllers\Api\V1\Staff\RegistrarController;
 use App\Http\Controllers\Api\V1\Staff\ReportController;
 use App\Http\Controllers\Api\V1\Staff\SupportController as StaffSupportController;
 use App\Http\Controllers\Api\V1\Staff\SupportSettingsController;
+use App\Http\Controllers\Api\V1\Staff\VatPayerModeController;
 use App\Http\Controllers\Api\V1\Staff\WithdrawalController as StaffWithdrawalController;
 use App\Http\Controllers\Api\V1\StatusController;
 use App\Http\Controllers\Api\V1\SupportController;
@@ -438,6 +439,8 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
         Route::post('customers/{organization}/limit-raises/free', [CustomerController::class, 'grantFreeLimitRaise']);
         // ── TASK-0031 ──
         Route::post('customers/{organization}/vat-status', [CustomerController::class, 'overrideVatStatus']); // a VAT status set by hand, step-up + four eyes
+        Route::get('tax/vat-payer-mode', [VatPayerModeController::class, 'show']); // G2: the seller's VAT mode in force
+        Route::post('tax/vat-payer-mode', [VatPayerModeController::class, 'update']); // G2: switched by finance, step-up + four eyes
         // ── end TASK-0031 ──
         Route::get('services', [CustomerController::class, 'services']);
         Route::get('domains', [CustomerController::class, 'domains']);

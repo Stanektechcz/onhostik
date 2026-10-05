@@ -76,7 +76,8 @@ final class TaxEngine
         $review = false;
         $vatReview = false; // TASK-0031 (D31.4): a VAT ID was given and the decision could not rely on it — finance looks at it
 
-        if (! data_get($r, 'supplier.vat_payer', true)) {
+        // the seller who is no VAT payer charges none (G2): the tax rules OR the legal entity (the mode switch, VatPayerMode) say so
+        if (! data_get($r, 'supplier.vat_payer', true) || ! VatPayerMode::legalEntityIsPayer()) {
             $decision = ['rate' => '0', 'category' => self::CAT_EXEMPT, 'note' => 'Supplier is not a VAT payer'];
         } elseif ($country === $supplierCountry) {
             $decision = ['rate' => (string) ($rates[$country] ?? 0), 'category' => self::CAT_STANDARD, 'note' => null];
