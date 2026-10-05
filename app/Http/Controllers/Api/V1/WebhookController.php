@@ -18,7 +18,8 @@ use Onhost\Platform\Errors\DomainError;
 /**
  * Customer webhooks (D4): endpoints, their deliveries, a test event and a delivery sent again. Every write is a
  * WebhookCommand on the bus; the keys are per minute without an `Idempotency-Key` (onceKey), so the same action can be
- * asked for again later — a suspended endpoint turned on twice in a day, a delivery sent again tomorrow.
+ * asked for again later — a suspended endpoint turned on twice in a day, a delivery sent again tomorrow. A test event is keyed
+ * per request (F12a): two pings inside the cooldown are two requests, and the second one hears the cooldown's 429.
  */
 final class WebhookController extends ApiController
 {
@@ -40,32 +41,32 @@ final class WebhookController extends ApiController
     {
         $data = $request->validate(['url' => ['required', 'string', 'url', 'starts_with:https://', 'max:500'], 'events' => ['nullable', 'array', 'max:50'], 'events.*' => ['string', 'max:80']]);
 
-        return $this->command($request, 'webhook.create', ['op' => 'create', 'url' => $data['url'], 'events' => array_values((array) ($data['events'] ?? []))], 201);
+        return $this->command($request, $this->onceKey($request, 'webhook.create'), ['op' => 'create', 'url' => $data['url'], 'events' => array_values((array) ($data['events'] ?? []))], 201);
     }
 
     public function destroy(Request $request, string $endpoint): JsonResponse
     {
-        return $this->command($request, 'webhook.disable', ['op' => 'disable', 'endpoint_id' => $endpoint]);
+        return $this->command($request, $this->onceKey($request, 'webhook.disable'), ['op' => 'disable', 'endpoint_id' => $endpoint]);
     }
 
     public function enable(Request $request, string $endpoint): JsonResponse
     {
-        return $this->command($request, 'webhook.enable', ['op' => 'enable', 'endpoint_id' => $endpoint]);
+        return $this->command($request, $this->onceKey($request, 'webhook.enable'), ['op' => 'enable', 'endpoint_id' => $endpoint]);
     }
 
     public function rotateSecret(Request $request, string $endpoint): JsonResponse
     {
-        return $this->command($request, 'webhook.rotate', ['op' => 'rotate_secret', 'endpoint_id' => $endpoint]);
+        return $this->command($request, $this->onceKey($request, 'webhook.rotate'), ['op' => 'rotate_secret', 'endpoint_id' => $endpoint]);
     }
 
     public function ping(Request $request, string $endpoint): JsonResponse
     {
-        return $this->command($request, 'webhook.ping', ['op' => 'ping', 'endpoint_id' => $endpoint], 202);
+        return $this->command($request, $this->eachRequestKey($request, 'webhook.ping'), ['op' => 'ping', 'endpoint_id' => $endpoint], 202);
     }
 
     public function redeliver(Request $request, string $endpoint, string $delivery): JsonResponse
     {
-        return $this->command($request, 'webhook.redeliver', ['op' => 'redeliver', 'endpoint_id' => $endpoint, 'delivery_id' => $delivery], 202);
+        return $this->command($request, $this->onceKey($request, 'webhook.redeliver'), ['op' => 'redeliver', 'endpoint_id' => $endpoint, 'delivery_id' => $delivery], 202);
     }
 
     public function deliveries(Request $request, string $endpoint): JsonResponse
@@ -81,10 +82,10 @@ final class WebhookController extends ApiController
     }
 
     /** @param array<string, mixed> $payload */
-    private function command(Request $request, string $key, array $payload, int $status = 200): JsonResponse
+    private function command(Request $request, string $idempotencyKey, array $payload, int $status = 200): JsonResponse
     {
         $organization = $this->api->organization($request);
-        $command = new WebhookCommand($organization->id, $this->onceKey($request, $key), $payload);
+        $command = new WebhookCommand($organization->id, $idempotencyKey, $payload);
         $this->api->assertTokenScope($request, $command->permission());
 
         return response()->json(['data' => $this->bus->dispatch($command, $this->api->context($request, $organization))], $status);

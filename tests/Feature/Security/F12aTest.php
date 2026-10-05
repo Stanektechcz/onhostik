@@ -3,11 +3,14 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
 use Onhost\Domain\Identity\Authorization\RoleCatalog;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Identity\StepUp\StepUpService;
+use Onhost\Domain\Notifications\Models\WebhookDelivery;
+use Onhost\Domain\Notifications\Models\WebhookEndpoint;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 
@@ -23,6 +26,9 @@ use Onhost\Domain\Organizations\Models\OrganizationMembership;
  * 3. `GET /v1/me` with a service account's token answers who that is — the account, its organization, its role and the token's
  *    scopes — instead of `person_required`: a pipeline checks its credential the way a person's token does. The endpoints that
  *    act for a person still refuse it.
+ * 4. A webhook ping without `Idempotency-Key` is a request of its own: two within the cooldown meet the cooldown (429). Keyed per
+ *    minute, the second one replayed the first 202 and the caller never learnt the limit. Create and rotate stay idempotent per
+ *    minute, and a repeated `Idempotency-Key` still replays a ping.
  */
 
 /** A service account of `$org` created by its owner in the portal; returns the plain token and the answer. @return array{0: string, 1: array<string, mixed>} */
@@ -120,4 +126,32 @@ it('still answers a person their own record on GET /v1/me', function () {
     [$owner, $org] = $this->customerWithOrganization(['email' => 'osoba@f12a.cz']);
     $me = $this->actingAs($owner, 'sanctum')->getJson('/v1/me', ['X-Organization' => $org->id])->assertOk()->json('data');
     expect($me['type'])->toBe('person')->and($me['user']['id'])->toBe($owner->id)->and($me['organization']['id'])->toBe($org->id);
+});
+it('answers a second ping without an Idempotency-Key inside the cooldown with 429, and keeps create, rotate and keyed pings idempotent', function () {
+    Http::preventStrayRequests();
+    Http::fake(['hooks.f12a.cz/*' => Http::response('', 204)]);
+    $this->freezeTime(); // create and rotate are keyed per minute without a header: no minute boundary inside the test
+    [$owner, $org] = $this->customerWithOrganization(['email' => 'hook@f12a.cz']);
+    $this->actingAs($owner, 'sanctum');
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
+
+    // create twice in the same minute without a key: one endpoint, the same answer
+    $first = $this->postJson('/v1/webhooks', ['url' => 'https://hooks.f12a.cz/in', 'events' => ['*']])->assertCreated()->json('data');
+    $again = $this->postJson('/v1/webhooks', ['url' => 'https://hooks.f12a.cz/in', 'events' => ['*']])->assertCreated()->json('data');
+    expect($again['id'])->toBe($first['id'])->and(WebhookEndpoint::query()->where('organization_id', $org->id)->count())->toBe(1);
+    // rotate twice in the same minute without a key: one rotation (the replay masks the secret it already showed once)
+    $rotated = $this->postJson("/v1/webhooks/{$first['id']}/rotate-secret")->assertOk()->json('data.secret');
+    $this->postJson("/v1/webhooks/{$first['id']}/rotate-secret")->assertOk();
+    expect(WebhookEndpoint::query()->findOrFail($first['id'])->secret)->toBe($rotated);
+
+    // two pings without a key: the second one meets the cooldown
+    $this->postJson("/v1/webhooks/{$first['id']}/ping")->assertStatus(202)->assertJsonPath('data.event', 'webhook.ping');
+    $this->postJson("/v1/webhooks/{$first['id']}/ping")->assertStatus(429)->assertJsonPath('error', 'webhook_ping_cooldown')->assertJsonStructure(['retry_after']);
+    expect(WebhookDelivery::query()->where('endpoint_id', $first['id'])->where('event', 'webhook.ping')->count())->toBe(1);
+
+    // a keyed ping retried with the same key is the same request: replayed, not a second test event and not a 429
+    $this->travel(120)->seconds();
+    $keyed = $this->postJson("/v1/webhooks/{$first['id']}/ping", [], ['Idempotency-Key' => 'f12a-ping-1'])->assertStatus(202)->json('data.id');
+    expect($this->postJson("/v1/webhooks/{$first['id']}/ping", [], ['Idempotency-Key' => 'f12a-ping-1'])->assertStatus(202)->json('data.id'))->toBe($keyed)
+        ->and(WebhookDelivery::query()->where('endpoint_id', $first['id'])->where('event', 'webhook.ping')->count())->toBe(2);
 });
