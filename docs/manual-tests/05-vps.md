@@ -300,6 +300,10 @@ malé instalační ISO (např. netinst, do limitu tarifu) a pro antivirus soubor
 | --- | --- |
 | Soubor s EICAR (antivirus ho najde) | 422 `upload_infected`, soubor smazán, bezpečnostní hlášení `files.infected`; v knihovně nic. |
 | clamd vypnutý nebo nedostupný | 503 `iso_scan_unavailable` s jasnou zprávou; soubor **není** uložen ani „na později“. |
+| clamd bez `AlertExceedsMax yes` (`php artisan onhost:isos:scanner-check` hlásí FAILED) | Každé nahrání 503 `iso_scanner_untrusted`. |
+| Tři nahrání jedné organizace najednou | Třetí 429 `iso_upload_in_progress`; probíhající nahrání se počítají do kvóty. |
+| Jiný soubor se stejným `Idempotency-Key` | 409 `idempotency_key_reused`. |
+| Nahrání nebo připojení u pozastaveného serveru | 409 `service_not_active`. |
 | Obraz větší než tarif (nebo než antivirus přečte celý) | 422 `iso_too_large` ještě před kontrolou. |
 | Soubor, který není ISO 9660 (např. `.exe` přejmenovaný na `.iso`) | 422 `iso_not_iso9660`. |
 | Plná kvóta organizace (počet nebo velikost) | 422 `iso_quota_exceeded`; stejný soubor podruhé kvótu nečerpá (vrátí se týž obraz). |

@@ -6,6 +6,7 @@ namespace Onhost\Domain\Services\CustomIso;
 
 use Onhost\Domain\Services\Models\CustomIso;
 use Onhost\Domain\Services\Models\Service;
+use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\RescueMode;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Providers\Contracts\ComputeProvider;
@@ -79,6 +80,14 @@ final class CustomIsoPolicy
     {
         if (! self::inPlan($service)) {
             throw new DomainError('custom_iso_not_in_plan', 'Vlastní ISO není v tarifu této služby; získáte ho změnou tarifu.', 403, ['reason' => self::REASON_PLAN, 'feature' => self::FEATURE]);
+        }
+    }
+
+    /** An upload or an attach on a server that does not run (suspended, being cancelled) is refused (review M6). */
+    public static function assertActive(Service $service): void
+    {
+        if (! in_array($service->state, [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED], true)) {
+            throw new DomainError('service_not_active', 'Služba teď neběží; vlastní ISO lze nahrát a připojit jen k běžícímu serveru.', 409, ['state' => $service->state]);
         }
     }
 

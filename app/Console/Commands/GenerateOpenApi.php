@@ -70,9 +70,9 @@ final class GenerateOpenApi extends Command
             ]],
         ],
         'POST /services/{service}/isos' => [
-            'description' => 'Uploads one installation image (multipart `file`) into the organization\'s library — only where this server\'s plan sells a custom ISO. The file must be an ISO 9660 image no larger than the plan allows; it is scanned by clamd before it is kept (an infected file is deleted and reported; without a scanner nothing is accepted), and it must fit the organization\'s quota. The same file again is the image it already is (201 with that image).',
+            'description' => 'Uploads one installation image (multipart `file`) into the organization\'s library — only where this server\'s plan sells a custom ISO. The file must be an ISO 9660 image no larger than the plan allows; it is scanned by clamd before it is kept (an infected file is deleted and reported; without a scanner nothing is accepted), and it must fit the organization\'s quota (kept images and uploads in flight together; at most `org_max_inflight` uploads of one organization at a time, 429). Rate-limited per person (`custom-iso-upload`). The same file again is the image it already is (201 with that image); another file under the same Idempotency-Key is 409.',
             'multipart' => ['required' => ['file'], 'properties' => ['file' => ['type' => 'string', 'format' => 'binary'], 'reason' => ['type' => 'string', 'maxLength' => 250]]],
-            'errors' => ['403' => ['custom_iso_not_in_plan'], '422' => ['iso_too_large', 'iso_not_iso9660', 'iso_quota_exceeded', 'upload_infected', 'iso_scan_incomplete', 'iso_upload_unknown'], '503' => ['iso_scan_unavailable', 'custom_iso_storage_unsafe']],
+            'errors' => ['403' => ['custom_iso_not_in_plan'], '409' => ['service_not_active', 'idempotency_key_reused'], '422' => ['iso_too_large', 'iso_too_large_for_scan', 'iso_not_iso9660', 'iso_quota_exceeded', 'upload_infected', 'iso_scan_incomplete', 'iso_upload_unknown'], '429' => ['iso_upload_in_progress'], '503' => ['iso_scan_unavailable', 'iso_scanner_untrusted', 'custom_iso_storage_unsafe']],
         ],
         'POST /cart/quote' => ['errors' => ['422' => ['domain_action_invalid']]],
         'POST /orders' => ['errors' => ['422' => ['domain_action_invalid']]],

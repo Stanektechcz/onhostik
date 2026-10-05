@@ -341,7 +341,7 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
     Route::post('services/{service}/actions', [ServiceController::class, 'action']);
     Route::post('services/{service}/game-files/upload', [ServiceController::class, 'uploadFile']); // binary files to a game server, scanned first (audit §5r-3/§5r-4)
     Route::get('services/{service}/isos', [CustomIsoController::class, 'index']);  // the organization's own installation images (TASK-0110: only where the VPS plan sells them)
-    Route::post('services/{service}/isos', [CustomIsoController::class, 'store']); // upload: plan, size, ISO 9660, virus scan, quota; attach/detach/delete are the service actions iso.*
+    Route::post('services/{service}/isos', [CustomIsoController::class, 'store'])->middleware('throttle:custom-iso-upload'); // upload: plan, size, ISO 9660, virus scan, quota; attach/detach/delete are the service actions iso.*
     foreach (['power', 'resize', 'backup', 'restore', 'snapshot', 'suspend', 'resume', 'terminate'] as $shorthand) {
         Route::post("services/{service}/{$shorthand}", [ServiceController::class, 'action'])->defaults('action', $shorthand);
     }

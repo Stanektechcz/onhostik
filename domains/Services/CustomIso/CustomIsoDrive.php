@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Services\CustomIso;
 
+use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Provisioning\Models\ProviderBinding;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\ProviderRegistry;
@@ -14,8 +15,11 @@ use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
+use Onhost\Platform\Errors\ProviderErrorCode;
+use Onhost\Platform\Errors\ProviderException;
 use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Outbox\OutboxPublisher;
+use Onhost\Providers\Contracts\AsyncStatus;
 use Onhost\Providers\Contracts\ComputeProvider;
 use Onhost\Providers\Contracts\CustomIsoCapable;
 use Onhost\Providers\Contracts\ProviderResult;
@@ -81,7 +85,27 @@ final class CustomIsoDrive
      */
     public function attach(Service $service, CustomIso $iso, bool $bootFirst, bool $reboot, CommandContext $actor): array
     {
+        return DB::transaction(fn () => $this->attachLocked($service, $iso, $bootFirst, $reboot, $actor));
+    }
+
+    /**
+     * Asked again when the step runs, not only when the request was queued (review M3, M6): the plan may have changed, the server
+     * stopped, and the image been attached elsewhere in between. The server and the image are locked while the drive changes, so two
+     * attaches cannot both take one image or both write the server's drive.
+     *
+     * @return array{iso_id:string, boot:string|null, rebooted:bool}
+     */
+    private function attachLocked(Service $service, CustomIso $iso, bool $bootFirst, bool $reboot, CommandContext $actor): array
+    {
+        $service = Service::query()->whereKey($service->id)->lockForUpdate()->first() ?? throw DomainError::notFound('service');
+        CustomIsoPolicy::assertInPlan($service);
+        CustomIsoPolicy::assertActive($service);
         CustomIsoPolicy::assertNoRescue($service);
+        $iso = CustomIso::query()->whereKey($iso->id)->where('state', CustomIso::READY)->lockForUpdate()->first()
+            ?? throw new DomainError('iso_gone', 'Toto ISO už v knihovně organizace není.', 409);
+        if ($iso->attached_service_id !== null && $iso->attached_service_id !== $service->id) {
+            throw new DomainError('iso_attached_elsewhere', 'Toto ISO je připojené k jinému serveru; nejdřív ho odpojte tam.', 409, ['service_id' => $iso->attached_service_id]);
+        }
         [$adapter, $ref] = $this->adapter($service);
         $current = CustomIsoPolicy::attachedTo($service);
         $previous = $current !== null && is_array($current->previous_boot) ? $current->previous_boot : $adapter->bootMedia($ref);
@@ -141,14 +165,17 @@ final class CustomIsoDrive
         if ($iso->attached_service_id !== null) {
             throw new DomainError('iso_attached_elsewhere', 'Toto ISO je připojené k serveru; nejdřív ho odpojte.', 409, ['service_id' => $iso->attached_service_id]);
         }
-        $copies = (array) ($iso->node_copies ?? []);
+        $copies = array_values(array_filter((array) ($iso->node_copies ?? []), fn ($c) => is_array($c)));
         foreach ($copies as $copy) {
             $instance = ProviderInstance::query()->find((string) ($copy['instance'] ?? ''));
             $adapter = $instance === null ? null : $this->providers->forInstance($instance);
-            if (! $adapter instanceof CustomIsoCapable) {
-                continue; // the instance is gone from the platform: there is nothing left to call
-            }
-            $adapter->deleteCustomIso((string) $copy['node'], (string) $copy['volume']);
+            if ($adapter instanceof CustomIsoCapable && $adapter instanceof ComputeProvider) {
+                // the hypervisor's task has to say it is gone before the copy leaves the record (review M2): a failed or unfinished
+                // delete fails the step with the copy still listed, so a retry deletes it — never a node copy nobody remembers
+                $this->settled($adapter, $adapter->deleteCustomIso((string) $copy['node'], (string) $copy['volume']));
+            } // else the instance is gone from the platform: there is nothing left to call
+            $left = array_values(array_filter((array) ($iso->node_copies ?? []), fn ($c) => $c !== $copy));
+            $iso->forceFill(['node_copies' => $left])->save();
         }
         $disk = $this->library->disk();
         if ($disk->exists($iso->path)) {
@@ -160,6 +187,28 @@ final class CustomIsoDrive
         $this->outbox->publish(GenericEvent::of('service.iso.deleted', $through === null ? 'custom_iso' : 'service', $through->id ?? $iso->id, ['iso_id' => $iso->id, 'name' => $iso->name], $organizationId));
 
         return ['iso_id' => $iso->id, 'copies' => count($copies)];
+    }
+
+    /** Waits for the hypervisor's task of a result (up to `onhost.custom_iso.delete_wait_seconds`); a failure or no answer in time throws. */
+    private function settled(ComputeProvider $adapter, ProviderResult $result): void
+    {
+        if (! $result->isAsync() || $result->async === null) {
+            return;
+        }
+        $deadline = microtime(true) + max(1, (int) config('onhost.custom_iso.delete_wait_seconds', 120));
+        while (true) {
+            $status = $adapter->awaitStatus($result->async);
+            if ($status->state === AsyncStatus::SUCCEEDED) {
+                return;
+            }
+            if ($status->state === AsyncStatus::FAILED || $status->state === AsyncStatus::UNKNOWN) {
+                throw new DomainError('iso_node_delete_failed', 'Hypervizor obraz nesmazal ('.mb_substr((string) $status->message, 0, 160).'); smazání se zopakuje.', 502, ['retryable' => true]);
+            }
+            if (microtime(true) >= $deadline) {
+                throw new ProviderException('proxmox', ProviderErrorCode::TRANSIENT, 'The hypervisor has not finished deleting the image yet');
+            }
+            usleep(max(200_000, min(5, $result->async->pollIntervalSeconds) * 1_000_000));
+        }
     }
 
     private function rememberCopy(CustomIso $iso, string $instanceId, string $node, string $volume): void

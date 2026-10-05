@@ -36,6 +36,7 @@ final class CustomIsoController extends ApiController
     public function store(Request $request, CustomIsoLibrary $library, string $service): JsonResponse
     {
         $model = $this->resolve($request, $service, 'service.manage'); // who may not keep an image here is told so before anything is read
+        $this->api->assertTokenScope($request, (new UploadCustomIsoCommand($model->organization_id, 'scope', []))->permission()); // a token too, before a byte is staged (review M5)
         $data = $request->validate(['file' => ['required', 'file'], 'reason' => ['nullable', 'string', 'max:250']]);
         /** @var UploadedFile $file */
         $file = $data['file'];

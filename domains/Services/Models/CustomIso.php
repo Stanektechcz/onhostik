@@ -33,6 +33,9 @@ use Onhost\Platform\Eloquent\Model;
  */
 final class CustomIso extends Model
 {
+    /** An upload in flight: its bytes are reserved against the organization's quota, it is not an image yet (review H1). */
+    public const STAGING = 'staging';
+
     public const READY = 'ready';
 
     public const DELETED = 'deleted';

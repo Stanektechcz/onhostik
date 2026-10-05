@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -15,6 +16,7 @@ use Onhost\Domain\Provisioning\Models\ProviderBinding;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Services\CustomIso\ClamdIsoScanner;
+use Onhost\Domain\Services\CustomIso\CustomIsoDrive;
 use Onhost\Domain\Services\CustomIso\CustomIsoPolicy;
 use Onhost\Domain\Services\CustomIso\IsoScanner;
 use Onhost\Domain\Services\Models\CustomIso;
@@ -23,6 +25,7 @@ use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\RescueMode;
 use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Platform\Audit\AuditEvent;
+use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Errors\ProviderException;
 use Onhost\Platform\Files\VirusScanner;
 use Onhost\Platform\Outbox\OutboxMessage;
@@ -48,20 +51,28 @@ beforeEach(function () {
 });
 
 /** A scanner double that answers what the test says, and counts what it was shown. */
-function ciScanner(string $result, ?string $signature = null): IsoScanner
+function ciScanner(string $result, ?string $signature = null, bool $trusted = true, ?Closure $during = null): IsoScanner
 {
-    return new class($result, $signature) implements IsoScanner
+    return new class($result, $signature, $trusted, $during) implements IsoScanner
     {
         /** @var list<int> */
         public array $seen = [];
 
-        public function __construct(private readonly string $result, private readonly ?string $signature) {}
+        public function __construct(private readonly string $result, private readonly ?string $signature, private readonly bool $trusted, private readonly ?Closure $during) {}
 
         public function scan($stream): array
         {
             $this->seen[] = strlen((string) stream_get_contents($stream));
+            if ($this->during !== null) {
+                ($this->during)(); // what happens while a scan runs (another upload, a crash)
+            }
 
             return ['result' => $this->result, 'signature' => $this->signature];
+        }
+
+        public function selfTest(): array
+        {
+            return ['ok' => $this->trusted, 'detail' => $this->trusted ? 'fake: trusted' : 'fake: AlertExceedsMax off'];
         }
     };
 }
@@ -444,4 +455,198 @@ it('keeps an image to the project of the server it came through: another project
     // the same bytes through the other project are an image of that project, not a door to the first one
     $copy = ciUpload($this, $theirs->fresh(), ciIsoBytes())->assertCreated()->json('data.id');
     expect($copy)->not->toBe($iso)->and(CustomIso::query()->findOrFail($iso)->state)->toBe(CustomIso::READY)->and($pve['unknown'])->toBe([]);
+});
+
+/*
+ * Security review of PR #105 (H1, H2, M1–M6, L1, L2): written before the fixes, each against the code it found wanting.
+ */
+
+/** An upload of the organization in flight, as another process left it. */
+function ciStaging(Service $service, int $bytes, string $sha = 'f'): CustomIso
+{
+    $row = new CustomIso;
+    $row->id = $row->newUniqueId();
+    $row->forceFill(['organization_id' => $service->organization_id, 'project_id' => $service->project_id, 'uploaded_via_service_id' => $service->id, 'name' => 'jiny.iso',
+        'path' => 'incoming/'.$row->id.'.part', 'size_bytes' => $bytes, 'sha256' => str_repeat($sha, 64), 'scan_result' => 'pending', 'state' => CustomIso::STAGING, 'node_copies' => []])->save();
+    Storage::disk('custom_isos')->put($row->path, 'partial');
+
+    return $row;
+}
+
+it('caps the uploads of an organization in flight and reserves their bytes against the quota before anything is copied (H1)', function () {
+    $pve = [];
+    ciCluster($pve);
+    [$owner, $org] = $this->customerWithOrganization();
+    $vps = ciVps($org, $pve);
+    $this->actingAs($owner, 'sanctum');
+    config(['onhost.custom_iso.org_max_inflight' => 1, 'onhost.custom_iso.org_quota_mb' => 4]);
+
+    $other = ciStaging($vps, 3 * 1048576);
+    ciUpload($this, $vps, ciIsoBytes())->assertStatus(429)->assertJsonPath('error', 'iso_upload_in_progress');
+    expect($this->isoScanner->seen)->toBe([])->and(Storage::disk('custom_isos')->files('incoming'))->toBe([$other->path]); // nothing copied
+
+    // the bytes reserved by an upload still running count: 3 MB in flight + 2 MB > 4 MB
+    config(['onhost.custom_iso.org_max_inflight' => 2]);
+    ciUpload($this, $vps, ciIsoBytes('a', 2 * 1048576))->assertStatus(422)->assertJsonPath('error', 'iso_quota_exceeded')->assertJsonPath('used_bytes', 3 * 1048576);
+    expect(CustomIso::query()->where('state', CustomIso::STAGING)->pluck('id')->all())->toBe([$other->id]);
+
+    // a reservation nobody finished is dead after staging_hours: the sweep removes it and its file, and the upload passes
+    $this->travel(7)->hours();
+    $this->artisan('onhost:isos:sweep')->assertSuccessful()->expectsOutputToContain('1 staging row(s)');
+    expect(CustomIso::query()->find($other->id))->toBeNull()->and(Storage::disk('custom_isos')->exists($other->path))->toBeFalse();
+    ciUpload($this, $vps, ciIsoBytes('a', 2 * 1048576))->assertCreated();
+});
+
+it('rate-limits uploads per person on their own budget (H1)', function () {
+    $pve = [];
+    ciCluster($pve);
+    [$owner, $org] = $this->customerWithOrganization();
+    $vps = ciVps($org, $pve);
+    $this->actingAs($owner, 'sanctum');
+    config(['onhost.custom_iso.uploads_per_hour' => 2]);
+
+    ciUpload($this, $vps, 'not an image', 'a.iso')->assertStatus(422);
+    ciUpload($this, $vps, 'not an image', 'b.iso')->assertStatus(422);
+    ciUpload($this, $vps, ciIsoBytes(), 'c.iso')->assertStatus(429);
+    expect($this->isoScanner->seen)->toBe([])->and(CustomIso::query()->count())->toBe(0);
+    $this->getJson("/v1/services/{$vps->id}/isos")->assertOk(); // reading the library has no such budget
+});
+
+it('leaves nothing staged when anything breaks after the reservation, and the sweep takes stray files (H2)', function () {
+    $pve = [];
+    ciCluster($pve);
+    [$owner, $org] = $this->customerWithOrganization();
+    $vps = ciVps($org, $pve);
+    $this->actingAs($owner, 'sanctum');
+    app()->instance(IsoScanner::class, ciScanner(IsoScanner::CLEAN, null, true, fn () => throw new RuntimeException('clamd crashed mid-stream')));
+
+    $this->withoutExceptionHandling();
+    expect(fn () => ciUpload($this, $vps, ciIsoBytes()))->toThrow(RuntimeException::class, 'clamd crashed');
+    expect(CustomIso::query()->count())->toBe(0)->and(Storage::disk('custom_isos')->allFiles())->toBe([]);
+
+    // a file a killed process left in incoming/ with no reservation: gone once it is older than staging_hours, not before
+    Storage::disk('custom_isos')->put('incoming/iso_01jzzzzzzzzzzzzzzzzzzzzzzz.part', 'orphan');
+    $this->artisan('onhost:isos:sweep')->assertSuccessful();
+    expect(Storage::disk('custom_isos')->exists('incoming/iso_01jzzzzzzzzzzzzzzzzzzzzzzz.part'))->toBeTrue();
+    $this->travel(7)->hours();
+    $this->artisan('onhost:isos:sweep')->assertSuccessful()->expectsOutputToContain('1 stray file(s)');
+    expect(Storage::disk('custom_isos')->allFiles())->toBe([]);
+});
+
+it('takes no upload while the scanner fails its self-test, and tells a file too large to scan from an outage (M1, L1, L2)', function () {
+    $pve = [];
+    ciCluster($pve);
+    [$owner, $org] = $this->customerWithOrganization();
+    $vps = ciVps($org, $pve);
+    $this->actingAs($owner, 'sanctum');
+
+    app()->instance(IsoScanner::class, $untrusted = ciScanner(IsoScanner::CLEAN, null, false));
+    ciUpload($this, $vps, ciIsoBytes())->assertStatus(503)->assertJsonPath('error', 'iso_scanner_untrusted');
+    expect($untrusted->seen)->toBe([])->and(CustomIso::query()->count())->toBe(0);
+    $this->artisan('onhost:isos:scanner-check')->assertFailed();
+
+    app()->instance(IsoScanner::class, ciScanner(IsoScanner::TOO_LARGE));
+    ciUpload($this, $vps, ciIsoBytes())->assertStatus(422)->assertJsonPath('error', 'iso_too_large_for_scan');
+    expect(CustomIso::query()->count())->toBe(0)->and(Storage::disk('custom_isos')->allFiles())->toBe([]);
+
+    // the real scanner reads clamd's words: a limit is not "OK", a stream too long is the file's fault, a dead socket an outage
+    expect(ClamdIsoScanner::verdict('stream: OK'))->toBe(['result' => IsoScanner::CLEAN, 'signature' => null])
+        ->and(ClamdIsoScanner::verdict("stream: Win.Test.EICAR_HDB-1 FOUND\0")['result'])->toBe(IsoScanner::INFECTED)
+        ->and(ClamdIsoScanner::verdict('stream: Heuristics.Limits.Exceeded.MaxFileSize FOUND')['result'])->toBe(IsoScanner::INCOMPLETE)
+        ->and(ClamdIsoScanner::verdict('INSTREAM size limit exceeded. ERROR')['result'])->toBe(IsoScanner::TOO_LARGE)
+        ->and(ClamdIsoScanner::verdict('')['result'])->toBe(IsoScanner::UNAVAILABLE);
+    // the self-test: EICAR must be found and the nested file reported as a limit; clamd passing it (AlertExceedsMax off) fails
+    $clamd = fn (string $limits) => new ClamdIsoScanner(app(VirusScanner::class), function (string $command, $stream) use ($limits) {
+        expect($command)->toBe('zINSTREAM');
+
+        return str_contains((string) stream_get_contents($stream), 'EICAR-STANDARD-ANTIVIRUS-TEST-FILE') ? 'stream: Win.Test.EICAR_HDB-1 FOUND' : $limits;
+    });
+    $timeout = config('onhost.storage.clamav.timeout_seconds');
+    Cache::flush();
+    expect($clamd('stream: OK')->selfTest()['ok'])->toBeFalse();
+    Cache::flush();
+    expect($clamd('stream: Heuristics.Limits.Exceeded.MaxRecursion FOUND')->selfTest())->toMatchArray(['ok' => true])
+        ->and(config('onhost.storage.clamav.timeout_seconds'))->toBe($timeout); // the shared configuration is never changed (L2)
+});
+
+it('keeps a node copy on the record until the hypervisor confirms its deletion (M2)', function () {
+    $pve = [];
+    ciCluster($pve);
+    [$owner, $org] = $this->customerWithOrganization();
+    $vps = ciVps($org, $pve);
+    $this->actingAs($owner, 'sanctum');
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
+    $iso = ciUpload($this, $vps, ciIsoBytes())->assertCreated()->json('data.id');
+    expect(ciRun(ciAction($this, $vps, 'iso.attach', ['iso_id' => $iso]))->state)->toBe(Operation::SUCCEEDED);
+    expect(ciRun(ciAction($this, $vps, 'iso.detach'))->state)->toBe(Operation::SUCCEEDED);
+
+    $pve['iso_task_exit'] = ['imgdel' => 'ERROR: storage busy'];
+    $failed = ciRun(ciAction($this, $vps, 'iso.delete', ['iso_id' => $iso]));
+    expect($failed->state)->toBe(Operation::FAILED)
+        ->and(CustomIso::query()->findOrFail($iso)->state)->toBe(CustomIso::READY)
+        ->and(CustomIso::query()->findOrFail($iso)->node_copies)->toHaveCount(1)
+        ->and(Storage::disk('custom_isos')->exists("{$org->id}/{$iso}.iso"))->toBeTrue();
+
+    $pve['iso_task_exit'] = [];
+    expect(ciRun(ciAction($this, $vps, 'iso.delete', ['iso_id' => $iso]))->state)->toBe(Operation::SUCCEEDED);
+    expect(CustomIso::query()->findOrFail($iso)->state)->toBe(CustomIso::DELETED)->and(CustomIso::query()->findOrFail($iso)->node_copies)->toBe([]);
+});
+
+it('asks again when the attach runs: the image may be elsewhere, the plan gone, the server stopped (M3, M6)', function () {
+    $pve = [];
+    ciCluster($pve);
+    [$owner, $org] = $this->customerWithOrganization();
+    $vps = ciVps($org, $pve);
+    $other = ciVps($org, $pve, ['custom_iso' => true, 'custom_iso_max_mb' => 2], 1053);
+    $this->actingAs($owner, 'sanctum');
+    $iso = CustomIso::query()->findOrFail(ciUpload($this, $vps, ciIsoBytes())->assertCreated()->json('data.id'));
+    $drive = app(CustomIsoDrive::class);
+    $ctx = $this->contextFor($owner, $org);
+    $error = function (Closure $call): ?string {
+        try {
+            $call();
+        } catch (DomainError $e) {
+            return $e->error;
+        }
+
+        return null;
+    };
+
+    // between the request and the step another server took the image
+    CustomIso::query()->whereKey($iso->id)->update(['attached_service_id' => $other->id]);
+    expect($error(fn () => $drive->attach($vps, $iso->fresh(), true, false, $ctx)))->toBe('iso_attached_elsewhere');
+    CustomIso::query()->whereKey($iso->id)->update(['attached_service_id' => null]);
+    // the plan changed to one without it
+    $vps->forceFill(['entitlements' => ['vcpu' => 4]])->save();
+    expect($error(fn () => $drive->attach($vps->fresh(), $iso->fresh(), true, false, $ctx)))->toBe('custom_iso_not_in_plan');
+    $vps->forceFill(['entitlements' => ['custom_iso' => true, 'custom_iso_max_mb' => 2], 'state' => ServiceStateMachine::SUSPENDED])->save();
+    expect($error(fn () => $drive->attach($vps->fresh(), $iso->fresh(), true, false, $ctx)))->toBe('service_not_active');
+    // and an upload to a stopped server is refused before anything is read
+    ciUpload($this, $vps->fresh(), ciIsoBytes('s'))->assertStatus(409)->assertJsonPath('error', 'service_not_active');
+    expect($pve['guests'][1050]['config'])->not->toHaveKey('ide2')->and($pve['guests'][1053]['config'])->not->toHaveKey('ide2');
+});
+
+it('treats another file under the same Idempotency-Key as a conflict, not as the first upload replayed (M4)', function () {
+    $pve = [];
+    ciCluster($pve);
+    [$owner, $org] = $this->customerWithOrganization();
+    $vps = ciVps($org, $pve);
+    $this->actingAs($owner, 'sanctum');
+
+    $first = ciUpload($this, $vps, ciIsoBytes('a'), 'a.iso', 'one-key')->assertCreated()->json('data.id');
+    ciUpload($this, $vps, ciIsoBytes('b'), 'a.iso', 'one-key')->assertStatus(409)->assertJsonPath('error', 'idempotency_key_reused');
+    expect(ciUpload($this, $vps, ciIsoBytes('a'), 'a.iso', 'one-key')->assertCreated()->json('data.id'))->toBe($first)
+        ->and(CustomIso::query()->where('state', CustomIso::READY)->count())->toBe(1);
+});
+
+it('asks an API token for its scope before a byte of the upload is staged (M5)', function () {
+    $pve = [];
+    ciCluster($pve);
+    [$owner, $org] = $this->customerWithOrganization();
+    $vps = ciVps($org, $pve);
+    $token = $owner->createToken('read only', ['services:read', 'org:'.$org->id], now()->addDay())->plainTextToken;
+
+    $this->withToken($token)->withHeaders(['Idempotency-Key' => 'tok-upload', 'X-Organization' => $org->id, 'Accept' => 'application/json'])
+        ->post("/v1/services/{$vps->id}/isos", ['file' => UploadedFile::fake()->createWithContent('a.iso', ciIsoBytes())])->assertForbidden();
+    expect($this->isoScanner->seen)->toBe([])->and(CustomIso::query()->count())->toBe(0)->and(Storage::disk('custom_isos')->allFiles())->toBe([]);
 });

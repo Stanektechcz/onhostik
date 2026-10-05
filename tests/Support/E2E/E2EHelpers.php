@@ -890,7 +890,8 @@ function e2eIspFileSeamsOff(): void
  *                                            a delete takes it away, a listing shows what is there. Register it BEFORE
  *                                            e2ePveCluster: the first fake that answers wins; any other path is the cluster's.
  *
- * State keys: `custom_isos` (volume id => [size, sha256]), `uploads` (file names in order), `writes` (shared with the cluster).
+ * State keys: `custom_isos` (volume id => [size, sha256]), `uploads` (file names in order), `writes` (shared with the cluster),
+ * `iso_task_exit` (task type `imgcopy`/`imgdel` => the exit status its task reports; OK when not named).
  */
 function e2ePveIsoStorage(array &$pve, string $storage = 'isostore'): void
 {
@@ -901,6 +902,9 @@ function e2ePveIsoStorage(array &$pve, string $storage = 'isostore'): void
             return null;
         }
         $path = substr(rawurldecode((string) parse_url($request->url(), PHP_URL_PATH)), strlen('/api2/json'));
+        if (preg_match('~^/nodes/prg1-n2/tasks/(UPID:[^/]*:(imgcopy|imgdel):[^/]*)/status$~', $path, $task) === 1) { // this storage's own tasks
+            return Http::response(['data' => ['status' => 'stopped', 'exitstatus' => (string) ($pve['iso_task_exit'][$task[2]] ?? 'OK')]]);
+        }
         $prefix = "/nodes/prg1-n2/storage/{$storage}/";
         if (! str_starts_with($path, $prefix)) {
             return null; // the rest of the cluster answers

@@ -88,6 +88,10 @@ return [
         'org_max_images' => (int) env('ONHOST_CUSTOM_ISO_ORG_MAX_IMAGES', 5),
         'upload_timeout_seconds' => (int) env('ONHOST_CUSTOM_ISO_UPLOAD_TIMEOUT', 3600), // one image to the hypervisor's ISO storage
         'scan_timeout_seconds' => (int) env('ONHOST_CUSTOM_ISO_SCAN_TIMEOUT', 900),
+        'org_max_inflight' => (int) env('ONHOST_CUSTOM_ISO_ORG_MAX_INFLIGHT', 2),   // uploads of one organization at the same time (review H1)
+        'uploads_per_hour' => (int) env('ONHOST_CUSTOM_ISO_UPLOADS_PER_HOUR', 10),  // POST …/isos per person (rate limiter custom-iso-upload)
+        'staging_hours' => (int) env('ONHOST_CUSTOM_ISO_STAGING_HOURS', 6),         // a staged upload older than this is dead: onhost:isos:sweep removes it
+        'delete_wait_seconds' => (int) env('ONHOST_CUSTOM_ISO_DELETE_WAIT', 120),   // how long a delete waits for the hypervisor's task before the step fails (review M2)
     ],
 
     'backups' => [

@@ -32,9 +32,9 @@ return new class extends Migration
             $table->string('path', 200);                               // on the custom_isos disk: <organization>/<id>.iso
             $table->unsignedBigInteger('size_bytes');
             $table->string('sha256', 64);
-            $table->string('scan_result', 20);                         // clean — nothing else is ever kept
+            $table->string('scan_result', 20);                         // pending while staging; clean — nothing else is ever kept
             $table->timestamp('scanned_at')->nullable();
-            $table->string('state', 20)->default('ready');             // ready | deleted
+            $table->string('state', 20)->default('ready');             // staging (an upload in flight, its bytes reserved) | ready | deleted
             $table->string('attached_service_id', 40)->nullable();
             $table->timestamp('attached_at')->nullable();
             $table->json('previous_boot')->nullable();                 // {iso, boot} as found before the attach
