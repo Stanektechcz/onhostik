@@ -408,7 +408,7 @@ Opravy proti starším tabulkám:
 | P1-6 | hotovo | #60, #64 | – |
 | P1-7 | hotovo | #59 | – |
 | P1-8 | hotovo | #60 | – |
-| P1-9 | hotovo | #67 | V CI běží `onhost:openapi --check` a `OpenApiContractTest`. Spectral je v CI od G9 (#PR TASK-0116). |
+| P1-9 | hotovo | #67 | V CI běží `onhost:openapi --check` a `OpenApiContractTest`. Spectral je v CI od G9 (#109, TASK-0116). |
 | P1-10 | hotovo | #66 | – |
 | P1-11 | hotovo | #71 | Zbývá úklid tvrzení prototypu `onhost-svc-*.js`. |
 | P1-12 | hotovo | #70 | Zbývá vyhrazená fronta webhooků a překryv při rotaci tajného klíče (inženýrství). |
