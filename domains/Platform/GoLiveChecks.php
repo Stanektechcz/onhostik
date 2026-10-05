@@ -96,13 +96,13 @@ final class GoLiveChecks
         $newest = ExchangeRate::query()->max('valid_on');
         $maxAge = (int) config('onhost.billing.fx.max_age_days', 7);
         if ($newest === null) {
-            return $this->row('tax', 'exchange rates are fresh', false, 'no list stored: documents in a foreign currency wait for the bank', 'php artisan onhost:fx:sync (the scheduler runs it on weekdays at 14:40 and daily at 06:10: check the scheduler unit too)');
+            return $this->row('billing', 'exchange rates are fresh', false, 'no list stored: documents in a foreign currency wait for the bank', 'php artisan onhost:fx:sync (the scheduler runs it on weekdays at 14:40 and daily at 06:10: check the scheduler unit too)');
         }
         $valid = Carbon::parse((string) $newest)->startOfDay();
         $age = (int) $valid->diffInDays(now()->startOfDay(), false);
         $ok = $age <= $maxAge;
 
-        return $this->row('tax', 'exchange rates are fresh', $ok, 'list of '.$valid->toDateString()." ({$age} day(s) old, limit {$maxAge})",
+        return $this->row('billing', 'exchange rates are fresh', $ok, 'list of '.$valid->toDateString()." ({$age} day(s) old, limit {$maxAge})",
             'php artisan onhost:fx:sync; if it fails the bank is unreachable from this host or the scheduler is not running (systemctl status onhost-scheduler)');
     }
 
