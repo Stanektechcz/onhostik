@@ -161,6 +161,32 @@ final class Doctor extends Command
             : count($drift).' differ ('.implode(', ', array_slice($drift, 0, 6)).(count($drift) > 6 ? ', …' : '').') — php artisan db:seed --class=AuthorizationSeeder --force');
     }
 
+    /**
+     * Services whose most recent cancellation (`terminate`) failed and that are still not cancelled — no removal scheduled,
+     * not being removed. No time window (security review): a service that still serves months after its cancellation
+     * failed is exactly the one nobody remembers. A later cancellation that went through, or one still running, takes the
+     * service off the list. @return list<string> service ids
+     */
+    private static function unfinishedCancellations(): array
+    {
+        $candidates = Operation::query()->where('kind', 'service.action')->where('desired->action', 'terminate')->where('state', Operation::FAILED)
+            ->whereNotNull('service_id')
+            ->whereIn('service_id', Service::query()->whereNull('terminate_at')->whereNotIn('state', [ServiceStateMachine::TERMINATED, ServiceStateMachine::TERMINATING])->select('id'))
+            ->distinct()->limit(500)->pluck('service_id');
+        $out = [];
+        foreach ($candidates as $serviceId) {
+            $latest = Operation::query()->where('kind', 'service.action')->where('desired->action', 'terminate')->where('service_id', $serviceId)->orderByDesc('id')->value('state');
+            $service = Service::query()->find($serviceId);
+            if ($latest !== Operation::FAILED || $service === null || $service->terminate_at !== null
+                || in_array($service->state, [ServiceStateMachine::TERMINATED, ServiceStateMachine::TERMINATING], true)) {
+                continue;
+            }
+            $out[] = (string) $serviceId;
+        }
+
+        return $out;
+    }
+
     private function deletionLifecycle(): void
     {
         // a key revocation no panel has confirmed for an hour is a key that may still open a session (H185); not blocking, but never silent
@@ -168,6 +194,12 @@ final class Doctor extends Command
         $this->add('access', 'SSH key revocations confirmed by the panels', $openKeys === 0, $openKeys === 0 ? 'none open for longer than an hour' : "{$openKeys} open for longer than an hour — GET /v1/staff/provisioning/ssh-key-revocations", false);
         $strandedServices = ServiceService::stranded()->count(); // nothing is accepted in a transient state: a stranded service is unusable until released
         $this->add('lifecycle', 'no service stranded in a transient state', $strandedServices === 0, $strandedServices === 0 ? 'none' : "{$strandedServices} in SUSPENDING/RESUMING/RESIZING with no open operation — php artisan onhost:services:release-stranded", false);
+        // TASK-0099: a cancellation that failed (most often at its final archive) leaves the service as the panel has it — still
+        // serving, or suspended as before — and nothing else in the platform remembers that it was meant to end
+        $unfinished = self::unfinishedCancellations();
+        $this->add('lifecycle', 'no cancellation left unfinished', $unfinished === [], $unfinished === [] ? 'none'
+            : count($unfinished).' service(s) whose last cancellation failed and that run (or stay suspended) as before: '.implode(', ', array_slice($unfinished, 0, 5)).(count($unfinished) > 5 ? ', …' : ''), false,
+            'php artisan onhost:services:archive <service> shows why the final archive failed; fix the path to the panel, then ask for the cancellation again (staff console → the service → cancel; dunning repeats its own every day)');
         $policy = app(DeletionPolicy::class)->all();
         $this->add('lifecycle', 'restore window and retention set', $policy['grace_days'] >= 1 && $policy['retention_days'] >= 30,
             $policy['grace_days'].' days to restore · archive kept '.$policy['retention_days'].' days · '.$policy['identity_checks'].' identity points · download '.number_format($policy['download_fee_minor']['CZK'] / 100, 0, ',', ' ').' Kč', false);
