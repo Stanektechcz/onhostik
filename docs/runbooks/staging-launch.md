@@ -802,9 +802,13 @@ site is in the maintenance S3 set, which the deployer leaves in place); the Path
 lanes and runs the same command a second time.
 
 ```bash
-REF=<STAGING_SHA> EXPECTED_SHA=<STAGING_SHA> DEPLOY_OPERATOR=<name> PHP_FPM_RELOAD='<reload command from S0>' \
+PHP="$P" REF=<STAGING_SHA> EXPECTED_SHA=<STAGING_SHA> DEPLOY_OPERATOR=<name> PHP_FPM_RELOAD='<reload command from S0>' \
   /usr/local/sbin/onhost-deploy; echo rc=$?
 ```
+
+`PHP=` is the site's PHP. Without it the deployer uses its default, `/www/server/php/83/bin/php`, which is the wrong PHP
+on a staging that runs 8.5 (set `P=/www/server/php/85/bin/php` in the constants above; `infra/aapanel/staging.sh deploy`
+passes it itself, see `staging-aapanel.md`).
 
 Verify:
 

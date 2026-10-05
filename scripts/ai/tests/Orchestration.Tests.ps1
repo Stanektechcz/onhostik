@@ -171,6 +171,33 @@ if ($nativeAst) {
     }
 }
 
+# Owned paths given as one comma/space-joined string (what `brain.ps1 task start -Paths a,b,c` stores when the list
+# is stringified on its way through brain.ps1) hid overlaps: two tasks both locked bootstrap/app.php. Every entry
+# point now normalises, and the overlap check judges old joined locks path by path.
+. (Join-Path $root 'scripts\ai\common.ps1')
+Assert-True ($task -match '\$Paths = @\(ConvertTo-OnhostPathList \$Paths\)') 'task.ps1 normalises -Paths through ConvertTo-OnhostPathList'
+$joined = @(ConvertTo-OnhostPathList 'a/x, b/y;c/z  d/w')
+Assert-True (($joined -join '|') -eq 'a/x|b/y|c/z|d/w') 'a joined string splits on commas, semicolons and whitespace'
+Assert-True ((@(ConvertTo-OnhostPathList @('a', 'b,c', ' a ', '', $null, "d`ne")) -join '|') -eq 'a|b|c|d|e') 'an array is flattened, trimmed, deduped and stripped of empties'
+Assert-True ((@(ConvertTo-OnhostPathList 'single/path')).Count -eq 1 -and @(ConvertTo-OnhostPathList $null).Count -eq 0) 'a single path stays one entry and null gives an empty list'
+$overlapAst = $taskAst.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Find-Overlaps' }, $true)
+$scopeAst = $taskAst.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'ConvertTo-ScopePath' }, $true)
+Assert-True ($null -ne $overlapAst -and $null -ne $scopeAst) 'task.ps1 defines Find-Overlaps and ConvertTo-ScopePath'
+if ($overlapAst -and $scopeAst) {
+    . ([scriptblock]::Create($scopeAst.Extent.Text))
+    . ([scriptblock]::Create($overlapAst.Extent.Text))
+    $script:fakeLocks = @()
+    function Get-Locks { return $script:fakeLocks }
+    # Lock written by the old tool: three paths in ONE string.
+    $script:fakeLocks = @([pscustomobject]@{ id = 'TASK-9001'; owner = 'a'; paths = @('bootstrap/app.php routes/web.php app/Http') })
+    Assert-True (@(Find-Overlaps @('bootstrap/app.php') '').Count -ge 1) 'an old joined lock still blocks a task that wants one of its paths'
+    # Fresh lock stored per path, wanted as a comma list in one string.
+    $script:fakeLocks = @([pscustomobject]@{ id = 'TASK-9002'; owner = 'b'; paths = @('bootstrap/app.php', 'config') })
+    Assert-True (@(Find-Overlaps @('docs/x,bootstrap/app.php') '').Count -eq 1) 'a comma list in one string overlapping one held path is refused'
+    Assert-True (@(Find-Overlaps @('docs/x docs/y') '').Count -eq 0) 'a joined list with no shared path does not overlap'
+    Assert-True (@(Find-Overlaps @('config/app.php;docs') '').Count -eq 1) 'a nested path in a semicolon list overlaps the held directory'
+}
+
 # CLAUDE.md points new sessions at the recovery path
 $claude = Read-Text 'CLAUDE.md'
 Assert-True ($claude -match '\.ai/PROJECT_STATE\.md' -and $claude -match 'task board') 'CLAUDE.md contains the session start protocol'
