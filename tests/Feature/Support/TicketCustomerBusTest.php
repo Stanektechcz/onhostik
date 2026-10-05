@@ -72,3 +72,14 @@ it('refuses through the bus what the person may not write, and a guest of the or
     $this->withHeader('X-Organization', $org->id)->postJson('/v1/tickets', ['subject' => 'Cizí', 'body' => 'Nesmím.'])->assertForbidden();
     expect(Ticket::query()->count())->toBe(0)->and(AuditEvent::query()->where('action', 'ticket.create')->count())->toBe(0);
 });
+
+it('answers 404 for a ticket about a service that does not exist, as for somebody else\'s, instead of dropping the reference', function () {
+    [$user, $org] = $this->customerWithOrganization();
+    [, $otherOrg] = $this->customerWithOrganization();
+    $foreign = featureWebService($otherOrg, 'aapanel');
+    $this->actingAs($user, 'sanctum');
+
+    $this->postJson('/v1/tickets', ['subject' => 'Web', 'body' => 'Nejde.', 'service_id' => 'srv_01jzzzzzzzzzzzzzzzzzzzzzzz'])->assertNotFound()->assertJsonPath('error', 'not_found');
+    $this->postJson('/v1/tickets', ['subject' => 'Web', 'body' => 'Nejde.', 'service_id' => $foreign->id])->assertNotFound()->assertJsonPath('error', 'not_found');
+    expect(Ticket::query()->where('organization_id', $org->id)->count())->toBe(0);
+});

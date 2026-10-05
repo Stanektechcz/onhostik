@@ -23,6 +23,7 @@ use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Organizations\Models\Project;
 use Onhost\Domain\Services\Models\Backup;
+use Onhost\Domain\Services\Models\Service;
 use Onhost\Platform\Commands\CommandContext;
 
 /*
@@ -170,4 +171,23 @@ it('answers 404 to another organization\'s service account token and lets staff 
 
     $staff = $this->staff('platform_owner');
     expect(eoStatus($this, $staff, 'GET', "/v1/services/{$ids['service']}"))->not->toBe(404);
+});
+
+it('keeps the 403 for a guest who holds a share on one service and asks for its sibling: a party of the organization', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $shared = featureWebService($org, 'aapanel');
+    $sibling = Service::query()->create(array_merge($shared->only(['product_key', 'family', 'name', 'region_code', 'provider_instance_id', 'node_id', 'desired_spec', 'entitlements', 'sla_class']), ['organization_id' => $org->id, 'hostname' => 'sibling-a.cz', 'state' => $shared->state]));
+    $guest = User::query()->create(['email' => 'eo-share@oracle.test', 'name' => 'Agentura', 'password' => 'Correct-Horse-Battery-9', 'state' => 'active']);
+    OrganizationMembership::query()->create(['organization_id' => $org->id, 'user_id' => $guest->id, 'state' => 'active', 'role_key' => 'guest', 'joined_at' => now()]);
+    PolicyBinding::query()->create(['principal_type' => 'user', 'principal_id' => $guest->id, 'role_key' => 'guest', 'scope_type' => 'organization', 'scope_id' => $org->id, 'organization_id' => $org->id]);
+    PolicyBinding::query()->create(['principal_type' => 'user', 'principal_id' => $guest->id, 'role_key' => 'svc_view', 'scope_type' => 'resource', 'scope_id' => $shared->id, 'organization_id' => $org->id]);
+
+    expect(eoStatus($this, $guest, 'GET', "/v1/services/{$shared->id}"))->toBe(200)
+        // by design (TASK-0098): somebody with a binding in the organization is a party of it — told what they lack, not "not found"
+        ->and(eoStatus($this, $guest, 'GET', "/v1/services/{$sibling->id}"))->toBe(403)
+        ->and(eoStatus($this, $owner, 'GET', "/v1/services/{$sibling->id}"))->toBe(200);
+    // the share alone, without the guest membership row (a binding written by the share flow), is still a party
+    OrganizationMembership::query()->where('user_id', $guest->id)->delete();
+    PolicyBinding::query()->where('principal_id', $guest->id)->where('scope_type', 'organization')->delete();
+    expect(eoStatus($this, $guest, 'GET', "/v1/services/{$sibling->id}"))->toBe(403);
 });

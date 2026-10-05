@@ -159,7 +159,7 @@ final class IncidentController extends ApiController
 
         // one request, one key (TASK-0098): the answer is the probe's new token, handed out once. Keyed by the second, a repeat within it
         // was replayed from the store with the token masked — a token the operator never saw, while the probe kept the first one
-        return $this->dispatch(new IncidentCommand("probe.register:{$data['key']}:".Str::lower((string) Str::ulid()), ['op' => 'probe.register'] + $data), $this->api->context($request), 201);
+        return $this->dispatch(new IncidentCommand($this->requestKey($request, "probe.register:{$data['key']}"), ['op' => 'probe.register'] + $data), $this->api->context($request), 201);
     }
 
     public function slo(Request $request, SlaService $sla): JsonResponse
@@ -186,7 +186,7 @@ final class IncidentController extends ApiController
 
     public function creditCandidates(Request $request, string $incident): JsonResponse
     {
-        return $this->dispatch(new IncidentCommand("credit.candidates:{$incident}:".now()->timestamp, ['op' => 'credit.candidates', 'incident_id' => $incident]), $this->api->context($request));
+        return $this->dispatch(new IncidentCommand($this->requestKey($request, "credit.candidates:{$incident}"), ['op' => 'credit.candidates', 'incident_id' => $incident]), $this->api->context($request));
     }
 
     public function approveCredit(Request $request, string $credit): JsonResponse
@@ -214,5 +214,17 @@ final class IncidentController extends ApiController
         }
 
         return $incident;
+    }
+
+    /**
+     * TASK-0098: the key of one staff request — the caller's `Idempotency-Key` when given (its retry is the same command, replayed),
+     * otherwise one of its own. Keyed by the second, a deliberate repeat within it was answered from the replay store: a stale
+     * answer (freeze, thaw, freeze, thaw left the platform frozen while saying `frozen: false`), a masked token, or a 409.
+     */
+    private function requestKey(Request $request, string $prefix): string
+    {
+        $header = $request->headers->get('Idempotency-Key');
+
+        return is_string($header) && $header !== '' ? $this->idempotencyKey($request, $prefix) : $prefix.':'.Str::lower((string) Str::ulid());
     }
 }

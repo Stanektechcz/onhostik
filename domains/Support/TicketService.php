@@ -56,7 +56,13 @@ final class TicketService
         if ($email === '') {
             throw new DomainError('ticket_email_required', 'Pro tiket potřebujeme kontaktní e-mail.', 422, ['field' => 'email']);
         }
-        $service = isset($input['service_id']) ? Service::query()->withTrashed()->find($input['service_id']) : null;
+        $named = isset($input['service_id']) && $input['service_id'] !== '';
+        $service = $named ? Service::query()->withTrashed()->find($input['service_id']) : null;
+        // TASK-0098 review M1: a service that does not exist is answered as one of another organization — the reference was dropped
+        // silently and the ticket opened about nothing, while a foreign id answered 404 (a difference that told the two apart)
+        if ($named && $service === null) {
+            throw DomainError::notFound('service');
+        }
         if ($service !== null && $organization !== null && $service->organization_id !== $organization->id) {
             throw DomainError::notFound('service');
         }
