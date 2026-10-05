@@ -105,9 +105,11 @@ it('asks a document with a credit note to be paid for what it has left, and retu
     expect($paid['paid']['minor'])->toBe(121000)->and($invoice->refresh()->state)->toBe(Invoice::PAID)->and($wallets->balances($org, 'CZK')['available']->minor)->toBe(500000 - 121000)
         ->and($ledger->balance(LedgerService::receivableAccount($org->id, 'CZK'), 'CZK')->minor)->toBe(0);
 
-    // the rest is credited after it was paid: the money returns to the credit — as credit that cannot be paid out beyond what was really paid in
+    // the rest is credited after it was paid: the money returns to the credit — as credit that cannot be paid out. The 1 210
+    // paid from the purchased credit was spent; what comes back is returned credit, so 3 790 of the 5 000 stays refundable
+    // (TASK-0099: refundableBalance used to count purchased top-ups minus refunds and offered all 5 000 as cash)
     $service->creditNote($invoice->refresh(), 'VPS nebylo možné dodat', $ctx);
     expect($invoice->refresh()->state)->toBe(Invoice::CREDITED)->and($wallets->balances($org, 'CZK')['available']->minor)->toBe(500000)
         ->and($ledger->balance(LedgerService::receivableAccount($org->id, 'CZK'), 'CZK')->minor)->toBe(0)->and($ledger->balance(LedgerService::vatAccount('CZK'), 'CZK')->minor)->toBe(0)
-        ->and($wallets->refundableBalance($org->id, 'CZK')->minor)->toBe(500000)->and($ledger->verifyInvariant()['balanced'])->toBeTrue();
+        ->and($wallets->refundableBalance($org->id, 'CZK')->minor)->toBe(500000 - 121000)->and($ledger->verifyInvariant()['balanced'])->toBeTrue();
 });

@@ -177,9 +177,18 @@ Tests: `tests/Feature/Finance/InvoiceTest.php`, `tests/Feature/Finance/AutoTopup
 period and a refunded marketplace order were booked as `DR asset:bank:chargeback|marketplace / CR wallet` — money arriving
 at a bank that does not exist — and as *purchased* credit: a service bought with bonus credit and then given back became
 cash that could be paid out. A return is now taken from what the correction takes back (revenue + VAT, or the receivable),
-the wallet row is `source=return`, `bucket=returned`, `refundable=false`, and `refundableBalance()` — purchased top-ups
-minus refunds — does not grow. The event stays `wallet.topup.completed` (`purpose: return`), so a past-due renewal waiting
-for money is retried.
+the wallet row is `source=return`, `bucket=returned`, `refundable=false`, and `refundableBalance()` does not grow. The
+event stays `wallet.topup.completed` (`purpose: return`), so a past-due renewal waiting for money is retried.
+
+**A cash refund never exceeds the purchased credit still unspent** (TASK-0099, `RefundableCredit`). `refundableBalance()`
+was min(available, purchased top-ups − refunds) and never subtracted what had been spent: 1 000 bought, 800 spent and
+800 returned offered all 1 000 as cash although only 200 of the money paid in was left — returned credit became money.
+The main wallet is one ledger account, so the purchased part is replayed from its postings in the order the money moved,
+with one spend order for the whole wallet (the bonus wallet already follows it — bonus credit is pulled in only for what
+purchased credit cannot cover): **purchased credit is spent first**, then returned, bonus-moved-in and staff credit; what
+neither covers is a debt that later credit pays first. A refund is a spend like any other. The cap is that remainder,
+never more than what is available (holds count). Consequence: credit returned for a document paid from the credit is
+spendable but not refundable — consistent with the withdrawal's express "refund to the credit".
 
 **The return of an unused period is computed from what was paid** (`ChargebackService::estimate`). It was
 `subscription.amount_minor × unused share`: the list price of ONE period without VAT. Twelve months paid in advance

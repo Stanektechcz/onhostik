@@ -1348,6 +1348,14 @@ Zrušení služby je pět kroků a mezi nimi se nedá přeskočit:
 | 4 | Obnova zákazníkem | Kdykoli do konce lhůty: `POST /v1/services/{id}/resume` (v panelu tlačítko u služby). Naplánované odstranění se zruší (`service.deletion.cancelled`). | — |
 | 5 | Odstranění | `onhost:services:purge` (denně 03:40) spustí akci `purge`: znovu ověří identitu, zkontroluje archiv, smaže zdroj u providera, uklidí DNS, uvolní IP a od té chvíle běží doba uchování archivu. | „Uchování archivu“ |
 
+**Když zrušení selže** (nejčastěji u zálohy v kroku 2 — uzel bez SSH agenta a bez noční zálohy panelu), služba zůstane
+v tom stavu, v jakém ji panel opravdu má (TASK-0099): selhání před dokončenou zálohou nic nevypnulo, takže se vrátí do
+`ACTIVE`; po záloze se zeptá panelu (jen čtení) — vypnutý web je `SUSPENDED`, běžící `ACTIVE`; služba, která už byla
+pozastavená, pozastavená zůstane. Dřív se po každém selhání zapsalo `SUSPENDED` bez `terminate_at`, i když web dál běžel,
+a nikdo se to nedozvěděl. Obsluhu upozorní `operation.failed` a `onhost:doctor` → *no cancellation left unfinished*
+vypisuje službu, dokud neprojde další zrušení: `onhost:services:archive <služba>` ukáže proč archiv selhal, po opravě se
+zrušení zadá znovu (konzole obsluhy; dunning ho opakuje sám každý den).
+
 Po odstranění má zákazník dvě možnosti, obě v panelu v sekci **Zálohy**:
 
 * **obnova archivu k nové placené službě je zdarma** (`POST /v1/services/archives/{backup}/restore` → akce

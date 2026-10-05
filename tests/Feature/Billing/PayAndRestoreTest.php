@@ -921,7 +921,12 @@ it('ends a restored service again at the renewal pass even when an earlier expir
     expect(Subscription::query()->findOrFail($subscription->id)->state)->toBe(Subscription::CANCELLED)
         ->and(Operation::query()->where('service_id', $service->id)->where('idempotency_key', 'like', 'sub_expire:%')->count())->toBe(2);
     driveOperations();
-    expect(Service::query()->findOrFail($service->id)->state)->not->toBe(ServiceStateMachine::ACTIVE);
+    // this fixture binds a database service to a VM, which the identity check of a cancellation refuses: the new termination
+    // stops before anything is switched off, so the service is reported as it really is — running (TASK-0099: a failed
+    // cancellation used to be settled SUSPENDED whatever the panel had, which is what this line once relied on)
+    $second = Operation::query()->where('service_id', $service->id)->where('idempotency_key', 'like', 'sub_expire:%')->orderByDesc('id')->firstOrFail();
+    expect($second->state)->toBe(Operation::FAILED)->and($second->step_label)->toBe('Ověření identity služby')
+        ->and(Service::query()->findOrFail($service->id)->state)->toBe(ServiceStateMachine::ACTIVE);
 });
 
 it('does not warn staff when a restore keeps a paid period or the auto-renew the customer had on', function () {

@@ -144,8 +144,9 @@ final class WalletService
      *
      * It is not a top-up. No money arrived at a bank, so the other side of the entry is what the correction takes back —
      * the revenue and its VAT, or the receivable — not an `asset:bank:<reason>` account nobody can ever reconcile with a
-     * statement. And it does not raise what may be paid out in money: `refundableBalance()` counts purchased top-ups only,
-     * so a service bought with bonus credit and then given back does not turn the bonus into cash.
+     * statement. And it does not raise what may be paid out in money: `refundableBalance()` counts only purchased credit that
+     * is still unspent (`RefundableCredit`), so a service bought with bonus credit — or with money already spent — and then
+     * given back does not turn into cash.
      *
      * @param  list<array{account:string, debit:int}>  $debits  where the returned amount is taken from; must add up to it
      */
@@ -464,16 +465,21 @@ final class WalletService
         }, 3);
     }
 
-    /** Purchased credit that has not been consumed, i.e. min(available, sum of purchased top-ups − consumed). */
+    /**
+     * What may leave the wallet as money: min(available, purchased credit not yet spent). The purchased part is replayed
+     * from the ledger with the wallet's spend order — purchased credit first, then returned/bonus/staff credit
+     * (`RefundableCredit`) — so credit that came back from a correction never becomes cash. It used to be
+     * min(available, purchased − refunded), which never subtracted what had been spent.
+     */
     public function refundableBalance(string $organizationId, Currency|string $currency): Money
     {
         $wallet = $this->wallet($organizationId, $currency);
-        $purchased = (int) WalletTopup::query()->where('organization_id', $organizationId)->where('currency', $wallet->currency)
-            ->where('bucket', 'purchased')->where('state', 'completed')->sum('amount_minor');
-        $refunded = (int) WalletRefund::query()->where('organization_id', $organizationId)->where('currency', $wallet->currency)
-            ->whereIn('state', ['pending', 'completed'])->sum('amount_minor');
-        $cap = Money::minor(max(0, $purchased - $refunded), $wallet->currency);
+        $cur = $currency instanceof Currency ? $currency : Currency::fromString($currency);
+        $cap = Money::minor(RefundableCredit::of($organizationId, $cur), $cur);
         $available = $wallet->available();
+        if (! $available->isPositive()) {
+            return Money::zero($cur);
+        }
 
         return $available->lessThan($cap) ? $available : $cap;
     }

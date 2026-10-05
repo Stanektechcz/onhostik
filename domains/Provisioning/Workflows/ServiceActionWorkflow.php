@@ -199,7 +199,7 @@ final class ServiceActionWorkflow implements Workflow
             'resize' => $services->settleTransient($service, ServiceStateMachine::ACTIVE, $context->actor, "resize failed: {$reason}", $context->operation),
             'suspend' => $services->settleTransient($service, ServiceStateMachine::ACTIVE, $context->actor, "suspend failed: {$reason}", $context->operation),
             'resume' => $services->settleTransient($service, ServiceStateMachine::SUSPENDED, $context->actor, "resume failed: {$reason}", $context->operation),
-            'terminate' => $services->settleTransient($service, $service->state === ServiceStateMachine::SUSPENDING ? ServiceStateMachine::SUSPENDED : ServiceStateMachine::FAILED, $context->actor, "terminate failed: {$reason}", $context->operation),
+            'terminate' => $this->afterFailedTermination($context, $service, $services, $reason),
             'purge' => $services->settleTransient($service, ServiceStateMachine::FAILED, $context->actor, "purge failed: {$reason}", $context->operation),
             'restore' => RestoreJob::query()->where('operation_id', $context->operation->id)->update(['state' => 'failed', 'finished_at' => now(), 'result' => ['error' => $reason]]),
             'backup' => Backup::query()->where('operation_id', $context->operation->id)->update(['state' => 'failed', 'finished_at' => now()]),
@@ -207,6 +207,60 @@ final class ServiceActionWorkflow implements Workflow
             'reinstall' => $service->family === 'cloud' ? $this->afterFailedVmReinstall($context, $service) : null,
             default => null,
         };
+    }
+
+    /**
+     * A cancellation that failed leaves the service in the state the panel is really in (TASK-0099).
+     *
+     * It used to be settled SUSPENDED whatever happened — also when it stopped at the final archive, before anything on the
+     * panel was touched. The site served on while the platform called it suspended, with no `terminate_at`: the grace and
+     * reinstatement flows (which look for one) never saw it, billing treated it as stopped, and nothing retried it.
+     *
+     *  - before the archive is in place nothing was switched off (`deactivateStep` refuses without it): back to ACTIVE;
+     *  - after it, the panel says whether the switch-off happened (read only, never a change); when it cannot be asked,
+     *    the deactivation step's own answer decides;
+     *  - a service that was already SUSPENDED (or FAILED) when the cancellation started keeps that state — nothing in this
+     *    run changed it, and settling it again told the customer "suspended" (or "provisioning failed") once more.
+     *
+     * The run itself is the operators' alert (`operation.failed`), and `onhost:doctor` lists the service until a later
+     * cancellation goes through ("no cancellation left unfinished"). The callers that must end a service ask again: dunning
+     * every day with a new key, a withdrawal by its attempts, staff from the console.
+     */
+    private function afterFailedTermination(StepContext $context, Service $service, ServiceService $services, string $reason): void
+    {
+        $fresh = Service::query()->find($service->id);
+        if ($fresh === null || $fresh->state !== ServiceStateMachine::SUSPENDING) {
+            return;
+        }
+        $archiveInPlace = $context->get('final_archive_id') !== null || $context->get('final_archive_skipped') !== null;
+        $switchedOff = $archiveInPlace && ($this->panelSaysStopped($context, $fresh) ?? $context->get('deactivated') === true);
+        if ($switchedOff) {
+            // the site IS off: suspended is the truth. Told to the operators as a deactivation, not to the customer as a new suspension
+            $services->settleTransient($fresh, ServiceStateMachine::SUSPENDED, $context->actor, (string) $context->desired('reason', 'zrušení služby'), $context->operation, null, 'service.deactivated');
+
+            return;
+        }
+        $services->settleTransient($fresh, ServiceStateMachine::ACTIVE, $context->actor, "terminate failed before anything was switched off: {$reason}", $context->operation);
+    }
+
+    /** What the panel says about the service right now: true = switched off, false = serving, null = it could not be asked. */
+    private function panelSaysStopped(StepContext $context, Service $service): ?bool
+    {
+        try {
+            $adapter = $context->adapter();
+            $ref = $context->binding(null)?->ref() ?? $service->primaryBinding()?->ref();
+            if (! $adapter instanceof InfrastructureProvider || $ref === null) {
+                return null;
+            }
+            $actual = $adapter->getActualState($ref);
+        } catch (Throwable) {
+            return null;
+        }
+        if (! $actual->exists) {
+            return null;
+        }
+
+        return in_array(strtolower((string) $actual->status), ['suspended', 'stopped', 'offline', 'inactive', 'disabled'], true);
     }
 
     /**
