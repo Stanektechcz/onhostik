@@ -289,7 +289,7 @@ kredit s příjmovým dokladem (s DPH) a pak se z kreditu zaplatila faktura, tak
 ## F7-11 Režim plátce DPH, zálohová faktura a zúčtování zálohy (G2)
 
 **Pravidlo (G-R1, G2):** režim plátce / neplátce DPH je **konfigurace** (`ONHOST_VAT_PAYER`) zapsaná do právnické osoby
-(`php artisan onhost:vat:payer-mode --apply`). Doklad si pamatuje dodavatele, s nímž byl vystaven: přepnutí režimu **nezmění žádný
+(finance se step-upem a druhou osobou, `POST /v1/staff/tax/vat-payer-mode`). Doklad si pamatuje dodavatele, s nímž byl vystaven: přepnutí režimu **nezmění žádný
 vystavený doklad**. Zálohová faktura (řada PF) daňovým dokladem není. Plátce k přijaté platbě vystaví daňový doklad k přijaté
 platbě (řada PP, DUZP = den připsání platby) a konečná faktura (řada FV) zálohu odečte; neplátce vystaví potvrzení o přijetí
 platby a žádný daňový doklad.
@@ -304,7 +304,9 @@ platby a žádný daňový doklad.
 4. Otevřít doklady (`GET /v1/invoices`) a PDF (`GET /v1/invoices/{invoice}/pdf`): zálohovou fakturu, daňový doklad k přijaté platbě, konečnou fakturu.
 5. Finance vystaví dobropis k daňovému dokladu k přijaté platbě (F7-06, `POST /v1/invoices/{invoice}/credit-note`).
 6. Na stagingu nastavit `ONHOST_VAT_PAYER=false`, spustit `php artisan onhost:doctor` (řádek „VAT payer mode“ ukáže nesoulad a radu),
-   pak `php artisan onhost:vat:payer-mode --apply` a zopakovat kroky 2–4. Nakonec režim vrátit (`ONHOST_VAT_PAYER=true`, `--apply`).
+   pak finance se step-upem pošle `POST /v1/staff/tax/vat-payer-mode` (`payer: false`, důvod) → 403 `approval_required`, druhá
+   osoba schválí (`/sprava/nastaveni/schvalovani`), finance pošle stejný požadavek s `approval_ids` a zopakuje kroky 2–4.
+   `php artisan onhost:vat:payer-mode --apply` musí skončit odmítnutím. Nakonec režim vrátit stejnou cestou (`ONHOST_VAT_PAYER=true`).
 
 **Očekávaný výsledek**
 

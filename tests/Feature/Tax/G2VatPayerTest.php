@@ -8,25 +8,33 @@ use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
+use Onhost\Domain\Identity\Models\User;
+use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Invoicing\CzkTaxStatement;
 use Onhost\Domain\Invoicing\InvoicePdfRenderer;
 use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Invoicing\Models\LegalEntity;
+use Onhost\Domain\Invoicing\UblExporter;
 use Onhost\Domain\Orders\CheckoutService;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\QuoteService;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Payments\Models\BankStatementLine;
+use Onhost\Domain\Payments\Models\PaymentIntent;
 use Onhost\Domain\Payments\Models\PaymentStateMachineStates as S;
 use Onhost\Domain\Payments\PaymentService;
+use Onhost\Domain\Tax\Commands\SetVatPayerModeCommand;
 use Onhost\Domain\Tax\Models\ExchangeRate;
 use Onhost\Domain\Tax\TaxEngine;
 use Onhost\Domain\Tax\VatPayerMode;
 use Onhost\Domain\Tax\VatReports;
 use Onhost\Domain\Tax\VatRounding;
 use Onhost\Platform\Audit\AuditEvent;
+use Onhost\Platform\Commands\CommandBus;
 use Onhost\Platform\Commands\CommandContext;
+use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Money\Money;
 
 /*
@@ -75,7 +83,36 @@ function g2SkPayer(Organization $org): Organization
 
 function g2SellerNotPayer(): void
 {
-    LegalEntity::query()->update(['vat_payer' => false]);
+    // through the model (its saved event drops the cached mode, as the bus handler does), never a mass update
+    LegalEntity::query()->get()->each(fn (LegalEntity $e) => $e->forceFill(['vat_payer' => false])->save());
+}
+
+/** A member of staff of finance with a fresh step-up acting as staff. */
+function g2FinanceContext(User $user): CommandContext
+{
+    return new CommandContext('user', $user->id, null, null, '127.0.0.1', 'pest', 'test-session', stepUpMethod: 'totp', staffMode: true);
+}
+
+/**
+ * Switches the mode the way staff do: the bus asks for a second person (CRITICAL), somebody else approves, the same request
+ * is repeated with the approval and consumes it.
+ */
+function g2SwitchMode(User $finance, bool $payer, string $reason = 'Registrace k DPH zrušena finančním úřadem'): array
+{
+    app(StepUpService::class)->grant($finance, 'totp', null, '127.0.0.1');
+    $bus = app(CommandBus::class);
+    $payload = ['payer' => $payer, 'reason' => $reason];
+    try {
+        $bus->dispatch(new SetVatPayerModeCommand('g2-mode-ask-'.bin2hex(random_bytes(4)), $payload), g2FinanceContext($finance));
+        throw new RuntimeException('the switch ran without a second person');
+    } catch (DomainError $e) {
+        expect($e->error)->toBe('approval_required');
+        $approvalId = (string) $e->extra['approval_id'];
+    }
+    secondPersonApproves($approvalId);
+    $ctx = new CommandContext('user', $finance->id, null, null, '127.0.0.1', 'pest', 'test-session', stepUpMethod: 'totp', approvalIds: [$approvalId], staffMode: true);
+
+    return (array) $bus->dispatch(new SetVatPayerModeCommand('vat.payer-mode:'.$approvalId, $payload), $ctx);
 }
 
 /** An issued invoice: 200,00 at 21 % and 50,00 at 12 % (or the lines given), in the currency given. @param list<array<string,mixed>>|null $lines */
@@ -109,11 +146,25 @@ function g2TaxDocuments(Organization $org): Collection
 /** A bank-transfer order for a web hosting: the proforma is issued, the transfer arrives (booked yesterday) and is matched. @return array{order:Order, proforma:Invoice} */
 function g2BankOrderPaid(object $test, Organization $org, $owner): array
 {
+    ['order' => $order, 'proforma' => $proforma] = g2BankOrderPlaced($org, $owner);
+
+    return g2PayBankOrder($order, $proforma);
+}
+
+/** A bank-transfer order placed: its proforma is issued, nothing is paid yet. @return array{order:Order, proforma:Invoice} */
+function g2BankOrderPlaced(Organization $org, $owner): array
+{
     $quote = app(QuoteService::class)->quote([['product_key' => 'web-hosting', 'plan_key' => 'start']], 'CZK', ['country' => 'CZ', 'customer_class' => 'b2b'], 1, null, $org);
     $consents = ['terms' => ['version' => '4.0'], 'privacy' => ['version' => '4.0'], 'withdrawal_waiver' => ['version' => '4.0'], 'dpa' => ['version' => '4.0'], 'sla' => ['version' => '4.0']];
     $placed = app(CheckoutService::class)->placeOrder($quote, $org, $owner, $consents, ['mode' => 'bank'], 'g2-bank-'.bin2hex(random_bytes(3)), new CommandContext('user', $owner->id, $org->id, null, '127.0.0.1', 'pest', 'test-session'));
     $order = $placed['order']->refresh();
-    $proforma = Invoice::query()->findOrFail($order->invoice_id);
+
+    return ['order' => $order, 'proforma' => Invoice::query()->findOrFail($order->invoice_id)];
+}
+
+/** The transfer of a placed bank order arrives (booked yesterday) and is matched. @return array{order:Order, proforma:Invoice} */
+function g2PayBankOrder(Order $order, Invoice $proforma): array
+{
     $line = BankStatementLine::query()->create([
         'account' => 'CZ00', 'amount_minor' => $order->total_minor, 'currency' => 'CZK', 'variable_symbol' => $proforma->payment_reference,
         'counterparty' => 'Test s.r.o.', 'booked_at' => now()->subDay(), 'external_id' => 'g2-stmt-'.bin2hex(random_bytes(3)), 'state' => 'unmatched',
@@ -125,23 +176,24 @@ function g2BankOrderPaid(object $test, Organization $org, $owner): array
 
 // ── 1. the mode ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-it('takes the mode from configuration and the legal entity: payer by default, switched through the bus, told by the doctor', function () {
+it('takes the mode from configuration and the legal entity: payer by default, switched by staff with step-up and four eyes, told by the doctor', function () {
     expect(app(VatPayerMode::class)->isPayer())->toBeTrue()->and(app(InvoiceService::class)->sellerIsVatPayer())->toBeTrue();
     Artisan::call('onhost:doctor', ['--json' => true]);
     $row = collect(json_decode(Artisan::output(), true)['checks'])->firstWhere('check', 'VAT payer mode');
     expect($row['status'])->toBe('OK')->and($row['detail'])->toContain('VAT payer');
 
-    // the operator declares the company is no VAT payer: until it is written to the legal entity, the doctor says so and how
+    // the operator declares the company is no VAT payer: until staff switch the legal entity, the doctor says so and how
     config(['vat.payer' => false]);
     Artisan::call('onhost:doctor', ['--json' => true]);
     $row = collect(json_decode(Artisan::output(), true)['checks'])->firstWhere('check', 'VAT payer mode');
-    expect($row['status'])->not->toBe('OK')->and($row['remedy'])->toContain('onhost:vat:payer-mode --apply');
+    expect($row['status'])->not->toBe('OK')->and($row['remedy'])->toContain('/v1/staff/tax/vat-payer-mode');
     expect(Artisan::call('onhost:vat:payer-mode'))->toBe(1); // only shows: the two disagree
 
-    expect(Artisan::call('onhost:vat:payer-mode', ['--apply' => true]))->toBe(0);
-    expect(LegalEntity::query()->findOrFail('onhost-cz')->vat_payer)->toBeFalse()
+    $result = g2SwitchMode($this->staff('billing_finance_admin'), false);
+    expect($result['changed'])->toBeTrue()->and(LegalEntity::query()->findOrFail('onhost-cz')->vat_payer)->toBeFalse()
         ->and(app(VatPayerMode::class)->isPayer())->toBeFalse()
-        ->and(AuditEvent::query()->where('action', 'tax.vat_payer_mode.set')->where('result', 'succeeded')->exists())->toBeTrue();
+        ->and(AuditEvent::query()->where('action', 'tax.vat_payer_mode.set')->where('result', 'succeeded')->exists())->toBeTrue()
+        ->and(LegalEntity::query()->findOrFail('onhost-cz')->meta['vat_payer_history'][0]['payer'] ?? null)->toBeFalse();
     Artisan::call('onhost:doctor', ['--json' => true]);
     $row = collect(json_decode(Artisan::output(), true)['checks'])->firstWhere('check', 'VAT payer mode');
     expect($row['status'])->toBe('OK')->and($row['detail'])->toContain('not a VAT payer');
@@ -158,8 +210,7 @@ it('never changes a document issued before the mode was switched', function () {
     $frozen = $before->refresh()->only(['number', 'type', 'seller', 'buyer', 'tax_summary', 'tax_minor', 'total_minor', 'supply_date', 'pdf_hash', 'meta', 'structured']);
     $htmlBefore = g2Html($before);
 
-    config(['vat.payer' => false]);
-    Artisan::call('onhost:vat:payer-mode', ['--apply' => true]);
+    g2SwitchMode($this->staff('billing_finance_admin'), false);
     app(InvoiceService::class)->completeCzkStatements(); // nothing to complete, nothing touched
 
     expect($before->refresh()->only(array_keys($frozen)))->toEqual($frozen)
@@ -350,4 +401,172 @@ it('drafts the control statement (KH) and the EC sales list (SH) of a period for
     expect(Artisan::call('onhost:vat:export', ['report' => 'kh', '--period' => 'říjen']))->toBe(1) // a period that is no month or quarter is refused, never guessed
         ->and(Invoice::query()->count())->toBe($before); // read only
     expect($reverse->number)->not->toBeEmpty();
+});
+
+// ── 5. security review of #106 ───────────────────────────────────────────────────────────────────────────────────────────────
+
+it('H1: switches the mode only through the staff API with a step-up and a second person; the CLI and the seeder never switch it', function () {
+    $url = '/v1/staff/tax/vat-payer-mode';
+    $body = ['payer' => false, 'reason' => 'Zrušení registrace k DPH od 1. 11. 2026'];
+
+    $this->actingAs($this->staff('support_l2'), 'sanctum');
+    $this->postJson($url, $body)->assertForbidden();
+
+    $finance = $this->staff('billing_finance_admin');
+    $this->actingAs($finance, 'sanctum');
+    $this->getJson($url)->assertOk()->assertJsonPath('in_force', true);
+    $this->postJson($url, $body)->assertForbidden()->assertJsonPath('error', 'step_up_required');
+    app(StepUpService::class)->grant($finance, 'totp', null, '127.0.0.1');
+    $approval = (string) $this->postJson($url, $body)->assertForbidden()->assertJsonPath('error', 'approval_required')->json('approval_id');
+    expect(LegalEntity::query()->findOrFail('onhost-cz')->vat_payer)->toBeTrue(); // nothing without the second person
+    // an approval binds the request it was asked for: another body is refused with it
+    $this->postJson($url, ['payer' => false, 'reason' => 'Jiný důvod, jiný požadavek', 'approval_ids' => [secondPersonApproves($approval)]])->assertForbidden();
+    expect(LegalEntity::query()->findOrFail('onhost-cz')->vat_payer)->toBeTrue();
+    $this->postJson($url, $body + ['approval_ids' => [$approval]])->assertOk()->assertJsonPath('payer', false)->assertJsonPath('changed', true);
+    expect(LegalEntity::query()->findOrFail('onhost-cz')->vat_payer)->toBeFalse();
+    // the approval was consumed: the same request again changes nothing a second time and needs a new approval
+    $this->postJson($url, ['payer' => true, 'reason' => 'Zpět jako plátce DPH od 1. 12. 2026', 'approval_ids' => [$approval]])->assertForbidden();
+    expect(LegalEntity::query()->findOrFail('onhost-cz')->vat_payer)->toBeFalse();
+
+    // the command line only shows; --apply is refused and writes nothing
+    config(['vat.payer' => true]);
+    expect(Artisan::call('onhost:vat:payer-mode', ['--apply' => true]))->toBe(1)
+        ->and(LegalEntity::query()->findOrFail('onhost-cz')->vat_payer)->toBeFalse();
+    // the seeder writes the declared mode only into a legal entity it creates, never over an existing one
+    $this->seed(LegalEntitySeeder::class);
+    expect(LegalEntity::query()->findOrFail('onhost-cz')->vat_payer)->toBeFalse();
+});
+
+it('H2: deducts one advance per order; a second payment of the same order is a prepayment, never a second deduction', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $org = g2CzPayer($org);
+    ['order' => $order, 'proforma' => $proforma] = g2BankOrderPaid($this, $org, $owner);
+    // the customer pays the proforma again by card: the same amount, a second time
+    $again = PaymentIntent::query()->create([
+        'organization_id' => $org->id, 'provider' => 'comgate', 'provider_id' => 'G2-'.bin2hex(random_bytes(4)), 'purpose' => 'invoice', 'reference_type' => 'invoice', 'reference_id' => $proforma->id,
+        'amount_minor' => $order->total_minor, 'currency' => 'CZK', 'state' => S::PENDING_CUSTOMER, 'method' => 'card', 'idempotency_key' => 'g2:'.bin2hex(random_bytes(6)), 'created_by' => 'test',
+    ]);
+    app(PaymentService::class)->settle($again, CommandContext::system('webhook:comgate'), 'card');
+
+    $receipts = Invoice::query()->where('organization_id', $org->id)->where('type', 'receipt')->orderBy('created_at')->get();
+    expect($receipts)->toHaveCount(2)
+        ->and($receipts[0]->meta['advance_for']['order_id'] ?? null)->toBe($order->id)
+        ->and($receipts[1]->meta)->not->toHaveKey('advance_for'); // a prepayment (credit), not the advance of the order
+    $final = Invoice::query()->findOrFail($order->refresh()->invoice_id);
+    expect(collect($final->meta['advances'])->pluck('id')->all())->toBe([$receipts[0]->id]);
+    // a retried final invoice decision deducts nothing more and makes no second final invoice
+    $retry = app(InvoiceService::class)->issueForOrder($order->refresh(), g2Ctx(), 'bank');
+    expect($retry->id)->toBe($final->id)->and(Invoice::query()->where('order_id', $order->id)->whereIn('type', ['invoice', 'statement'])->count())->toBe(1);
+});
+
+it('H2: never deducts more than the final invoice states, in total or per rate — PDF, UBL and KH stay at zero, never below', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $org = g2CzPayer($org);
+    ['order' => $order, 'proforma' => $proforma] = g2BankOrderPlaced($org, $owner);
+    $service = app(InvoiceService::class);
+    // the order's own payment is documented first (the advance); a second payment of the same order is a prepayment …
+    $first = $service->issueReceipt($org, Money::minor((int) $order->total_minor, 'CZK'), 'bank', g2Ctx(), (string) $order->payment_intent_id);
+    $other = PaymentIntent::query()->create([
+        'organization_id' => $org->id, 'provider' => 'comgate', 'provider_id' => 'G2-'.bin2hex(random_bytes(4)), 'purpose' => 'order', 'reference_type' => 'order', 'reference_id' => $order->id,
+        'amount_minor' => $order->total_minor, 'currency' => 'CZK', 'state' => S::PENDING_CUSTOMER, 'method' => 'card', 'idempotency_key' => 'g2:'.bin2hex(random_bytes(6)), 'created_by' => 'test',
+    ]);
+    $second = $service->issueReceipt($org, Money::minor((int) $order->total_minor, 'CZK'), 'card', g2Ctx(), $other->id);
+    expect($first->meta['advance_for']['order_id'] ?? null)->toBe($order->id)->and($second->meta)->not->toHaveKey('advance_for');
+    // … and even a second advance tax document that claims the same order (as an old row could) does not fit beside the first
+    $second->forceFill(['meta' => array_merge((array) $second->meta, ['advance_for' => $first->meta['advance_for']])])->save();
+    ['order' => $order] = g2PayBankOrder($order, $proforma);
+    $final = Invoice::query()->findOrFail($order->invoice_id);
+    expect($final->type)->toBe('invoice')->and(collect($final->meta['advances'])->pluck('id')->all())->toBe([$first->id]);
+
+    // a document whose advances claim more than it states (forged) still shows nothing negative anywhere
+    $forged = g2Invoice($org);
+    $forged->forceFill(['meta' => array_merge((array) $forged->meta, ['advances' => [
+        ['id' => 'inv_forged_advance', 'number' => 'PP-X', 'supply_date' => '2026-10-15', 'total_minor' => 99999, 'net_minor' => 82644, 'tax_minor' => 17355, 'summary' => [['rate' => '21', 'category' => 'S', 'net' => 82644, 'tax' => 17355]], 'czk' => null],
+    ]])])->save();
+    $html = g2Html($forged);
+    expect($html)->toContain('Zbývá uhradit / Amount due: 0 Kč')->and($html)->not->toContain('Rozdíl k vyúčtování / Difference</td><td class="num">21 %</td><td class="num">-');
+    $ubl = app(UblExporter::class)->structure($forged->refresh());
+    expect((float) $ubl['LegalMonetaryTotal']['PayableAmount'])->toBeGreaterThanOrEqual(0.0)
+        ->and((float) $ubl['LegalMonetaryTotal']['PrepaidAmount'])->toBeLessThanOrEqual((float) $ubl['LegalMonetaryTotal']['TaxInclusiveAmount']);
+    $kh = app(VatReports::class)->kh('2026-10');
+    expect(collect($kh['a5'])->every(fn ($r) => $r['base_minor'] >= 0 && $r['tax_minor'] >= 0))->toBeTrue()
+        ->and(implode(' ', $kh['warnings']))->toContain($forged->number);
+});
+
+it('M1: issues one document per payment however often it is asked, whichever kind is asked for', function () {
+    [, $org] = $this->customerWithOrganization();
+    $org = g2CzPayer($org);
+    $intent = PaymentIntent::query()->create([
+        'organization_id' => $org->id, 'provider' => 'comgate', 'provider_id' => 'G2M1', 'purpose' => 'topup', 'reference_type' => 'wallet', 'reference_id' => $org->id,
+        'amount_minor' => 12100, 'currency' => 'CZK', 'state' => S::PENDING_CUSTOMER, 'method' => 'card', 'idempotency_key' => 'g2m1', 'created_by' => 'test',
+    ]);
+    $service = app(InvoiceService::class);
+    $a = $service->issueReceipt($org, Money::minor(12100, 'CZK'), 'card', g2Ctx(), $intent->id);
+    $b = $service->issueTopupDocument($org, Money::minor(12100, 'CZK'), 'card', g2Ctx(), $intent->id);
+    $c = $service->issueReceipt($org, Money::minor(12100, 'CZK'), 'card', g2Ctx(), $intent->id);
+    expect([$b->id, $c->id])->toBe([$a->id, $a->id])
+        ->and(Invoice::query()->whereIn('type', ['receipt', InvoiceService::PAYMENT_CONFIRMATION])->where('meta->payment_intent_id', $intent->id)->count())->toBe(1);
+});
+
+it('M2: a retried final invoice decision returns the document already made, even when the advance changed meanwhile', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $org = g2CzPayer($org);
+    ['order' => $order] = g2BankOrderPaid($this, $org, $owner);
+    $final = Invoice::query()->findOrFail($order->invoice_id);
+    $receipt = Invoice::query()->where('organization_id', $org->id)->where('type', 'receipt')->sole();
+    app(InvoiceService::class)->creditNote($receipt, 'Záloha opravena', g2Ctx()); // the advance is gone now: a fresh decision would say "statement"
+
+    $retry = app(InvoiceService::class)->issueForOrder($order->refresh(), g2Ctx(), 'bank');
+    expect($retry->id)->toBe($final->id)->and(Invoice::query()->where('order_id', $order->id)->whereIn('type', ['invoice', 'statement'])->count())->toBe(1);
+});
+
+it('M3: leaves a final invoice out of the KH while its advance has no CZK rate yet, and reads the advance\'s rate from its receipt', function () {
+    g2EurRate('2026-10-15', 24_500_000); // only today's list: yesterday's advance waits for its rate
+    [, $org] = $this->customerWithOrganization();
+    $org = g2CzPayer($org);
+    $service = app(InvoiceService::class);
+    $line = ['sku' => 'vps', 'description' => 'VPS', 'qty' => 1, 'unit_net' => 10000, 'discount' => 0, 'net' => 10000, 'tax_rate' => '21', 'tax_category' => 'S', 'tax' => 2100, 'total' => 12100];
+    $receipt = $service->issue($service->draft($org, 'receipt', 'EUR', [$line], g2Ctx(), null, ['payment_method' => 'bank']), g2Ctx(), 0, now()->subDay());
+    expect($receipt->meta['czk_pending'] ?? false)->toBeTrue();
+    $final = $service->issue($service->draft($org, 'invoice', 'EUR', [$line], g2Ctx(), null, ['postpaid' => false, 'payment_method' => 'bank', 'advances' => [
+        ['id' => $receipt->id, 'number' => $receipt->number, 'supply_date' => '2026-10-14', 'total_minor' => 12100, 'net_minor' => 10000, 'tax_minor' => 2100, 'summary' => $receipt->tax_summary, 'czk' => null],
+    ]]), g2Ctx(), 0);
+    expect($final->meta['czk'] ?? null)->not->toBeNull();
+
+    $kh = app(VatReports::class)->kh('2026-10');
+    expect(implode(' ', $kh['warnings']))->toContain($final->number)->and($kh['a5'])->toBe([]); // neither the receipt nor the final invoice
+
+    g2EurRate('2026-10-14', 24_400_000);
+    $service->completeCzkStatements();
+    $kh = app(VatReports::class)->kh('2026-10');
+    // the receipt at 24,40 (2 100 · 24,4 = 512,40 Kč) and the final invoice's difference at 24,50 less the receipt's 24,40 (2,10 Kč)
+    expect(collect($kh['a5'])->firstWhere('rate', '21'))->toMatchArray(['base_minor' => 244000 + 1000, 'tax_minor' => 51240 + 210])
+        ->and($kh['warnings'])->toBe([]);
+});
+
+it('M4: flags a tax document whose DUZP falls in a period already filed, and warns in the report of that period', function () {
+    config(['vat.filed_through' => '2026-10']);
+    [$owner, $org] = $this->customerWithOrganization();
+    $org = g2CzPayer($org);
+    $this->travelTo(Carbon::parse('2026-11-01 09:00:00', 'Europe/Prague')); // the October 31 transfer is matched on November 1
+    ['order' => $order] = g2BankOrderPaid($this, $org, $owner);
+    $receipt = Invoice::query()->where('organization_id', $org->id)->where('type', 'receipt')->sole();
+
+    expect($receipt->supply_date?->format('Y-m-d'))->toBe('2026-10-31')->and($receipt->meta['filed_period'] ?? null)->toBe('2026-10')
+        ->and(AuditEvent::query()->where('action', 'invoice.duzp_in_filed_period')->exists())->toBeTrue()
+        ->and(Invoice::query()->findOrFail($order->invoice_id)->meta)->not->toHaveKey('filed_period'); // November is open
+    expect(implode(' ', app(VatReports::class)->kh('2026-10')['warnings']))->toContain('2026-10')->toContain($receipt->number);
+});
+
+it('M6: reads the legal entity\'s mode once per request and again after it changes', function () {
+    VatPayerMode::forget();
+    DB::enableQueryLog();
+    foreach (range(1, 5) as $i) {
+        VatPayerMode::legalEntityIsPayer();
+    }
+    $reads = collect(DB::getQueryLog())->filter(fn ($q) => str_contains($q['query'], 'legal_entities'))->count();
+    DB::disableQueryLog();
+    expect($reads)->toBe(1);
+    g2SellerNotPayer();
+    expect(VatPayerMode::legalEntityIsPayer())->toBeFalse();
 });

@@ -65,15 +65,22 @@ final class InvoiceService
      */
     public function issueForOrder(Order $order, CommandContext $context, string $paymentMethod): Invoice
     {
-        $postpaid = $order->payment_mode === 'postpaid';
-        // an order paid on a proforma whose payment got a tax document (a VAT payer's advance) ends with the final invoice, the
-        // tax document of the supply, which deducts the advance (G2); otherwise a prepaid order keeps its credit statement (G1)
-        $advances = $postpaid ? [] : $this->advancesOf($order);
-        $type = $postpaid || $advances !== [] ? 'invoice' : 'statement';
-        $existing = Invoice::query()->where('order_id', $order->id)->where('type', $type)->first();
+        return DB::transaction(fn () => $this->documentOrder($order, $context, $paymentMethod), 3);
+    }
+
+    /**
+     * The order's document is decided once (security review of #106, M2): under the order's lock, and an order that has its
+     * statement or invoice already gets that one back — a retry used to decide the type again, so an advance credited meanwhile
+     * would have turned a retried final invoice into a second document, a statement.
+     */
+    private function documentOrder(Order $order, CommandContext $context, string $paymentMethod): Invoice
+    {
+        Order::query()->whereKey($order->id)->lockForUpdate()->first();
+        $existing = Invoice::query()->where('order_id', $order->id)->whereIn('type', ['invoice', 'statement'])->where('state', '!=', Invoice::DRAFT)->orderBy('created_at')->first();
         if ($existing !== null) {
             return $existing;
         }
+        $postpaid = $order->payment_mode === 'postpaid';
         $organization = Organization::query()->findOrFail($order->organization_id);
         $lines = $order->items()->get()->map(fn ($item, $i) => [
             'sku' => $item->sku, 'description' => $item->name, 'qty' => $item->qty, 'unit' => 'ks',
@@ -82,6 +89,10 @@ final class InvoiceService
             'period_from' => AccountingClock::date(), 'period_to' => $this->upgradePeriodEnd($item) ?? $this->periodEnd($item->period, (int) ($item->config['periods_billed'] ?? 1) * ($item->product_key === 'domain' ? (int) ($item->config['period_years'] ?? 1) : 1)),
             'service_id' => $item->service_id, 'order_item_id' => $item->id,
         ])->all();
+        // an order paid on a proforma whose payment got a tax document (a VAT payer's advance) ends with the final invoice, the
+        // tax document of the supply, which deducts the advance (G2); otherwise a prepaid order keeps its credit statement (G1)
+        $advances = $postpaid ? [] : $this->advancesOf($order, $lines);
+        $type = $postpaid || $advances !== [] ? 'invoice' : 'statement';
         // the document states the VIES check its lines were decided on at the quote (TASK-0031, D31.4), not a later one
         $draft = $this->draft($organization, $type, $order->currency, $lines, $context, $order->id, array_filter(['payment_method' => $paymentMethod, 'postpaid' => $postpaid, 'order_number' => $order->number, 'vat' => $order->meta['vat'] ?? null,
             'advances' => $advances === [] ? null : $advances, 'proforma_number' => $advances === [] ? null : ($advances[0]['proforma_number'] ?? null)], fn ($v) => $v !== null));
@@ -104,21 +115,37 @@ final class InvoiceService
      */
     public function issueReceipt(Organization $organization, Money $gross, string $method, CommandContext $context, ?string $paymentIntentId = null): Invoice
     {
-        if ($paymentIntentId !== null) {
-            $existing = $this->paymentDocument($paymentIntentId);
-            if ($existing !== null) {
-                return $existing;
-            }
+        return $this->oncePerPayment($paymentIntentId, fn () => $this->receipt($organization, $gross, $method, $context, $paymentIntentId));
+    }
+
+    /**
+     * One document per payment (security review of #106, M1): the payment intent is locked and the document looked for under the
+     * lock, so two callbacks of one payment that arrive together wait for each other and the second gets the first one's document.
+     */
+    private function oncePerPayment(?string $paymentIntentId, \Closure $issue): Invoice
+    {
+        if ($paymentIntentId === null) {
+            return $issue();
         }
+
+        return DB::transaction(function () use ($paymentIntentId, $issue) {
+            PaymentIntent::query()->whereKey($paymentIntentId)->lockForUpdate()->first();
+
+            return $this->paymentDocument($paymentIntentId) ?? $issue();
+        }, 3);
+    }
+
+    private function receipt(Organization $organization, Money $gross, string $method, CommandContext $context, ?string $paymentIntentId): Invoice
+    {
         if (! $this->sellerIsVatPayer()) {
             return $this->issueConfirmation($organization, $gross, $method, $context, $paymentIntentId, 'Přijatá platba (není daňový doklad)');
         }
         $intent = $paymentIntentId !== null ? PaymentIntent::query()->whereKey($paymentIntentId)->where('organization_id', $organization->id)->first() : null;
         $advance = $intent !== null ? $this->advanceSource($intent, $organization, $gross) : null;
-        if ($advance !== null) { // the payment of a proforma or an order: the VAT of what it pays for, rate by rate (G2)
+        if (isset($advance['lines'])) { // the payment of a proforma or an order: the VAT of what it pays for, rate by rate (G2)
             $lines = $advance['lines'];
             $meta = ['advance_for' => $advance['for']];
-        } else {
+        } else { // a top-up — or a second payment of an order whose advance is documented already: a prepayment, credit (H2)
             $decision = $this->tax->calculate(
                 VatStanding::taxCustomer($organization),
                 [['key' => 'topup', 'net' => Money::zero($gross->currency), 'product_class' => 'esd']],
@@ -132,7 +159,7 @@ final class InvoiceService
                 'sku' => 'topup', 'description' => 'Přijatá platba — kredit ONhost (záloha na služby)', 'qty' => 1, 'unit' => 'ks',
                 'unit_net' => $gross->minor - $tax, 'discount' => 0, 'net' => $gross->minor - $tax, 'tax_rate' => $rate, 'tax_category' => $category, 'tax' => $tax, 'total' => $gross->minor,
             ]];
-            $meta = ['tax_calculation_id' => $decision['calculation']->id];
+            $meta = ['tax_calculation_id' => $decision['calculation']->id] + (isset($advance['prepayment_for']) ? ['prepayment_for' => $advance['prepayment_for']] : []);
         }
         $draft = $this->draft($organization, 'receipt', $gross->currency->value, $lines, $context, null, ['payment_method' => $method, 'payment_intent_id' => $paymentIntentId] + $meta);
         // DUZP of a received payment is the day it was received: the day the bank booked the transfer, not the day it was matched
@@ -151,17 +178,13 @@ final class InvoiceService
      */
     public function issueTopupDocument(Organization $organization, Money $gross, string $method, CommandContext $context, ?string $paymentIntentId = null): Invoice
     {
-        if ($paymentIntentId !== null) {
-            $existing = $this->paymentDocument($paymentIntentId);
-            if ($existing !== null) {
-                return $existing;
+        return $this->oncePerPayment($paymentIntentId, function () use ($organization, $gross, $method, $context, $paymentIntentId) {
+            if ($this->sellerIsVatPayer() && self::taxablePerson($organization)) {
+                return $this->receipt($organization, $gross, $method, $context, $paymentIntentId);
             }
-        }
-        if ($this->sellerIsVatPayer() && self::taxablePerson($organization)) {
-            return $this->issueReceipt($organization, $gross, $method, $context, $paymentIntentId);
-        }
 
-        return $this->issueConfirmation($organization, $gross, $method, $context, $paymentIntentId, 'Přijatá platba — kredit ONhost (není daňový doklad)');
+            return $this->issueConfirmation($organization, $gross, $method, $context, $paymentIntentId, 'Přijatá platba — kredit ONhost (není daňový doklad)');
+        });
     }
 
     /** Whether the seller may issue tax documents at all: its legal entity and the tax rules in force both say it is a VAT payer. */
@@ -292,15 +315,24 @@ final class InvoiceService
                 $buyer = Organization::query()->find($invoice->organization_id);
                 $meta['green'] = $buyer !== null ? app(GreenService::class)->invoiceSnapshot($buyer) : null;
             }
+            $supplyDay = AccountingClock::date($supplyDate ?? $issuedAt); // a DATE on a document is the accounting day, not the day in UTC
+            $filedThrough = (string) config('vat.filed_through', '');
+            $intoFiled = false;
             if (CzkTaxStatement::isTaxDocument($invoice)) {
                 $meta['rounding'] = VatRounding::METHOD; // how its VAT was rounded (§ 37, VatRounding)
+                // M4: its DUZP lies in a period the operator marked filed (ONHOST_VAT_FILED_THROUGH): the return and the KH of that
+                // period need a correction — the document says so, the audit and the report of that period too
+                if (preg_match('/^\d{4}-\d{2}$/', $filedThrough) === 1 && substr((string) $supplyDay, 0, 7) <= $filedThrough) {
+                    $meta['filed_period'] = substr((string) $supplyDay, 0, 7);
+                    $intoFiled = true;
+                }
             }
             $invoice->forceFill([
                 'meta' => $meta,
                 'number' => $allocated['number'],
                 'state' => Invoice::ISSUED,
                 'issued_at' => $issuedAt,
-                'supply_date' => AccountingClock::date($supplyDate ?? $issuedAt), // a DATE on a document is the accounting day, not the day in UTC
+                'supply_date' => $supplyDay,
                 'due_at' => $issuedAt->copy()->addDays($dueDays),
                 'payment_reference' => InvoiceNumberAllocator::variableSymbol($allocated['number']),
             ])->save();
@@ -315,6 +347,9 @@ final class InvoiceService
                 $this->postReceivable($invoice);
             }
             $this->audit->record($context->withScope($invoice->organization_id), 'invoice.issue', 'succeeded', ['number' => $invoice->number, 'type' => $invoice->type, 'total' => $invoice->total()], 'invoice', $invoice->id);
+            if ($intoFiled) {
+                $this->audit->record($context->withScope($invoice->organization_id), 'invoice.duzp_in_filed_period', 'succeeded', ['number' => $invoice->number, 'type' => $invoice->type, 'supply_date' => $supplyDay, 'filed_through' => $filedThrough], 'invoice', $invoice->id);
+            }
             $this->outbox->publish(GenericEvent::of('invoice.issued', 'invoice', $invoice->id, ['number' => $invoice->number, 'type' => $invoice->type, 'total' => $invoice->total(), 'due_at' => $invoice->due_at?->toISOString()], $invoice->organization_id));
 
             return $invoice;
@@ -630,7 +665,7 @@ final class InvoiceService
      * without a proforma) — only when it pays exactly that amount in that currency. Its lines are the VAT of what it pays for,
      * one per rate: the tax document for the received payment states the same base and VAT the final invoice will deduct.
      *
-     * @return array{lines:list<array<string,mixed>>, for:array<string,?string>}|null
+     * @return array{lines:list<array<string,mixed>>, for:array<string,?string>}|array{prepayment_for:array<string,?string>}|null
      */
     private function advanceSource(PaymentIntent $intent, Organization $organization, Money $gross): ?array
     {
@@ -645,6 +680,17 @@ final class InvoiceService
         }
         $source = $proforma !== null ? $proforma->lines()->get()->map(fn (InvoiceLine $l) => [(string) $l->tax_rate, (string) $l->tax_category, (int) $l->net_minor, (int) $l->tax_minor, (int) $l->total_minor])
             : ($order !== null ? $order->items()->get()->map(fn (OrderItem $i) => [(string) $i->tax_rate, (string) ($i->config['tax_category'] ?? 'S'), (int) $i->unit_net_minor * (int) $i->qty - (int) $i->discount_minor, (int) $i->tax_minor, (int) $i->total_minor]) : null);
+        // H2: one advance per order (or per proforma without an order). Under the order's (proforma's) lock: a second payment of the
+        // same order — the proforma paid by card and the order's transfer, a payment made twice — is a prepayment, credit; the
+        // final invoice deducts only the first. A credited advance (returned) leaves room for a new one.
+        $holder = $order !== null ? Order::query()->whereKey($order->id)->lockForUpdate()->first() : ($proforma !== null ? Invoice::query()->whereKey($proforma->id)->lockForUpdate()->first() : null);
+        if ($holder !== null) {
+            $taken = Invoice::query()->where('organization_id', $organization->id)->where('type', 'receipt')->whereNotIn('state', [Invoice::DRAFT, Invoice::CANCELLED, Invoice::CREDITED])
+                ->where($order !== null ? 'meta->advance_for->order_id' : 'meta->advance_for->proforma_id', $order !== null ? $order->id : $proforma?->id)->exists();
+            if ($taken) {
+                return ['prepayment_for' => ['order_id' => $order?->id, 'order_number' => $order?->number, 'proforma_id' => $proforma?->id, 'proforma_number' => $proforma?->number]];
+            }
+        }
         $currency = $proforma->currency ?? $order->currency ?? null;
         if ($source === null || $source->isEmpty() || strtoupper((string) $currency) !== $gross->currency->value || (int) $source->sum(fn ($l) => $l[4]) !== $gross->minor) {
             return null; // not an advance of one known amount: the received amount alone decides (§ 37 (2))
@@ -673,22 +719,52 @@ final class InvoiceService
      * order without a proforma (a card order keeps the G1 receipt + statement) and none while its payment got a payment confirmation
      * (a seller who is no VAT payer — no tax document to deduct).
      *
+     * H2: only what fits is deducted — the advances in the order they were received, each whole or not at all, never more than the
+     * final invoice states in total or at any rate; an advance a credit note touched is not deducted (it was corrected on its own).
+     *
+     * @param  list<array<string,mixed>>  $lines  the final invoice's lines
      * @return list<array<string,mixed>>
      */
-    private function advancesOf(Order $order): array
+    private function advancesOf(Order $order, array $lines): array
     {
         $proforma = Invoice::query()->where('order_id', $order->id)->where('type', 'proforma')->where('state', Invoice::PAID)->orderByDesc('created_at')->first();
         if ($proforma === null) {
             return [];
         }
-
-        return Invoice::query()->where('organization_id', $order->organization_id)->where('type', 'receipt')->where('meta->advance_for->order_id', $order->id)
-            ->whereNotIn('state', [Invoice::DRAFT, Invoice::CANCELLED])->orderBy('issued_at')->get()
-            ->map(fn (Invoice $r) => [
+        $room = ['total' => 0, 'rates' => []];
+        foreach ($lines as $line) {
+            $key = $line['tax_rate'].'|'.($line['tax_category'] ?? 'S');
+            $room['rates'][$key] ??= ['net' => 0, 'tax' => 0];
+            $room['rates'][$key]['net'] += (int) $line['net'];
+            $room['rates'][$key]['tax'] += (int) $line['tax'];
+            $room['total'] += (int) $line['total'];
+        }
+        $deducted = [];
+        $receipts = Invoice::query()->where('organization_id', $order->organization_id)->where('type', 'receipt')->where('meta->advance_for->order_id', $order->id)
+            ->whereNotIn('state', [Invoice::DRAFT, Invoice::CANCELLED, Invoice::CREDITED])->where('credited_minor', 0)->orderBy('issued_at')->orderBy('number')->get();
+        foreach ($receipts as $r) {
+            $fits = (int) $r->total_minor > 0 && (int) $r->total_minor <= $room['total'];
+            foreach ((array) $r->tax_summary as $row) {
+                $key = ($row['rate'] ?? '0').'|'.($row['category'] ?? 'S');
+                $fits = $fits && isset($room['rates'][$key]) && (int) $row['net'] <= $room['rates'][$key]['net'] && (int) $row['tax'] <= $room['rates'][$key]['tax'];
+            }
+            if (! $fits) {
+                continue;
+            }
+            $room['total'] -= (int) $r->total_minor;
+            foreach ((array) $r->tax_summary as $row) {
+                $key = ($row['rate'] ?? '0').'|'.($row['category'] ?? 'S');
+                $room['rates'][$key]['net'] -= (int) $row['net'];
+                $room['rates'][$key]['tax'] -= (int) $row['tax'];
+            }
+            $deducted[] = [
                 'id' => $r->id, 'number' => $r->number, 'supply_date' => $r->supply_date?->format('Y-m-d'), 'proforma_number' => $proforma->number,
                 'net_minor' => (int) $r->subtotal_minor - (int) $r->discount_minor, 'tax_minor' => (int) $r->tax_minor, 'total_minor' => (int) $r->total_minor,
                 'summary' => array_values((array) $r->tax_summary), 'czk' => is_array($r->meta['czk'] ?? null) ? $r->meta['czk'] : null,
-            ])->values()->all();
+            ];
+        }
+
+        return $deducted;
     }
 
     /** The day a payment was received: the bank's booking day of the matched transfer, else the day it was settled. */

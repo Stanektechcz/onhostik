@@ -142,8 +142,8 @@ Tests: `tests/Feature/Billing/G1OnlyInvoiceTest.php`, `tests/Feature/E2E/Billing
 ## VAT payer mode, proformas and the final invoice (G2, owner decision G-R1, 2026-10-05)
 
 The platform runs as a VAT payer or as a seller who is not one; the mode is configuration (`ONHOST_VAT_PAYER`) written to the
-legal entity with `php artisan onhost:vat:payer-mode --apply` (CommandBus, CRITICAL), shown by `onhost:doctor` (row **VAT payer
-mode**, with the remedy when the two disagree). Switching never changes an issued document — each froze its seller. A non-payer
+legal entity by finance with a step-up and a second person (`POST /v1/staff/tax/vat-payer-mode`, CommandBus, CRITICAL), shown by
+`onhost:doctor` (row **VAT payer mode**, with the remedy when the two disagree). Switching never changes an issued document — each froze its seller. A non-payer
 charges no VAT (the tax engine decides `E`), issues no tax document and its EUR invoice has **no CZK VAT recap** (the open G1
 issue: it carried a zero "VAT in CZK" and entered the recap).
 

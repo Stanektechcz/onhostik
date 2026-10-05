@@ -28,6 +28,9 @@ final class SetVatPayerModeCommandHandler implements CommandHandler
         if (! is_bool($payer)) {
             throw new DomainError('vat_payer_mode_invalid', 'The mode is payer (true) or non-payer (false).', 422, ['field' => 'payer']);
         }
+        if (mb_strlen(trim((string) $command->get('reason', ''))) < 10) {
+            throw new DomainError('vat_payer_mode_unexplained', 'Say why the mode changes (from when, which registration).', 422, ['field' => 'reason']);
+        }
         $entity = VatPayerMode::legalEntity();
         if ($entity === null) {
             throw new DomainError('legal_entity_missing', 'Legal entity is not configured; run LegalEntitySeeder.', 500);
@@ -36,8 +39,9 @@ final class SetVatPayerModeCommandHandler implements CommandHandler
         if ($changed) {
             $meta = (array) $entity->meta;
             $history = array_values((array) ($meta['vat_payer_history'] ?? []));
-            $history[] = ['payer' => $payer, 'from' => now()->toIso8601String(), 'by' => $context->actorType.':'.($context->actorId ?? 'system'), 'reason' => mb_substr((string) $command->get('reason', ''), 0, 500)];
+            $history[] = ['payer' => $payer, 'from' => now()->toIso8601String(), 'by' => $context->actorType.':'.($context->actorId ?? 'system'), 'approvals' => $context->verifiedApprovalIds, 'reason' => mb_substr((string) $command->get('reason', ''), 0, 500)];
             $entity->forceFill(['vat_payer' => $payer, 'meta' => array_merge($meta, ['vat_payer_history' => $history])])->save();
+            VatPayerMode::forget();
         }
 
         return ['legal_entity' => (string) $entity->key, 'payer' => $payer, 'changed' => $changed];

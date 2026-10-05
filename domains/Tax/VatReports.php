@@ -57,8 +57,9 @@ final class VatReports
         $threshold = max(0, (int) config('vat.kh_threshold_czk', 10000)) * 100;
         $a4 = [];
         $a5 = [];
-        $warnings = [];
-        foreach ($this->documents($p) as $doc) {
+        $documents = $this->documents($p);
+        $warnings = $this->filedWarnings($p, $documents);
+        foreach ($documents as $doc) {
             $rows = $this->czkRows($doc, $warnings);
             if ($rows === null) {
                 continue;
@@ -96,9 +97,10 @@ final class VatReports
     public function sh(string $period): array
     {
         $p = self::period($period);
-        $warnings = [];
         $byBuyer = [];
-        foreach ($this->documents($p) as $doc) {
+        $documents = $this->documents($p);
+        $warnings = $this->filedWarnings($p, $documents);
+        foreach ($documents as $doc) {
             $rows = $this->czkRows($doc, $warnings);
             if ($rows === null) {
                 continue;
@@ -275,19 +277,85 @@ final class VatReports
             $rows[self::rate((string) ($row['rate'] ?? '0')).'|'.$category] = ['rate' => self::rate((string) ($row['rate'] ?? '0')), 'category' => $category,
                 'net' => (int) ($czk ? ($row['net'] ?? 0) : ($row['net_minor'] ?? 0)), 'tax' => (int) ($czk ? ($row['tax'] ?? 0) : ($row['tax_minor'] ?? 0))];
         }
-        foreach ((array) ($doc->meta['advances'] ?? []) as $advance) { // the advance's tax document reported this part already
-            $advanceCzk = is_array($advance['czk'] ?? null) ? (array) $advance['czk']['summary'] : null;
-            foreach ((array) ($advance['summary'] ?? []) as $i => $row) {
-                $key = self::rate((string) ($row['rate'] ?? '0')).'|'.(string) ($row['category'] ?? 'S');
-                if (! isset($rows[$key])) {
-                    continue;
+        // the advance's tax document reported this part already. Its amounts are read from the receipt itself now (M3, security
+        // review of #106): the snapshot on the final invoice was taken when the advance's CZK rate may not have been known yet
+        foreach ((array) ($doc->meta['advances'] ?? []) as $advance) {
+            $deduct = $this->advanceRows(is_array($advance) ? $advance : [], $czk);
+            if ($deduct === null) {
+                $warnings[] = "{$doc->number}: its advance ".((string) ($advance['number'] ?? '?')).' has no CZK rate yet (onhost:fx:sync) — left out';
+
+                return null;
+            }
+            foreach ($deduct as $key => $amounts) {
+                if (isset($rows[$key])) {
+                    $rows[$key]['net'] -= $amounts['net'];
+                    $rows[$key]['tax'] -= $amounts['tax'];
                 }
-                $rows[$key]['net'] -= (int) ($czk ? ($row['net'] ?? 0) : ($advanceCzk[$i]['net_minor'] ?? 0));
-                $rows[$key]['tax'] -= (int) ($czk ? ($row['tax'] ?? 0) : ($advanceCzk[$i]['tax_minor'] ?? 0));
+            }
+        }
+        foreach ($rows as $key => $row) { // H2: an advance never takes a final invoice below zero — cut, and said
+            if ($doc->type !== 'credit_note' && ($row['net'] < 0 || $row['tax'] < 0)) {
+                $warnings[] = "{$doc->number}: the advances it deducts exceed what it states at {$row['rate']} % — counted as 0, check by hand";
+                $rows[$key]['net'] = max(0, $row['net']);
+                $rows[$key]['tax'] = max(0, $row['tax']);
             }
         }
 
         return array_values($rows);
+    }
+
+    /**
+     * What one deducted advance stated per rate, in CZK: a CZK advance as the receipt states it, another currency by the receipt's
+     * CZK recap as it is now. Null while that recap is not known.
+     *
+     * @param  array<string,mixed>  $advance
+     * @return array<string, array{net:int, tax:int}>|null
+     */
+    private function advanceRows(array $advance, bool $czk): ?array
+    {
+        $receipt = isset($advance['id']) ? Invoice::query()->find((string) $advance['id']) : null;
+        $out = [];
+        if ($czk) {
+            foreach ((array) ($receipt->tax_summary ?? $advance['summary'] ?? []) as $row) {
+                $key = self::rate((string) ($row['rate'] ?? '0')).'|'.(string) ($row['category'] ?? 'S');
+                $out[$key] = ['net' => ($out[$key]['net'] ?? 0) + (int) ($row['net'] ?? 0), 'tax' => ($out[$key]['tax'] ?? 0) + (int) ($row['tax'] ?? 0)];
+            }
+
+            return $out;
+        }
+        $recap = $receipt !== null ? ($receipt->meta['czk'] ?? null) : ($advance['czk'] ?? null);
+        if (! is_array($recap)) {
+            return null;
+        }
+        foreach ((array) ($recap['summary'] ?? []) as $row) {
+            $key = self::rate((string) ($row['rate'] ?? '0')).'|'.(string) ($row['category'] ?? 'S');
+            $out[$key] = ['net' => ($out[$key]['net'] ?? 0) + (int) ($row['net_minor'] ?? 0), 'tax' => ($out[$key]['tax'] ?? 0) + (int) ($row['tax_minor'] ?? 0)];
+        }
+
+        return $out;
+    }
+
+    /**
+     * M4: the period, or part of it, is marked filed (ONHOST_VAT_FILED_THROUGH) and documents were issued into it afterwards
+     * (`meta.filed_period`): the filed return and KH/SH need a correction.
+     *
+     * @param  array{from:string, to:string}  $p
+     * @param  list<Invoice>  $documents
+     * @return list<string>
+     */
+    private function filedWarnings(array $p, array $documents): array
+    {
+        $filed = (string) config('vat.filed_through', '');
+        if (preg_match('/^\d{4}-\d{2}$/', $filed) !== 1 || substr($p['from'], 0, 7) > $filed) {
+            return [];
+        }
+        $late = array_values(array_map(fn (Invoice $d) => (string) $d->number, array_filter($documents, fn (Invoice $d) => isset($d->meta['filed_period']))));
+        $out = ['period '.substr($p['from'], 0, 7).($p['from'] !== $p['to'] && substr($p['to'], 0, 7) !== substr($p['from'], 0, 7) ? '–'.substr($p['to'], 0, 7) : '')." is marked filed (ONHOST_VAT_FILED_THROUGH={$filed}) — this is a draft of a correction"];
+        if ($late !== []) {
+            $out[] = 'issued into the filed period afterwards (a corrective/následné report is due): '.implode(', ', $late);
+        }
+
+        return $out;
     }
 
     /** A4: a buyer registered for VAT in CZ and a document above the threshold — a credit note follows the document it corrects. */

@@ -29,7 +29,7 @@ final class InvoicePdfRenderer
         $lines = $invoice->lines()->get();
         $sellerVatPayer = (bool) ($invoice->seller['vat_payer'] ?? true); // as the document froze the seller
         $advances = array_values(array_filter((array) ($invoice->meta['advances'] ?? []), 'is_array'));
-        $deducted = array_sum(array_map(fn (array $a) => (int) ($a['total_minor'] ?? 0), $advances));
+        $deducted = self::deductedTotal($invoice);
 
         return $this->views->make('invoices.invoice', [
             'invoice' => $invoice,
@@ -39,7 +39,7 @@ final class InvoicePdfRenderer
             'taxDocument' => CzkTaxStatement::isTaxDocument($invoice),
             'sellerVatPayer' => $sellerVatPayer,
             'advances' => $advances,
-            'advanceVat' => self::advanceVat($advances),
+            'advanceVat' => self::deductedVat($invoice),
             'deducted' => $deducted,
         ])->render();
     }
@@ -63,6 +63,34 @@ final class InvoicePdfRenderer
         }
 
         return $out;
+    }
+
+    /**
+     * What a final invoice deducts, per rate — never more than the document states at that rate (H2, security review of #106):
+     * advances that claim more (a forged or an old row) are cut to the document's recap, so no difference goes below zero.
+     *
+     * @return array<string, array{rate:string, category:string, net:int, tax:int}>
+     */
+    public static function deductedVat(Invoice $invoice): array
+    {
+        $own = [];
+        foreach ((array) $invoice->tax_summary as $row) {
+            $own[($row['rate'] ?? '0').'|'.($row['category'] ?? 'S')] = ['net' => (int) ($row['net'] ?? 0), 'tax' => (int) ($row['tax'] ?? 0)];
+        }
+        $out = [];
+        foreach (self::advanceVat(array_values(array_filter((array) ($invoice->meta['advances'] ?? []), 'is_array'))) as $key => $row) {
+            $out[$key] = ['rate' => $row['rate'], 'category' => $row['category'], 'net' => max(0, min($row['net'], $own[$key]['net'] ?? 0)), 'tax' => max(0, min($row['tax'], $own[$key]['tax'] ?? 0))];
+        }
+
+        return $out;
+    }
+
+    /** What a final invoice deducts in total: the advances, never more than the document's total. */
+    public static function deductedTotal(Invoice $invoice): int
+    {
+        $advances = array_sum(array_map(fn ($a) => is_array($a) ? (int) ($a['total_minor'] ?? 0) : 0, (array) ($invoice->meta['advances'] ?? [])));
+
+        return max(0, min($advances, (int) $invoice->total_minor));
     }
 
     /**

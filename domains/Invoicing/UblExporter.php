@@ -170,9 +170,8 @@ final class UblExporter
     /** What was paid before this document is settled: its own payments, or the advances a final invoice deducts (G2). */
     private static function prepaid(Invoice $invoice): int
     {
-        $advances = array_sum(array_map(fn ($a) => is_array($a) ? (int) ($a['total_minor'] ?? 0) : 0, (array) ($invoice->meta['advances'] ?? [])));
-
-        return max((int) $invoice->paid_minor, $advances);
+        // never more than the document's total: a payable amount below zero would ask the buyer's system to pay the seller back (H2)
+        return max(0, min((int) $invoice->total_minor, max((int) $invoice->paid_minor, InvoicePdfRenderer::deductedTotal($invoice))));
     }
 
     private function exemptionReason(string $category): ?string

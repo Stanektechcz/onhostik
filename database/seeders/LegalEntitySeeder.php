@@ -18,7 +18,7 @@ final class LegalEntitySeeder extends Seeder
     public function run(): void
     {
         $legal = fn (string $key, string $placeholder) => (string) config("onhost.legal_entity.{$key}", '') !== '' ? (string) config("onhost.legal_entity.{$key}") : $placeholder; // config survives config:cache, env() does not
-        LegalEntity::query()->updateOrCreate(['key' => 'onhost-cz'], [
+        $entity = LegalEntity::query()->updateOrCreate(['key' => 'onhost-cz'], [
             'name' => $legal('name', 'ONhost s.r.o.'),
             'ico' => $legal('ico', '00000000'),
             'dic' => $legal('dic', 'CZ00000000'),
@@ -29,9 +29,14 @@ final class LegalEntitySeeder extends Seeder
             'bic' => $legal('bic', 'XXXXCZPP'),
             'bank_account' => $legal('bank_account', '000000-0000000000/0000'),
             'series' => ['invoice' => 'FV', 'credit_note' => 'DK', 'proforma' => 'PF', 'receipt' => 'PP', 'correction' => 'OD', 'statement' => 'VY'],
-            'vat_payer' => (bool) config('vat.payer', true), // G2: the declared VAT mode (ONHOST_VAT_PAYER); onhost:vat:payer-mode --apply switches it later
             'meta' => ['registry' => 'Městský soud v Praze, oddíl C', 'oss' => true],
         ]);
+        // G2: the declared VAT mode (ONHOST_VAT_PAYER) only for a legal entity created now; an existing one keeps its mode — it is
+        // switched by finance with a step-up and a second person (POST /v1/staff/tax/vat-payer-mode), never by a seeder run
+        $entity = LegalEntity::query()->findOrFail('onhost-cz');
+        if ($entity->wasRecentlyCreated || $entity->getAttribute('vat_payer') === null) {
+            $entity->forceFill(['vat_payer' => (bool) config('vat.payer', true)])->save();
+        }
 
         foreach ([
             ['terms', '2026-09', ['cs' => 'Všeobecné obchodní podmínky', 'en' => 'Terms of Service'], '/dokumenty/vop', true],

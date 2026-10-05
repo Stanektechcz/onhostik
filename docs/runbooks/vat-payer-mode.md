@@ -13,22 +13,26 @@ questions are at the end.
 | active tax rules `supplier.vat_payer` | can only narrow it (a rule set that says `false` makes the seller a non-payer) |
 | `Onhost\Domain\Tax\VatPayerMode` | the one answer: payer = legal entity **and** tax rules |
 
-**Switching** is configuration plus the legal entity, never code:
+**Switching** is configuration plus the legal entity, never code — and it is a person's CRITICAL action (security review of
+#106: the first version switched from the command line as the system, with no step-up and no second person):
 
-```
-# .env: ONHOST_VAT_PAYER=false (or true), then
-php artisan config:cache
-php artisan onhost:vat:payer-mode            # shows the mode; exit 1 while the declaration and the legal entity disagree
-php artisan onhost:vat:payer-mode --apply --reason="Registrace k DPH od 1. 1. 2027"
-```
+1. declare the mode: `.env` `ONHOST_VAT_PAYER=false` (or `true`), `php artisan config:cache`; `php artisan onhost:vat:payer-mode`
+   shows the mode and exits 1 while the declaration and the legal entity disagree (it never switches: `--apply` is refused);
+2. a member of finance (`billing.tax_rule.manage`) with a fresh step-up sends `POST /v1/staff/tax/vat-payer-mode`
+   `{payer: false, reason: "Registrace k DPH zrušena od 1. 11. 2026"}` (`GET` shows the report). The answer is 403
+   `approval_required` with the `approval_id` of the request;
+3. somebody else approves it (`POST /v1/staff/approvals/{id}/decision`, Nastavení → Schvalování);
+4. the same request is repeated with `approval_ids: [id]`: `SetVatPayerModeCommand` runs once (audit `tax.vat_payer_mode.set`,
+   the legal entity keeps the history: from when, which mode, who, the approval, why). The approval binds this very body; the
+   idempotency key is the approval being consumed. With `ONHOST_FOUR_EYES=false` the sole approver's own switch waits the time lock
+   (docs/runbooks/approvals.md).
 
-`--apply` dispatches `SetVatPayerModeCommand` (CRITICAL, permission `billing.tax_rule.manage`) through the CommandBus with the
-`cli:vat:payer-mode` system context; the audit row is `tax.vat_payer_mode.set`, the legal entity keeps the history (from when,
-which mode, who, why). `LegalEntitySeeder` (and `onhost:production:prepare --legal`) write the declared mode too.
+`LegalEntitySeeder` (and `onhost:production:prepare --legal`) writes the declared mode only into a legal entity it creates, never
+over an existing one.
 
 `onhost:doctor`, area `documents`, row **VAT payer mode**: the mode in force, the legal entity's, the declaration and the tax
-rules'; not OK (blocking in production) while they disagree, with the remedy (`onhost:vat:payer-mode --apply`, or a tax rule
-version that agrees).
+rules'; not OK (blocking in production) while they disagree, with the remedy (the staff switch above, or a tax rule version that
+agrees).
 
 **What the mode changes, from the moment it is applied:**
 
@@ -107,6 +111,23 @@ Read only (`Onhost\Domain\Tax\VatReports`): nothing is written or submitted; the
   (a credit note adds none), value in whole CZK (credit notes reduce it).
 
 Tests: `tests/Feature/Tax/G2VatPayerTest.php`.
+
+## Advances that cannot be deducted twice, and periods already filed
+
+* **One advance per order** (per proforma without an order): the first payment of an order gets the tax document for the
+  received payment with `meta.advance_for`; a second payment of the same order (the proforma paid by card and the transfer, a
+  payment made twice) gets a plain receipt with `meta.prepayment_for` — a prepayment that stays credit — decided under the
+  order's lock. The final invoice deducts the advances in the order they arrived, each whole or not at all, never more than it
+  states in total or at any rate; an advance a credit note touched is not deducted. The PDF, the UBL (`PrepaidAmount` ≤ total,
+  `PayableAmount` ≥ 0) and the KH (a row below zero is counted as 0 with a warning) never go below zero, also for a document
+  whose advances were written by hand.
+* **One document per payment**: the payment intent is locked while its document is decided (two callbacks wait for each other).
+* **One final document per order**: decided under the order's lock; a retry returns the document already made.
+* **CZK of the advance** in the KH is read from the receipt at report time; a final invoice whose advance still waits for its
+  rate is left out with a warning until `onhost:fx:sync` completes the receipt.
+* **Filed periods**: `ONHOST_VAT_FILED_THROUGH=YYYY-MM` (the last period finance filed). A tax document whose DUZP falls into it
+  or before (a transfer booked on 31 October and matched on 1 November) gets `meta.filed_period` and the audit row
+  `invoice.duzp_in_filed_period`; the KH/SH of a filed period warns that it is a correction draft and lists those documents.
 
 ## For the accountant (open questions)
 

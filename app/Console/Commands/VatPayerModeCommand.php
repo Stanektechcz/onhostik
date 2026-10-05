@@ -5,37 +5,28 @@ declare(strict_types=1);
 namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
-use Onhost\Domain\Tax\Commands\SetVatPayerModeCommand;
 use Onhost\Domain\Tax\VatPayerMode;
-use Onhost\Platform\Commands\CommandBus;
-use Onhost\Platform\Commands\CommandContext;
-use Onhost\Platform\Errors\DomainError;
 
 /**
- * The seller's VAT mode (G2): shows the mode in force — the declared one (ONHOST_VAT_PAYER), the legal entity's and the tax rules'
- * — and with `--apply` writes the declared mode to the legal entity through the CommandBus. Documents already issued keep the
- * mode they were issued in (docs/runbooks/vat-payer-mode.md). Exit 1 while the declared mode and the legal entity disagree.
+ * The seller's VAT mode (G2): shows the mode in force — the declared one (ONHOST_VAT_PAYER), the legal entity's and the tax rules'.
+ * Exit 1 while the declaration and the legal entity disagree.
+ *
+ * It never switches the mode (security review of #106): the switch decides whether every following document states VAT, so it is
+ * a CRITICAL action of a person — a member of finance with a fresh step-up and a second person who approves it —
+ * `POST /v1/staff/tax/vat-payer-mode`. The command line ran it as the system, with neither; `--apply` is refused now.
  */
 final class VatPayerModeCommand extends Command
 {
-    protected $signature = 'onhost:vat:payer-mode {--apply : Write the mode ONHOST_VAT_PAYER declares to the legal entity} {--reason= : Why the mode changes (kept in the legal entity\'s history)}';
+    protected $signature = 'onhost:vat:payer-mode {--apply : Refused — the mode is switched by finance with a step-up and four eyes}';
 
-    protected $description = 'Show the VAT payer mode, or write the declared mode (ONHOST_VAT_PAYER) to the legal entity';
+    protected $description = 'Show the VAT payer mode in force (the switch is a staff action with four eyes: POST /v1/staff/tax/vat-payer-mode)';
 
-    public function handle(CommandBus $bus, VatPayerMode $mode): int
+    public function handle(VatPayerMode $mode): int
     {
         if ($this->option('apply')) {
-            $declared = (bool) config('vat.payer', true);
-            try {
-                $result = $bus->dispatch(new SetVatPayerModeCommand('vat.payer-mode:'.($declared ? 'payer' : 'non-payer').':'.now()->format('YmdHis'), [
-                    'payer' => $declared, 'reason' => (string) ($this->option('reason') ?: 'ONHOST_VAT_PAYER='.($declared ? 'true' : 'false')),
-                ]), CommandContext::system('cli:vat:payer-mode'));
-            } catch (DomainError $e) {
-                $this->error("{$e->error}: {$e->getMessage()}");
+            $this->error('The VAT mode is not switched from the command line: a member of finance switches it with a step-up and a second person — POST /v1/staff/tax/vat-payer-mode {payer, reason} (docs/runbooks/vat-payer-mode.md).');
 
-                return self::FAILURE;
-            }
-            $this->info(($result['changed'] ? 'Legal entity '.$result['legal_entity'].' is now ' : 'Legal entity '.$result['legal_entity'].' already is ').($result['payer'] ? 'a VAT payer.' : 'not a VAT payer.'));
+            return self::FAILURE;
         }
         $report = $mode->report();
         $this->line($report['detail']);
