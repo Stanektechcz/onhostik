@@ -49,3 +49,46 @@ jako směr**. Jejich provedení na živých systémech dál potřebuje výslovn�
 | F-1 | Dokumenty ručních testů hlídají testy: cesty, události, odkazy E2E a matice rolí. Matice rolí se generuje (`onhost:docs:roles --check` v CI). | #94, #95, #97, #98 | Dokument, který se rozejde s kódem, shodí CI. |
 | F-2 | Čekající (nepotvrzený) refund se zákazníkovi nikdy neoznamuje. | #99 | `payment.refunded` jde až po potvrzení refundu. |
 | F-3 | Seeder nastavuje stav poskytovatele jen při vytvoření záznamu. | #99 | Stav, který nastavil operátor, opakovaný seed nepřepíše. |
+
+## Rozhodnutí vlastníka ve fázi G (2026-10-05)
+
+| # | Rozhodnutí | Provedeno | Poznámka |
+|---|---|---|---|
+| G-R3 | Čerpání kreditu zůstává: **nejdřív zakoupený kredit**, potom vrácený, bonusový a kredit od personálu; co nepokryje ani jeden, je dluh, který další kredit zaplatí jako první. | TASK-0112 (G4) | `RefundableCredit::replay` se nemění (potvrzuje E-R2). `RefundableCredit::of` už není strop výplaty, jen měřítko nevyčerpaného zakoupeného kreditu; pořadí hlídá `RefundableBalanceTest`. |
+| G-R4 | **Kredit nelze vrátit v hotovosti** (na účet ani na kartu) v žádné vrstvě. | TASK-0112 (G4) | `WalletService::refund` a `refundableBalance` jsou odstraněné, webhook `wallet.refund.requested` zmizel z katalogu, žádná cesta API, staff ani příkaz kredit nevyplácí (`G4NoCashRefundTest`). VOP čl. 2 bod 3 a článek znalostní báze „Firemní faktury, DPH a kredit“ to říkají výslovně. Tabulka `wallet_refunds` zůstává kvůli historii. |
+
+### G-R4: zákonná výjimka – odstoupení spotřebitele (§ 1831 OZ)
+
+Citace § 1831/§ 1832 OZ je výklad pro vývoj a **musí ji potvrdit právník** (viz `resources/legal/LEGAL_REVIEW_withdrawal.md`).
+Zákon (§ 1831 občanského zákoníku, čl. 13 směrnice 2011/83/EU) podle tohoto výkladu ukládá vrátit spotřebiteli, který odstoupil od smlouvy
+uzavřené na dálku, přijaté peníze do 14 dnů **stejným způsobem, jakým je zaplatil**; jiným způsobem jen tehdy, když s tím
+spotřebitel výslovně souhlasí a nevzniknou mu tím náklady. Proto platí:
+
+- **Vratka na kredit** při odstoupení je zákonná jen s výslovným souhlasem. Systém ho vyžaduje: v panelu
+  `confirm_refund_to_credit`, u oznámení e-mailem nebo dopisem `refund_to_credit_agreed` (personál potvrzuje, že souhlas je
+  v oznámení). Vrácená částka je vrácený kredit (`refundable = false`) a v hotovosti se nevyplácí.
+- **Bez souhlasu** se vrací **platba za odstoupenou smlouvu** původním způsobem: platba kartou zpět na tutéž kartu
+  (`PaymentService::refund` platby objednávky), převod převodem. Nejde o výplatu kreditu a nikdy víc, než kolik stála
+  odstoupená smlouva. Objednávka zaplacená z kreditu se vrací na kredit (to je stejný způsob). Zda lze odstoupit i od
+  **dobití kreditu** a vrátit jeho nevyčerpanou část na kartu, je **otevřené rozhodnutí** vlastníka a právníka (otázka 1
+  níže); do jeho rozhodnutí systém dobití nevrací: `PaymentService::refund` platbu s `purpose = topup` odmítne
+  (`422 topup_not_refundable`, G1 #103, TASK-0111).
+- **Stav dnes:** tato cesta v systému není. Panel i staff odstoupení bez souhlasu odmítnou (422), poučení slibuje vrácení
+  původním způsobem „na žádost podpoře“ a `PaymentService::refund` nikdo nevolá. Napojení (staff akce se step-upem, jen
+  platba objednávky, nikdy `purpose = topup`) patří do G6.
+
+### Otevřené otázky pro vlastníka (G-R4)
+
+1. **Dobití kreditu a odstoupení** (vlastník + právník). Je dobití kreditu spotřebitelem samostatná smlouva, od níž lze do
+   14 dnů odstoupit s vrácením na kartu? Pokud ano, je to druhá zákonná výjimka (jejím stropem by mohl být nevyčerpaný
+   zakoupený kredit, `RefundableCredit::of`). Poučení (čl. 2) dřív slibovalo „předplacený kredit nevyužitý v době
+   odstoupení vracíme v plné výši“, což odporovalo VOP čl. 2 bod 3; v G4 je věta přeformulovaná neutrálně (platby se
+   vracejí podle čl. 8 VOP a zákona, kredit se v hotovosti nevyplácí) a otázku nerozhoduje.
+2. **Zůstatek kreditu při zrušení účtu** (žádost o výmaz). Kredit propadne, nebo se smí vyplatit? Dnes výmaz zůstatek neřeší.
+3. **Nová verze VOP.** Čl. 2 bod 3 VOP byl upřesněn bez změny verze `2026-09` (stejně jako dřívější úpravy, viz
+   `resources/legal/LEGAL_REVIEW_withdrawal.md` otázka 6). Totéž platí pro upravený čl. 2 poučení `withdrawal_waiver`.
+   Rozhodněte, zda vydat nové verze.
+4. **Prototypové obrazovky stále slibují vrácení kreditu** (jsou byte-identické, v G4 se neměnily):
+   `apps/surfaces/onhost-content.js:244` (článek znalostní báze v demo režimu), `apps/surfaces/Onhost-admin.dc.html:1460`,
+   `:2864`, `:2957`, `:2961` a `:4565` (vyprávěná data administrace). Produkční režim čte článek z databáze (opraveno);
+   prototypové texty se opraví přes seam v G8.

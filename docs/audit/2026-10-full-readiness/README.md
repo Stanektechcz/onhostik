@@ -369,7 +369,7 @@ Technické navazující body:
 * Typ vazby „qemu“ je vidět zákazníkovi.
 * Nestabilní testy: `DiscordIntegrationTest` (dávka), `LexiconCoverageTest`, selhání `getenv()` jen při paralelním běhu, `ArchiveRestoreScopeTest`.
 * Neexistující role `support_agent` v `AdminLoyaltyCapacityViewsTest`, `StaffConsolePageTest`, `GameQuickCreateTest`.
-* `WalletService::refund` zatím nikdo nevolá.
+* ~~`WalletService::refund` zatím nikdo nevolá.~~ Nahrazeno: odstraněno v G4 (TASK-0112, G-R4 — kredit se v hotovosti nevyplácí).
 * R7: migrace se na nasazení může zastavit, pokud produkce obsahuje skutečné dvojí naúčtování; musí je vyřešit finance (viz go-live checklist §9).
 * Panel nemá UI pro opakované odeslání a ověření e-mailu (R5).
 
@@ -514,7 +514,7 @@ Opravy proti starším tabulkám:
 * UX rotace remember tokenu.
 * Typ vazby „qemu“ je vidět zákazníkovi.
 * UI pro opakované odeslání ověřovacího e-mailu (R5).
-* `WalletService::refund` a `PaymentService::refund` nemají v aplikaci volajícího.
+* `WalletService::refund` a `PaymentService::refund` nemají v aplikaci volajícího. Nahrazeno: `WalletService::refund` je odstraněný (G4, TASK-0112); `PaymentService::refund` zůstává pro zákonnou vratku platby při odstoupení (G6) se strážcem `purpose = topup` (G1).
 * Šablona e-mailu `payment.refunded`.
 * Cesta potvrzení bankovního refundu.
 * Token s oprávněním chatu může spustit předání (bus ignoruje oprávnění tokenu).

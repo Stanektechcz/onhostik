@@ -4,18 +4,19 @@ declare(strict_types=1);
 
 use Onhost\Domain\WalletLedger\LedgerService;
 use Onhost\Domain\WalletLedger\Models\LedgerTransaction;
-use Onhost\Domain\WalletLedger\Models\WalletRefund;
+use Onhost\Domain\WalletLedger\RefundableCredit;
 use Onhost\Domain\WalletLedger\WalletService;
-use Onhost\Platform\Errors\DomainError;
+use Onhost\Platform\Money\Currency;
 use Onhost\Platform\Money\Money;
 
 /*
- * What may leave the wallet as money (`WalletService::refundableBalance`, the cap of `refund()`): the purchased credit that
- * is still unspent — never the credit that came back from a correction (`returnToCredit`), bonus credit or a staff credit.
+ * The spend order of the account credit (owner decision G-R3, 2026-10-05): money the customer paid in is spent FIRST, credit
+ * that came back from a correction (`returnToCredit`), bonus credit and staff credit after it; what neither covers is a debt
+ * that later credit pays first. `RefundableCredit::replay` is that rule and stays as it is; `RefundableCredit::of` replays the
+ * ledger of one wallet and answers how much purchased credit is still unspent.
  *
- * The spend order is the platform's one rule for it (the bonus wallet follows it too): money the customer paid in is spent
- * FIRST, credit that cannot be paid out is spent after it. So the purchased part of a wallet is replayed from the ledger in the
- * order the money moved; a refund can never exceed it, nor what is available.
+ * Since G-R4 that amount is never paid out — the wallet has no cash refund (G4NoCashRefundTest). These cases pin the order
+ * itself (TASK-0099), which is what the open statutory exception in ROZHODNUTI.md G-R4 would be capped by.
  */
 
 /** Money spent from the credit on a service (a direct charge, revenue + VAT as a renewal books it). */
@@ -24,14 +25,19 @@ function refundableSpend(WalletService $wallets, object $org, int $czk, string $
     $wallets->charge($org, Money::decimal((string) $czk, 'CZK'), 'web', $key, $ctx, 'subscription', $key, Money::zero('CZK'));
 }
 
-/** Credit that comes back from a correction (the unused rest of a cancelled service): non-refundable by design. */
+/** Credit that comes back from a correction (the unused rest of a cancelled service): never purchased credit. */
 function refundableReturn(WalletService $wallets, object $org, int $czk, string $key, object $ctx): void
 {
     $gross = Money::decimal((string) $czk, 'CZK');
     $wallets->returnToCredit($org, $gross, WalletService::revenueReturn($gross, Money::zero('CZK')), $key, $ctx, 'service', $key);
 }
 
-it('refunds at most the unspent purchased credit: 1000 bought, 800 spent, 800 returned leaves 200 to pay out, not 1000', function () {
+function refundablePurchased(object $org, Currency $currency = Currency::CZK): int
+{
+    return RefundableCredit::of($org->id, $currency);
+}
+
+it('spends purchased credit first: 1000 bought, 800 spent, 800 returned leaves 200 purchased, not 1000', function () {
     [$owner, $org] = $this->customerWithOrganization();
     [$wallets, $ctx] = [app(WalletService::class), $this->contextFor($owner, $org)];
     $wallets->topup($org, Money::decimal('1000', 'CZK'), 'card', 'rb-top', $ctx, 'pi_rb', bankProvider: 'comgate');
@@ -39,14 +45,7 @@ it('refunds at most the unspent purchased credit: 1000 bought, 800 spent, 800 re
     refundableReturn($wallets, $org, 800, 'rb-return', $ctx);
 
     expect($wallets->balances($org, 'CZK')['available']->minor)->toBe(100000)
-        ->and($wallets->refundableBalance($org->id, 'CZK')->minor)->toBe(20000);
-    expect(fn () => $wallets->refund($org, Money::decimal('300', 'CZK'), 'customer request', 'rb-refund-too-much', $ctx, 'source', 'pi_rb'))
-        ->toThrow(DomainError::class, 'Refund exceeds the refundable purchased credit');
-    expect(WalletRefund::query()->where('organization_id', $org->id)->count())->toBe(0);
-
-    $wallets->refund($org, Money::decimal('200', 'CZK'), 'customer request', 'rb-refund', $ctx, 'source', 'pi_rb');
-    expect($wallets->refundableBalance($org->id, 'CZK')->minor)->toBe(0)
-        ->and($wallets->balances($org, 'CZK')['available']->minor)->toBe(80000) // the returned 800 stays as credit to spend
+        ->and(refundablePurchased($org))->toBe(20000)
         ->and(app(LedgerService::class)->verifyInvariant()['balanced'])->toBeTrue();
 });
 
@@ -55,12 +54,12 @@ it('spends the purchased credit first even when returned credit was there before
     [$wallets, $ctx] = [app(WalletService::class), $this->contextFor($owner, $org)];
     refundableReturn($wallets, $org, 800, 'rb2-return', $ctx);
     $wallets->topup($org, Money::decimal('1000', 'CZK'), 'card', 'rb2-top', $ctx, bankProvider: 'comgate');
-    expect($wallets->refundableBalance($org->id, 'CZK')->minor)->toBe(100000); // nothing spent yet: all that was bought
+    expect(refundablePurchased($org))->toBe(100000); // nothing spent yet: all that was bought
 
     refundableSpend($wallets, $org, 800, 'rb2-spend', $ctx);
 
     expect($wallets->balances($org, 'CZK')['available']->minor)->toBe(100000)
-        ->and($wallets->refundableBalance($org->id, 'CZK')->minor)->toBe(20000);
+        ->and(refundablePurchased($org))->toBe(20000);
 });
 
 it('takes what purchased credit does not cover from the other credit, and a later top-up pays a debt first', function () {
@@ -70,27 +69,17 @@ it('takes what purchased credit does not cover from the other credit, and a late
     refundableReturn($wallets, $org, 500, 'rb3-return', $ctx);
     refundableSpend($wallets, $org, 1200, 'rb3-spend', $ctx);
     expect($wallets->balances($org, 'CZK')['available']->minor)->toBe(30000)
-        ->and($wallets->refundableBalance($org->id, 'CZK')->minor)->toBe(0); // the 300 left is returned credit
+        ->and(refundablePurchased($org))->toBe(0); // the 300 left is returned credit
 
-    // metered usage may take the wallet below zero; the next top-up covers that debt before anything becomes refundable
+    // metered usage may take the wallet below zero; the next top-up covers that debt before anything counts as purchased
     $wallets->charge($org, Money::decimal('500', 'CZK'), 'web', 'rb3-usage', $ctx, allowNegative: true);
     expect($wallets->balances($org, 'CZK')['available']->minor)->toBe(-20000);
     $wallets->topup($org, Money::decimal('1000', 'CZK'), 'card', 'rb3-top-2', $ctx, bankProvider: 'comgate');
     expect($wallets->balances($org, 'CZK')['available']->minor)->toBe(80000)
-        ->and($wallets->refundableBalance($org->id, 'CZK')->minor)->toBe(80000);
+        ->and(refundablePurchased($org))->toBe(80000);
 });
 
-it('never offers more than is available: money held for an order is not refundable', function () {
-    [$owner, $org] = $this->customerWithOrganization();
-    [$wallets, $ctx] = [app(WalletService::class), $this->contextFor($owner, $org)];
-    $wallets->topup($org, Money::decimal('1000', 'CZK'), 'card', 'rb4-top', $ctx, bankProvider: 'comgate');
-    $wallets->hold($org, Money::decimal('600', 'CZK'), 'order', 'rb4-hold', $ctx, 'order', 'ord_rb4');
-
-    expect($wallets->refundableBalance($org->id, 'CZK')->minor)->toBe(40000);
-    expect(fn () => $wallets->refund($org, Money::decimal('500', 'CZK'), 'customer request', 'rb4-refund', $ctx))->toThrow(DomainError::class);
-});
-
-it('does not turn bonus credit or a staff credit into money', function () {
+it('never counts bonus credit or a staff credit as purchased', function () {
     [$owner, $org] = $this->customerWithOrganization();
     [$wallets, $ctx] = [app(WalletService::class), $this->contextFor($owner, $org)];
     $wallets->topup($org, Money::decimal('100', 'CZK'), 'card', 'rb5-top', $ctx, bankProvider: 'comgate');
@@ -99,67 +88,39 @@ it('does not turn bonus credit or a staff credit into money', function () {
     // an order of 350: the main wallet (100 bought + 300 goodwill) covers it; the bonus wallet stays untouched
     $hold = $wallets->hold($org, Money::decimal('350', 'CZK'), 'order', 'rb5-hold', $ctx, 'order', 'ord_rb5');
     $wallets->capture($hold, 'web', $ctx);
-    expect($wallets->refundableBalance($org->id, 'CZK')->minor)->toBe(0); // the 100 bought went into the order first
+    expect(refundablePurchased($org))->toBe(0); // the 100 bought went into the order first
 
-    // an order bigger than the main wallet pulls bonus credit in: it is spent, never refundable
+    // an order bigger than the main wallet pulls bonus credit in: it is spent, never purchased
     $wallets->topup($org, Money::decimal('200', 'CZK'), 'card', 'rb5-top-2', $ctx, bankProvider: 'comgate');
     $big = $wallets->hold($org, Money::decimal('400', 'CZK'), 'order', 'rb5-hold-2', $ctx, 'order', 'ord_rb5b');
     $wallets->capture($big, 'web', $ctx);
     expect($wallets->balances($org, 'CZK')['promo']->minor)->toBe(50000 - 15000)
-        ->and($wallets->refundableBalance($org->id, 'CZK')->minor)->toBe(0)
+        ->and(refundablePurchased($org))->toBe(0)
         ->and(app(LedgerService::class)->verifyInvariant()['balanced'])->toBeTrue();
 });
 
-it('counts a refund once: the same request again is the same refund, and the cap follows what was really paid out', function () {
+it('lets a staff debit take purchased credit like any spend, and counts a top-up delivered twice once', function () {
     [$owner, $org] = $this->customerWithOrganization();
     [$wallets, $ctx] = [app(WalletService::class), $this->contextFor($owner, $org)];
     $wallets->topup($org, Money::decimal('1000', 'CZK'), 'card', 'rb6-top', $ctx, 'pi_rb6', bankProvider: 'comgate');
     $wallets->topup($org, Money::decimal('1000', 'CZK'), 'card', 'rb6-top', $ctx, 'pi_rb6', bankProvider: 'comgate'); // the gateway's callback twice
-
-    $first = $wallets->refund($org, Money::decimal('400', 'CZK'), 'customer request', 'rb6-refund', $ctx, 'source', 'pi_rb6');
-    $again = $wallets->refund($org, Money::decimal('400', 'CZK'), 'customer request', 'rb6-refund', $ctx, 'source', 'pi_rb6');
-    expect($again->id)->toBe($first->id)
-        ->and(WalletRefund::query()->where('organization_id', $org->id)->count())->toBe(1)
-        ->and($wallets->refundableBalance($org->id, 'CZK')->minor)->toBe(60000);
+    expect(refundablePurchased($org))->toBe(100000);
 
     refundableSpend($wallets, $org, 500, 'rb6-spend', $ctx);
-    expect($wallets->refundableBalance($org->id, 'CZK')->minor)->toBe(10000)
-        ->and($wallets->balances($org, 'CZK')['available']->minor)->toBe(10000);
-
-    $wallets->adjust($org, Money::decimal('-50', 'CZK'), 'correction', 'rb6-debit', $ctx); // a staff debit takes purchased credit like any spend
-    expect($wallets->refundableBalance($org->id, 'CZK')->minor)->toBe(5000);
+    $wallets->adjust($org, Money::decimal('-50', 'CZK'), 'correction', 'rb6-debit', $ctx);
+    expect(refundablePurchased($org))->toBe(45000)
+        ->and($wallets->balances($org, 'CZK')['available']->minor)->toBe(45000);
 });
 
-it('keeps the refundable credit of each currency apart', function () {
+it('keeps the purchased credit of each currency apart', function () {
     [$owner, $org] = $this->customerWithOrganization();
     [$wallets, $ctx] = [app(WalletService::class), $this->contextFor($owner, $org)];
     $wallets->topup($org, Money::decimal('1000', 'CZK'), 'card', 'rb7-czk', $ctx, bankProvider: 'comgate');
     $wallets->topup($org, Money::decimal('40', 'EUR'), 'card', 'rb7-eur', $ctx, bankProvider: 'comgate');
     $wallets->charge($org, Money::decimal('30', 'EUR'), 'web', 'rb7-eur-spend', $ctx);
 
-    expect($wallets->refundableBalance($org->id, 'CZK')->minor)->toBe(100000)
-        ->and($wallets->refundableBalance($org->id, 'EUR')->minor)->toBe(1000);
-});
-
-it('refuses a refund key used again for another amount instead of handing back the first refund (H1)', function () {
-    [$owner, $org] = $this->customerWithOrganization();
-    [$wallets, $ctx] = [app(WalletService::class), $this->contextFor($owner, $org)];
-    $wallets->topup($org, Money::decimal('1000', 'CZK'), 'card', 'rb8-top', $ctx, 'pi_rb8', bankProvider: 'comgate');
-    $first = $wallets->refund($org, Money::decimal('200', 'CZK'), 'customer request', 'rb8-refund', $ctx, 'source', 'pi_rb8');
-
-    expect(fn () => $wallets->refund($org, Money::decimal('700', 'CZK'), 'customer request', 'rb8-refund', $ctx, 'source', 'pi_rb8'))
-        ->toThrow(DomainError::class, 'already used for another refund');
-    expect(fn () => $wallets->refund($org, Money::decimal('200', 'CZK'), 'customer request', 'rb8-refund', $ctx, 'credit_note'))
-        ->toThrow(DomainError::class, 'already used for another refund');
-    try {
-        $wallets->refund($org, Money::decimal('700', 'CZK'), 'customer request', 'rb8-refund', $ctx, 'source', 'pi_rb8');
-    } catch (DomainError $e) {
-        expect($e->error)->toBe('idempotency_key_reused')->and($e->status)->toBe(409);
-    }
-    // the same request again is still the same refund, and nothing more left the wallet
-    expect($wallets->refund($org, Money::decimal('200', 'CZK'), 'customer request', 'rb8-refund', $ctx, 'source', 'pi_rb8')->id)->toBe($first->id)
-        ->and(WalletRefund::query()->where('organization_id', $org->id)->count())->toBe(1)
-        ->and($wallets->balances($org, 'CZK')['available']->minor)->toBe(80000);
+    expect(refundablePurchased($org))->toBe(100000)
+        ->and(refundablePurchased($org, Currency::EUR))->toBe(1000);
 });
 
 it('knows purchased credit by its ledger entry: a reversed top-up takes back its own money, not the other top-up\'s (H2)', function () {
@@ -175,10 +136,10 @@ it('knows purchased credit by its ledger entry: a reversed top-up takes back its
     $wallets->refreshCaches($wallets->wallet($org, 'CZK'));
 
     expect($wallets->balances($org, 'CZK')['available']->minor)->toBe(50000)
-        ->and($wallets->refundableBalance($org->id, 'CZK')->minor)->toBe(50000);
+        ->and(refundablePurchased($org))->toBe(50000);
 });
 
-it('treats a reversed spend as credit that cannot be paid out', function () {
+it('treats a reversed spend as credit that is not purchased', function () {
     [$owner, $org] = $this->customerWithOrganization();
     [$wallets, $ctx] = [app(WalletService::class), $this->contextFor($owner, $org)];
     $ledger = app(LedgerService::class);
@@ -189,5 +150,17 @@ it('treats a reversed spend as credit that cannot be paid out', function () {
     $wallets->refreshCaches($wallets->wallet($org, 'CZK'));
 
     expect($wallets->balances($org, 'CZK')['available']->minor)->toBe(100000)
-        ->and($wallets->refundableBalance($org->id, 'CZK')->minor)->toBe(40000);
+        ->and(refundablePurchased($org))->toBe(40000);
+});
+
+it('replays the rule as decided (G-R3): purchased first, then other credit, then debt paid by later credit', function () {
+    expect(RefundableCredit::replay([
+        ['credit' => 50000, 'debit' => 0, 'purchased' => false], // returned credit first in time
+        ['credit' => 100000, 'debit' => 0, 'purchased' => true],  // then a top-up
+        ['credit' => 0, 'debit' => 120000, 'purchased' => false], // a spend takes the 1000 bought, then 200 of the returned
+    ]))->toBe(0)
+        ->and(RefundableCredit::replay([
+            ['credit' => 0, 'debit' => 30000, 'purchased' => false],  // a debt
+            ['credit' => 100000, 'debit' => 0, 'purchased' => true],  // the top-up pays it first
+        ]))->toBe(70000);
 });

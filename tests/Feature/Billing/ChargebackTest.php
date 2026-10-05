@@ -22,9 +22,11 @@ use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\WalletLedger\LedgerService;
 use Onhost\Domain\WalletLedger\Models\LedgerAccount;
+use Onhost\Domain\WalletLedger\RefundableCredit;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
+use Onhost\Platform\Money\Currency;
 use Onhost\Platform\Money\Money;
 use Onhost\Platform\Outbox\OutboxPublisher;
 
@@ -113,8 +115,8 @@ it('books the return against the revenue and the VAT it had earned, as credit th
     expect($request->state)->toBe('refunded')->and($request->refund_minor)->toBe(8470)->and($wallets->balances($org, 'CZK')['available']->minor)->toBe(8470)
         ->and($ledger->balance(LedgerService::vatAccount('CZK'), 'CZK')->minor)->toBe(6300 - 1470)->and($ledger->balance(LedgerService::revenueAccount('credit_note', 'CZK'), 'CZK')->minor)->toBe(-7000)
         ->and(LedgerAccount::query()->where('code', 'like', 'asset:bank:chargeback%')->exists())->toBeFalse()->and($ledger->verifyInvariant()['balanced'])->toBeTrue();
-    // bonus credit did not turn into cash: nothing can be paid out
-    expect($wallets->refundableBalance($org->id, 'CZK')->minor)->toBe(0);
+    // bonus credit did not turn into purchased credit (G-R3) — and no credit is ever paid out in cash anyway (G-R4)
+    expect(RefundableCredit::of($org->id, Currency::CZK))->toBe(0);
 
     // settled once: an event delivered again finds nothing to settle, and a second settlement of the same request changes nothing
     expect(app(ChargebackService::class)->settleForService($service->id, CommandContext::system('again')))->toBeNull()->and(Invoice::query()->where('type', 'credit_note')->count())->toBe(1);

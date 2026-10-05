@@ -123,6 +123,7 @@ runbooky [billing-dunning](../runbooks/billing-dunning.md) a [historical-site-im
 - Pořadí: služba se **pozastaví** (blokace „withdrawal“) → dobropis na **nevyužitou část** zaplacených řádků (den oznámení se počítá jako využitý) a kredit se zvýší o odhadovanou částku → služba se zruší běžnou ságou se závěrečným archivem. Automatická obnova se vypíná při oznámení.
 - Opakované odstoupení: 409. Obnovení: 409 `service_suspension_held` (blokace „withdrawal“).
 - Po lhůtě je služba `TERMINATED`, kredit zůstává.
+- Vrácená částka je **vrácený kredit**: nejde na kartu ani na účet a v hotovosti se nevyplácí (G-R4, VOP čl. 2 bod 3). Žádné vrácení platby u brány nevznikne a `GET /v1/wallet` neukazuje žádnou „vyplatitelnou“ částku.
 - Událost `withdrawal.accepted` právě jednou (zákonné oznámení, e-mail „withdrawal-accepted“); události `withdrawal.refunded`, `withdrawal.completed`; v auditu „billing.withdrawal.accept“, „billing.withdrawal.refund“.
 
 **Kroky (firma a pozdě)**
@@ -139,6 +140,8 @@ runbooky [billing-dunning](../runbooks/billing-dunning.md) a [historical-site-im
 | Pravidlo vypnuto | 409 `withdrawal_disabled` s odkazem na dokument o odstoupení. |
 | Zaplacená objednávka, z níž nic není dodané | `GET` a `POST /v1/orders/{order}/withdrawal` zruší objednávku a vrátí vše na kredit. |
 | Dopis nebo e-mail | Finance zaznamenají `POST /v1/staff/withdrawals` (step-up a druhá osoba). |
+| Spotřebitel nesouhlasí s vrácením na kredit | Panel i `POST /v1/staff/withdrawals` bez souhlasu odpoví 422. Zákon (§ 1831 OZ) ale ukládá vrátit **platbu** za odstoupenou smlouvu původním způsobem (kartou zaplacenou objednávku na tutéž kartu); je to jediná výjimka z G-R4 a nejde o výplatu kreditu (zda lze odstoupit i od dobití kreditu, je otevřená otázka vlastníka a právníka; do rozhodnutí se dobití nevrací). V systému zatím není (G6): finance ji dnes provede ručně mimo systém. Viz `docs/audit/2026-10-full-readiness/ROZHODNUTI.md`, G-R4. |
+| Pokus vyplatit kredit po odstoupení | Neexistuje cesta v panelu, administraci, API ani příkazech (`G4NoCashRefundTest`). |
 | Zaseknutý krok | Hlášen finanční schránce (událost `withdrawal.stalled`), opakuje se hodinově; doctor „consumer withdrawals move on“. |
 
 ---
@@ -180,5 +183,5 @@ runbooky [billing-dunning](../runbooks/billing-dunning.md) a [historical-site-im
 | --- | --- |
 | F8-01, F8-02 | „ends a web hosting at the end of the paid period: undo, archive, deactivation, removal of everything under the site, the historical rows untouched“ |
 | F8-03 | „cancels at once behind a destructive preview and a fresh step-up, refuses a confirmation that went stale, and brings the service back inside the window“ |
-| F8-04 | „lets a consumer withdraw within 14 days: the unused part goes back to the credit, the service ends, and it cannot be resumed for free“; „refuses a company the 14-day withdrawal, and a consumer the day after the deadline“ |
+| F8-04 | „lets a consumer withdraw within 14 days: the unused part goes back to the credit, the service ends, and it cannot be resumed for free“; „refuses a company the 14-day withdrawal, and a consumer the day after the deadline“; kredit bez výplaty: `G4NoCashRefundTest`, `WithdrawalTest` |
 | F8-05 | „ends an account only for its owner, behind a step-up and 14 days, can be stopped inside the window, and is carried out by the scheduled command“ |

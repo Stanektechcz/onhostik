@@ -13,7 +13,7 @@
 
 1. Ceny jsou uvedeny v ceníku na {{portal}} bez DPH, není-li výslovně uvedeno jinak. DPH se účtuje podle právních předpisů platných v den vystavení dokladu.
 2. Služby jsou účtovány předem za zvolené období (měsíc nebo rok). Objednávka se hradí z kreditu zákazníka, kartou přes platební bránu nebo bankovním převodem na základě zálohové faktury. Daňový doklad je vystaven po připsání platby.
-3. Kredit je předplacený zůstatek zákazníka určený výhradně k úhradě služeb poskytovatele. Nevyčerpaný kredit se vrací pouze v případech stanovených zákonem nebo výslovnou dohodou.
+3. Kredit je předplacený zůstatek zákazníka určený výhradně k úhradě služeb poskytovatele. Kredit nelze vrátit v hotovosti ani vyplatit na bankovní účet či platební kartu, a to ani po ukončení služby; nevyčerpaný kredit zůstává na účtu a čerpá se na další služby. Částky vrácené po zrušení služby, dobropisem nebo jako kompenzace podle SLA se připisují na kredit. Tím nejsou dotčena práva spotřebitele při odstoupení od smlouvy podle čl. 8 bodu 1: přijatou platbu za smlouvu, od níž spotřebitel odstoupil, vracíme způsobem, který stanoví zákon.
 4. Při prodlení s úhradou poskytovatel zákazníka upozorní, po uplynutí lhůty uvedené v upomínce může službu omezit nebo pozastavit a po uplynutí další lhůty ukončit. Postup a lhůty jsou popsány v panelu v sekci Fakturace.
 5. Změna ceny se oznamuje nejméně 30 dní předem e-mailem a v panelu. Nesouhlasí-li zákazník se změnou, může službu vypovědět ke dni účinnosti nové ceny.
 
