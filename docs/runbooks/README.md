@@ -25,6 +25,7 @@ recorded in the hash-chained audit log. Never edit rows in the database during a
 | [compliance-requests.md](compliance-requests.md) | GDPR export/deletion, legal hold, DSA notices, regulatory timers |
 | [console-relay.md](console-relay.md) | VNC / game console access path and the relay service |
 | [release-and-rollback.md](release-and-rollback.md) | deploying the control plane, migrations, rollback, error-budget freeze |
+| [staging-aapanel.md](staging-aapanel.md) | `infra/aapanel/staging.sh` on an aaPanel host: the usranalyse drop-ins and how to verify them, `public/build` and file modes, the setup commit, a parked release and how to go back |
 
 On-call rotation, escalation contacts and SLA classes are in `docs/sre/` and `config/onhost.php` (`sla`).
 

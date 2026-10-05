@@ -212,6 +212,128 @@ function e2eHeaders(string $label): array
 }
 
 /**
+ * A mail node on the same ISPConfig instance as the web node (a mail plan is placed on a node with the `mail` role).
+ *
+ * @return array{0:ProviderInstance,1:Node}
+ */
+function e2eMailInfrastructure(): array
+{
+    [$isp] = e2eWebInfrastructure();
+    $node = Node::query()->firstOrCreate(['provider_instance_id' => $isp->id, 'name' => 'mail01'], ['region_code' => 'cz1', 'role' => 'mail', 'state' => 'active', 'capacity' => ['mailboxes' => 5000], 'usage' => []]);
+
+    return [$isp, $node];
+}
+
+/**
+ * The mail half of the stateful ISPConfig. Register it BEFORE `e2eIspPanel()` on the same `$panel`: it answers the mail functions
+ * and passes (null) on everything else, so the login, the client and the job queue stay with `e2eIspPanel`.
+ *
+ * State it keeps: `mail_domains`, `mail_users`, `mail_aliases` (id => row; forwards live in `mail_aliases` with type `forward`),
+ * `mail_updates` (every mail_user_update: id + params, so a test can see what a password change really sent); `calls` is kept by e2eIspPanel.
+ * Rows put into the state by a test before the flow starts are the panel's HISTORICAL mail: nothing the platform made.
+ * An array lookup by `email`/`source` with a leading `%` is a suffix match, as ISPConfig's LIKE is.
+ *
+ * @param  array<string,mixed>  $panel
+ */
+function e2eIspMail(array &$panel): void
+{
+    $panel += ['mail_domains' => [], 'mail_users' => [], 'mail_aliases' => [], 'mail_updates' => [], 'calls' => [], 'queue' => 0, 'clients' => []];
+    $envelope = fn (mixed $response): array => ['code' => 'ok', 'message' => '', 'response' => $response];
+    $match = function (array $rows, mixed $key): array {
+        if (! is_array($key)) {
+            return [];
+        }
+
+        return array_values(array_filter($rows, function (array $row) use ($key) {
+            foreach ($key as $column => $wanted) {
+                $have = mb_strtolower((string) ($row[$column] ?? ''));
+                $wanted = mb_strtolower((string) $wanted);
+                if (str_starts_with($wanted, '%') ? ! str_ends_with($have, substr($wanted, 1)) : $have !== $wanted) {
+                    return false;
+                }
+            }
+
+            return true;
+        }));
+    };
+    Http::fake(function (Request $request) use (&$panel, $envelope, $match) {
+        if (! str_contains($request->url(), E2E_ISP)) {
+            return null;
+        }
+        $function = (string) parse_url($request->url(), PHP_URL_QUERY);
+        if (! str_starts_with($function, 'mail') && $function !== 'mailquota_get_by_user') {
+            return null;
+        }
+        $data = $request->data(); // (the call itself is logged by e2eIspPanel, which sees every request of the panel too)
+        $key = $data['primary_id'] ?? null;
+        $params = (array) ($data['params'] ?? []);
+        $client = (int) ($data['client_id'] ?? 0);
+        $group = (int) ($panel['clients'][$client]['sys_groupid'] ?? $client);
+        $add = function (string $table, string $idColumn, int $base, array $row) use (&$panel, $group): int {
+            $id = max([$base, ...array_map('intval', array_keys($panel[$table]))]) + 1; // never a number a deleted row had left to a living one
+            $panel[$table][$id] = [$idColumn => $id, 'sys_groupid' => $group] + $row;
+            $panel['queue'] = 2; // the panel's job queue works the change off
+
+            return $id;
+        };
+
+        return Http::response($envelope(match ($function) {
+            'mail_domain_get' => is_array($key) ? $match($panel['mail_domains'], $key) : ($panel['mail_domains'][(int) $key] ?? false),
+            'mail_domain_add' => $add('mail_domains', 'domain_id', 900, $params),
+            'mail_domain_delete' => (function () use (&$panel, $key) {
+                unset($panel['mail_domains'][(int) $key]);
+
+                return 1;
+            })(),
+            'mail_user_get' => is_array($key) ? $match($panel['mail_users'], $key) : ($panel['mail_users'][(int) $key] ?? false),
+            'mail_user_add' => $add('mail_users', 'mailuser_id', 5000, $params),
+            'mail_user_update' => (function () use (&$panel, $key, $params) {
+                $panel['mail_updates'][] = ['id' => (int) $key, 'params' => $params];
+                $panel['mail_users'][(int) $key] = array_merge($panel['mail_users'][(int) $key] ?? [], $params);
+                $panel['queue'] = 2;
+
+                return 1;
+            })(),
+            'mail_user_delete' => (function () use (&$panel, $key) {
+                unset($panel['mail_users'][(int) $key]);
+                $panel['queue'] = 2;
+
+                return 1;
+            })(),
+            'mail_alias_get', 'mail_forward_get' => $match(array_filter($panel['mail_aliases'], fn (array $row) => $row['type'] === ($function === 'mail_alias_get' ? 'alias' : 'forward')), $key),
+            'mail_alias_add', 'mail_forward_add' => $add('mail_aliases', 'forwarding_id', 300, $params),
+            'mail_alias_delete', 'mail_forward_delete' => (function () use (&$panel, $key) {
+                unset($panel['mail_aliases'][(int) $key]);
+                $panel['queue'] = 2;
+
+                return 1;
+            })(),
+            default => [], // the other mail listings (catch-all, filters, lists, policies, quota) have nothing yet
+        }));
+    });
+}
+
+/**
+ * A PowerDNS that accepts whatever the platform publishes and remembers it: `$dns['calls']` = "METHOD path" in order. The zone the
+ * platform keeps is its own record of truth; this is only the node it is pushed to.
+ *
+ * @param  array<string,mixed>  $dns
+ */
+function e2ePowerDnsFake(array &$dns): void
+{
+    $dns += ['calls' => []];
+    $_ENV['POWERDNS_HIDDEN01_API_KEY'] = 'pdns-key';
+    Http::fake(function (Request $request) use (&$dns) {
+        if (! str_contains($request->url(), 'pdns.mgmt.test')) {
+            return null;
+        }
+        $dns['calls'][] = $request->method().' '.parse_url($request->url(), PHP_URL_PATH);
+
+        return Http::response(['name' => 'zone.', 'serial' => 2, 'rrsets' => []]);
+    });
+}
+
+/**
  * Sign up and verify an account over the real routes (Notification::fake() must be active). Leaves the session signed in as the
  * new owner. `$org` is the organization the registration created.
  *
