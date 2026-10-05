@@ -24,11 +24,23 @@ use Onhost\Platform\Outbox\OutboxPublisher;
  * So the points due are the ones credited on or before the cutoff that nothing has used up: earned up to the cutoff, less every
  * debit, less the reservations. Writing the expiry row makes it a debit itself, so a second run on the same day finds nothing.
  * Points credited before the rule existed count as credited on `loyalty.expiry.counted_from` (they had been promised "never").
- * Points given back by a credit note are credited again on the day they come back.
+ * Points given back by a credit note are no new points: they undo their redemption and keep the age they had (NOT_EARNED).
  */
 final class LoyaltyExpiry
 {
     public const RULE = 'expiry';
+
+    /**
+     * Positive rows that are no new points (security review of PR #107): points given back by a credit note undo their redemption,
+     * a debt carry undoes part of a clawback. They cancel the debit they answer, so the points keep the age they had.
+     */
+    public const NOT_EARNED = [LoyaltyRedemptions::RETURN_RULE, LoyaltyService::CARRY_RULE];
+
+    /** Everything that left the balance, less what came back as no new points (NOT_EARNED). */
+    private function debits(string $organizationId): int
+    {
+        return -(int) LoyaltyPoint::query()->where('organization_id', $organizationId)->where(fn ($q) => $q->where('points', '<', 0)->orWhereIn('rule', self::NOT_EARNED))->sum('points');
+    }
 
     public function __construct(private readonly LoyaltyService $loyalty, private readonly LoyaltyRedemptions $redemptions, private readonly AuditRecorder $audit, private readonly OutboxPublisher $outbox) {}
 
@@ -53,8 +65,8 @@ final class LoyaltyExpiry
         if (self::countedFrom()->greaterThan($cutoff)) {
             return 0;
         }
-        $earned = (int) LoyaltyPoint::query()->where('organization_id', $organizationId)->where('points', '>', 0)->where('created_at', '<=', $cutoff)->sum('points');
-        $debits = -(int) LoyaltyPoint::query()->where('organization_id', $organizationId)->where('points', '<', 0)->sum('points');
+        $earned = (int) LoyaltyPoint::query()->where('organization_id', $organizationId)->where('points', '>', 0)->whereNotIn('rule', self::NOT_EARNED)->where('created_at', '<=', $cutoff)->sum('points');
+        $debits = $this->debits($organizationId);
 
         return max(0, $earned - $debits - $this->redemptions->reserved($organizationId));
     }
@@ -140,9 +152,9 @@ final class LoyaltyExpiry
     /** The day the oldest unspent point expires, or null when nothing is left to expire. */
     public function nextExpiry(string $organizationId): ?CarbonImmutable
     {
-        $skip = -(int) LoyaltyPoint::query()->where('organization_id', $organizationId)->where('points', '<', 0)->sum('points') + $this->redemptions->reserved($organizationId);
+        $skip = $this->debits($organizationId) + $this->redemptions->reserved($organizationId);
         $sum = 0;
-        foreach (LoyaltyPoint::query()->where('organization_id', $organizationId)->where('points', '>', 0)->orderBy('created_at')->orderBy('id')->cursor() as $row) {
+        foreach (LoyaltyPoint::query()->where('organization_id', $organizationId)->where('points', '>', 0)->whereNotIn('rule', self::NOT_EARNED)->orderBy('created_at')->orderBy('id')->cursor() as $row) {
             $sum += (int) $row->points;
             if ($sum > $skip) {
                 $credited = CarbonImmutable::instance($row->created_at);
@@ -157,6 +169,6 @@ final class LoyaltyExpiry
     /** @return list<string> organizations with points credited on or before the cutoff */
     private function holders(CarbonInterface $cutoff): array
     {
-        return LoyaltyPoint::query()->where('points', '>', 0)->where('created_at', '<=', $cutoff)->distinct()->orderBy('organization_id')->pluck('organization_id')->map(fn ($id) => (string) $id)->all();
+        return LoyaltyPoint::query()->where('points', '>', 0)->whereNotIn('rule', self::NOT_EARNED)->where('created_at', '<=', $cutoff)->distinct()->orderBy('organization_id')->pluck('organization_id')->map(fn ($id) => (string) $id)->all();
     }
 }

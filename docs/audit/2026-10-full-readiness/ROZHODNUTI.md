@@ -84,7 +84,7 @@ Vlastník rozhodl, že body lze uplatnit jako slevu; konkrétní pravidla jsou d
 7. **Vrácení:** dobropis (vrácení peněz, nedodaná položka při vypořádání, zrušení zaplacené objednávky, odstoupení,
    vrácení nevyužitého období, ruční dobropis finance) vrací spolu s řádky, které body zlevnily, **stejný podíl řádku
    bodů** — zákazník dostane zpět to, co za ty řádky skutečně zaplatil, a stejný podíl bodů (polovina řádku = polovina
-   bodů, poslední dobropis zbytek). Body se nikdy nemění v kredit ani v peníze. Vrácené body se připisují ke dni vrácení.
+   bodů, poslední dobropis zbytek). Body se nikdy nemění v kredit ani v peníze. Vrácené body si nesou **stáří bodů, kterými byly** (nejsou to nově získané body, propadají podle původního připsání).
 8. **Propadnutí:** body propadají **24 měsíců po připsání**; čerpá se od nejstarších, body zarezervované nezaplacenou
    objednávkou propadnout nemohou. Zákazník dostane upozornění **30 dní předem** (v panelu a e-mailem, jednou za měsíc
    propadnutí). Body připsané před zavedením pravidla se počítají jako připsané **5. 10. 2026**. Úroveň věrnostního
@@ -96,8 +96,12 @@ Vlastník rozhodl, že body lze uplatnit jako slevu; konkrétní pravidla jsou d
     (pravidlo `clawback.*`) a nepokrytá část jako **dluh** (`debt.carry`). Dluh se **započte proti dalším bodům**: nově
     získaným, uvolněným zrušením nezaplacené objednávky i vráceným dobropisem (řádky `clawback.debt`), dokud není splacen.
     Zákazník vidí dluh v `GET /v1/account/rewards` (`debt`). Úroveň dluh nesnižuje znovu, odebrání ji snížilo už jednou.
-11. **Co body nezlevňují dál:** řádky doplňků (add-on k službě) a dokoupené navýšení limitu se body nezlevňují a nejsou
-    ani v základu stropu, stejně jako domény.
+    Body určené na splátku dluhu nejdou uplatnit (k uplatnění je zůstatek − rezervace − dluh) a připsání bodů i splátka dluhu
+    běží pod zámkem organizace, takže je souběžná objednávka nerezervuje. Když zůstatek v okamžiku zaplacení rezervaci nepokryje,
+    rozdíl je také dluh (`debt.carry`), zůstatek zůstane 0.
+11. **Co body nezlevňují dál:** doplňky (katalogová rodina `addon`, i když je klient pošle bez služby, ke které patří),
+    řádky navázané na jinou položku košíku a dokoupené navýšení limitu se body nezlevňují a nejsou ani v základu stropu,
+    stejně jako domény.
 
 **Otevřená otázka pro účetní:** sleva za body je sleva poskytnutá při prodeji (snižuje základ daně stejně jako promo kód),
 ne platba; potvrďte prosím, že to tak účetní vede (řádek dokladu se zápornou cenou a DPH).

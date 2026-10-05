@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Database\Seeders\CatalogSeeder;
 use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
@@ -505,4 +506,72 @@ it('refuses an API token on the redeem route: points are chosen by a person in t
 
     $this->withHeaders(['Authorization' => 'Bearer '.$token->plainTextToken, 'Idempotency-Key' => 'g3-token'])->postJson('/v1/cart/loyalty', ['points' => 300])->assertForbidden();
     expect(Cart::query()->where('user_id', $owner->id)->value('loyalty_points'))->toBeNull();
+});
+
+it('keeps points that belong to the debt out of what may be redeemed', function () {
+    [, $org] = $this->customerWithOrganization(['email' => 'g3s1@example.cz']);
+    // 500 earned, 400 taken back while 200 of it could not be covered: balance 300, of which 200 belong to the debt
+    LoyaltyPoint::query()->create(['organization_id' => $org->id, 'rule' => 'order.paid', 'reference' => 'ord_s1', 'points' => 500, 'note' => 'earned']);
+    LoyaltyPoint::query()->create(['organization_id' => $org->id, 'rule' => 'clawback.order', 'reference' => 'ord_s1:cn', 'points' => -400, 'note' => 'Dobropis']);
+    LoyaltyPoint::query()->create(['organization_id' => $org->id, 'rule' => LoyaltyService::CARRY_RULE, 'reference' => 'clawback.order:ord_s1:cn', 'points' => 200, 'note' => 'Dluh']);
+    $loyalty = app(LoyaltyService::class);
+    expect($loyalty->points($org->id))->toBe(300)->and($loyalty->debt($org->id))->toBe(200)
+        ->and(app(LoyaltyRedemptions::class)->available($org->id))->toBe(100); // balance − reservations − debt
+    expect(fn () => app(LoyaltyRedemptions::class)->request($org, Cart::query()->create(['state' => 'open', 'currency' => 'CZK', 'commit_months' => 12, 'items' => [], 'expires_at' => now()->addDay()]), 300, CommandContext::system('test')))
+        ->toThrow(fn (DomainError $e) => expect($e->error)->toBe('loyalty_points_unavailable'));
+});
+
+it('never marks a redemption spent when the database refused the spend row for another reason than a duplicate', function () {
+    [$owner, $org] = $this->customerWithOrganization(['email' => 'g3s2@example.cz']);
+    g3Points($org, 500);
+    g3Credit($this, $owner, $org);
+    $order = g3Place($this, g3Quote($org, g3Hosting(), 300), $owner, $org, 'bank', 'g3-dberror');
+    LoyaltyPoint::creating(function (LoyaltyPoint $row) {
+        if ($row->rule === LoyaltyRedemptions::RULE) {
+            throw new QueryException('testing', 'insert into loyalty_points', [], new PDOException('database disk image is malformed'));
+        }
+    });
+
+    expect(fn () => app(CheckoutService::class)->markPaid($order, CommandContext::system('test')->withScope($org->id), 'bank', $order->payment_intent_id))->toThrow(QueryException::class);
+    expect(LoyaltyRedemption::query()->where('order_id', $order->id)->value('state'))->toBe(LoyaltyRedemption::RESERVED)
+        ->and($order->refresh()->paid_at)->toBeNull(); // nothing half-done: the payment is retried, the spend with it
+});
+
+it('records what the balance cannot cover at payment as a debt instead of going below zero', function () {
+    [$owner, $org] = $this->customerWithOrganization(['email' => 'g3s3@example.cz']);
+    g3Points($org, 500);
+    g3Credit($this, $owner, $org);
+    $order = g3Place($this, g3Quote($org, g3Hosting(), 300), $owner, $org, 'bank', 'g3-cover');
+    LoyaltyPoint::query()->create(['organization_id' => $org->id, 'rule' => 'manual', 'reference' => 'staff-correction', 'points' => -400, 'note' => 'Oprava']); // the balance fell under the reservation
+
+    app(CheckoutService::class)->markPaid($order, CommandContext::system('test')->withScope($org->id), 'bank', $order->payment_intent_id);
+    $loyalty = app(LoyaltyService::class);
+    expect($loyalty->points($org->id))->toBe(0)->and($loyalty->debt($org->id))->toBe(200)
+        ->and(LoyaltyPoint::query()->where('organization_id', $org->id)->where('rule', LoyaltyRedemptions::RULE)->sole()->points)->toBe(-300);
+});
+
+it('never discounts an add-on product by points, even sent without the line it belongs to', function () {
+    [, $org] = $this->customerWithOrganization(['email' => 'g3s4@example.cz']);
+    g3Points($org, 1000);
+    // the client drops `parent_line_id`: the CDN is still an add-on by its catalogue family
+    $quote = g3Quote($org, [['line_id' => 'l1', 'product_key' => 'web-hosting', 'plan_key' => 'standard'], ['line_id' => 'l2', 'product_key' => 'cdn', 'plan_key' => 'cdn-start']], 1000);
+    expect($quote->versions['loyalty'])->toMatchArray(['applied' => 378, 'eligible' => ['l1']]);
+    // and a CDN alone gives nothing to discount
+    $alone = g3Quote($org, [['line_id' => 'l1', 'product_key' => 'cdn', 'plan_key' => 'cdn-start']], 300);
+    expect(g3Line($alone, LoyaltyRedemptions::SKU))->toBeNull()->and($alone->versions['loyalty']['reason'])->toBe('nothing_eligible');
+});
+
+it('lets returned points keep the age of the points they were, so a credit note does not make them young again', function () {
+    [, $org] = $this->customerWithOrganization(['email' => 'g3s5@example.cz']);
+    $this->travelTo(Carbon::parse('2026-09-01 12:00:00', 'UTC'));
+    g3Points($org, 400); // counted as credited on 2026-10-05: expires 2028-10-05
+    $this->travelTo(Carbon::parse('2027-03-01 12:00:00', 'UTC'));
+    LoyaltyPoint::query()->create(['organization_id' => $org->id, 'rule' => LoyaltyRedemptions::RULE, 'reference' => 'ord_s5', 'points' => -300, 'note' => 'spent']);
+    $this->travelTo(Carbon::parse('2028-09-01 12:00:00', 'UTC'));
+    LoyaltyPoint::query()->create(['organization_id' => $org->id, 'rule' => LoyaltyRedemptions::RETURN_RULE, 'reference' => 'ord_s5:cn', 'points' => 300, 'note' => 'Dobropis']);
+
+    $this->travelTo(Carbon::parse('2028-10-05 12:00:00', 'UTC'));
+    Artisan::call('onhost:loyalty:expire');
+    expect(LoyaltyPoint::query()->where('organization_id', $org->id)->where('rule', LoyaltyExpiry::RULE)->sole()->points)->toBe(-400)
+        ->and(app(LoyaltyService::class)->points($org->id))->toBe(0);
 });

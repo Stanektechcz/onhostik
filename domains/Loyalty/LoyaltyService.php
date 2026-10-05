@@ -113,15 +113,24 @@ final class LoyaltyService
      */
     public function award(string $organizationId, string $rule, string $reference, int $points, ?string $note, CommandContext $context): array
     {
-        $before = $this->standing($organizationId);
+        // under a lock on the organization row: an order placed at the same moment cannot reserve the points that pay a debt
+        [$awarded, $before] = DB::transaction(function () use ($organizationId, $rule, $reference, $points, $note, $context) {
+            Organization::query()->whereKey($organizationId)->lockForUpdate()->first();
+            $before = $this->standing($organizationId);
+            try {
+                DB::transaction(fn () => LoyaltyPoint::query()->create(['organization_id' => $organizationId, 'rule' => $rule, 'reference' => mb_substr($reference, 0, 120), 'points' => $points, 'note' => $note !== null ? mb_substr($note, 0, 200) : null])); // savepoint: an already-counted rule never aborts the paid-order transaction (PostgreSQL)
+            } catch (QueryException $e) { // unique (organization, rule, reference): already counted
+                return [false, $before];
+            }
+            if ($points > 0) {
+                $this->settleDebt($organizationId, 'award:'.$rule.':'.$reference, $context); // a debt of points (G3 review) is paid from the next points first
+            }
+
+            return [true, $before];
+        });
         $levelBefore = $this->levelFor($before);
-        try {
-            DB::transaction(fn () => LoyaltyPoint::query()->create(['organization_id' => $organizationId, 'rule' => $rule, 'reference' => mb_substr($reference, 0, 120), 'points' => $points, 'note' => $note !== null ? mb_substr($note, 0, 200) : null])); // savepoint: an already-counted rule never aborts the paid-order transaction (PostgreSQL)
-        } catch (QueryException $e) { // unique (organization, rule, reference): already counted
+        if (! $awarded) {
             return ['awarded' => false, 'points' => 0, 'total' => $this->points($organizationId), 'level' => $levelBefore, 'level_up' => null];
-        }
-        if ($points > 0) {
-            $this->settleDebt($organizationId, 'award:'.$rule.':'.$reference, $context); // a debt of points (G3 review) is paid from the next points first
         }
         $level = $this->levelFor($before + $points);
         $total = $this->points($organizationId); // the balance after the award (the level is measured by the standing)
@@ -166,8 +175,9 @@ final class LoyaltyService
      */
     public function clawback(string $organizationId, string $rule, string $reference, int $points, string $note, CommandContext $context): array
     {
-        $before = $this->points($organizationId);
         $points = max(0, $points);
+        Organization::query()->whereKey($organizationId)->lockForUpdate()->first(); // inside the caller's transaction where there is one (LoyaltyClawback holds it)
+        $before = $this->points($organizationId);
         if ($points === 0) {
             return ['taken' => 0, 'total' => $before];
         }
@@ -216,19 +226,22 @@ final class LoyaltyService
      */
     public function settleDebt(string $organizationId, string $reference, CommandContext $context): int
     {
-        $debt = $this->debt($organizationId);
-        $pay = min($debt, max(0, $this->points($organizationId) - $this->reserved($organizationId)));
-        if ($pay <= 0) {
-            return 0;
-        }
-        try {
-            DB::transaction(fn () => LoyaltyPoint::query()->create(['organization_id' => $organizationId, 'rule' => self::DEBT_RULE, 'reference' => mb_substr($reference, 0, 120), 'points' => -$pay, 'note' => 'Splátka dluhu bodů']));
-        } catch (QueryException) {
-            return 0; // paid from these points already
-        }
-        $this->audit->record($context->withScope($organizationId), 'loyalty.debt.settle', 'succeeded', ['reference' => $reference, 'points' => -$pay, 'debt' => $debt - $pay], 'organization', $organizationId);
+        return DB::transaction(function () use ($organizationId, $reference, $context) {
+            Organization::query()->whereKey($organizationId)->lockForUpdate()->first(); // the same lock a reservation takes
+            $debt = $this->debt($organizationId);
+            $pay = min($debt, max(0, $this->points($organizationId) - $this->reserved($organizationId)));
+            if ($pay <= 0) {
+                return 0;
+            }
+            try {
+                DB::transaction(fn () => LoyaltyPoint::query()->create(['organization_id' => $organizationId, 'rule' => self::DEBT_RULE, 'reference' => mb_substr($reference, 0, 120), 'points' => -$pay, 'note' => 'Splátka dluhu bodů']));
+            } catch (QueryException) {
+                return 0; // paid from these points already
+            }
+            $this->audit->record($context->withScope($organizationId), 'loyalty.debt.settle', 'succeeded', ['reference' => $reference, 'points' => -$pay, 'debt' => $debt - $pay], 'organization', $organizationId);
 
-        return $pay;
+            return $pay;
+        });
     }
 
     /** Grants a badge once; a repeated grant is a no-op. */

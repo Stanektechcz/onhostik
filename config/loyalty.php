@@ -17,8 +17,9 @@ return [
         // every discount on the lines points may discount (promo code, commitment, streak, points) together stays within this share of
         // their list price before VAT; points only fill what is left
         'cap_pct' => 20,
-        // never discounted by points: a domain stays at its list price, and a credit top-up is never a cart line
-        'excluded_families' => ['domain'],
+        // never discounted by points (catalogue families, not what a client sends): a domain stays at its list price, an add-on is no
+        // service line; a credit top-up is never a cart line, a plan change and a limit raise are excluded in LoyaltyRedemptions::price
+        'excluded_families' => ['domain', 'addon'],
     ],
     'expiry' => [
         'months' => 24,          // points expire this many months after they were credited

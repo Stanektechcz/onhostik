@@ -777,14 +777,17 @@ consumes them (history row `redeem`, event `loyalty.redeemed`), a cancelled unpa
 order's document credits the points line in step with the lines it discounted (`RedemptionShare`, also in
 `OrderSettlement` for undelivered lines) and `LoyaltyRedemptions::onCreditNote` gives back the same share of the points
 (`redeem.return`, `loyalty.points_returned`). Levels follow the earned points (`LoyaltyService::standing`), so spending
-or expiry never lowers a level. Add-on lines and limit raises are never discounted. A clawback the free points cannot cover
+or expiry never lowers a level. Add-ons (catalogue family `addon`, whatever the client sends) and limit raises are never discounted. A clawback the free points cannot cover
 (points reserved by an unpaid order are not free) is a debt (`debt.carry`, shown as `debt` in `GET /v1/account/rewards`) that the
 next earned, released or returned points pay first (`clawback.debt`, `LoyaltyService::settleDebt`): the balance never goes below
-zero. Two requests placing one quote: the second gets `409 quote_already_used` (the quote row is locked).
+zero; what may be redeemed is balance − reservations − debt, and awarding points and paying the debt run under the
+organization row lock a reservation takes. A balance that no longer covers a reservation at payment leaves a debt too. Two
+requests placing one quote: the second gets `409 quote_already_used` (the quote row is locked).
 
 **Points expire (G3).** `php artisan onhost:loyalty:expire` (daily 05:35) takes away the points credited more than 24 months
 ago that nothing used up (oldest spent first, reserved points count as spent; points credited before 2026-10-05 count as
-credited that day) — history row `expiry`, event `loyalty.expired` — and warns 30 days before, once per organization and month
+credited that day; points given back by a credit note and debt carries are no new points — they keep the age of the points
+they undo, `LoyaltyExpiry::NOT_EARNED`) — history row `expiry`, event `loyalty.expired` — and warns 30 days before, once per organization and month
 of expiry (`loyalty_expiry_notices`, event `loyalty.expiring`, mail `loyalty-expiring`). Safe to run twice: the row of a day
 and the notice of a month are unique.
 

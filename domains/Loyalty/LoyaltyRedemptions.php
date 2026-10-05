@@ -85,10 +85,10 @@ final class LoyaltyRedemptions
         return $this->loyalty->reserved($organizationId);
     }
 
-    /** What the organization may redeem now: its balance less what unpaid orders hold. */
+    /** What the organization may redeem now: its balance less what unpaid orders hold and less what it owes (the debt is paid first). */
     public function available(string $organizationId): int
     {
-        return max(0, $this->loyalty->points($organizationId) - $this->reserved($organizationId));
+        return max(0, $this->loyalty->points($organizationId) - $this->reserved($organizationId) - $this->loyalty->debt($organizationId));
     }
 
     /** @return array<string,mixed> what the panel and the cart show next to the balance */
@@ -143,7 +143,7 @@ final class LoyaltyRedemptions
             return ['line' => null, 'info' => $info + ['eligible' => []]];
         }
         $info['available'] = $this->available($organization->id);
-        $excluded = array_map('strval', (array) config('loyalty.redeem.excluded_families', ['domain']));
+        $excluded = array_map('strval', (array) config('loyalty.redeem.excluded_families', ['domain', 'addon']));
         $list = 0;
         $discounted = 0;
         $eligible = [];
@@ -258,10 +258,19 @@ final class LoyaltyRedemptions
         if ($redemption === null || $redemption->state !== LoyaltyRedemption::RESERVED) {
             return;
         }
+        Organization::query()->whereKey($order->organization_id)->lockForUpdate()->first();
+        $balance = $this->loyalty->points($order->organization_id);
+        $spent = false;
         try {
             DB::transaction(fn () => LoyaltyPoint::query()->create(['organization_id' => $order->organization_id, 'rule' => self::RULE, 'reference' => $order->id, 'points' => -$redemption->points, 'note' => "Uplatněno na objednávku {$order->number}"]));
-        } catch (QueryException) {
-            // already spent by an earlier delivery of the same payment: the row is the proof
+            $spent = true;
+        } catch (UniqueConstraintViolationException) {
+            // already spent by an earlier delivery of the same payment: the row is the proof. Any other refusal of the database is
+            // not swallowed — the payment's transaction rolls back and the redemption stays reserved.
+        }
+        $short = $spent ? max(0, $redemption->points - $balance) : 0;
+        if ($short > 0) { // the balance fell under the reservation meanwhile: what it cannot cover is a debt, the balance stays at zero
+            DB::transaction(fn () => LoyaltyPoint::query()->create(['organization_id' => $order->organization_id, 'rule' => LoyaltyService::CARRY_RULE, 'reference' => 'redeem:'.$order->id, 'points' => $short, 'note' => "Dluh {$short} bodů: objednávka {$order->number}"]));
         }
         $redemption->forceFill(['state' => LoyaltyRedemption::CONSUMED, 'consumed_at' => now()])->save();
         $total = $this->loyalty->points($order->organization_id);
