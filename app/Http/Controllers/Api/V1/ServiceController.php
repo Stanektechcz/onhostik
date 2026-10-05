@@ -81,7 +81,7 @@ final class ServiceController extends ApiController
         $model = $this->resolve($request, $service);
         $manages = $this->api->can($request, 'service.manage', CommandScope::resource($model->id, $model->organization_id, $model->project_id)); // a secret a run generated is shown to whoever manages the service, never to a reader
         $operations = Operation::query()->where('service_id', $model->id)->orderByDesc('queued_at')->limit(10)->get()->map(fn (Operation $o) => Presenters::operation($o, false, $manages))->all();
-        $bindings = array_map(fn (ProviderBinding $b) => ['type' => $b->remote_type, 'node' => $b->remote_node, 'adapter_version' => $b->adapter_version, 'last_reconciled_at' => $b->last_reconciled_at?->toIso8601String()], $model->bindings()->get()->all());
+        $bindings = array_map(fn (ProviderBinding $b) => ['type' => $b->remote_type, 'adapter_version' => $b->adapter_version, 'last_reconciled_at' => $b->last_reconciled_at?->toIso8601String()], $model->bindings()->get()->all());
 
         return response()->json(['data' => Presenters::service($model) + ['operations' => $operations, 'bindings' => $bindings, 'actual' => $model->actual_spec, 'summary' => app(ServiceSummary::class)->for($model)]]);
     }
@@ -171,9 +171,12 @@ final class ServiceController extends ApiController
 
     public function consoleToken(Request $request, string $service): JsonResponse
     {
+        // one request, one key: a console token is single-use and secret, so it is never an answer replayed by the bus. The key used to be
+        // the service and the SECOND — two requests of one person in the same second (a double click, the browser and a script) got
+        // the first one's answer back with the token and the VNC password masked, and a console that could not be opened (E4).
         $model = $this->resolve($request, $service, 'service.console'); // asked of the person and the token before anything else (C13-H2c)
 
-        return $this->dispatch(new IssueConsoleTokenCommand($model->organization_id, 'console:'.$model->id.':'.now()->timestamp, ['service_id' => $model->id, 'project_id' => $model->project_id]), $this->api->context($request, Organization::query()->find($model->organization_id)));
+        return $this->dispatch(new IssueConsoleTokenCommand($model->organization_id, 'console:'.$model->id.':'.Str::lower((string) Str::ulid()), ['service_id' => $model->id, 'project_id' => $model->project_id]), $this->api->context($request, Organization::query()->find($model->organization_id)));
     }
 
     public function usage(Request $request, ServiceService $services, string $service): JsonResponse
