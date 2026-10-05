@@ -95,9 +95,12 @@
       @php($vatCheck = is_array($invoice->meta['vat'] ?? null) ? $invoice->meta['vat'] : ($invoice->buyer['vat_check'] ?? null))
       <br>DIČ dodavatele {{ ($invoice->seller['vat_id'] ?? null) ?: ($invoice->seller['dic'] ?? '') }} · DIČ odběratele {{ $invoice->buyer['vat_id'] ?? '' }}@if(is_array($vatCheck) && ($vatCheck['source'] ?? null) === 'staff') · registrace k DPH doložena mimo VIES @elseif(is_array($vatCheck) && !empty($vatCheck['checked_at'])) · ověřeno ve VIES {{ \Illuminate\Support\Carbon::parse($vatCheck['checked_at'])->timezone('Europe/Prague')->format('d.m.Y') }}@if(!empty($vatCheck['consultation_number'])) (č. {{ $vatCheck['consultation_number'] }})@endif @endif
     @endif
-    @if(collect($lines)->contains(fn ($l) => $l->tax_category === 'O'))
+    @if(($taxDocument ?? true) && collect($lines)->contains(fn ($l) => $l->tax_category === 'O'))
       <br>Místo plnění mimo EU — není předmětem české DPH. / Outside the scope of Czech VAT.
     @endif
+    @unless($taxDocument ?? true)
+      <br>Tento doklad není daňovým dokladem. / This document is not a tax document.
+    @endunless
   </td>
   <td class="num">
     Bez DPH / Net: {{ $money($invoice->subtotal_minor - $invoice->discount_minor) }}<br>

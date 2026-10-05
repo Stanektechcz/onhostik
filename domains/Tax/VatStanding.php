@@ -220,6 +220,22 @@ final class VatStanding
         return self::effectiveStatus($organization) === self::UNKNOWN;
     }
 
+    /**
+     * Whether a customer is registered for VAT, for the receipt of a top-up (G1): one who is gets the tax receipt it deducts from,
+     * anybody else a payment confirmation that is no tax document. The registration does not lapse in a month (no freshness
+     * window, as for a partner), a staff override in force decides, and a row from before the check counts as it did for the
+     * money (`valid`, `payer`). Unlike payerStanding() no identity confirmation is asked: here nothing is paid out — a payer
+     * wrongly denied the receipt could not deduct, a non-payer given one gains nothing.
+     */
+    public static function registeredForVat(Organization $organization): bool
+    {
+        if ($organization->vat_status_source === null && (string) $organization->vat_status === 'payer') {
+            return true;
+        }
+
+        return self::verdict($organization, CarbonImmutable::now(), false)['status'] === self::VALID;
+    }
+
     /** A VAT payer for the partner self-billing document (D31.6) — see payerStanding(). */
     public static function isVatPayer(Organization $organization): bool
     {

@@ -35,6 +35,12 @@ use Onhost\Platform\Outbox\OutboxPublisher;
  */
 final class InvoiceService
 {
+    /**
+     * A payment confirmation (potvrzení o přijetí platby): money received as credit from a customer who gets no tax receipt for
+     * it. Not a tax document — it is not in CzkTaxStatement::TYPES and states no VAT (G1). The type fits `invoices.type` (16).
+     */
+    public const PAYMENT_CONFIRMATION = 'confirmation';
+
     public function __construct(
         private readonly InvoiceNumberAllocator $numbers,
         private readonly InvoicePdfRenderer $pdf,
@@ -50,7 +56,7 @@ final class InvoiceService
 
     /**
      * Document for a paid order. Prepaid/wallet orders get a credit statement
-     * (vyúčtování) because VAT was settled on the top-up receipt; postpaid orders
+     * (vyúčtování, not a tax document: the receipt of the payment is); postpaid orders
      * get a tax invoice with a receivable posting.
      */
     public function issueForOrder(Order $order, CommandContext $context, string $paymentMethod): Invoice
@@ -80,14 +86,17 @@ final class InvoiceService
     }
 
     /**
-     * Tax document for a received payment (daňový doklad k přijaté platbě) issued
-     * for every verified top-up. VAT is extracted from the gross amount using the
-     * tax engine decision for electronically supplied services.
+     * Tax document for a received payment (daňový doklad k přijaté platbě): the money of a paid order (the order's statement
+     * is no tax document, so the receipt is its only one) and a VAT payer's top-up. VAT is extracted from the gross amount using
+     * the tax engine decision for electronically supplied services.
+     *
+     * Never for the payment of a document that is itself a tax document (G1, owner decision G-R1): an issued invoice paid by
+     * card, transfer or from the credit is settled, not documented a second time — see PaymentService::settle().
      */
     public function issueReceipt(Organization $organization, Money $gross, string $method, CommandContext $context, ?string $paymentIntentId = null): Invoice
     {
         if ($paymentIntentId !== null) {
-            $existing = Invoice::query()->where('type', 'receipt')->where('meta->payment_intent_id', $paymentIntentId)->first();
+            $existing = $this->paymentDocument($paymentIntentId);
             if ($existing !== null) {
                 return $existing;
             }
@@ -109,6 +118,39 @@ final class InvoiceService
         $receipt = $this->issue($draft, $context, dueDays: 0);
 
         return $this->markPaid($receipt, $gross, $method, $context, postLedger: false);
+    }
+
+    /**
+     * The document of money that becomes credit (a top-up, or what an invoice payment brought beyond what the invoice still
+     * owed). A VAT payer gets the tax receipt it deducts from; anybody else — a consumer, a business without a checked VAT
+     * number, or every customer while the seller is not a VAT payer — a payment confirmation that is not a tax document and
+     * states no VAT (G1). The VAT of what the credit later pays is booked when it is spent, as before.
+     */
+    public function issueTopupDocument(Organization $organization, Money $gross, string $method, CommandContext $context, ?string $paymentIntentId = null): Invoice
+    {
+        if ($paymentIntentId !== null) {
+            $existing = $this->paymentDocument($paymentIntentId);
+            if ($existing !== null) {
+                return $existing;
+            }
+        }
+        if ($this->legalEntity()->vat_payer && VatStanding::registeredForVat($organization)) {
+            return $this->issueReceipt($organization, $gross, $method, $context, $paymentIntentId);
+        }
+        $draft = $this->draft($organization, self::PAYMENT_CONFIRMATION, $gross->currency->value, [[
+            'sku' => 'topup', 'description' => 'Přijatá platba — kredit ONhost (není daňový doklad)', 'qty' => 1, 'unit' => 'ks',
+            'unit_net' => $gross->minor, 'discount' => 0, 'net' => $gross->minor, 'tax_rate' => '0', 'tax_category' => 'O', 'tax' => 0, 'total' => $gross->minor,
+        ]], $context, null, ['payment_method' => $method, 'payment_intent_id' => $paymentIntentId, 'tax_document' => false]);
+        $draft->forceFill(['tax_summary' => []])->save(); // states no VAT: whoever states VAT on a document owes it (§ 108 (1) i)
+        $confirmation = $this->issue($draft, $context, dueDays: 0);
+
+        return $this->markPaid($confirmation, $gross, $method, $context, postLedger: false);
+    }
+
+    /** The receipt or payment confirmation already issued for a payment, if any — one document per payment, whichever kind. */
+    private function paymentDocument(string $paymentIntentId): ?Invoice
+    {
+        return Invoice::query()->whereIn('type', ['receipt', self::PAYMENT_CONFIRMATION])->where('meta->payment_intent_id', $paymentIntentId)->first();
     }
 
     public function issueProforma(Order $order, CommandContext $context): Invoice

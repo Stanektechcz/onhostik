@@ -8,7 +8,9 @@ use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Onhost\Domain\Invoicing\CzkTaxStatement;
 use Onhost\Domain\Invoicing\InvoiceService;
+use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Payments\Events\PaymentFailed;
 use Onhost\Domain\Payments\Events\PaymentSucceeded;
@@ -38,8 +40,8 @@ use Throwable;
 /**
  * Payment orchestration (§63): intents, verified callbacks, dedupe, settlement to
  * the wallet, refunds, daily reconciliation against provider settlements and bank
- * statements. Every successful payment becomes a wallet top-up + receipt; orders
- * and invoices are settled by listeners of PaymentSucceeded.
+ * statements. Every successful payment becomes a wallet top-up with its document (see document(): an issued
+ * invoice gets none, it is the tax document); orders and invoices are settled by listeners of PaymentSucceeded.
  */
 final class PaymentService
 {
@@ -210,7 +212,7 @@ final class PaymentService
     }
 
     /**
-     * Idempotent settlement: wallet top-up + receipt, then PaymentSucceeded. Returns false if already settled.
+     * Idempotent settlement: wallet top-up + its document (document()), then PaymentSucceeded. Returns false if already settled.
      *
      * The money was taken by the provider, so crediting it is one thing and applying it (marking an order or an invoice
      * paid) is another: the credit commits on its own, and what is built on it runs afterwards. A listener that fails —
@@ -230,7 +232,7 @@ final class PaymentService
             $organization = Organization::query()->findOrFail($intent->organization_id);
             $ctx = $context->withScope($organization->id);
             $this->wallets->topup($organization, $intent->amount(), $intent->method ?? 'card', "pi:{$intent->id}", $ctx, $intent->id, "Payment {$intent->provider} {$intent->provider_id}", bankProvider: $intent->provider, purpose: (string) ($intent->purpose ?: 'topup'));
-            $this->invoices->issueReceipt($organization, $intent->amount(), $intent->method ?? $intent->provider, $ctx, $intent->id);
+            $this->document($organization, $intent, $ctx);
             $this->audit->record($ctx, 'payment.succeeded', 'succeeded', ['provider' => $intent->provider, 'provider_id' => $intent->provider_id, 'amount' => $intent->amount(), 'purpose' => $intent->purpose], 'payment_intent', $intent->id);
             $this->outbox->publish(GenericEvent::of('payment.succeeded', 'payment', $intent->id, ['purpose' => $intent->purpose, 'reference' => [$intent->reference_type, $intent->reference_id], 'amount' => $intent->amount()], $organization->id));
             if (! empty($intent->return_urls['save_method']) && $intent->provider_id) {
@@ -253,6 +255,37 @@ final class PaymentService
         }
 
         return true;
+    }
+
+    /**
+     * The document of a received payment (G1, owner decision G-R1: only the invoice is a tax document).
+     *
+     *  · the payment of an issued tax document (an invoice still open): none — the invoice is the tax document, the payment is
+     *    matched to it by SettleInvoicePayment. It used to get a receipt with VAT, so one sale stood on two tax documents;
+     *    whatever the invoice cannot take any more becomes credit there, with a top-up document of its own;
+     *  · an order (its statement is no tax document) and a proforma: the tax receipt, the sale's one tax document;
+     *  · a top-up: a tax receipt for a VAT payer, a payment confirmation that is no tax document for anybody else.
+     */
+    private function document(Organization $organization, PaymentIntent $intent, CommandContext $ctx): void
+    {
+        $method = $intent->method ?? $intent->provider;
+        if ($intent->purpose === 'topup') {
+            $this->invoices->issueTopupDocument($organization, $intent->amount(), $method, $ctx, $intent->id);
+
+            return;
+        }
+        if ($intent->purpose === 'invoice' && $intent->reference_type === 'invoice') {
+            $invoice = Invoice::query()->whereKey((string) $intent->reference_id)->where('organization_id', $organization->id)->first();
+            if ($invoice !== null && in_array($invoice->type, CzkTaxStatement::TYPES, true)) {
+                if (! in_array($invoice->state, [Invoice::ISSUED, Invoice::OVERDUE], true) || ! $invoice->outstanding()->isPositive()) {
+                    // paid or credited meanwhile: the money stays as credit, documented as a top-up
+                    $this->invoices->issueTopupDocument($organization, $intent->amount(), $method, $ctx, $intent->id);
+                }
+
+                return;
+            }
+        }
+        $this->invoices->issueReceipt($organization, $intent->amount(), $method, $ctx, $intent->id);
     }
 
     /**

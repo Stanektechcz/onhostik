@@ -21,14 +21,26 @@ final class InvoicePdfRenderer
             'invoice' => $invoice,
             'lines' => $lines,
             'money' => fn (int $minor) => Money::minor($minor, $invoice->currency)->format($invoice->buyer['locale'] ?? 'cs'),
-            'title' => match ($invoice->type) {
-                'proforma' => 'Zálohová faktura / Proforma invoice',
-                'credit_note' => 'Opravný daňový doklad / Credit note',
-                'receipt' => 'Doklad o přijetí platby / Receipt',
-                default => 'Faktura – daňový doklad / Invoice',
-            },
+            'title' => self::titleFor((string) $invoice->type),
+            'taxDocument' => in_array($invoice->type, CzkTaxStatement::TYPES, true),
         ])->render();
 
         return Pdf::loadHTML($html)->setPaper('a4')->output();
+    }
+
+    /**
+     * What the document says it is. Only the types in CzkTaxStatement::TYPES are tax documents (G1): a statement listed what
+     * the credit paid for under the heading of a tax invoice, so a payment with its receipt looked like two tax documents.
+     */
+    public static function titleFor(string $type): string
+    {
+        return match ($type) {
+            'proforma' => 'Zálohová faktura (není daňový doklad) / Proforma invoice',
+            'credit_note' => 'Opravný daňový doklad / Credit note',
+            'receipt' => 'Daňový doklad k přijaté platbě / Tax receipt',
+            'statement' => 'Vyúčtování z kreditu (není daňový doklad) / Credit statement',
+            InvoiceService::PAYMENT_CONFIRMATION => 'Potvrzení o přijetí platby (není daňový doklad) / Payment confirmation',
+            default => 'Faktura – daňový doklad / Invoice',
+        };
     }
 }
