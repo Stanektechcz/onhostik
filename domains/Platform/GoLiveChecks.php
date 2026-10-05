@@ -216,7 +216,7 @@ final class GoLiveChecks
             return true;
         }
         foreach (Plan::query()->get() as $plan) {
-            $entitlements = (array) ($plan->currentVersion()?->entitlements ?? []);
+            $entitlements = (array) ($plan->currentVersion()->entitlements ?? []);
             if (filter_var($entitlements[CustomIsoPolicy::FEATURE] ?? false, FILTER_VALIDATE_BOOLEAN)) {
                 return true;
             }
@@ -289,9 +289,9 @@ final class GoLiveChecks
         $remedy = 'php artisan onhost:loyalty:expire runs the expiry by hand; it is scheduled daily at 05:35 (php artisan schedule:list, systemctl status onhost-scheduler); a negative balance or debt is a loyalty bug: open an incident (docs/runbooks/incident-response.md), correct it with a staff award or clawback that carries a reason, never edit rows';
         Artisan::all(); // loads routes/console.php, where the schedule is declared
         $scheduled = collect(app(Schedule::class)->events())->contains(fn ($event) => str_contains((string) ($event->command ?? ''), 'onhost:loyalty:expire'));
-        $negative = LoyaltyPoint::query()->select('organization_id')->groupBy('organization_id')->havingRaw('sum(points) < 0')->get()->count();
-        $overRepaid = LoyaltyPoint::query()->select('organization_id')->whereIn('rule', [LoyaltyService::CARRY_RULE, LoyaltyService::DEBT_RULE])
-            ->groupBy('organization_id')->havingRaw('sum(points) < 0')->get()->count();
+        $negative = count(LoyaltyPoint::query()->groupBy('organization_id')->havingRaw('sum(points) < 0')->pluck('organization_id')->all());
+        $overRepaid = count(LoyaltyPoint::query()->whereIn('rule', [LoyaltyService::CARRY_RULE, LoyaltyService::DEBT_RULE])
+            ->groupBy('organization_id')->havingRaw('sum(points) < 0')->pluck('organization_id')->all());
         [$late, $latePoints] = $this->expiryOverdue();
         $debt = (int) LoyaltyPoint::query()->where('rule', LoyaltyService::CARRY_RULE)->sum('points') + (int) LoyaltyPoint::query()->where('rule', LoyaltyService::DEBT_RULE)->sum('points');
         $problems = array_values(array_filter([
