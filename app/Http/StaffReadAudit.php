@@ -87,6 +87,9 @@ final class StaffReadAudit
         'v1/staff/tickets/{ticket}' => ['ticket', 'ticket', Ticket::class], // the controller records it itself
         'v1/staff/tickets/{ticket}/work-offers' => ['ticket_work_offers', 'ticket', Ticket::class],
         'v1/staff/withdrawals' => ['withdrawals', null, null],
+        // G2 (#106): the seller's VAT payer mode — no customer's row, but finance-sensitive (it decides every document's VAT): a
+        // look at it is recorded like a look at customer data
+        'v1/staff/tax/vat-payer-mode' => ['vat_payer_mode', null, null],
     ];
 
     /** GET routes under /v1/staff that show no customer's data, and why. @var array<string, string> */
@@ -170,9 +173,17 @@ final class StaffReadAudit
             return;
         }
         [$what, $resourceType, $model] = $entry;
-        $parameters = is_object($route) && method_exists($route, 'parameters') ? array_values(array_filter($route->parameters(), 'is_string')) : [];
-        $resourceId = $resourceType !== null && count($parameters) === 1 ? mb_substr($parameters[0], 0, 64) : null;
-        $this->record($request, $context, $what, self::organizationOf($model, $resourceId), $resourceType, $resourceId);
+        // a parameter is the id from the address, or — with implicit route-model binding — the model itself: its key is the id and
+        // the bound row names the organization, so neither is lost (review LOW: a string-only filter dropped bound parameters)
+        $parameters = is_object($route) && method_exists($route, 'parameters') ? array_values(array_filter($route->parameters(), fn ($p) => is_string($p) || $p instanceof Model)) : [];
+        $parameter = $resourceType !== null && count($parameters) === 1 ? $parameters[0] : null;
+        $resourceId = match (true) {
+            $parameter instanceof Model => mb_substr((string) $parameter->getKey(), 0, 64),
+            is_string($parameter) => mb_substr($parameter, 0, 64),
+            default => null,
+        };
+        $organizationId = $parameter instanceof Model ? self::organizationOfModel($parameter) : self::organizationOf($model, $resourceId);
+        $this->record($request, $context, $what, $organizationId, $resourceType, $resourceId);
     }
 
     /** @param class-string<Model>|null $model */
@@ -185,6 +196,17 @@ final class StaffReadAudit
             return Organization::query()->whereKey($id)->exists() ? $id : null;
         }
         $organizationId = $model::query()->whereKey($id)->value('organization_id');
+
+        return is_string($organizationId) && $organizationId !== '' ? $organizationId : null;
+    }
+
+    /** The organization a bound row belongs to: the organization itself, or its `organization_id`. */
+    private static function organizationOfModel(Model $model): ?string
+    {
+        if ($model instanceof Organization) {
+            return (string) $model->getKey();
+        }
+        $organizationId = $model->getAttribute('organization_id');
 
         return is_string($organizationId) && $organizationId !== '' ? $organizationId : null;
     }

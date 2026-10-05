@@ -3,6 +3,8 @@
 declare(strict_types=1);
 
 use App\Http\StaffReadAudit;
+use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route as Router;
@@ -109,4 +111,19 @@ it('files a look at one customer\'s record in that customer\'s own trail, and re
     expect($reads->where('organization_id', $org->id)->pluck('action')->sort()->values()->all())->toBe(['staff.read.operation', 'staff.read.partner', 'staff.read.ticket_work_offers'])
         ->and($reads->where('resource_id', 'does-not-exist')->count())->toBe(0)
         ->and($reads->pluck('action')->all())->not->toContain('staff.read.mrr');
+});
+
+it('keeps the id and the organization of a parameter bound to its model (implicit route-model binding)', function () {
+    [, $org] = $this->customerWithOrganization();
+    $partner = Partner::query()->create(['organization_id' => $org->id, 'code' => 'G7BOUND', 'state' => 'active']);
+    $staff = $this->staff('platform_owner');
+    $request = Request::create('/v1/staff/partners/'.$partner->id, 'GET');
+    $route = (new Route(['GET'], 'v1/staff/partners/{partner}', fn () => null))->bind($request);
+    $route->setParameter('partner', $partner); // what SubstituteBindings leaves for a typed controller argument
+    $request->setRouteResolver(fn () => $route);
+
+    app(StaffReadAudit::class)->afterResponse($request, new Response('', 200), $this->staffContextFor($staff));
+
+    $read = AuditEvent::query()->where('actor_id', $staff->id)->where('action', 'staff.read.partner')->sole();
+    expect($read->resource_type)->toBe('partner')->and($read->resource_id)->toBe($partner->id)->and($read->organization_id)->toBe($org->id);
 });
