@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Partners;
 
-use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -166,14 +165,12 @@ final class PartnerService
         }
         $amount = $base->percent($rate);
         $paidAt = $invoice->paid_at ?? now();
-        try {
-            $commission = DB::transaction(fn () => PartnerCommission::query()->create([ // a savepoint: PostgreSQL refuses the duplicate, the caller's work stays
-                'partner_id' => $partner->id, 'organization_id' => $client->id, 'invoice_id' => $invoice->id, 'period' => $paidAt->format('Y-m'), 'kind' => $kind,
-                'base_minor' => $base->minor, 'rate_pct' => $rate, 'amount_minor' => $amount->minor, 'currency' => $invoice->currency, 'state' => PartnerCommission::PENDING, 'invoice_paid_at' => $paidAt,
-                'payable_at' => CommissionGrace::payableAt($paidAt),
-            ]));
-        } catch (UniqueConstraintViolationException) {
-            return null;
+        [$commission, $written] = CommissionGrace::book([
+            'partner_id' => $partner->id, 'organization_id' => $client->id, 'invoice_id' => $invoice->id, 'period' => $paidAt->format('Y-m'), 'kind' => $kind,
+            'base_minor' => $base->minor, 'rate_pct' => $rate, 'amount_minor' => $amount->minor, 'currency' => $invoice->currency, 'invoice_paid_at' => $paidAt,
+        ]);
+        if (! $written) {
+            return null; // the same paid event delivered twice at once: the other delivery wrote it
         }
         $this->audit->record(CommandContext::system('partner.commission')->withScope($partner->organization_id), 'partner.commission.accrue', 'succeeded', ['invoice' => $invoice->number, 'client' => $client->id, 'kind' => $kind, 'rate' => $rate, 'amount' => $amount, 'payable_at' => $commission->payable_at?->toIso8601String()], 'partner_commission', $commission->id);
 

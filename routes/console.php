@@ -549,8 +549,9 @@ Artisan::command('onhost:partners:apply-models', function (PartnerService $partn
     $this->info('changes applied: '.$partners->applyPendingChanges());
 })->purpose('Apply approved contract changes (model, rate lock, payout terms, white-label scope) whose day came (audit §5m-1, §5n-1)');
 
-// R7 (TASK-0097): a commission is payable 30 days after the client paid; the key is the minute, so two servers running the same
-// minute share one run (the bus answers the second from its memory) and each row is flipped once anyway (CommissionGrace::mature)
+// R7 (TASK-0097): a commission is payable 30 days after the client paid. onOneServer keeps the schedule on one server; the key is
+// the minute, so a run retried within that minute is answered from the bus's memory. Runs that do overlap (a manual run beside the
+// schedule) flip each row once anyway: CommissionGrace::mature updates on `state = pending`.
 Artisan::command('onhost:partners:mature-commissions', function (CommandBus $bus) {
     $result = (array) $bus->dispatch(new PartnerCommand('partner.commissions.mature:'.now()->format('YmdHi'), ['op' => 'commissions.mature']), CommandContext::system('cli:partners:mature-commissions'));
     $this->info('matured: '.(int) ($result['matured'] ?? 0).' · partners: '.(int) ($result['partners'] ?? 0));

@@ -8,12 +8,15 @@ use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Notifications\Models\Notification;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Partners\Commands\PartnerCommand;
+use Onhost\Domain\Partners\CommissionGrace;
 use Onhost\Domain\Partners\Models\Partner;
 use Onhost\Domain\Partners\Models\PartnerCommission;
 use Onhost\Domain\Partners\Models\PartnerPayout;
@@ -48,6 +51,7 @@ function cgrPartnerWithClient(object $test, string $partnerName, string $clientN
 {
     $organizationOf = fn (string $name): Organization => (fn () => $this->customerWithOrganization([], ['name' => $name])[1])->call($test);
     $partnerOrg = $organizationOf($partnerName);
+    User::query()->whereKey($partnerOrg->owner_user_id)->update(['email_verified_at' => now()]); // R5: payouts need a verified owner
     $client = $organizationOf($clientName);
     $partners = app(PartnerService::class);
     $partner = $partners->approve($partners->apply($partnerOrg, ['model' => 'share'], CommandContext::system('test')), CommandContext::system('test'));
@@ -268,6 +272,7 @@ it('touches only the partner whose client got the money back, and shows each par
     // a credit note of another organization naming A's invoice never reaches A's commission
     $forged = (new Invoice)->forceFill(['id' => 'inv_forged_r7', 'type' => 'credit_note', 'organization_id' => $clientB->id, 'corrects_invoice_id' => $invoiceA->id, 'subtotal_minor' => -1000000, 'discount_minor' => 0, 'currency' => 'CZK', 'number' => 'DB-FORGED']);
     expect(app(PartnerService::class)->reverseForCreditNote($forged))->toBeNull();
+    expect(DB::table('audit_events')->where('action', 'partner.commission.reverse')->where('result', 'denied')->where('resource_id', PartnerCommission::query()->where('invoice_id', $invoiceA->id)->value('id'))->exists())->toBeTrue();
 
     expect(PartnerCommission::query()->where('invoice_id', $invoiceA->id)->value('state'))->toBe('pending')
         ->and(PartnerCommission::query()->where('invoice_id', $invoiceB->id)->value('state'))->toBe('cancelled')
@@ -300,4 +305,54 @@ it('keeps the one-off bonus for the first paid invoice that stays paid, when the
     $kept = cgrPaidInvoice($client, 100000);
     $bonus = PartnerCommission::query()->where('invoice_id', $kept->id)->firstOrFail();
     expect($bonus->kind)->toBe('oneoff')->and($bonus->state)->toBe('pending');
+});
+
+it('matures a commission together with its pending reversal, also when the batch would part them', function () {
+    [$partner, $client] = cgrPartnerWithClient($this, 'Agentura Dávka s.r.o.', 'Klient Dávka s.r.o.');
+    $first = cgrPaidInvoice($client, 1000000);
+    $second = cgrPaidInvoice($client, 1000000);
+    foreach ([$first, $second] as $invoice) {
+        $line = $invoice->lines()->firstOrFail();
+        app(InvoiceService::class)->giveBack($invoice, [$line->id => 605000], 'Zrušení služby — vráceno 50 % nevyužitého období', CommandContext::system('test'));
+    }
+    app(OutboxPublisher::class)->relayPending();
+    $this->travel(31)->days();
+
+    $run = app(CommissionGrace::class)->mature(CommandContext::system('test'), null, 1); // a batch of one group
+    expect($run['matured'])->toBe(2)
+        ->and(app(PartnerService::class)->balance($partner)['payable']->minor)->toBe(75000) // never the commission without its minus
+        ->and(app(PartnerService::class)->balance($partner)['pending']->minor)->toBe(75000);
+    expect(app(CommissionGrace::class)->mature(CommandContext::system('test'))['matured'])->toBe(2);
+});
+
+it('leaves a commission of a partner that no longer exists pending, and says so', function () {
+    [, $client] = cgrPartnerWithClient($this, 'Agentura Sirotek s.r.o.', 'Klient Sirotek s.r.o.');
+    $invoice = cgrPaidInvoice($client, 1000000);
+    PartnerCommission::query()->where('invoice_id', $invoice->id)->update(['partner_id' => 'ptn_gone_r7']);
+    $this->travel(31)->days();
+    Log::spy();
+
+    expect(cgrMature('orphan')['matured'])->toBe(0)->and(PartnerCommission::query()->where('invoice_id', $invoice->id)->value('state'))->toBe('pending');
+    Log::shouldHaveReceived('warning')->withArgs(fn (string $message) => str_contains($message, 'partner'))->atLeast()->once();
+});
+
+it('marks only payout remainders as fragments when the index arrives, and builds no index over a genuine double accrual', function () {
+    $migration = require database_path('migrations/0001_01_01_000950_partner_commissions_wait_out_their_grace.php');
+    $migration->down();
+    $row = fn (string $id, string $invoice, int $amount, string $state, ?string $payout, int $minutes) => [
+        'id' => $id, 'partner_id' => 'ptn_mig', 'organization_id' => 'org_mig', 'invoice_id' => $invoice, 'period' => '2026-09', 'kind' => 'share', 'base_minor' => 1000000, 'rate_pct' => 20,
+        'amount_minor' => $amount, 'currency' => 'CZK', 'state' => $state, 'payout_id' => $payout, 'invoice_paid_at' => now()->subDays(10), 'created_at' => now()->subMinutes($minutes), 'updated_at' => now(),
+    ];
+    // a commission a payout split (150 000 allocated, the remainder 50 000 left payable) and a genuine double accrual
+    DB::table('partner_commissions')->insert([$row('pcm_split_a', 'inv_split', 150000, 'allocated', 'po_mig', 10), $row('pcm_split_b', 'inv_split', 50000, 'payable', null, 5)]);
+    DB::table('partner_commissions')->insert([$row('pcm_dbl_a', 'inv_dbl', 200000, 'payable', null, 10), $row('pcm_dbl_b', 'inv_dbl', 200000, 'payable', null, 5)]);
+
+    expect(fn () => $migration->up())->toThrow(RuntimeException::class, 'inv_dbl/share');
+    expect(Schema::hasColumn('partner_commissions', 'fragment'))->toBeFalse(); // refused before anything changed
+
+    DB::table('partner_commissions')->where('id', 'pcm_dbl_b')->delete(); // finance resolved the double accrual
+    $migration->up();
+    expect(DB::table('partner_commissions')->where('fragment', true)->pluck('id')->all())->toBe(['pcm_split_b'])
+        ->and(DB::table('partner_commissions')->where('id', 'pcm_split_b')->value('state'))->toBe('payable') // paid 10 days ago and still payable: R7 applies from the deploy on
+        ->and(DB::table('partner_commissions')->where('id', 'pcm_dbl_a')->value('payable_at'))->not->toBeNull();
 });

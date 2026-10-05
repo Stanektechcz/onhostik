@@ -7,7 +7,9 @@ namespace Onhost\Domain\Partners;
 use Carbon\CarbonInterface;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Partners\Models\Partner;
 use Onhost\Domain\Partners\Models\PartnerCommission;
@@ -67,7 +69,12 @@ final class CommissionGrace
 
         return DB::transaction(function () use ($creditNote): ?PartnerCommission {
             $commission = PartnerCommission::query()->where('invoice_id', $creditNote->corrects_invoice_id)->where('kind', '!=', 'reversal')->where('fragment', false)->lockForUpdate()->first();
-            if ($commission === null || $commission->organization_id !== $creditNote->organization_id) {
+            if ($commission === null) {
+                return null;
+            }
+            if ($commission->organization_id !== $creditNote->organization_id) {
+                $this->refuseForeignNote($commission, $creditNote);
+
                 return null;
             }
             if (PartnerCommission::query()->where('invoice_id', $creditNote->id)->where('kind', 'reversal')->exists()) {
@@ -92,24 +99,100 @@ final class CommissionGrace
     }
 
     /**
-     * Pending commissions whose day came become payable. Each row is flipped by a conditional update (`state = pending`), so a
-     * run that overlaps another — or a credit note cancelling the row meanwhile — flips nothing twice; only what this run
-     * flipped is announced, one event per partner and currency.
+     * A new commission (accrual, the marketplace share): `pending` until 30 days after `invoice_paid_at`, whatever the caller
+     * passed as state. Written in a savepoint: when the unique index on (invoice_id, kind) says another writer was first — two
+     * deliveries of one event, two acceptances of one order — the existing commission is returned and the caller's own work
+     * (an acceptance, a renewal) is not rolled back.
      *
+     * @param  array<string, mixed>  $attributes
+     * @return array{0: PartnerCommission, 1: bool} the commission of (invoice_id, kind), and whether this call wrote it
+     */
+    public static function book(array $attributes): array
+    {
+        $paidAt = Carbon::parse($attributes['invoice_paid_at'] ?? now());
+        $attributes = array_merge($attributes, ['invoice_paid_at' => $paidAt, 'state' => PartnerCommission::PENDING, 'payable_at' => self::payableAt($paidAt)]);
+        try {
+            return [DB::transaction(fn () => PartnerCommission::query()->create($attributes)), true];
+        } catch (UniqueConstraintViolationException $e) {
+            $existing = PartnerCommission::query()->where('invoice_id', $attributes['invoice_id'] ?? null)->where('kind', $attributes['kind'] ?? null)->where('fragment', false)->first();
+            if ($existing === null) {
+                throw $e;
+            }
+
+            return [$existing, false];
+        }
+    }
+
+    /**
+     * Pending commissions whose day came become payable, in one transaction with their announcement.
+     *
+     * A commission and the pending reversals of its credit notes (they share `payable_at`) mature together, as one group — a
+     * batch limit or an overlapping run never leaves the commission payable without its minus. Each row is flipped by a
+     * conditional update (`state = pending`), so a run that overlaps another — or a credit note cancelling the row meanwhile —
+     * flips nothing twice; only what this run flipped is announced, one event per partner and currency. A commission whose
+     * partner is gone (no organization to pay) stays pending and is logged for finance.
+     *
+     * @param  int  $limit  groups per run
      * @return array{matured:int, partners:int}
      */
-    public function mature(CommandContext $context, ?CarbonInterface $now = null): array
+    public function mature(CommandContext $context, ?CarbonInterface $now = null, int $limit = self::BATCH): array
     {
         $now = Carbon::instance($now ?? now());
-        $due = PartnerCommission::query()->where('state', PartnerCommission::PENDING)->whereNotNull('payable_at')->where('payable_at', '<=', $now)
-            ->orderBy('payable_at')->orderBy('id')->limit(self::BATCH)->get();
-        $flipped = [];
-        foreach ($due as $commission) {
-            $updated = PartnerCommission::query()->whereKey($commission->id)->where('state', PartnerCommission::PENDING)->update(['state' => PartnerCommission::PAYABLE, 'updated_at' => now()]);
-            if ($updated === 1) {
-                $flipped[$commission->partner_id][$commission->currency][] = $commission;
+
+        return DB::transaction(function () use ($context, $now, $limit): array {
+            $flipped = [];
+            foreach ($this->dueGroups($now, $limit) as $rows) {
+                foreach ($rows as $commission) {
+                    $updated = PartnerCommission::query()->whereKey($commission->id)->where('state', PartnerCommission::PENDING)->update(['state' => PartnerCommission::PAYABLE, 'updated_at' => now()]);
+                    if ($updated === 1) {
+                        $flipped[$commission->partner_id][$commission->currency][] = $commission;
+                    }
+                }
             }
+
+            return $this->announceMatured($context, $flipped);
+        });
+    }
+
+    /**
+     * The due groups, oldest first: a commission with the pending reversals of its invoice's credit notes. Rows of a partner
+     * that has no organization are left out (and logged).
+     *
+     * @return list<Collection<int, PartnerCommission>>
+     */
+    private function dueGroups(Carbon $now, int $limit): array
+    {
+        $due = PartnerCommission::query()->where('state', PartnerCommission::PENDING)->whereNotNull('payable_at')->where('payable_at', '<=', $now)->orderBy('payable_at')->orderBy('id')->get();
+        $paying = Partner::query()->whereIn('id', $due->pluck('partner_id')->unique()->all())->whereNotNull('organization_id')->pluck('id')->all();
+        foreach ($due->whereNotIn('partner_id', $paying)->groupBy('partner_id') as $partnerId => $rows) {
+            Log::warning('Partner commissions not matured: the partner has no organization to pay', ['partner_id' => $partnerId, 'commissions' => $rows->pluck('id')->all()]);
         }
+        $due = $due->whereIn('partner_id', $paying);
+        $reversalNotes = $due->where('kind', 'reversal')->pluck('invoice_id')->filter()->unique()->all();
+        $rootOf = Invoice::query()->whereIn('id', $reversalNotes)->pluck('corrects_invoice_id', 'id');
+        $groups = $due->groupBy(fn (PartnerCommission $c) => $c->kind === 'reversal' ? (string) ($rootOf[$c->invoice_id] ?? 'row:'.$c->id) : (string) ($c->invoice_id ?? 'row:'.$c->id));
+        $out = [];
+        foreach ($groups->take($limit) as $root => $rows) {
+            if (str_starts_with((string) $root, 'row:')) {
+                $out[] = $rows->values();
+
+                continue;
+            }
+            $notes = Invoice::query()->where('type', 'credit_note')->where('corrects_invoice_id', $root)->pluck('id')->all();
+            $out[] = PartnerCommission::query()->where('state', PartnerCommission::PENDING)->whereIn('partner_id', $paying)->where('payable_at', '<=', $now)
+                ->where(fn ($q) => $q->where(fn ($c) => $c->where('invoice_id', $root)->where('kind', '!=', 'reversal'))->orWhere(fn ($r) => $r->whereIn('invoice_id', $notes)->where('kind', 'reversal')))
+                ->orderBy('id')->get();
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  array<string, array<string, list<PartnerCommission>>>  $flipped
+     * @return array{matured:int, partners:int}
+     */
+    private function announceMatured(CommandContext $context, array $flipped): array
+    {
         $count = 0;
         foreach ($flipped as $partnerId => $byCurrency) {
             $organizationId = Partner::query()->whereKey($partnerId)->value('organization_id');
@@ -191,8 +274,25 @@ final class CommissionGrace
         $detail = ['invoice' => $invoiceNumber, 'credit_note' => $creditNote->number, 'client' => $commission->organization_id, 'amount' => $amount, 'left' => Money::minor($left, $commission->currency)];
         $action = ['cancelled' => 'partner.commission.cancel', 'reduced' => 'partner.commission.reduce', 'adjusted' => 'partner.commission.adjust'][$outcome];
         $this->audit->record(CommandContext::system('partner.commission')->withScope($organizationId), $action, 'succeeded', $detail, 'partner_commission', $commission->id);
+        if ($organizationId === null) {
+            Log::warning('Partner commission changed by a credit note, the partner has no organization to tell', ['commission' => $commission->id, 'outcome' => $outcome]);
+
+            return;
+        }
         $this->outbox->publish(GenericEvent::of('partner.commission.'.$outcome, 'partner_commission', $commission->id, [
             'invoice' => $invoiceNumber, 'credit_note' => $creditNote->number, 'amount' => $amount, 'left' => Money::minor($left, $commission->currency), 'payable_at' => $commission->payable_at?->toIso8601String(),
         ], $organizationId));
+    }
+
+    /**
+     * A credit note of another organization than the commissioned invoice's is not matched (a credit note is written for its
+     * invoice's organization; a row claiming otherwise is a fault or a forgery): recorded and logged, nothing is changed.
+     */
+    private function refuseForeignNote(PartnerCommission $commission, Invoice $creditNote): void
+    {
+        $organizationId = Partner::query()->whereKey($commission->partner_id)->value('organization_id');
+        $detail = ['credit_note' => $creditNote->number, 'credit_note_id' => $creditNote->id, 'credit_note_organization' => $creditNote->organization_id, 'client' => $commission->organization_id];
+        $this->audit->record(CommandContext::system('partner.commission')->withScope($organizationId), 'partner.commission.reverse', 'denied', $detail + ['reason' => 'credit_note_of_another_organization'], 'partner_commission', $commission->id);
+        Log::warning('A credit note of another organization named a commissioned invoice; the commission was not touched', $detail + ['commission' => $commission->id]);
     }
 }

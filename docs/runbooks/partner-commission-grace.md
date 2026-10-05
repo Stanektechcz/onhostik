@@ -7,7 +7,7 @@
 
 | State | Meaning | How it gets there |
 | --- | --- | --- |
-| `pending` | earned, waiting out 30 days from the client's payment (`payable_at`) | `invoice.paid` → `PartnerService::accrueForInvoice` |
+| `pending` | earned, waiting out 30 days from the client's payment (`payable_at`) | `invoice.paid` → `PartnerService::accrueForInvoice`; the marketplace share on acceptance and on every monthly renewal (`MarketplaceService`) — all through `CommissionGrace::book` |
 | `payable` | may be paid out | the hourly maturing job, once `payable_at` passed |
 | `allocated` / `paid` | in a payout / paid (unchanged, `PartnerPayouts`) | payout request / four-eyes payment |
 | `cancelled` | given back in full inside the window; never payable | a credit note while the commission is `pending` |
@@ -20,7 +20,10 @@
   that the next payouts carry. The balance may go below zero; no payout is possible until new commissions earn it back.
 - One reversal per credit note and one commission per (invoice, kind) are kept by the database
   (`partner_commissions_invoice_kind_unique`, partial: the remainder a payout splits off a commission is a `fragment` and is
-  left out). A credit note reaches only a commission of an invoice of its own organization.
+  left out). When two writers race for one (two deliveries of one event, two acceptances of one order), the second gets the
+  existing row back and its own work (the acceptance, the renewal) stands. A credit note reaches only a commission of an
+  invoice of its own organization; one that names another organization's invoice changes nothing and is recorded as
+  `partner.commission.reverse` / `denied` in the audit log (and logged).
 - Payouts (by hand and `onhost:partners:auto-payouts`) take only `payable` rows; nothing pending is ever in a payout.
 
 ## The job
@@ -28,7 +31,9 @@
 `onhost:partners:mature-commissions` (hourly at :20, `onOneServer`) dispatches `PartnerCommand` `commissions.mature` through the
 bus as the system (permission `partner.manage`, risk at its floor: maturing moves no money; paying what matured stays the
 CRITICAL four-eyes payment). The idempotency key is the minute; each row is flipped by a conditional update, so overlapping runs
-mature every commission once and announce it once. At most 1 000 rows per run (`CommissionGrace::BATCH`).
+mature every commission once and announce it once. A commission matures together with the pending reversals of its credit
+notes (one group), and the flips and their events are one transaction. At most 1 000 groups per run (`CommissionGrace::BATCH`).
+A commission whose partner has no organization stays pending and is logged (`Partner commissions not matured …`).
 
 Manual run: `php artisan onhost:partners:mature-commissions` (safe to repeat).
 
@@ -47,10 +52,15 @@ The same rows are in `docs/architecture/events-catalog.md` (customer-facing even
 
 ## Migration `0001_01_01_000950`
 
-Adds `payable_at`, `cancelled_at`, `fragment`; marks existing duplicates of (invoice, kind) — remainders of split payouts — as
-fragments (the oldest row stays the commission; nothing is deleted); sets `payable_at` = paid + 30 days on every row with a
-payment date; moves `payable` commissions paid less than 30 days before the deploy back to `pending` (R7 applies to money not
-yet in a payout; allocated and paid rows and reversals keep their state); creates the partial unique index.
+R7 applies to commissions created from the deploy on: no existing row changes its state. The migration adds `payable_at`,
+`cancelled_at` and `fragment`, fills `payable_at` (paid + 30 days) on rows with a payment date for the record, and creates the
+partial unique index.
+
+Existing duplicates of (invoice, kind) are marked fragments only when they look like payout remainders (same partner, base,
+rate and currency; positive amounts; every row but the oldest linked to a payout; together not more than base × rate plus a
+haler per row). The count of marked rows is printed. Any other duplicate (a genuine double accrual) stops the migration
+**before it changes anything**, naming the groups as `invoice/kind`: finance decides which row stands, then the migration is run
+again.
 
 Rollback (`migrate:rollback --step=1`): drops the index, turns `pending` and `cancelled` rows back into `payable` (a cancelled
 commission and its cancelled reversal net to zero) and drops the columns.
