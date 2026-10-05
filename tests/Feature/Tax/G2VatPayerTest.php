@@ -414,7 +414,7 @@ it('H1: switches the mode only through the staff API with a step-up and a second
 
     $finance = $this->staff('billing_finance_admin');
     $this->actingAs($finance, 'sanctum');
-    $this->getJson($url)->assertOk()->assertJsonPath('in_force', true);
+    $this->getJson($url)->assertOk()->assertJsonPath('data.in_force', true);
     $this->postJson($url, $body)->assertForbidden()->assertJsonPath('error', 'step_up_required');
     app(StepUpService::class)->grant($finance, 'totp', null, '127.0.0.1');
     $approval = (string) $this->postJson($url, $body)->assertForbidden()->assertJsonPath('error', 'approval_required')->json('approval_id');
