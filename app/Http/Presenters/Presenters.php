@@ -39,6 +39,9 @@ use Onhost\Platform\Observability\Tracer;
  */
 final class Presenters
 {
+    /** What the platform keeps in `tags.access` for its own use (the hypervisor's guest number and node name): never in a customer's answer, as the webhook payload already holds it back (E4). */
+    private const INTERNAL_ACCESS = ['vmid', 'node'];
+
     public static function money(int $minor, string $currency): array
     {
         return Money::minor($minor, $currency)->jsonSerialize();
@@ -84,7 +87,7 @@ final class Presenters
 
         return [
             'id' => $service->id, 'product_key' => $service->product_key, 'family' => $service->family, 'name' => $service->name, 'label' => $service->label, 'hostname' => $service->hostname,
-            'state' => $service->state, 'ui' => $ui, 'region' => $service->region_code, 'sla_class' => $service->sla_class, 'entitlements' => $service->entitlements, 'access' => $service->tags['access'] ?? [], 'migration' => ServiceMigrationService::status($service),
+            'state' => $service->state, 'ui' => $ui, 'region' => $service->region_code, 'sla_class' => $service->sla_class, 'entitlements' => $service->entitlements, 'access' => array_diff_key((array) ($service->tags['access'] ?? []), array_flip(self::INTERNAL_ACCESS)), 'migration' => ServiceMigrationService::status($service),
             'health' => $staff ? $service->health : self::customerHealth((array) $service->health), 'freshness' => ServiceFreshness::of($service), 'control_plane' => ControlPlaneStatus::of($service), 'suspension' => SuspensionHold::of($service), 'activated_at' => $service->activated_at?->toIso8601String(), 'suspended_at' => $service->suspended_at?->toIso8601String(), 'suspended_reason' => $service->suspended_reason,
             // a cancelled service is only deactivated and waits out its restore window (audit §5ab)
             'deletion' => $service->terminate_at === null ? null : [
@@ -238,7 +241,7 @@ final class Presenters
     {
         $currency = (string) ($item->config['currency'] ?? 'CZK');
 
-        return ['id' => $item->id, 'sku' => $item->sku, 'product_key' => $item->product_key, 'name' => $item->name, 'qty' => $item->qty, 'period' => $item->period, 'unit_net' => self::money((int) $item->unit_net_minor, $currency), 'total' => self::money((int) $item->total_minor, $currency), 'state' => $item->state, 'service_id' => $item->service_id, 'domain_id' => $item->domain_id, 'config' => array_diff_key((array) $item->config, array_flip(['entitlements', 'registrant']))];
+        return ['id' => $item->id, 'sku' => $item->sku, 'product_key' => $item->product_key, 'name' => $item->name, 'qty' => $item->qty, 'period' => $item->period, 'unit_net' => self::money((int) $item->unit_net_minor, $currency), 'total' => self::money((int) $item->total_minor, $currency), 'state' => $item->state, 'service_id' => $item->service_id, 'domain_id' => $item->domain_id, 'config' => array_diff_key((array) $item->config, array_flip(['entitlements', 'registrant', 'executor']))];
     }
 
     public static function invoice(Invoice $invoice, bool $withLines = false, bool $forStaff = false): array
