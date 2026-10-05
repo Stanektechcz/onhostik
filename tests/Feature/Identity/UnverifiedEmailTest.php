@@ -25,6 +25,7 @@ use Onhost\Domain\Partners\PartnerService;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Money\Money;
+use Onhost\Platform\Outbox\OutboxPublisher;
 use Tests\TestCase;
 
 /*
@@ -271,4 +272,45 @@ it('answers the new slugs in the public error index', function () {
     expect($slugs)->toHaveKeys(['email_unverified', 'email_verification_throttled', 'email_already_verified'])
         ->and($slugs['email_unverified']['statuses'])->toBe([403])->and($slugs['email_unverified']['message'])->not->toBe('')
         ->and($slugs['email_verification_throttled']['statuses'])->toBe([429]);
+});
+
+// ── security review follow-ups ──
+
+it('fails closed for an actor it cannot resolve, and for a partner without an owner', function () {
+    config(['onhost.identity.unverified_order_limit_minor' => ['CZK' => 1]]);
+    expect(fn () => EmailVerificationGuard::assertMayPlaceOrder(500, 'CZK', new CommandContext('user', 'usr_missing', null, null, '127.0.0.1', 'pest', null)))->toThrow(DomainError::class)
+        ->and(fn () => EmailVerificationGuard::assertMayPlaceOrder(500, 'CZK', new CommandContext('user', null, null, null, '127.0.0.1', 'pest', null)))->toThrow(DomainError::class);
+
+    [, $org] = $this->customerWithOrganization();
+    $org->owner_user_id = null; // the column is NOT NULL; the guard still never assumes it
+    expect(fn () => EmailVerificationGuard::assertMayReceivePayout($org))->toThrow(DomainError::class, 'majitele');
+});
+
+it('caps the verification mail at five an hour whoever asks, guest checkout included', function () {
+    $user = User::factory()->unverified()->create();
+    foreach (range(1, 5) as $i) {
+        EmailVerificationGuard::issue($user);
+    }
+    expect(fn () => EmailVerificationGuard::issue($user))->toThrow(DomainError::class, 'několikrát');
+    Notification::assertSentToTimes($user, VerifyEmailNotification::class, 5);
+});
+
+it('tells a refused guest how to get in', function () {
+    config(['onhost.identity.unverified_order_limit_minor' => ['CZK' => 100]]);
+    $payload = ['customer' => ['email' => 'host2@firma.cz', 'name' => 'Petr Host', 'country' => 'CZ'], 'items' => [['product_key' => 'web-hosting', 'plan_key' => 'start']], 'commit_months' => 1, 'currency' => 'CZK',
+        'consents' => ['terms' => ['version' => '2026-09'], 'privacy' => [], 'dpa' => [], 'withdrawal_waiver' => []], 'payment' => ['mode' => 'bank'], 'terms' => true];
+    $response = $this->withHeaders(['Referer' => 'http://localhost', 'Idempotency-Key' => 'uvm-guest-2'])->postJson('/v1/checkout/guest', $payload)->assertForbidden();
+    expect($response->json('message'))->toContain('Zapomenuté heslo');
+});
+
+it('tells the partner why the automatic payout did not come', function () {
+    [, $org] = $this->customerWithOrganization(['email_verified_at' => null]);
+    $partner = uvmPartner($org);
+    $partner->forceFill(['payout_terms' => 'monthly'])->save();
+
+    app(PartnerService::class)->autoPayouts();
+    app(OutboxPublisher::class)->relayPending();
+
+    $note = Onhost\Domain\Notifications\Models\Notification::query()->where('organization_id', $org->id)->where('event', 'partner.payout.auto_skipped')->first();
+    expect($note)->not->toBeNull()->and($note->body)->toContain('ověří svůj e-mail');
 });

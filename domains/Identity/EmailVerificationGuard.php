@@ -52,8 +52,14 @@ final class EmailVerificationGuard
         if ($totalMinor <= self::orderLimitMinor($currency)) {
             return;
         }
+        if (! in_array($context->actorType, ['user', 'ai'], true)) {
+            return; // the system and a service account have no mailbox; they are bound by their own grants
+        }
         $actor = self::person($context);
-        if ($actor === null || StaffActor::account($actor) || $actor->email_verified_at !== null) {
+        if ($actor === null) { // a person who cannot be found is not a verified person: fail closed
+            throw DomainError::forbidden('Objednávku nad 5 000 Kč nelze přijmout, protože se nepodařilo určit, kdo ji zadává.');
+        }
+        if (StaffActor::account($actor) || $actor->email_verified_at !== null) {
             return;
         }
         throw new DomainError('email_unverified', 'Objednávku nad 5 000 Kč můžete odeslat, až ověříte svůj e-mail. Poslali jsme vám ověřovací odkaz, případně si ho nechte poslat znovu.', 403, ['action' => 'order', 'resend' => self::RESEND_PATH]);
@@ -63,7 +69,10 @@ final class EmailVerificationGuard
     public static function assertMayReceivePayout(Organization $partnerOrganization): void
     {
         $owner = $partnerOrganization->owner_user_id !== null ? User::query()->find($partnerOrganization->owner_user_id) : null;
-        if ($owner === null || $owner->email_verified_at !== null) {
+        if ($owner === null) { // money goes to a person whose e-mail we can name
+            throw new DomainError('partner_owner_missing', 'Partnerský účet nemá majitele, kterému by se dalo vyplatit; kontaktujte podporu.', 409);
+        }
+        if ($owner->email_verified_at !== null) {
             return;
         }
         throw new DomainError('email_unverified', 'Výplata provize je možná, až majitel účtu ověří svůj e-mail. Ověřovací odkaz si můžete nechat poslat znovu.', 403, ['action' => 'payout', 'resend' => self::RESEND_PATH]);
@@ -80,15 +89,21 @@ final class EmailVerificationGuard
         if ($last !== null && $last->diffInSeconds(now(), true) < self::RESEND_GAP_SECONDS) {
             throw new DomainError('email_verification_throttled', 'Ověřovací e-mail jsme právě poslali; další si můžete vyžádat za minutu.', 429, ['retry_after' => self::RESEND_GAP_SECONDS]);
         }
-        if ($recent->count() >= self::RESEND_PER_HOUR) {
-            throw new DomainError('email_verification_throttled', 'Ověřovací e-mail jsme za poslední hodinu poslali několikrát; zkuste to později.', 429, ['retry_after' => 3600]);
-        }
         self::issue($user);
     }
 
-    /** Creates the single-use link (3 days, the older ones stop working) and mails it; the secret goes by mail only. */
+    /**
+     * Creates the single-use link (3 days, the older ones stop working) and mails it; the secret goes by mail only. At most five an hour
+     * per person, whoever asks (the resend and the guest checkout both come through here).
+     *
+     * A future e-mail-change flow MUST reset `email_verified_at` to null and void every outstanding `verify` and `reset` token of the
+     * person (set `used_at`): an old link would otherwise verify, or take over, an address the person no longer holds.
+     */
     public static function issue(User $user, ?string $organizationName = null): void
     {
+        if (EmailVerificationToken::query()->where('user_id', $user->id)->where('purpose', 'verify')->where('created_at', '>=', now()->subHour())->count() >= self::RESEND_PER_HOUR) {
+            throw new DomainError('email_verification_throttled', 'Ověřovací e-mail jsme za poslední hodinu poslali několikrát; zkuste to později.', 429, ['retry_after' => 3600]);
+        }
         $token = Str::random(48);
         EmailVerificationToken::query()->where('user_id', $user->id)->where('purpose', 'verify')->whereNull('used_at')->update(['used_at' => now()]);
         EmailVerificationToken::query()->create(['user_id' => $user->id, 'token_hash' => hash('sha256', $token), 'purpose' => 'verify', 'expires_at' => now()->addDays(3)]);

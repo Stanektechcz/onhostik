@@ -231,6 +231,7 @@ final class AuthController extends ApiController
             throw new DomainError('reset_token_invalid', 'Odkaz pro obnovu hesla je neplatný nebo vypršel.', 422, ['field' => 'token']);
         }
         $user = User::query()->findOrFail($row->user_id);
+        // the mailed link proves the mailbox; an e-mail-change flow must therefore void outstanding reset tokens (EmailVerificationGuard::issue)
         $user->forceFill(['email_verified_at' => $user->email_verified_at ?? now(), 'password' => $data['password'], 'password_changed_at' => now(), 'failed_login_attempts' => 0, 'locked_until' => null, 'remember_token' => Str::random(60)])->save();
         $row->forceFill(['used_at' => now()])->save();
         $stepUp->revokeAll($user);
@@ -263,6 +264,8 @@ final class AuthController extends ApiController
 
     public function verifyEmail(Request $request): JsonResponse
     {
+        // NOTE (R5 review): a future e-mail-change flow must reset email_verified_at and void the outstanding verify/reset tokens
+        // (see EmailVerificationGuard::issue); a token minted for the old address would otherwise verify the new one.
         $data = $request->validate(['token' => ['required', 'string']]);
         $row = EmailVerificationToken::query()->where('token_hash', hash('sha256', $data['token']))->where('purpose', 'verify')->whereNull('used_at')->where('expires_at', '>', now())->first();
         if ($row === null) {

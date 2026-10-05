@@ -115,8 +115,12 @@ final class CheckoutController extends ApiController
         try {
             EmailVerificationGuard::assertMayPlaceOrder((int) $quote->total_minor, (string) $quote->currency, $context); // R5: a new account has not verified anything yet
         } catch (DomainError $refused) {
-            EmailVerificationGuard::issue($user, $organization->name); // the account stays; the link lets the person come back and order
-            throw new DomainError('email_unverified', 'Objednávka nad 5 000 Kč vyžaduje ověřený e-mail. Účet jsme založili a poslali na váš e-mail ověřovací odkaz; po ověření se přihlaste a objednávku dokončete.', 403, ['action' => 'order', 'resend' => EmailVerificationGuard::RESEND_PATH]);
+            try {
+                EmailVerificationGuard::issue($user, $organization->name); // the account stays; the link lets the person come back and order
+            } catch (DomainError) {
+                // the hourly cap on this address is reached: no further mail, the refusal below still stands
+            }
+            throw new DomainError('email_unverified', 'Objednávka nad 5 000 Kč vyžaduje ověřený e-mail. Účet jsme založili a poslali na váš e-mail ověřovací odkaz. Po ověření si na přihlašovací stránce zvolte Zapomenuté heslo, nastavte si heslo a objednávku dokončete přihlášeni.', 403, ['action' => 'order', 'resend' => EmailVerificationGuard::RESEND_PATH]);
         }
         $result = (array) $this->bus->dispatch(new PlaceOrderCommand($organization->id, $key, ['quote_id' => $quote->id, 'consents' => $data['consents'], 'payment' => $data['payment'], 'source' => 'web']), $context);
         $order = Order::query()->findOrFail((string) $result['order_id']);
