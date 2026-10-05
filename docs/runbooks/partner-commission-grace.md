@@ -43,8 +43,7 @@ Manual run: `php artisan onhost:partners:mature-commissions` (safe to repeat).
 
 Audit actions: `partner.commission.mature`, `partner.commission.cancel`, `partner.commission.reduce`, `partner.commission.adjust`.
 
-These rows still have to be copied into `docs/architecture/events-catalog.md` (customer-facing events) — the file was locked by
-TASK-0095 when this was built.
+The same rows are in `docs/architecture/events-catalog.md` (customer-facing events).
 
 ## Migration `0001_01_01_000950`
 
