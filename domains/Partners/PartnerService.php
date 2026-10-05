@@ -673,8 +673,11 @@ final class PartnerService
             }
             try {
                 $payout = $this->requestPayout($partner, $balance['payable'], null, CommandContext::system('partner.auto_payout')->withScope($partner->organization_id));
-            } catch (DomainError) {
+            } catch (DomainError $refused) {
                 $stats['skipped']++;
+                if ($refused->error === 'email_unverified') { // R5: the partner is told why the payout did not come, and what to do
+                    $this->outbox->publish(GenericEvent::of('partner.payout.auto_skipped', 'partner', $partner->id, ['reason' => 'email_unverified', 'amount' => $balance['payable'], 'terms' => $partner->payout_terms], $partner->organization_id));
+                }
 
                 continue;
             }

@@ -8,6 +8,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Identity\Authorization\ApprovalService;
+use Onhost\Domain\Identity\EmailVerificationGuard;
 use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Partners\Models\Partner;
@@ -70,8 +71,9 @@ final class PartnerPayouts
         if ($amount->lessThan($min)) {
             throw new DomainError('payout_below_minimum', "Minimum payout is {$min->format()}.", 422, ['field' => 'amount', 'minimum' => $min]);
         }
-        $account = $method === 'bank_transfer' ? $this->confirmedAccount($partner, $iban) : null;
         $organization = Organization::query()->findOrFail($partner->organization_id);
+        EmailVerificationGuard::assertMayReceivePayout($organization); // R5: a payout waits for the owner's verified e-mail (TASK-0096)
+        $account = $method === 'bank_transfer' ? $this->confirmedAccount($partner, $iban) : null;
         $vat = $this->selfBillingVat($organization); // decided before anything is written: a refused payout leaves nothing half-made
 
         return DB::transaction(function () use ($partner, $amount, $account, $method, $organization, $context, $vat) {
@@ -199,6 +201,7 @@ final class PartnerPayouts
     public function markPayoutPaid(PartnerPayout $payout, string $paymentReference, CommandContext $context): PartnerPayout
     {
         $partner = Partner::query()->findOrFail($payout->partner_id);
+        EmailVerificationGuard::assertMayReceivePayout(Organization::query()->findOrFail($partner->organization_id)); // R5 (TASK-0096): no money to an owner with an unverified e-mail
         DB::transaction(function () use ($payout, $partner, $paymentReference, $context): void {
             $row = PartnerPayout::query()->whereKey($payout->id)->lockForUpdate()->firstOrFail();
             if ($row->state !== 'approved') {

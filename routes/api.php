@@ -179,6 +179,7 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
     Route::get('account/marketplace/orders/{order}/evidence/{entry}/{key}', [MarketplaceController::class, 'evidenceFile'])->where('entry', '[0-9]+'); // the file behind a report item (audit §5p-3)
     Route::patch('me', [MeController::class, 'update']);
     Route::post('me/password', [MeController::class, 'changePassword']);
+    Route::post('me/email/verification', [AuthController::class, 'resendVerification'])->middleware('throttle:auth'); // R5: the verification mail again (also limited per person in the guard)
     Route::get('me/shared-services', [ServiceAccessController::class, 'mine']);
     Route::post('me/totp/enroll', [MeController::class, 'totpEnroll']);
     Route::post('me/totp/confirm', [MeController::class, 'totpConfirm']);

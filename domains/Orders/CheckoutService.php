@@ -6,6 +6,7 @@ namespace Onhost\Domain\Orders;
 
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Catalog\Models\PromoCode;
+use Onhost\Domain\Identity\EmailVerificationGuard;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Invoicing\AccountingClock;
 use Onhost\Domain\Invoicing\InvoiceService;
@@ -69,6 +70,7 @@ final class CheckoutService
         if ($quote->organization_id !== null && $quote->organization_id !== $organization->id) {
             throw new DomainError('quote_organization_mismatch', 'The quote belongs to a different organization.', 403);
         }
+        EmailVerificationGuard::assertMayPlaceOrder((int) $quote->total_minor, (string) $quote->currency, $context); // R5: an unverified e-mail does not place a large order (TASK-0096)
         $mode = $payment['mode'] ?? 'wallet';
         if (! in_array($mode, ['wallet', 'gateway', 'bank', 'postpaid'], true)) {
             throw new DomainError('payment_mode_invalid', 'Unsupported payment mode.');
