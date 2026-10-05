@@ -1,0 +1,11 @@
+# OpenAPI lint for contracts/openapi/onhost-v1.yaml (run by the `openapi-lint` job in .github/workflows/tests.yml).
+# The contract is generated from the routes (php artisan onhost:openapi), so a violation is fixed in
+# app/Console/Commands/GenerateOpenApi.php, never in the YAML. CI fails on errors AND warnings.
+extends: ["spectral:oas"]
+rules:
+  # Waived: every operation carries a generated `summary` ("GET /path") and the permission/step-up text lives in the
+  # error responses; a generated per-operation description would only repeat the summary 544 times.
+  operation-description: off
+  # Waived: Money and the two shared headers are the documented building blocks of the contract (see the info text);
+  # most operations return untyped envelopes today, so they are not $ref'ed yet. Remove when the schemas are typed.
+  oas3-unused-component: off
