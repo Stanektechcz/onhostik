@@ -58,6 +58,8 @@ final class GenerateRoleMatrix extends Command
         ['Připsat kredit zákazníkovi', 'POST /v1/staff/customers/{organization}/wallet/credit', 'billing.credit.adjust'],
         ['Spustit upomínky', 'POST /v1/staff/dunning/run', 'billing.dunning.manage'],
         ['Zobrazit bankovní platby k párování', 'GET /v1/staff/payments/bank', 'billing.reconcile'],
+        ['Vrátit platbu objednávky na kartu nebo účet při odstoupení (G6)', 'POST /v1/staff/payments/{payment}/refund', 'billing.refund.execute'],
+        ['Potvrdit odeslání bankovní vratky (G6)', 'POST /v1/staff/payments/refunds/{refund}/confirm', 'billing.refund.execute'],
         ['Přečíst reporty (MRR, churn)', 'GET /v1/staff/reports/mrr', 'report.read'],
         ['Zobrazit ceník a verze tarifů', 'GET /v1/staff/pricing', 'catalog.manage'],
         ['Upravit šablony zpráv', 'GET /v1/staff/templates', 'notification.template.manage'],

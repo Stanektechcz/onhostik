@@ -24,6 +24,7 @@ use Onhost\Domain\Payments\Models\ReconciliationItem;
 use Onhost\Domain\Payments\Models\ReconciliationRun;
 use Onhost\Domain\Payments\Models\Settlement;
 use Onhost\Domain\Payments\Models\SettlementItem;
+use Onhost\Domain\WalletLedger\LedgerService;
 use Onhost\Domain\WalletLedger\Models\AutoTopupSetting;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditRecorder;
@@ -52,6 +53,7 @@ final class PaymentService
         private readonly AuditRecorder $audit,
         private readonly OutboxPublisher $outbox,
         private readonly Redactor $redactor,
+        private readonly LedgerService $ledger,
     ) {}
 
     /** @param array{provider?:?string,method?:?string,return_urls?:array<string,string>,description?:string,email?:?string,reference?:?string,idempotency_key?:string} $options */
@@ -371,10 +373,16 @@ final class PaymentService
      * F12b (security review of PR #99): the payment is locked and read again before the cap is checked, so two refunds under
      * different keys cannot both pass it; the refund is in the payment's own currency; a key is one refund — a retry asking for
      * the same thing gets it back, another amount, currency or payment under the key is refused before the provider is called.
+     *
+     * G6: the only caller is OrderPaymentRefunds (a consumer's withdrawal refunded to the card, staff step-up), which has already
+     * written the credit note and moved its revenue and VAT to `liability:refund_payable:<provider>` (`$creditNoteId`). What the
+     * gateway confirms leaves that account for the gateway's (`refund_payout`). A refund the gateway leaves `pending` (a bank
+     * payout finance makes by hand) reserves the amount (`refunded_minor`, the cap) but leaves the payment's state, the ledger
+     * and the announcement to `confirmRefund`.
      */
-    public function refund(PaymentIntent $intent, Money $amount, string $reason, string $idempotencyKey, CommandContext $context): PaymentRefund
+    public function refund(PaymentIntent $intent, Money $amount, string $reason, string $idempotencyKey, CommandContext $context, ?string $creditNoteId = null): PaymentRefund
     {
-        return DB::transaction(function () use ($intent, $amount, $reason, $idempotencyKey, $context) {
+        return DB::transaction(function () use ($intent, $amount, $reason, $idempotencyKey, $context, $creditNoteId) {
             $intent = PaymentIntent::query()->lockForUpdate()->findOrFail($intent->id);
             if ($intent->purpose === 'topup') {
                 throw new DomainError('topup_not_refundable', 'A top-up became credit; credit is spent on services and is never paid back in money.', 422);
@@ -399,13 +407,12 @@ final class PaymentService
             $refund = PaymentRefund::query()->create([
                 'payment_intent_id' => $intent->id, 'provider_refund_id' => $result['provider_refund_id'], 'amount_minor' => $amount->minor, 'currency' => $amount->currency->value,
                 'state' => in_array($result['state'], ['succeeded', 'FINISHED', 'PAID', 'REFUNDED', 'succeeded_pending'], true) ? 'succeeded' : 'pending', 'reason' => $reason,
-                'idempotency_key' => $idempotencyKey, 'created_by' => $context->actorType.':'.($context->actorId ?? 'system'),
+                'idempotency_key' => $idempotencyKey, 'created_by' => $context->actorType.':'.($context->actorId ?? 'system'), 'credit_note_id' => $creditNoteId,
             ]);
-            $refunded = $intent->refunded_minor + $amount->minor;
-            $intent->forceFill(['refunded_minor' => $refunded, 'state' => $refunded >= $intent->amount_minor ? S::REFUNDED : S::PARTIALLY_REFUNDED])->save();
-            $this->audit->record($context->withScope($intent->organization_id), 'payment.refund', 'succeeded', ['amount' => $amount, 'reason' => $reason, 'provider_refund' => $result['provider_refund_id']], 'payment_intent', $intent->id);
+            $intent->forceFill(['refunded_minor' => $intent->refunded_minor + $amount->minor])->save();
+            $this->audit->record($context->withScope($intent->organization_id), 'payment.refund', 'succeeded', ['amount' => $amount, 'reason' => $reason, 'provider_refund' => $result['provider_refund_id'], 'state' => $refund->state], 'payment_intent', $intent->id);
             if ($refund->state === 'succeeded') {
-                $this->announceRefund($intent, $refund, $amount, $refunded);
+                $this->refundPaidOut($intent, $refund);
             }
 
             return $refund;
@@ -413,15 +420,89 @@ final class PaymentService
     }
 
     /**
-     * F12b: money went back to its source and no credit note says so — the customer is told and loyalty takes the payment's points
-     * back. Only a refund the gateway confirmed: a pending one (a bank payout finance still has to make) is announced when it is
-     * confirmed — nothing confirms one yet, so it is not announced at all rather than announced early.
+     * G6: finance confirms that the bank payout of a pending refund was sent (`$reference`: the bank's payment reference). Only
+     * then is the refund `succeeded`, the payment `REFUNDED` / `PARTIALLY_REFUNDED`, the money out of the bank account in the
+     * ledger, and the customer told (`payment.refunded`). Once: a refund that is not pending is refused (`refund_not_pending`) —
+     * a card refund the gateway confirmed, or one confirmed already.
+     */
+    public function confirmRefund(PaymentRefund $refund, string $reference, CommandContext $context): PaymentRefund
+    {
+        return DB::transaction(function () use ($refund, $reference, $context) {
+            $refund = PaymentRefund::query()->lockForUpdate()->findOrFail($refund->id);
+            if ($refund->state !== 'pending') {
+                throw new DomainError('refund_not_pending', 'Only a refund waiting for its bank payout can be confirmed.', 409, ['state' => $refund->state]);
+            }
+            $intent = PaymentIntent::query()->lockForUpdate()->findOrFail($refund->payment_intent_id);
+            $refund->forceFill(['state' => 'succeeded', 'provider_refund_id' => mb_substr($reference, 0, 120), 'confirmed_at' => now(), 'confirmed_by' => mb_substr($context->actorType.':'.($context->actorId ?? 'system'), 0, 60)])->save();
+            $this->audit->record($context->withScope($intent->organization_id), 'payment.refund.confirm', 'succeeded', ['refund' => $refund->id, 'amount' => Money::minor((int) $refund->amount_minor, (string) $refund->currency), 'reference' => $refund->provider_refund_id], 'payment_intent', $intent->id);
+            $this->refundPaidOut($intent, $refund);
+
+            return $refund;
+        }, 3);
+    }
+
+    /**
+     * The refunds of payments, newest first (finance: `state=pending` are the bank payouts still to send).
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function refunds(?string $state, int $limit = 100): array
+    {
+        $rows = PaymentRefund::query()->when($state !== null && $state !== '', fn ($q) => $q->where('state', $state))->orderByDesc('created_at')->limit($limit)->get();
+        $intents = PaymentIntent::query()->whereIn('id', $rows->pluck('payment_intent_id'))->get()->keyBy('id');
+        $notes = Invoice::query()->whereIn('id', $rows->pluck('credit_note_id')->filter())->pluck('number', 'id');
+
+        return $rows->map(fn (PaymentRefund $r) => self::presentRefund($r, $intents->get($r->payment_intent_id), $notes->get((string) $r->credit_note_id)))->values()->all();
+    }
+
+    /** @return array<string,mixed> */
+    public static function presentRefund(PaymentRefund $r, ?PaymentIntent $intent = null, ?string $creditNote = null): array
+    {
+        return [
+            'id' => $r->id, 'payment_id' => $r->payment_intent_id, 'organization_id' => $intent?->organization_id, 'provider' => $intent?->provider, 'purpose' => $intent?->purpose,
+            'reference' => $intent === null ? null : [$intent->reference_type, $intent->reference_id], 'amount' => Money::minor((int) $r->amount_minor, (string) $r->currency), 'state' => $r->state,
+            'credit_note' => $creditNote, 'provider_reference' => $r->provider_refund_id, 'reason' => $r->reason, 'created_by' => $r->created_by,
+            'created_at' => $r->created_at?->toIso8601String(), 'confirmed_at' => $r->confirmed_at?->toIso8601String(), 'confirmed_by' => $r->confirmed_by,
+        ];
+    }
+
+    /**
+     * A refund the gateway (or finance, for a bank payout) confirmed: the money leaves the gateway's account against the refund
+     * payable the credit note put there, the payment's state follows what was really paid back, and the customer is told.
+     */
+    private function refundPaidOut(PaymentIntent $intent, PaymentRefund $refund): void
+    {
+        $amount = Money::minor((int) $refund->amount_minor, (string) $refund->currency);
+        $this->ledger->post('refund_payout', $amount->currency, [
+            ['account' => self::refundPayableAccount((string) $intent->provider, $amount->currency->value), 'debit' => $amount->minor],
+            ['account' => LedgerService::bankAccount((string) $intent->provider, $amount->currency), 'credit' => $amount->minor],
+        ], "refund-payout:{$refund->id}", $intent->organization_id, 'payment_refund', $refund->id, "Refund {$refund->id} paid out to the source of payment {$intent->id}");
+        $paidBack = (int) PaymentRefund::query()->where('payment_intent_id', $intent->id)->where('state', 'succeeded')->sum('amount_minor');
+        $state = $paidBack >= (int) $intent->amount_minor ? S::REFUNDED : S::PARTIALLY_REFUNDED;
+        if ($state !== $intent->state) {
+            S::machine()->assertTransition($intent->state, $state);
+            $intent->forceFill(['state' => $state])->save();
+        }
+        $this->announceRefund($intent, $refund, $amount, $paidBack);
+    }
+
+    /** G6: what a credit note of a refund to the source owes the customer until the gateway or the bank pays it out. */
+    public static function refundPayableAccount(string $provider, string $currency): string
+    {
+        return 'liability:refund_payable:'.$provider.':'.strtoupper($currency);
+    }
+
+    /**
+     * F12b: money went back to its source — the customer is told and loyalty takes the payment's points back. Only a refund that
+     * was really paid out: a pending one (a bank payout finance still has to make) is announced when finance confirms it (G6).
+     * `refunded` is what was paid back of the payment so far; `credit_note` the document that corrects the order's (G6).
      */
     private function announceRefund(PaymentIntent $intent, PaymentRefund $refund, Money $amount, int $refunded): void
     {
         $this->outbox->publish(GenericEvent::of('payment.refunded', 'payment', $intent->id, [
             'refund_id' => $refund->id, 'amount' => $amount, 'refunded' => Money::minor($refunded, $amount->currency), 'full' => $refunded >= $intent->amount_minor,
             'provider' => $intent->provider, 'purpose' => $intent->purpose, 'reference' => [$intent->reference_type, $intent->reference_id],
+            'credit_note' => $refund->credit_note_id === null ? null : Invoice::query()->whereKey($refund->credit_note_id)->value('number'),
         ], $intent->organization_id));
     }
 

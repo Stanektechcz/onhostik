@@ -662,7 +662,7 @@ Povolené akce (musí uspět):
 - [ ] Připsat kredit zákazníkovi (`POST /v1/staff/customers/{organization}/wallet/credit`, `billing.credit.adjust`, riziko HIGH: čerstvý step-up): úspěch.
 - [ ] Spustit upomínky (`POST /v1/staff/dunning/run`, `billing.dunning.manage`, riziko HIGH: čerstvý step-up): úspěch.
 - [ ] Zobrazit bankovní platby k párování (`GET /v1/staff/payments/bank`, `billing.reconcile`): úspěch.
-- [ ] Přečíst reporty (MRR, churn) (`GET /v1/staff/reports/mrr`, `report.read`): úspěch.
+- [ ] Vrátit platbu objednávky na kartu nebo účet při odstoupení (G6) (`POST /v1/staff/payments/{payment}/refund`, `billing.refund.execute`, riziko HIGH: čerstvý step-up): úspěch.
 
 Odmítnuté akce (musí skončit chybou):
 
@@ -693,7 +693,8 @@ Povolené akce (musí uspět):
 - [ ] Otevřít přehled zákazníků (Customer 360) (`GET /v1/staff/customers`, `staff.customer.read`): úspěch.
 - [ ] Spustit upomínky (`POST /v1/staff/dunning/run`, `billing.dunning.manage`, riziko HIGH: čerstvý step-up): úspěch.
 - [ ] Zobrazit bankovní platby k párování (`GET /v1/staff/payments/bank`, `billing.reconcile`): úspěch.
-- [ ] Přečíst reporty (MRR, churn) (`GET /v1/staff/reports/mrr`, `report.read`): úspěch.
+- [ ] Vrátit platbu objednávky na kartu nebo účet při odstoupení (G6) (`POST /v1/staff/payments/{payment}/refund`, `billing.refund.execute`, riziko HIGH: čerstvý step-up): úspěch.
+- [ ] Potvrdit odeslání bankovní vratky (G6) (`POST /v1/staff/payments/refunds/{refund}/confirm`, `billing.refund.execute`, riziko HIGH: čerstvý step-up): úspěch.
 
 Odmítnuté akce (musí skončit chybou):
 
@@ -835,7 +836,7 @@ Odmítnuté akce (musí skončit chybou):
 - [ ] Připsat kredit zákazníkovi (`POST /v1/staff/customers/{organization}/wallet/credit`, chybí `billing.credit.adjust`): **403** (Člen zaměstnanců bez oprávnění).
 - [ ] Spustit upomínky (`POST /v1/staff/dunning/run`, chybí `billing.dunning.manage`): **403** (Člen zaměstnanců bez oprávnění).
 - [ ] Zobrazit bankovní platby k párování (`GET /v1/staff/payments/bank`, chybí `billing.reconcile`): **403** (Člen zaměstnanců bez oprávnění).
-- [ ] Přečíst reporty (MRR, churn) (`GET /v1/staff/reports/mrr`, chybí `report.read`): **403** (Člen zaměstnanců bez oprávnění).
+- [ ] Vrátit platbu objednávky na kartu nebo účet při odstoupení (G6) (`POST /v1/staff/payments/{payment}/refund`, chybí `billing.refund.execute`): **403** (Člen zaměstnanců bez oprávnění).
 
 ### `sales` Sales
 

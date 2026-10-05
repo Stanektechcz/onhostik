@@ -77,6 +77,21 @@ final class GenerateOpenApi extends Command
         'POST /cart/quote' => ['errors' => ['422' => ['domain_action_invalid']]],
         'POST /orders' => ['errors' => ['422' => ['domain_action_invalid']]],
         'POST /checkout/guest' => ['errors' => ['422' => ['domain_action_invalid']]],
+        // G6 (owner decisions G-R1, G-R4): an order payment back to its source on a consumer's withdrawal; bank payouts confirmed
+        'POST /staff/payments/{payment}/refund' => [
+            'description' => 'Finance gives the payment of an ORDER back to its source (card, or a bank payout) when a consumer withdrew within fourteen days and did not agree to credit. Writes a credit note of the order\'s document first; never more than is left of the payment or of the document. HIGH: a fresh step-up; from `onhost.billing.refund_approval_threshold` on CRITICAL with a second person (`approval_ids`). A card refund is announced (`payment.refunded`); a bank refund stays `pending` until confirmed.',
+            'body' => ['required' => ['amount', 'sent_at', 'reason'], 'properties' => [
+                'amount' => ['type' => 'number', 'minimum' => 0.01, 'description' => 'In the currency of the payment, major units.'],
+                'sent_at' => ['type' => 'string', 'format' => 'date-time', 'description' => 'When the consumer sent the withdrawal: decides the fourteen days.'],
+                'reason' => ['type' => 'string', 'minLength' => 5, 'maxLength' => 250],
+            ]],
+            'errors' => ['403' => ['withdrawal_consumers_only', 'approval_required'], '409' => ['refund_exceeds_payment', 'refund_exceeds_document', 'refund_document_booked', 'refund_document_missing', 'withdrawal_period_over', 'payment_not_refundable', 'idempotency_key_reused'], '422' => ['topup_not_refundable', 'refund_payment_not_order', 'withdrawal_sent_before_order']],
+        ],
+        'POST /staff/payments/refunds/{refund}/confirm' => [
+            'description' => 'Finance confirms that the bank payout of a pending refund was sent (`reference`: the bank\'s payment reference). The refund becomes `succeeded`, the payment `REFUNDED`/`PARTIALLY_REFUNDED`, and the customer is told (`payment.refunded`). HIGH: a fresh step-up.',
+            'body' => ['required' => ['reference', 'reason'], 'properties' => ['reference' => ['type' => 'string', 'minLength' => 2, 'maxLength' => 120], 'reason' => ['type' => 'string', 'minLength' => 5, 'maxLength' => 250]]],
+            'errors' => ['409' => ['refund_not_pending']],
+        ],
         'GET /me' => [
             'description' => 'Who is calling. A person (session or personal token) gets `type: person` with the account, the organizations and the step-up state; a service account token gets `type: service_account` with the account, its organization, its role and the token\'s scopes (F12a). The endpoints that act for a person still answer a service account `403 person_required`.',
             'response' => ['oneOf' => [

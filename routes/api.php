@@ -515,6 +515,11 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
         Route::get('payments/bank', [PaymentsController::class, 'bank']);
         Route::post('payments/bank/lines', [PaymentsController::class, 'recordBankLine']);
         Route::post('payments/bank/sync', [PaymentsController::class, 'syncBank']);
+        // ── G6: an order payment refunded to its source on a consumer's withdrawal; bank payouts confirmed by finance ──
+        Route::get('payments/refunds', [PaymentsController::class, 'refunds']);
+        Route::post('payments/refunds/{refund}/confirm', [PaymentsController::class, 'confirmRefund']);
+        Route::post('payments/{payment}/refund', [PaymentsController::class, 'refund']);
+        // ── end G6 ──
         Route::get('registrars', [RegistrarController::class, 'index']);
         Route::post('registrars/costs/refresh', [RegistrarController::class, 'refresh']);
         Route::post('registrars/costs/scrape', [RegistrarController::class, 'scrape']);

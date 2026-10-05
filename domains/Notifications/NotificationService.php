@@ -31,7 +31,7 @@ final class NotificationService
         'security-login' => 'security.login', 'security-mfa' => 'security.mfa', 'security-password' => 'security.mfa', 'security-locked' => 'security.login', 'api-token' => 'api_token.created',
         'incident' => 'incident.affecting', 'incident-resolved' => 'incident.affecting', 'maintenance' => 'incident.affecting', 'payout' => 'partner', 'sla-credit' => 'invoice.issued', 'data-export' => 'legal.notice', 'legal-notice' => 'legal.notice',
         'site-down' => 'service', 'site-up' => 'service', 'service-stopped' => 'service', 'service-running' => 'service', 'deploy-failed' => 'service', 'import-finished' => 'service', 'certificate-failed' => 'service',
-        'wallet-topup' => 'wallet', 'payment-received' => 'invoice.issued', 'wallet-runway' => 'wallet',
+        'wallet-topup' => 'wallet', 'payment-received' => 'invoice.issued', 'wallet-runway' => 'wallet', 'payment-refunded' => 'wallet', // G6
         'order-approval-required' => 'order', 'order-approval-rejected' => 'order', // TASK-0021
         'withdrawal-accepted' => 'legal.notice', // TASK-0025: the confirmation of a consumer's withdrawal is a mandatory legal notice
         'ownership-offered' => 'account', 'ownership-transferred' => 'account', 'owner-recovery-opened' => 'security.login', 'member-mfa-reset' => 'security.login', // TASK-0042: the owner recovery notice is a security notice

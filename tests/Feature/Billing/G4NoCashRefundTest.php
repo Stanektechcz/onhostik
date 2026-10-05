@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use Onhost\Domain\Notifications\Webhooks\WebhookEvents;
+use Onhost\Domain\Payments\Commands\PaymentRefundCommand;
 use Onhost\Domain\Payments\Models\PaymentIntent;
 use Onhost\Domain\Payments\Models\PaymentRefund;
 use Onhost\Domain\Payments\PaymentService;
@@ -96,9 +97,13 @@ it('offers no API, staff or console path that pays credit out or names a refunda
     $commands = array_keys(Artisan::all());
     expect(array_values(array_filter($commands, fn (string $c) => preg_match('#(wallet|credit).*(refund|payout)|(refund|payout).*(wallet|credit)#i', $c) === 1)))->toBe([]);
 
-    // the only refund of money to a card is PaymentService::refund, and nothing in app/, routes/, domains/ or platform/ calls it
-    // (G6 adds the card refund of a withdrawn ORDER payment behind a staff step-up; add that caller here with its guard)
-    expect(g4RefundCallers())->toBe([]);
+    // the only refund of money to a card is PaymentService::refund, and its only caller is G6's refund of a withdrawn ORDER payment
+    // (OrderPaymentRefunds, behind the staff step-up of PaymentRefundCommand), which refuses a top-up before anything else
+    $callers = array_values(array_unique(array_map(fn (string $hit) => explode(':', $hit)[0], g4RefundCallers())));
+    expect($callers)->toBe(['domains/Payments/OrderPaymentRefunds.php']);
+    $guarded = (string) file_get_contents(base_path('domains/Payments/OrderPaymentRefunds.php'));
+    expect($guarded)->toContain("'topup_not_refundable'")->toContain("\$intent->purpose !== 'order'")
+        ->and((new PaymentRefundCommand('g4', ['op' => 'refund.withdrawal', 'amount_minor' => 1, 'currency' => 'CZK']))->requiresStepUp())->toBeTrue();
     // and no presenter or controller says "refundable" to anybody
     expect(g4FilesContaining(['app/Http'], ['refundable']))->toBe([])
         ->and(g4FilesContaining(['app/Http'], ['refundableBalance']))->toBe([]);

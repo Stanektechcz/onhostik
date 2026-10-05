@@ -14,6 +14,6 @@ final class PaymentRefund extends Model
 
     protected function casts(): array
     {
-        return ['amount_minor' => 'integer'];
+        return ['amount_minor' => 'integer', 'confirmed_at' => 'datetime'];
     }
 }

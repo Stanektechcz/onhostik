@@ -202,7 +202,8 @@ final class PartnerService
     {
         $now ??= now();
         $from = $now->copy()->subMonths(3)->startOfMonth();
-        $volume = (int) PartnerCommission::query()->where('partner_id', $partner->id)->where('kind', '!=', 'reversal')->where('invoice_paid_at', '>=', $from)->where('invoice_paid_at', '<', $now->copy()->startOfMonth())->sum('base_minor');
+        // G6: a fragment a payout split off carries its commission's base again — the base is counted once, on the commission
+        $volume = (int) PartnerCommission::query()->where('partner_id', $partner->id)->where('kind', '!=', 'reversal')->where('fragment', false)->where('invoice_paid_at', '>=', $from)->where('invoice_paid_at', '<', $now->copy()->startOfMonth())->sum('base_minor');
         $monthly = intdiv($volume, 3);
         $tier = 'bronze';
         foreach ((array) config('onhost.partners.tiers', []) as [$name, $threshold]) {
@@ -377,7 +378,7 @@ final class PartnerService
         $out = [];
         foreach ($rows as $period => $items) {
             $out[] = [
-                'period' => $period, 'clients' => $items->pluck('organization_id')->unique()->count(), 'base' => Money::minor((int) $items->sum('base_minor'), $partner->currency),
+                'period' => $period, 'clients' => $items->pluck('organization_id')->unique()->count(), 'base' => Money::minor((int) $items->reject(fn (PartnerCommission $c) => (bool) $c->fragment)->sum('base_minor'), $partner->currency), // G6: a fragment's base is its commission's
                 'rate' => (int) round($items->avg('rate_pct')), 'amount' => Money::minor((int) $items->sum('amount_minor'), $partner->currency),
                 'state' => $items->every(fn ($c) => $c->state === 'paid') ? 'paid' : ($items->contains(fn ($c) => $c->state === 'allocated') ? 'requested' : 'accruing'),
                 'lines' => $items->map(fn (PartnerCommission $c) => ['invoice_id' => $c->invoice_id, 'organization_id' => $c->organization_id, 'kind' => $c->kind, 'base' => Money::minor($c->base_minor, $c->currency), 'rate' => $c->rate_pct, 'amount' => Money::minor($c->amount_minor, $c->currency), 'state' => $c->state, 'paid_at' => $c->invoice_paid_at?->toIso8601String()])->values()->all(),
