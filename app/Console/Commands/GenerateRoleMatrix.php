@@ -10,11 +10,11 @@ use App\Http\Navigation\StaffNavigation;
 use Illuminate\Console\Command;
 use Onhost\Domain\Catalog\PanelNavigation;
 use Onhost\Domain\Identity\Authorization\PermissionCatalog;
-use Onhost\Domain\Identity\Authorization\RoleCatalog;
+use Onhost\Domain\Identity\Authorization\RoleResolver;
 
 /**
  * Generates `docs/manual-tests/09-role.md` (Czech) from the code, so the per-role manual test sheet can never drift from
- * what the roles really hold: the staff sidebar comes from StaffNavigation + RoleCatalog, the customer sidebar from
+ * what the roles really hold: the staff sidebar comes from StaffNavigation + the role definitions (RoleResolver), the customer sidebar from
  * SurfaceDataController::NAV_REQUIRES + PanelNavigation, and the allowed/refused actions from the permission each action asks.
  * `--check` writes nothing and exits 1 when the committed file differs (the CI runs it next to `onhost:openapi --check`).
  */
@@ -22,7 +22,7 @@ final class GenerateRoleMatrix extends Command
 {
     protected $signature = 'onhost:docs:roles {--out=docs/manual-tests/09-role.md} {--check : Write nothing; exit 1 when the file differs from what the code generates}';
 
-    protected $description = 'Write the per-role manual test sheet (docs/manual-tests/09-role.md) from RoleCatalog, StaffNavigation and PanelNavigation';
+    protected $description = 'Write the per-role manual test sheet (docs/manual-tests/09-role.md) from the role definitions, StaffNavigation and PanelNavigation';
 
     /** How many allowed and refused actions one role's checklist lists at most. */
     private const SAMPLE = 5;
@@ -149,7 +149,7 @@ final class GenerateRoleMatrix extends Command
     /** The whole document, deterministic (no dates, no database): the test compares it with the committed file. */
     public function render(): string
     {
-        $roles = RoleCatalog::all();
+        $roles = RoleResolver::definitions();
         $staff = array_filter($roles, fn (array $r) => $r['staff']);
         $customer = array_filter($roles, fn (array $r) => ! $r['staff'] && $r['scope'] !== 'resource');
         $resource = array_filter($roles, fn (array $r) => $r['scope'] === 'resource');
