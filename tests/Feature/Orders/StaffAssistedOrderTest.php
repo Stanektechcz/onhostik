@@ -9,8 +9,10 @@ use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Orders\Models\Consent;
 use Onhost\Domain\Orders\Models\Order;
+use Onhost\Domain\WalletLedger\RefundableCredit;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditEvent;
+use Onhost\Platform\Money\Currency;
 use Onhost\Platform\Money\Money;
 
 beforeEach(function () {
@@ -66,7 +68,8 @@ it('pays an order with bonus credit when the purchased credit does not cover it 
     $balances = $wallets->balances($org, 'CZK');
     expect($wallets->spendable($org, 'CZK')->minor)->toBe(55000 - $total)
         ->and($balances['promo']->minor)->toBe(55000 - $total - 5000 < 0 ? 0 : 50000 - ($total - 5000))
-        ->and($wallets->refundableBalance($org->id, 'CZK')->minor)->toBe(0); // the purchased 50 Kč went into the order first, the bonus is never refundable
+        ->and($balances['available']->minor)->toBe(0) // the purchased 50 Kč went into the order first; the bonus covers the rest
+        ->and(RefundableCredit::of($org->id, Currency::CZK))->toBe(5000); // reserved by the order's hold, spent at capture — and never paid out (G-R4)
 });
 
 it('places an assisted order once: the same request sent again is the same order, not a second one paid from the customer\'s credit', function () {

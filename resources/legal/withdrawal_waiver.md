@@ -16,7 +16,7 @@ Potvrzením objednávky výslovně žádáte, aby poskytovatel začal poskytovat
 
 * odstoupíte-li od smlouvy během lhůty, uhradíte poměrnou část ceny odpovídající plnění poskytnutému do okamžiku odstoupení;
 * u služeb, které jsou v této lhůtě zcela poskytnuty (například registrace domény, která je dokončena okamžikem zápisu do registru), právo na odstoupení uplynutím plnění zaniká;
-* předplacený kredit nevyužitý v době odstoupení vracíme v plné výši.
+* platby za smlouvu, od níž spotřebitel odstoupil, vracíme podle čl. 8 VOP a zákona (viz bod 1.3 výše); kredit se v hotovosti nevyplácí (čl. 2 bod 3 VOP).
 
 ## 3. Vzorový formulář pro odstoupení
 
