@@ -304,10 +304,10 @@ it('lets staff open a game server for the same customer without an order, on the
     // still one panel user for the organization, two servers on two ports, both owned by it
     expect($panel['users'])->toHaveCount(1)->and($panel['servers'])->toHaveCount(2)->and(collect($panel['servers'])->pluck('user')->unique()->all())->toBe([$panelUserId])
         ->and(collect($panel['servers'])->pluck('allocation')->unique())->toHaveCount(2);
-    // a support agent may not
+    // first-line support (a real staff role that reads customers but holds no service-creation permission) may not
     $this->flushSession();
     $this->app['auth']->forgetGuards();
-    $this->actingAs($this->staff('support_agent'), 'sanctum');
-    $this->withHeaders(['Idempotency-Key' => 'e5-quick-2'])->postJson("/v1/staff/customers/{$org->id}/services", ['product_key' => 'game', 'plan_key' => 'game-8'])->assertForbidden();
+    $this->actingAs($this->staff('support_l1'), 'sanctum');
+    $this->withHeaders(['Idempotency-Key' => 'e5-quick-2'])->postJson("/v1/staff/customers/{$org->id}/services", ['product_key' => 'game', 'plan_key' => 'game-8'])->assertForbidden()->assertJsonPath('message', fn ($m) => str_contains((string) $m, 'staff.service.manage')); // refused for the permission it lacks, not for being unknown
     expect($panel['servers'])->toHaveCount(2);
 });
