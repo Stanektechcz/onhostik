@@ -122,7 +122,7 @@ final class OrderController extends ApiController
         if ($order === null) {
             throw DomainError::notFound('order');
         }
-        $this->api->authorize($request, 'organization.read', CommandScope::organization($order->organization_id));
+        $this->api->authorizeOrNotFound($request, 'organization.read', CommandScope::organization($order->organization_id), 'order'); // a stranger: 404 (TASK-0098)
 
         return $order;
     }

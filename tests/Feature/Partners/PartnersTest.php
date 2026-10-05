@@ -94,16 +94,16 @@ it('accrues commission from paid client invoices, reverses on credit notes, foll
 
     $invoice = paidClientInvoice($client);
     $commission = PartnerCommission::query()->where('invoice_id', $invoice->id)->firstOrFail();
-    expect($commission->kind)->toBe('share')->and($commission->rate_pct)->toBe(15)->and($commission->base_minor)->toBe(100000)->and($commission->amount_minor)->toBe(15000)->and($commission->state)->toBe('payable');
+    expect($commission->kind)->toBe('share')->and($commission->rate_pct)->toBe(15)->and($commission->base_minor)->toBe(100000)->and($commission->amount_minor)->toBe(15000)->and($commission->state)->toBe('pending'); // R7: payable 30 days after the payment
     paidClientInvoice($client, 100000); // second invoice
     expect(PartnerCommission::query()->where('partner_id', $partner->id)->count())->toBe(2);
 
-    // a credit note on the first invoice reverses its commission
+    // a credit note on the first invoice inside the R7 window cancels its commission (TASK-0097)
     app(InvoiceService::class)->creditNote($invoice, 'Chybná fakturace', CommandContext::system('test'));
     app(OutboxPublisher::class)->relayPending();
     $reversal = PartnerCommission::query()->where('partner_id', $partner->id)->where('kind', 'reversal')->firstOrFail();
-    expect($reversal->amount_minor)->toBe(-15000);
-    expect($partners->balance($partner)['payable']->minor)->toBe(15000);
+    expect($reversal->amount_minor)->toBe(-15000)->and($reversal->state)->toBe('cancelled')->and($commission->fresh()->state)->toBe('cancelled');
+    expect($partners->balance($partner)['payable']->minor)->toBe(0)->and($partners->balance($partner)['pending']->minor)->toBe(15000);
 
     // tiers: trailing three months of paid volume; a drop keeps the old rate for three months
     foreach ([1, 2, 3] as $m) {
@@ -116,6 +116,11 @@ it('accrues commission from paid client invoices, reverses on credit notes, foll
     expect($partner->tier)->toBe('silver')->and($partner->rate_pct)->toBe(18)->and($partner->rate_locked_until)->not->toBeNull();
     $partner = $partners->recomputeTier($partner, now()->addMonths(4));
     expect($partner->tier)->toBe('bronze')->and($partner->rate_pct)->toBe(15)->and($partner->rate_locked_until)->toBeNull();
+
+    // the second invoice's commission waits out its 30 days (R7)
+    $this->travel(31)->days();
+    expect($partners->matureCommissions(CommandContext::system('test'))['matured'])->toBe(1);
+    expect($partners->balance($partner)['payable']->minor)->toBe(1365000);
 
     // portal: clients and commission months
     $this->actingAs($owner, 'sanctum');

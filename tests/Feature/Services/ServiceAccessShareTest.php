@@ -58,7 +58,7 @@ it('shares one service with somebody outside the organization: they accept, see 
     expect($grant['state'])->toBe('pending')->and($grant['capabilities'])->toBe(['view', 'manage', 'backups'])->and($grant['email'])->toBe('koder@example.cz');
 
     // nothing works before the invitation is accepted — the link in the mail proves the mailbox
-    $this->actingAs($freelancer, 'sanctum')->getJson("/v1/services/{$shop->id}")->assertForbidden();
+    $this->actingAs($freelancer, 'sanctum')->getJson("/v1/services/{$shop->id}")->assertNotFound(); // a stranger to the organization: 404, as for a missing id (TASK-0098)
     $mail = MailOutbox::query()->where('template_key', 'service-shared')->where('to', 'koder@example.cz')->firstOrFail();
     expect((string) json_encode($mail->vars, JSON_UNESCAPED_UNICODE))->toContain('shop.cz')->toContain('správa a nastavení');
     preg_match('/pozvanka=([^&"]+)/', (string) json_encode($mail->vars, JSON_UNESCAPED_SLASHES), $m);
@@ -97,7 +97,7 @@ it('shares one service with somebody outside the organization: they accept, see 
     app(Authorizer::class)->forget($freelancer);
     expect(PolicyBinding::query()->where('principal_id', $freelancer->id)->count())->toBe(0)
         ->and(OrganizationMembership::query()->where('organization_id', $org->id)->where('user_id', $freelancer->id)->exists())->toBeFalse();
-    $this->actingAs($freelancer, 'sanctum')->getJson("/v1/services/{$shop->id}")->assertForbidden();
+    $this->actingAs($freelancer, 'sanctum')->getJson("/v1/services/{$shop->id}")->assertNotFound(); // a stranger to the organization: 404, as for a missing id (TASK-0098)
     app(OutboxPublisher::class)->relayPending();
     expect(Notification::query()->where('organization_id', $org->id)->where('title', 'like', 'Sdílení služby ukončeno%')->exists())->toBeTrue();
 });

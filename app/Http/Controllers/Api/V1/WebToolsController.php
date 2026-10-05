@@ -249,7 +249,7 @@ final class WebToolsController extends ApiController
         if ($service === null) {
             throw DomainError::notFound('service');
         }
-        $this->api->authorize($request, $permission, CommandScope::organization($service->organization_id));
+        $this->api->authorizeOrNotFound($request, $permission, CommandScope::organization($service->organization_id), 'service'); // a stranger: 404 (TASK-0098)
 
         return $service;
     }

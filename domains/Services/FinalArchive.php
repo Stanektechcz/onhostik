@@ -13,6 +13,7 @@ use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Services\Mail\MailDomains;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
+use Onhost\Domain\Services\Web\DatabaseCredentials;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
@@ -126,7 +127,7 @@ final class FinalArchive
                     // a web service's own mailboxes are archived with it: the plan sells them, the mail domain is made
                     // for the site, and the removal takes that domain — so it may not be the one thing nobody kept
                     'web', 'managed' => (function () use ($service, $adapter, $ref, $work, &$gaps, &$attempts, $freshOnly, $options) {
-                        $this->web($adapter, $ref, $work, $gaps, $attempts, $freshOnly, isset($options['only_database']) ? (string) $options['only_database'] : null);
+                        $this->web($adapter, $ref, $work, $gaps, $attempts, $freshOnly, isset($options['only_database']) ? (string) $options['only_database'] : null, $service);
                         foreach (MailDomains::bindingsOf($service) as $index => $mail) { // a service can have mail in several of its domains
                             $this->mail($adapter, $mail->ref(), $work, $gaps, $index === 0 ? null : MailDomains::nameOf($mail));
                         }
@@ -486,7 +487,7 @@ final class FinalArchive
      * shared node does not always offer both: the file transport (SFTP or the panel's file API) and the panel's own
      * site backup. Each attempt is recorded; only when both fail does the archive — and with it the deletion — stop.
      */
-    private function web(?object $adapter, ?ResourceRef $ref, string $work, array &$gaps, array &$attempts, bool $freshOnly = false, ?string $onlyDatabase = null): void
+    private function web(?object $adapter, ?ResourceRef $ref, string $work, array &$gaps, array &$attempts, bool $freshOnly = false, ?string $onlyDatabase = null, ?Service $service = null): void
     {
         if (! $adapter instanceof WebToolsProvider || $ref === null) {
             if ($freshOnly) { // a backup with nothing of the site in it is not a backup; the final archive still keeps the metadata
@@ -503,7 +504,7 @@ final class FinalArchive
             if ($database === null) {
                 throw new DomainError('backup_not_possible', 'Databázi, která se má přepsat, panel nezná; nic nebylo změněno.', 409);
             }
-            $adapter->exportDatabase($ref, $onlyDatabase, $work.'/database-'.self::databaseSlug((string) ($database['name'] ?? $onlyDatabase)).'.sql');
+            $adapter->exportDatabase($ref, $onlyDatabase, $work.'/database-'.self::databaseSlug((string) ($database['name'] ?? $onlyDatabase)).'.sql', self::credentialsOf($service, $onlyDatabase));
             $gaps[] = 'only the database being overwritten is in this copy';
 
             return;
@@ -511,7 +512,7 @@ final class FinalArchive
         if ($adapter instanceof WebHostingProvider) {
             foreach ($adapter->listDatabases($ref) as $database) {
                 $name = (string) ($database['name'] ?? $database['remote_id'] ?? 'db');
-                $adapter->exportDatabase($ref, (string) $database['remote_id'], $work.'/database-'.self::databaseSlug($name).'.sql');
+                $adapter->exportDatabase($ref, (string) $database['remote_id'], $work.'/database-'.self::databaseSlug($name).'.sql', self::credentialsOf($service, (string) $database['remote_id']));
             }
         }
         try {
@@ -531,6 +532,18 @@ final class FinalArchive
         }
 
         throw new DomainError('final_archive_files', 'Soubory webu se nepodařilo zazálohovat žádnou cestou (přenos: '.$attempts['transport'].'; záloha panelu: '.$attempts['panel_backup'].')'.($freshOnly ? '.' : '; nic nebylo smazáno.'), 503);
+    }
+
+    /**
+     * The login the platform made for a database and kept in the secret store. ISPConfig dumps through the database login and has no
+     * other way in: an archive that asked for none could never take a database of a site on it, so such a site could not be cancelled
+     * at all (TASK-0094). A database the platform never saw a password for still fails — by name, never as an archive without it.
+     *
+     * @return array{name?:string,user?:string,password?:string,host?:string}
+     */
+    private static function credentialsOf(?Service $service, string $databaseRemoteId): array
+    {
+        return $service === null ? [] : (app(DatabaseCredentials::class)->read($service, $databaseRemoteId) ?? []);
     }
 
     /** Path 1: pack the site root on the node and pull the archive through the provider's file transport. */

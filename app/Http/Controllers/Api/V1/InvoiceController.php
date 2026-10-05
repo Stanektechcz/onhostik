@@ -91,7 +91,7 @@ final class InvoiceController extends ApiController
         if ($invoice === null || $invoice->state === Invoice::DRAFT) {
             throw DomainError::notFound('invoice');
         }
-        $this->api->authorize($request, $permission, CommandScope::organization($invoice->organization_id));
+        $this->api->authorizeOrNotFound($request, $permission, CommandScope::organization($invoice->organization_id), 'invoice'); // a stranger: 404, numbers are sequential (TASK-0098)
 
         return $invoice;
     }

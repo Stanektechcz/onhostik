@@ -124,7 +124,7 @@ final class DnsController extends ApiController
         if ($zone === null) {
             throw DomainError::notFound('dns zone');
         }
-        $this->api->authorize($request, 'dns.zone.read', CommandScope::organization($zone->organization_id));
+        $this->api->authorizeOrNotFound($request, 'dns.zone.read', CommandScope::organization($zone->organization_id), 'dns zone'); // a stranger: 404 (TASK-0098)
 
         return $zone;
     }

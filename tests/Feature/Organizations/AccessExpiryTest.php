@@ -72,7 +72,7 @@ it('ends a membership on its date: the permission stops at once, the clean-up fo
     app(Authorizer::class)->forget($lecturer);
     expect(app(Authorizer::class)->can($lecturer, 'service.manage', $scope))->toBeFalse();
     $this->actingAs($lecturer, 'sanctum');
-    $this->getJson("/v1/services/{$service->id}")->assertForbidden();
+    $this->getJson("/v1/services/{$service->id}")->assertNotFound(); // a stranger to the organization: 404, as for a missing id (TASK-0098)
     expect(OrganizationMembership::query()->where('user_id', $lecturer->id)->exists())->toBeTrue(); // the row is still there, it just grants nothing
 
     // the pass removes the membership like a removal by hand: the event that revokes panel accounts and keys goes out
