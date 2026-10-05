@@ -16,6 +16,7 @@ use Onhost\Domain\Support\Models\Handoff;
 use Onhost\Domain\Support\Models\Ticket;
 use Onhost\Domain\Support\TicketService;
 use Onhost\Domain\Support\TicketStateMachine;
+use Onhost\Domain\Support\Triage;
 use Onhost\Platform\Audit\AuditEvent;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Outbox\OutboxMessage;
@@ -124,4 +125,14 @@ it('degrades to the friendly refusal when the bus refuses the handoff the assist
     expect($answer['handoff'])->toBeNull()->and($answer['text'])->toContain('nemohu vaším jménem založit tiket')
         ->and(Ticket::query()->where('organization_id', $org->id)->count())->toBe(0)
         ->and(AuditEvent::query()->where('action', 'ticket.customer.handoff')->where('result', 'denied')->count())->toBe(1);
+});
+
+it('keeps a ticket category inside the known topics whatever the customer sends', function () {
+    [$user, $org] = $this->customerWithOrganization();
+    $this->actingAs($user, 'sanctum');
+
+    $id = $this->postJson('/v1/tickets', ['subject' => 'Faktura', 'body' => 'Kde najdu fakturu?', 'category' => 'vip-<b>queue</b>'])->assertCreated()->json('data.id');
+
+    $category = Ticket::query()->findOrFail($id)->category;
+    expect(array_merge(array_keys(Triage::TOPICS), ['ostatni']))->toContain($category);
 });
