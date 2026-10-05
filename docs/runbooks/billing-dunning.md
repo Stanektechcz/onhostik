@@ -259,26 +259,39 @@ Tests: `tests/Feature/Finance/InvoiceTest.php`, `tests/Feature/Finance/AutoTopup
 period and a refunded marketplace order were booked as `DR asset:bank:chargeback|marketplace / CR wallet` — money arriving
 at a bank that does not exist — and as *purchased* credit: a service bought with bonus credit and then given back became
 cash that could be paid out. A return is now taken from what the correction takes back (revenue + VAT, or the receivable),
-the wallet row is `source=return`, `bucket=returned`, `refundable=false`, and `refundableBalance()` does not grow. The
-event stays `wallet.topup.completed` (`purpose: return`), so a past-due renewal waiting for money is retried.
+the wallet row is `source=return`, `bucket=returned`, `refundable=false`, and it is not purchased credit in the spend
+order (`RefundableCredit`). The event stays `wallet.topup.completed` (`purpose: return`), so a past-due renewal waiting
+for money is retried.
 
-**A cash refund never exceeds the purchased credit still unspent** (TASK-0099, `RefundableCredit`). `refundableBalance()`
-was min(available, purchased top-ups − refunds) and never subtracted what had been spent: 1 000 bought, 800 spent and
-800 returned offered all 1 000 as cash although only 200 of the money paid in was left — returned credit became money.
-The main wallet is one ledger account, so the purchased part is replayed from its postings in the order the money moved,
-with one spend order for the whole wallet (the bonus wallet already follows it — bonus credit is pulled in only for what
-purchased credit cannot cover): **purchased credit is spent first**, then returned, bonus-moved-in and staff credit; what
-neither covers is a debt that later credit pays first. A refund is a spend like any other. The cap is that remainder,
-never more than what is available (holds count). Consequence: credit returned for a document paid from the credit is
-spendable but not refundable — consistent with the withdrawal's express "refund to the credit".
+**Credit is never paid out in cash** (owner decision G-R4, TASK-0112). The wallet has no refund: `WalletService::refund()`
+and `refundableBalance()` were removed (neither had a caller), no route, staff screen or console command pays credit out,
+and the webhook `wallet.refund.requested` left the catalogue. Credit that comes back — a cancelled service, a credit note
+of a paid document, an SLA credit, a withdrawal the consumer agreed to take as credit — stays on the account to be spent.
+The terms (`resources/legal/terms.md` art. 2.3) and the knowledge-base article say so. `wallet_refunds` keeps its history.
+A staff `WalletService::adjust` (billing.credit.adjust) is a correction of the balance, never a payout: a negative
+adjustment books against `expense:adjustment` and sends no money anywhere — never use it to "pay out" credit by hand.
+
+The one statutory exception is not a payout of credit: a consumer who withdraws within 14 days and does **not** agree to the
+refund to the credit is owed the **payment** for that contract back the way it was paid (§ 1831 OZ) — a card payment of the
+order back to the card through `PaymentService::refund`. Whether an unused top-up can be withdrawn to the card is an open
+owner/counsel question (ROZHODNUTI.md G-R4); until it is decided, top-ups are not refunded and `PaymentService::refund`
+refuses a `purpose = topup` payment (`422 topup_not_refundable`, G1 #103). The order path is not wired yet (G6); until it is, finance
+refunds it by hand. The § 1831 OZ reading needs counsel confirmation. Decision and open questions:
+`docs/audit/2026-10-full-readiness/ROZHODNUTI.md`, G-R4.
+
+**Spend order: purchased credit first** (owner decision G-R3, TASK-0099, `RefundableCredit`). The main wallet is one ledger
+account, so the purchased part is replayed from its postings in the order the money moved, with one spend order for the
+whole wallet (the bonus wallet already follows it — bonus credit is pulled in only for what purchased credit cannot cover):
+**purchased credit is spent first**, then returned, bonus-moved-in and staff credit; what neither covers is a debt that
+later credit pays first. 1 000 bought, 800 spent and 800 returned leaves 200 of purchased credit unspent, not 1 000.
+`RefundableCredit::replay` is that rule and stays unchanged; `RefundableCredit::of` is no longer a payout cap — nothing
+shows or pays it — but it is what the open statutory question (an unused top-up withdrawn within 14 days) would be capped by.
 
 What is "purchased" is read from the ledger entry, not from a `wallet_topups` row whose state could change: a credit to
 the main wallet is purchased when its transaction is a `topup` (bonus top-ups credit the promo account) or reverses a
-`refund`. A reversed top-up is a debit and takes purchased credit first — its own money, not another top-up's. **A
-reversed spend** (a capture or charge taken back) **is credit that cannot be paid out.** The replay is one grouped scan of
-the one wallet account's postings (index `ledger_postings.account_id`), asked only by `refund()` under the wallet lock —
-no listing or doctor row calls it, so no snapshot table was added. A refund key used again for another amount, currency,
-destination or payment is refused (`idempotency_key_reused`, 409) instead of handing back the first refund.
+`refund` booked before G-R4. A reversed top-up is a debit and takes purchased credit first — its own money, not another
+top-up's. **A reversed spend** (a capture or charge taken back) **is not purchased credit.** The replay is one grouped scan
+of the one wallet account's postings (index `ledger_postings.account_id`).
 
 **The return of an unused period is computed from what was paid** (`ChargebackService::estimate`). It was
 `subscription.amount_minor × unused share`: the list price of ONE period without VAT. Twelve months paid in advance
