@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Partners;
 
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -33,7 +34,8 @@ use Onhost\Platform\Outbox\OutboxPublisher;
 /**
  * Partner / reseller programme (prototype Onhost-partner.dc.html, handoff §7):
  *  - attribution is bound to the client account (`organizations.partner_organization_id`), never to a product;
- *  - commission accrues from PAID tax documents only (invoice FV, statement VY), credit notes reverse it;
+ *  - commission accrues from PAID tax documents only (invoice FV, statement VY) and becomes payable 30 days after the payment
+ *    (owner decision R7, CommissionGrace); a credit note inside the window cancels or reduces it, after it reverses it;
  *  - revenue-share tier from the trailing three months of paid volume, rate only moves up immediately and
  *    a dropped tier keeps the old rate for three more months; one-off model = 3 monthly payments on the first invoice, then 5 %;
  *  - payouts ≥ 1 000 CZK by self-billing, ledger-posted as partner-commission expense when paid.
@@ -45,6 +47,7 @@ final class PartnerService
         private readonly AuditRecorder $audit,
         private readonly PayoutAccounts $accounts,
         private readonly PartnerPayouts $payouts,
+        private readonly CommissionGrace $grace,
     ) {}
 
     // ── lifecycle ────────────────────────────────────────────────────────────
@@ -130,7 +133,11 @@ final class PartnerService
 
     // ── commissions ──────────────────────────────────────────────────────────
 
-    /** Called from the `invoice.paid` outbox event: one commission per paid FV/VY document. */
+    /**
+     * Called from the `invoice.paid` outbox event: one commission per paid FV/VY document, `pending` until 30 days after the
+     * payment (R7). The unique index on (invoice_id, kind) keeps a second delivery of the event — also two at once — from
+     * writing a second commission.
+     */
     public function accrueForInvoice(Invoice $invoice): ?PartnerCommission
     {
         if (! in_array($invoice->type, ['invoice', 'statement'], true) || $invoice->state !== Invoice::PAID) {
@@ -149,7 +156,8 @@ final class PartnerService
             return null;
         }
         if ($partner->model === 'oneoff') {
-            $first = ! PartnerCommission::query()->where('partner_id', $partner->id)->where('organization_id', $client->id)->exists();
+            // a first invoice the client got back in full inside the R7 window earned nothing: the bonus waits for a paid one that stays
+            $first = ! PartnerCommission::query()->where('partner_id', $partner->id)->where('organization_id', $client->id)->where('state', '!=', PartnerCommission::CANCELLED)->exists();
             $kind = $first ? 'oneoff' : 'tail';
             $rate = $first ? 100 * (int) config('onhost.partners.oneoff_bonus_months', 3) : (int) config('onhost.partners.oneoff_tail_pct', 5);
         } else {
@@ -158,33 +166,38 @@ final class PartnerService
         }
         $amount = $base->percent($rate);
         $paidAt = $invoice->paid_at ?? now();
-        $commission = PartnerCommission::query()->create([
-            'partner_id' => $partner->id, 'organization_id' => $client->id, 'invoice_id' => $invoice->id, 'period' => $paidAt->format('Y-m'), 'kind' => $kind,
-            'base_minor' => $base->minor, 'rate_pct' => $rate, 'amount_minor' => $amount->minor, 'currency' => $invoice->currency, 'state' => 'payable', 'invoice_paid_at' => $paidAt,
-        ]);
-        $this->audit->record(CommandContext::system('partner.commission')->withScope($partner->organization_id), 'partner.commission.accrue', 'succeeded', ['invoice' => $invoice->number, 'client' => $client->id, 'kind' => $kind, 'rate' => $rate, 'amount' => $amount], 'partner_commission', $commission->id);
+        try {
+            $commission = DB::transaction(fn () => PartnerCommission::query()->create([ // a savepoint: PostgreSQL refuses the duplicate, the caller's work stays
+                'partner_id' => $partner->id, 'organization_id' => $client->id, 'invoice_id' => $invoice->id, 'period' => $paidAt->format('Y-m'), 'kind' => $kind,
+                'base_minor' => $base->minor, 'rate_pct' => $rate, 'amount_minor' => $amount->minor, 'currency' => $invoice->currency, 'state' => PartnerCommission::PENDING, 'invoice_paid_at' => $paidAt,
+                'payable_at' => CommissionGrace::payableAt($paidAt),
+            ]));
+        } catch (UniqueConstraintViolationException) {
+            return null;
+        }
+        $this->audit->record(CommandContext::system('partner.commission')->withScope($partner->organization_id), 'partner.commission.accrue', 'succeeded', ['invoice' => $invoice->number, 'client' => $client->id, 'kind' => $kind, 'rate' => $rate, 'amount' => $amount, 'payable_at' => $commission->payable_at?->toIso8601String()], 'partner_commission', $commission->id);
 
         return $commission;
     }
 
-    /** A credit note reverses the commission of the document it corrects (negative payable line). */
+    /**
+     * A credit note against a commissioned document (`invoice.issued`): inside the R7 window it cancels or reduces the commission,
+     * after it the reversal is a minus on the next payouts (CommissionGrace).
+     */
     public function reverseForCreditNote(Invoice $creditNote): ?PartnerCommission
     {
-        if ($creditNote->type !== 'credit_note' || $creditNote->corrects_invoice_id === null) {
-            return null;
-        }
-        $original = PartnerCommission::query()->where('invoice_id', $creditNote->corrects_invoice_id)->where('kind', '!=', 'reversal')->first();
-        if ($original === null || PartnerCommission::query()->where('invoice_id', $creditNote->id)->where('kind', 'reversal')->exists()) {
-            return null;
-        }
-        $creditedNet = abs((int) $creditNote->subtotal_minor - (int) $creditNote->discount_minor);
-        $share = min($creditedNet, $original->base_minor);
-        $amount = Money::minor($share, $creditNote->currency)->percent($original->rate_pct)->negate();
+        return $this->grace->reverseForCreditNote($creditNote);
+    }
 
-        return PartnerCommission::query()->create([
-            'partner_id' => $original->partner_id, 'organization_id' => $original->organization_id, 'invoice_id' => $creditNote->id, 'period' => now()->format('Y-m'), 'kind' => 'reversal',
-            'base_minor' => -$share, 'rate_pct' => $original->rate_pct, 'amount_minor' => $amount->minor, 'currency' => $creditNote->currency, 'state' => 'payable', 'invoice_paid_at' => now(),
-        ]);
+    /**
+     * Pending commissions whose 30 days passed become payable (R7) — PartnerCommand `commissions.mature`, run hourly by
+     * `onhost:partners:mature-commissions`.
+     *
+     * @return array{matured:int, partners:int}
+     */
+    public function matureCommissions(CommandContext $context): array
+    {
+        return $this->grace->mature($context);
     }
 
     /** Trailing 3-month tier with the "rate only moves up immediately, down after 3 months" rule. */
@@ -242,7 +255,7 @@ final class PartnerService
         return 15;
     }
 
-    /** @return array{payable: Money, held: Money, paid: Money, allocated: Money} */
+    /** @return array{payable: Money, pending: Money, held: Money, paid: Money, allocated: Money} `pending`: earned, waiting out the R7 window */
     public function balance(Partner $partner): array
     {
         $currency = $partner->currency;
@@ -250,7 +263,7 @@ final class PartnerService
         $clientIds = $this->clientQuery($partner)->pluck('id');
         $openNet = (int) Invoice::query()->whereIn('organization_id', $clientIds)->where('type', 'invoice')->where('state', Invoice::ISSUED)->where('currency', $currency)->selectRaw('coalesce(sum(subtotal_minor - discount_minor), 0) as n')->value('n');
 
-        return ['payable' => $sum('payable'), 'allocated' => $sum('allocated'), 'paid' => $sum('paid'), 'held' => Money::minor($openNet, $currency)->percent($partner->rate_pct)];
+        return ['payable' => $sum('payable'), 'pending' => $sum(PartnerCommission::PENDING), 'allocated' => $sum('allocated'), 'paid' => $sum('paid'), 'held' => Money::minor($openNet, $currency)->percent($partner->rate_pct)];
     }
 
     // ── payouts ──────────────────────────────────────────────────────────────

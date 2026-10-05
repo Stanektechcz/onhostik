@@ -47,6 +47,7 @@ use Onhost\Domain\Orders\OrderSettlement;
 use Onhost\Domain\Organizations\AccessExpiry;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\OrganizationService;
+use Onhost\Domain\Partners\Commands\PartnerCommand;
 use Onhost\Domain\Partners\PartnerService;
 use Onhost\Domain\Payments\BankStatementImporter;
 use Onhost\Domain\Provisioning\AutomationLedger;
@@ -102,6 +103,7 @@ use Onhost\Domain\Tax\CnbRates;
 use Onhost\Domain\WalletLedger\LedgerService;
 use Onhost\Domain\WalletLedger\WalletForecast;
 use Onhost\Domain\WalletLedger\WalletService;
+use Onhost\Platform\Commands\CommandBus;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Errors\ProviderException;
@@ -547,6 +549,13 @@ Artisan::command('onhost:partners:apply-models', function (PartnerService $partn
     $this->info('changes applied: '.$partners->applyPendingChanges());
 })->purpose('Apply approved contract changes (model, rate lock, payout terms, white-label scope) whose day came (audit §5m-1, §5n-1)');
 
+// R7 (TASK-0097): a commission is payable 30 days after the client paid; the key is the minute, so two servers running the same
+// minute share one run (the bus answers the second from its memory) and each row is flipped once anyway (CommissionGrace::mature)
+Artisan::command('onhost:partners:mature-commissions', function (CommandBus $bus) {
+    $result = (array) $bus->dispatch(new PartnerCommand('partner.commissions.mature:'.now()->format('YmdHi'), ['op' => 'commissions.mature']), CommandContext::system('cli:partners:mature-commissions'));
+    $this->info('matured: '.(int) ($result['matured'] ?? 0).' · partners: '.(int) ($result['partners'] ?? 0));
+})->purpose('Make partner commissions payable once 30 days passed since the client paid (owner decision R7)');
+
 Artisan::command('onhost:partners:auto-payouts', function (PartnerService $partners) {
     $stats = $partners->autoPayouts();
     $this->info("payouts requested: {$stats['requested']} · skipped: {$stats['skipped']}");
@@ -566,6 +575,7 @@ Artisan::command('onhost:partners:verify-domains', function (PartnerService $par
 
 Schedule::command('onhost:partners:tiers')->monthlyOn(1, '02:30')->onOneServer();
 Schedule::command('onhost:partners:apply-models')->dailyAt('02:35')->onOneServer(); // approved contract changes take effect on the 1st (audit §5m-1, §5n-1)
+Schedule::command('onhost:partners:mature-commissions')->hourlyAt(20)->onOneServer(); // R7: before the monthly auto-payouts at 06:00 too
 Schedule::command('onhost:partners:auto-payouts')->monthlyOn(1, '06:00')->onOneServer(); // monthly / quarterly payout terms (audit §5n-1)
 Schedule::command('onhost:provisioning:capacity-forecast')->dailyAt('03:45')->onOneServer(); // pools running short reach operations (audit §5m-7)
 Schedule::command('onhost:partners:verify-domains')->hourly()->onOneServer();
