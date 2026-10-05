@@ -36,12 +36,35 @@ final class WebhookSigner
         return hash_equals(self::sign($secret, $timestamp, $body), $signature);
     }
 
-    /** @return array<string, string> */
-    public static function headers(string $secret, string $event, string $deliveryId, string $body, ?int $now = null): array
+    /**
+     * G7 (TASK-0115): what a receiver does while the secret is being rotated — the delivery is genuine when ANY of the signatures it
+     * carries (X-ONhost-Signature, and X-ONhost-Signature-Previous during the overlap) verifies with the secret the receiver holds.
+     *
+     * @param  list<string>  $signatures
+     */
+    public static function verifyAny(string $secret, string $timestamp, string $body, array $signatures, ?int $now = null): bool
+    {
+        foreach ($signatures as $signature) {
+            if ($signature !== '' && self::verify($secret, $timestamp, $body, $signature, $now)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The headers of one attempt. With a `$previousSecret` (a rotation's overlap window) the same bytes are signed with it too, in a
+     * header of its own: X-ONhost-Signature keeps exactly one `v1=` value signed with the CURRENT secret, so a receiver that compares
+     * the whole header keeps working the moment it holds the new secret, and one that still holds the old secret checks the previous
+     * signature. A list inside X-ONhost-Signature would have broken every receiver doing the documented whole-header compare.
+     *
+     * @return array<string, string>
+     */
+    public static function headers(string $secret, string $event, string $deliveryId, string $body, ?int $now = null, ?string $previousSecret = null): array
     {
         $timestamp = (string) ($now ?? time());
-
-        return [
+        $headers = [
             'Content-Type' => 'application/json',
             'User-Agent' => 'ONhost-Webhooks/1.0',
             'X-ONhost-Event' => $event,
@@ -49,5 +72,10 @@ final class WebhookSigner
             'X-ONhost-Timestamp' => $timestamp,
             'X-ONhost-Signature' => self::sign($secret, $timestamp, $body),
         ];
+        if ($previousSecret !== null && $previousSecret !== '' && ! hash_equals($secret, $previousSecret)) {
+            $headers['X-ONhost-Signature-Previous'] = self::sign($previousSecret, $timestamp, $body);
+        }
+
+        return $headers;
     }
 }

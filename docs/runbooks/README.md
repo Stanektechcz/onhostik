@@ -19,6 +19,7 @@ recorded in the hash-chained audit log. Never edit rows in the database during a
 | [provider-outage.md](provider-outage.md) | Proxmox / ISPConfig / aaPanel / Pterodactyl / PowerDNS / WEDOS unreachable or erroring |
 | [panel-upgrade.md](panel-upgrade.md) | upgrading a panel: what the version gate does by itself, the maintenance window, accepting a version the adapter was not verified on |
 | [provisioning-queue.md](provisioning-queue.md) | failed or stuck operations, drift, freeze switch, capacity |
+| [webhooks.md](webhooks.md) | customer webhooks: the `webhooks` queue lane and its fallback, rotating a signing secret with an overlap window, suspended endpoints |
 | [outbox-dead-letters.md](outbox-dead-letters.md) | events the outbox relay gave up on after 10 attempts: doctor row, `OnhostOutboxDeadLetters` alert, `onhost:outbox:dead-letters` (list, `--requeue`) |
 | [domains-registrar.md](domains-registrar.md) | WEDOS credit, renewals at risk, async registrations, reconciliation |
 | [billing-dunning.md](billing-dunning.md) | past-due invoices, suspension/resume, refunds, reconciliation mismatches |
