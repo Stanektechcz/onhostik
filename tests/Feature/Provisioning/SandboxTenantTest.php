@@ -56,13 +56,13 @@ it('places sandbox tenants on lab instances only, credits them for testing and s
     expect(app(WalletService::class)->balances($org, 'CZK')['promo']->minor)->toBe(500000); // the credit is booked once
 
     // no loyalty for sandbox tenants; switching the flag off restores it
-    app(OutboxPublisher::class)->publish(GenericEvent::of('payment.succeeded', 'payment', 'pay-sb-1', [], $org->id));
+    app(OutboxPublisher::class)->publish(GenericEvent::of('payment.succeeded', 'payment', 'pay-sb-1', ['amount' => ['minor' => 50000, 'currency' => 'CZK']], $org->id));
     app(OutboxPublisher::class)->relayPending();
     expect(app(LoyaltyService::class)->points($org->id))->toBe(0);
     expect(Notification::query()->where('organization_id', $org->id)->where('event', 'tenant.sandbox')->exists())->toBeTrue();
     $this->withHeader('Idempotency-Key', 'sb-3')->postJson("/v1/staff/customers/{$org->id}/sandbox", ['enabled' => false])->assertOk()->assertJsonPath('sandbox', false);
     $this->flushHeaders();
-    app(OutboxPublisher::class)->publish(GenericEvent::of('payment.succeeded', 'payment', 'pay-sb-2', [], $org->id));
+    app(OutboxPublisher::class)->publish(GenericEvent::of('payment.succeeded', 'payment', 'pay-sb-2', ['amount' => ['minor' => 50000, 'currency' => 'CZK']], $org->id));
     app(OutboxPublisher::class)->relayPending();
     expect(app(LoyaltyService::class)->points($org->id))->toBe(10);
     $this->actingAs($owner, 'sanctum')->withHeader('Idempotency-Key', 'sb-4')->postJson("/v1/staff/customers/{$org->id}/sandbox", ['enabled' => true])->assertForbidden();

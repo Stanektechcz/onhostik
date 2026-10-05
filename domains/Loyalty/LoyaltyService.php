@@ -125,6 +125,44 @@ final class LoyaltyService
         return ['awarded' => true, 'points' => $points, 'total' => $total, 'level' => $level, 'level_up' => $levelUp];
     }
 
+    /** The smallest payment that earns points (owner decision R6), in minor units of its currency; a currency not listed uses `default`. */
+    public function minimumPaymentMinor(string $currency): int
+    {
+        $table = (array) config('onhost.loyalty.min_payment_minor', []);
+
+        return max(1, (int) ($table[strtoupper($currency)] ?? $table['default'] ?? 10000));
+    }
+
+    public function qualifies(int $minor, string $currency): bool
+    {
+        return $minor >= $this->minimumPaymentMinor($currency);
+    }
+
+    /**
+     * Takes points back (R6: a credit note or chargeback refund gave the money back). A row of its own, so the same
+     * reference is taken once; the balance never goes below zero and the level reward already booked stays.
+     *
+     * @return array{taken:int, total:int}
+     */
+    public function clawback(string $organizationId, string $rule, string $reference, int $points, string $note, CommandContext $context): array
+    {
+        $before = $this->points($organizationId);
+        $points = min(max(0, $points), max(0, $before));
+        if ($points === 0) {
+            return ['taken' => 0, 'total' => $before];
+        }
+        try {
+            DB::transaction(fn () => LoyaltyPoint::query()->create(['organization_id' => $organizationId, 'rule' => $rule, 'reference' => mb_substr($reference, 0, 120), 'points' => -$points, 'note' => mb_substr($note, 0, 200)]));
+        } catch (QueryException) { // unique (organization, rule, reference): already taken back
+            return ['taken' => 0, 'total' => $before];
+        }
+        $total = $before - $points;
+        $this->audit->record($context->withScope($organizationId), 'loyalty.clawback', 'succeeded', ['rule' => $rule, 'reference' => $reference, 'points' => -$points, 'total' => $total], 'organization', $organizationId);
+        $this->outbox->publish(GenericEvent::of('loyalty.clawback', 'organization', $organizationId, ['points' => $points, 'total' => $total, 'reason' => $note], $organizationId));
+
+        return ['taken' => $points, 'total' => $total];
+    }
+
     /** Grants a badge once; a repeated grant is a no-op. */
     public function badge(string $organizationId, string $badge, CommandContext $context): bool
     {
