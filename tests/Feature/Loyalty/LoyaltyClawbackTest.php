@@ -33,13 +33,21 @@ function r6Publish(Organization $org, string $name, string $type, string $id, ar
     app(OutboxPublisher::class)->relayPending();
 }
 
+/** One issued tax invoice of an order. */
+function r6OrderInvoice(Organization $org, Order $order, int $gross): Invoice
+{
+    $ctx = CommandContext::system('test')->withScope($org->id);
+    $invoices = app(InvoiceService::class);
+
+    return $invoices->issue($invoices->draft($org, 'invoice', 'CZK', [['sku' => 'vps', 'description' => 'VPS', 'qty' => 1, 'unit_net' => $gross, 'discount' => 0, 'net' => $gross, 'tax_rate' => '0', 'tax_category' => 'Z', 'tax' => 0, 'total' => $gross]], $ctx, $order->id, ['postpaid' => true, 'payment_method' => 'bank']), $ctx);
+}
+
 /** A paid order of `$gross` minor units, its tax invoice (issued, one line) and the payment that settled it. */
-function r6PaidOrder(Organization $org, int $gross): array
+function r6PaidOrder(Organization $org, int $gross, ?int $invoiceGross = null): array
 {
     $order = Order::query()->create(['number' => 'OH-R6-'.random_int(10000, 99999), 'organization_id' => $org->id, 'state' => 'ACTIVE', 'currency' => 'CZK', 'subtotal_minor' => $gross, 'discount_minor' => 0, 'tax_minor' => 0, 'total_minor' => $gross, 'payment_mode' => 'wallet', 'source' => 'web', 'commit_months' => 1, 'idempotency_key' => 'r6-'.uniqid(), 'placed_at' => now()]);
     $ctx = CommandContext::system('test')->withScope($org->id);
-    $invoices = app(InvoiceService::class);
-    $invoice = $invoices->issue($invoices->draft($org, 'invoice', 'CZK', [['sku' => 'vps', 'description' => 'VPS', 'qty' => 1, 'unit_net' => $gross, 'discount' => 0, 'net' => $gross, 'tax_rate' => '0', 'tax_category' => 'Z', 'tax' => 0, 'total' => $gross]], $ctx, $order->id, ['postpaid' => true, 'payment_method' => 'bank']), $ctx);
+    $invoice = r6OrderInvoice($org, $order, $invoiceGross ?? $gross);
     $intent = PaymentIntent::query()->create(['organization_id' => $org->id, 'provider' => 'comgate', 'provider_id' => 'cg-'.uniqid(), 'purpose' => 'order', 'reference_type' => 'order', 'reference_id' => $order->id, 'amount_minor' => $gross, 'currency' => 'CZK', 'state' => 'SUCCEEDED', 'idempotency_key' => 'r6-pi-'.uniqid(), 'paid_at' => now()]);
     r6Publish($org, 'payment.succeeded', 'payment', $intent->id, ['purpose' => 'order', 'reference' => ['order', $order->id], 'amount' => ['minor' => $gross, 'currency' => 'CZK']]);
     r6Publish($org, 'order.paid', 'order', $order->id, ['number' => $order->number]);
@@ -112,4 +120,49 @@ it('announces the clawback to the customer and lists it in the history', functio
     $summary = $this->getJson('/v1/account/rewards')->assertOk()->json('data');
     expect($summary['points'])->toBe(0)->and(collect($summary['history'])->pluck('rule')->all())->toContain('clawback.order', 'clawback.payment')
         ->and(Notification::query()->where('organization_id', $org->id)->where('title', 'like', 'Věrnostní body vráceny%')->exists())->toBeTrue();
+});
+
+it('measures the clawback against the order, not against one of its invoices', function () {
+    [, $org] = $this->customerWithOrganization(['email' => 'r6e@example.cz']);
+    $loyalty = app(LoyaltyService::class);
+    [$order, $first, $intent] = r6PaidOrder($org, 40000, 20000); // 400 CZK order billed on two invoices of 200 CZK
+    $second = r6OrderInvoice($org, $order, 20000);
+    expect($loyalty->points($org->id))->toBe(14);
+    $ctx = CommandContext::system('test')->withScope($org->id);
+
+    // the first invoice credited in full is half of the order: half of its 4 points, the payment still stands
+    app(InvoiceService::class)->creditNote($first, 'Storno první faktury', $ctx);
+    app(OutboxPublisher::class)->relayPending();
+    expect($loyalty->points($org->id))->toBe(12);
+
+    // the second one completes the order: the rest of the points and the payment's points go
+    app(InvoiceService::class)->creditNote($second, 'Storno druhé faktury', $ctx);
+    app(OutboxPublisher::class)->relayPending();
+    expect($loyalty->points($org->id))->toBe(0)->and(LoyaltyPoint::query()->where('organization_id', $org->id)->sum('points'))->toBe(0);
+});
+
+it('never takes more than was earned when two credit notes of one order are booked before either is handled', function () {
+    [, $org] = $this->customerWithOrganization(['email' => 'r6f@example.cz']);
+    $loyalty = app(LoyaltyService::class);
+    [, $invoice] = r6PaidOrder($org, 40000);
+    $ctx = CommandContext::system('test')->withScope($org->id);
+    $line = $invoice->lines()->first()->id;
+    app(InvoiceService::class)->creditNote($invoice, 'Část 1', $ctx, null, null, [$line => 30000]);
+    app(InvoiceService::class)->creditNote($invoice->refresh(), 'Část 2', $ctx, null, null, [$line => 10000]);
+    app(OutboxPublisher::class)->relayPending(); // both events are handled now, the document is already credited in full
+
+    $taken = -LoyaltyPoint::query()->where('organization_id', $org->id)->where('points', '<', 0)->sum('points');
+    expect($loyalty->points($org->id))->toBe(0)->and($taken)->toBe(14)->and(LoyaltyPoint::query()->where('organization_id', $org->id)->where('rule', 'clawback.order')->sum('points'))->toBe(-4);
+});
+
+it('earns order points per the currency minimum and nothing from a payment event without an amount', function () {
+    [, $org] = $this->customerWithOrganization(['email' => 'r6g@example.cz']);
+    $loyalty = app(LoyaltyService::class);
+    config(['onhost.loyalty.min_payment_minor' => ['CZK' => 5000, 'default' => 5000]]); // the same table drives the minimum and the order's point unit
+    $order = Order::query()->create(['number' => 'OH-R6-2', 'organization_id' => $org->id, 'state' => 'ACTIVE', 'currency' => 'CZK', 'subtotal_minor' => 15000, 'discount_minor' => 0, 'tax_minor' => 0, 'total_minor' => 15000, 'payment_mode' => 'wallet', 'source' => 'web', 'commit_months' => 1, 'idempotency_key' => 'r6-unit', 'placed_at' => now()]);
+    r6Publish($org, 'order.paid', 'order', $order->id, ['number' => $order->number]);
+    expect($loyalty->points($org->id))->toBe(3); // 150 CZK at one point per 50 CZK
+
+    r6Publish($org, 'payment.succeeded', 'payment', 'pi_noamount', ['purpose' => 'topup']); // no amount: cannot be shown to reach the minimum, so it earns nothing (intended)
+    expect($loyalty->points($org->id))->toBe(3);
 });

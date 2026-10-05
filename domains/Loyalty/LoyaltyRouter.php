@@ -37,7 +37,7 @@ final class LoyaltyRouter
                 $order = Order::query()->find((string) $m->aggregate_id);
                 $per100 = (int) ($rules['order.paid_per_100'] ?? 1);
                 $qualifies = $order !== null && $this->loyalty->qualifies((int) $order->total_minor, (string) $order->currency); // R6: a payment below the minimum earns nothing
-                $points = $qualifies ? intdiv(max(0, (int) $order->total_minor), 10000) * $per100 : 0; // one point per 100 units of the order's currency
+                $points = $qualifies ? intdiv(max(0, (int) $order->total_minor), $this->loyalty->minimumPaymentMinor((string) $order->currency)) * $per100 : 0; // one point per minimum payment of the order's currency (CZK 100)
                 if ($points > 0 && empty($p['released'])) {
                     $this->loyalty->award($org, 'order.paid', (string) $m->aggregate_id, $points, 'Objednávka '.($p['number'] ?? ''), $ctx);
                 }
