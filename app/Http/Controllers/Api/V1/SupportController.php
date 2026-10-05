@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Support\Assistant\AssistantScope;
 use Onhost\Domain\Support\Assistant\AssistantService;
@@ -96,6 +97,11 @@ final class SupportController extends ApiController
         // TASK-0043 (S1-09): somebody who reads no ticket of the organization is refused as before; one who reads some of them
         // does not learn that a ticket they may not read exists (another project's, billing's without invoices)
         $visibility = app(TicketVisibility::class);
+        // somebody outside the ticket's organization (not a member, not staff with the customer view) gets what a number that does not exist gets: 404, not a 403 that confirms the ticket (numbers are sequential)
+        $person = $this->api->user($request);
+        if (! OrganizationMembership::query()->where('organization_id', $ticket->organization_id)->where('user_id', $person->id)->current()->exists() && ! app(Authorizer::class)->can($person, 'staff.customer.read', CommandScope::organization((string) $ticket->organization_id))) {
+            throw DomainError::notFound('ticket');
+        }
         $this->assertReadsTickets($request, $visibility, (string) $ticket->organization_id, $permission);
         if (! $visibility->may($this->api->user($request), $ticket, $permission)) {
             throw DomainError::notFound('ticket');

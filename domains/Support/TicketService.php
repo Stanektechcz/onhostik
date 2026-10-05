@@ -64,6 +64,7 @@ final class TicketService
         if (isset($input['domain_id']) && $organization !== null && ! Domain::query()->where('organization_id', $organization->id)->whereKey((string) $input['domain_id'])->exists()) {
             throw DomainError::notFound('domain');
         }
+        $attachments = $this->attachments((array) ($input['attachments'] ?? [])); // refused BEFORE the ticket exists: a forbidden file left a ticket with no first message
         $triage = Triage::classify($subject, $body);
         $topic = (string) ($input['category'] ?? $triage['topic']);
         if (! isset(Triage::TOPICS[$topic]) && $topic !== 'ostatni') {
@@ -82,7 +83,7 @@ final class TicketService
             'first_response_due_at' => SlaClock::due(now(), $targets['first'], $policy), 'resolution_due_at' => SlaClock::due(now(), $targets['resolve'], $policy), 'last_customer_message_at' => now(),
             'meta' => ['triage' => $triage, 'requested_priority' => $input['priority'] ?? null, 'targets' => $targets],
         ]));
-        TicketMessage::query()->create(['ticket_id' => $ticket->id, 'author_type' => $staff ? 'staff' : 'customer', 'author_id' => $user?->id, 'author_name' => $ticket->name, 'visibility' => 'public', 'body' => $body, 'attachments' => $this->attachments($input['attachments'] ?? [])]);
+        TicketMessage::query()->create(['ticket_id' => $ticket->id, 'author_type' => $staff ? 'staff' : 'customer', 'author_id' => $user?->id, 'author_name' => $ticket->name, 'visibility' => 'public', 'body' => $body, 'attachments' => $attachments]);
         $this->audit->record($context->withScope($organization?->id), 'ticket.create', 'succeeded', ['number' => $ticket->number, 'category' => $topic, 'priority' => $priority, 'queue' => $queue?->key], 'ticket', $ticket->id);
         $this->outbox->publish(GenericEvent::of('ticket.created', 'ticket', $ticket->id, ['number' => $ticket->number, 'subject' => $ticket->subject, 'email' => $email, 'name' => $ticket->name, 'priority' => $priority, 'category' => $topic, 'queue' => $queue?->key, 'first_response_minutes' => $targets['first'], 'channel' => $ticket->channel], $organization?->id));
 

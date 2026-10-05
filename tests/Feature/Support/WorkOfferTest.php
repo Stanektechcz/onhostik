@@ -87,8 +87,8 @@ it('bills paid work only after the customer approved its price, for exactly that
     // another organization does not see the offer at all
     [$stranger] = $this->customerWithOrganization();
     $this->actingAs($stranger, 'sanctum');
-    $this->getJson("/v1/tickets/{$ticketId}/work-offers")->assertForbidden();
-    workOfferPost($this, "/v1/tickets/{$ticketId}/work-offers/{$offer['id']}/decision", ['approve' => true])->assertForbidden();
+    $this->getJson("/v1/tickets/{$ticketId}/work-offers")->assertNotFound();
+    workOfferPost($this, "/v1/tickets/{$ticketId}/work-offers/{$offer['id']}/decision", ['approve' => true])->assertNotFound();
 
     // the owner approves: nothing is charged yet, the ticket goes back to support
     $this->actingAs($owner, 'sanctum');
