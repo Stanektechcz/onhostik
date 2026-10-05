@@ -119,3 +119,24 @@ function ConvertTo-OnhostMarkdownTable {
     }
     return $lines -join "`n"
 }
+
+# Owned-path lists arrive in many shapes: string[] (-Paths a,b), one string "a,b" (powershell -File), or "a b c" (a
+# comma list that went through brain.ps1's [string[]] $Rest is stringified with spaces). One string holding several
+# paths hid overlaps from the lock check, so every entry point normalises through here: split on commas, semicolons
+# and whitespace/newlines, trim, drop empties, dedupe (case-insensitive, first spelling wins).
+function ConvertTo-OnhostPathList {
+    param([AllowNull()][object] $Paths)
+    $seen = @{}
+    $list = @()
+    foreach ($item in @($Paths)) {
+        if ($null -eq $item) { continue }
+        foreach ($part in ("$item" -split '[,;\s]+')) {
+            if (-not $part) { continue }
+            $key = $part.ToLowerInvariant()
+            if ($seen.ContainsKey($key)) { continue }
+            $seen[$key] = $true
+            $list += $part
+        }
+    }
+    return $list   # callers wrap the call in @(...): an empty list emits nothing
+}

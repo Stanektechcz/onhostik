@@ -76,6 +76,7 @@ final class Lexicon
         'Kredit za zrušenou službu připsán' => 'Credit for the cancelled service added', 'Kredit vrácen: ' => 'Credit refunded: ', ' % nevyužitého období) je na vašem účtu.' => ' % of the unused period) is on your account.',
         'Nová úroveň věrnostního programu: ' => 'New loyalty level: ', 'Odměna ' => 'Reward ', ' je na vašem promo kreditu.' => ' is on your promo credit.', 'Díky, že jste s námi.' => 'Thank you for staying with us.',
         'Nový odznak: ' => 'New badge: ', 'Najdete ho v nastavení účtu.' => 'You will find it in your account settings.',
+        'Věrnostní body vráceny: ' => 'Loyalty points taken back: ', 'Peníze se vrátily' => 'The money was returned', 'Dobropis ' => 'Credit note ', ' · zůstatek ' => ' · balance ', ' bodů. Body se přičítají jen za zaplacené částky.' => ' points. Points are earned only for amounts actually paid.',
         'Na vaše doporučení se registroval nový zákazník' => 'A new customer signed up on your referral', 'Odměnu připíšeme po jeho první zaplacené platbě.' => 'The reward is added after their first paid payment.',
         'Uvítací odměna za doporučení' => 'Referral welcome reward', 'Odměna za doporučení' => 'Referral reward', ' bodů a ' => ' points and ', ' promo kreditu za ' => ' promo credit for ', ' promo kreditu.' => ' promo credit.',
         'Splněné mise za ' => 'Missions completed for ', ' · všechny mise měsíce, odznak je váš' => ' · every mission of the month, the badge is yours',
