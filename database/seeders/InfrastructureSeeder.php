@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\Log;
 use Onhost\Domain\Provisioning\Ipam\IpamService;
 use Onhost\Domain\Provisioning\Models\IpPool;
 use Onhost\Domain\Provisioning\Models\Node;
@@ -49,27 +50,40 @@ final class InfrastructureSeeder extends Seeder
             if (empty($i['url'])) {
                 continue; // not configured in this environment
             }
-            ProviderInstance::query()->updateOrCreate(['key' => $i['key']], [
+            $attributes = [
                 'provider' => $i['provider'], 'name' => $i['name'], 'region_code' => $i['region'], 'base_url' => rtrim((string) $i['url'], '/'), 'secret_ref' => $i['secret'],
-                'state' => ! empty($i['needs_credentials']) && ! $this->hasCredentials($i) ? 'disabled' : 'active', 'capabilities' => $i['capabilities'], 'options' => array_filter($i['options'], fn ($v) => $v !== null), 'adapter_version' => '1.0.0',
-            ]);
+                'capabilities' => $i['capabilities'], 'options' => array_filter($i['options'], fn ($v) => $v !== null), 'adapter_version' => '1.0.0',
+            ];
+            $existing = ProviderInstance::query()->where('key', $i['key'])->first();
+            if ($existing === null) {
+                ProviderInstance::query()->create(['key' => $i['key'], 'state' => ! empty($i['needs_credentials']) && $this->missingCredentials($i) !== [] ? 'disabled' : 'active'] + $attributes);
+
+                continue;
+            }
+            // the state of a connection that exists is the operator's (disabled, contained, maintenance): a re-run never flips it
+            $existing->update($attributes);
+            $missing = ! empty($i['needs_credentials']) && $existing->state === 'active' ? $this->missingCredentials($i) : [];
+            if ($missing !== []) {
+                Log::warning("Provider instance {$i['key']} is active but its credentials are incomplete; it stays active (the doctor lists it).", ['instance' => $i['key'], 'missing' => $missing]);
+            }
         }
         $this->nodes();
         $this->pools();
     }
 
     /**
-     * F12b: a connection whose URL comes from a default (WEDOS) is seeded disabled until its secret holds every required key,
-     * so a registrar that cannot sign in never looks usable; the doctor lists it with the missing keys. An operator enables it
-     * (staff console → Integrations) once the credentials are stored, or a re-run of this seeder does.
+     * F12b: a connection whose URL comes from a default (WEDOS) is created disabled until its secret holds every required key,
+     * so a registrar that cannot sign in never looks usable; the doctor lists it with the missing keys, and an operator enables it
+     * (staff console → Integrations) once the credentials are stored. Rows that exist keep their state (security review of #99).
      *
      * @param  array<string,mixed>  $i
+     * @return list<string> the required keys the secret does not hold
      */
-    private function hasCredentials(array $i): bool
+    private function missingCredentials(array $i): array
     {
         $probe = (new ProviderInstance)->forceFill(['provider' => $i['provider'], 'secret_ref' => $i['secret']]);
 
-        return app(ProviderInstanceService::class)->credentialStatus($probe)['missing'] === [];
+        return app(ProviderInstanceService::class)->credentialStatus($probe)['missing'];
     }
 
     /** @return array<string, array<string,mixed>> */

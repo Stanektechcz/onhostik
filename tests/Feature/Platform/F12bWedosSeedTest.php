@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Database\Seeders\InfrastructureSeeder;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Log;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 
 /**
@@ -46,10 +47,22 @@ it('seeds the WEDOS registrar connection active once its WAPI credentials exist'
     expect(ProviderInstance::query()->where('key', 'wedos-main')->value('state'))->toBe('active');
 });
 
-it('takes a seeded connection out of use when it is re-seeded after its credentials are gone', function () {
+it('never flips the state of a connection that exists: a re-seed only warns when an active one has lost its credentials', function () {
     f12bWedosEnv(['WEDOS_MAIN_LOGIN' => 'onhost@example.test', 'WEDOS_MAIN_WAPI_PASSWORD' => 'test-only']);
     $this->seed(InfrastructureSeeder::class);
-    f12bWedosEnv(['WEDOS_MAIN_LOGIN' => 'onhost@example.test']); // the password is missing
+    f12bWedosEnv(['WEDOS_MAIN_LOGIN' => 'onhost@example.test']); // the password is missing now
+    Log::spy();
+
+    $this->seed(InfrastructureSeeder::class);
+
+    expect(ProviderInstance::query()->where('key', 'wedos-main')->value('state'))->toBe('active');
+    Log::shouldHaveReceived('warning')->withArgs(fn (string $message, array $context = []) => str_contains($message, 'wedos-main') && ($context['missing'] ?? null) === ['wapi_password'])->once();
+});
+
+it('keeps an operator\'s decision: a disabled or contained connection stays so when the seeder runs again', function () {
+    f12bWedosEnv(['WEDOS_MAIN_LOGIN' => 'onhost@example.test', 'WEDOS_MAIN_WAPI_PASSWORD' => 'test-only']);
+    $this->seed(InfrastructureSeeder::class);
+    ProviderInstance::query()->where('key', 'wedos-main')->update(['state' => 'disabled']);
 
     $this->seed(InfrastructureSeeder::class);
 
