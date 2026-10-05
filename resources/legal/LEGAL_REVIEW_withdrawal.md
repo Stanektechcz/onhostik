@@ -39,6 +39,7 @@ vypnutý, dokud ho provozovatel nezapne.
    `2026-09`; rozhodněte, zda vydat novou verzi dokumentu (LegalEntitySeeder) a jak naložit se souhlasy ke staré verzi.
 7. Potvrzení o přijetí odstoupení (e-mail `withdrawal-accepted`, povinný, nelze vypnout) — obsah a trvalý nosič.
 8. Dobití kreditu: je to samostatná smlouva, od níž spotřebitel může do 14 dnů odstoupit s vrácením nevyčerpané části na
-   kartu? Poučení čl. 2 slibuje „předplacený kredit nevyužitý v době odstoupení vracíme v plné výši“, VOP čl. 2 bod 3
-   (G-R4) říká, že kredit v hotovosti vrátit nelze, s výjimkou zákonného vrácení platby při odstoupení. Sjednoťte text.
+   kartu? Poučení čl. 2 dřív slibovalo „předplacený kredit nevyužitý v době odstoupení vracíme v plné výši“; v G4 je věta
+   přeformulovaná neutrálně (platby podle čl. 8 VOP a zákona, kredit se v hotovosti nevyplácí). Potvrďte text a výklad
+   § 1831/§ 1832 OZ, o který se opírá výjimka v `docs/audit/2026-10-full-readiness/ROZHODNUTI.md` (G-R4).
 9. Zůstatek kreditu při zrušení účtu (výmaz): propadá, nebo musí být vrácen?

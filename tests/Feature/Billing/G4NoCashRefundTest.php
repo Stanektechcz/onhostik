@@ -5,14 +5,18 @@ declare(strict_types=1);
 use Database\Seeders\ContentSeeder;
 use Database\Seeders\LegalEntitySeeder;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use Onhost\Domain\Notifications\Webhooks\WebhookEvents;
+use Onhost\Domain\Payments\Models\PaymentIntent;
 use Onhost\Domain\Payments\Models\PaymentRefund;
+use Onhost\Domain\Payments\PaymentService;
 use Onhost\Domain\WalletLedger\LedgerService;
 use Onhost\Domain\WalletLedger\Models\LedgerTransaction;
 use Onhost\Domain\WalletLedger\Models\WalletRefund;
 use Onhost\Domain\WalletLedger\RefundableCredit;
 use Onhost\Domain\WalletLedger\WalletService;
+use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Money\Currency;
 use Onhost\Platform\Money\Money;
@@ -53,6 +57,31 @@ function g4FilesContaining(array $roots, array $needles): array
     return $hits;
 }
 
+/**
+ * Every call of a `refund(` on something other than `$this` (a private step of the same class) in the application code, the
+ * provider adapters and PaymentService's own call of its provider excepted — i.e. who could reach PaymentService::refund.
+ *
+ * @return list<string> file:line
+ */
+function g4RefundCallers(): array
+{
+    $hits = [];
+    foreach (['app', 'routes', 'domains', 'platform'] as $root) {
+        foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator(base_path($root), FilesystemIterator::SKIP_DOTS)) as $file) {
+            $path = str_replace(DIRECTORY_SEPARATOR, '/', substr($file->getPathname(), strlen(base_path()) + 1));
+            if ($file->getExtension() !== 'php' || $path === 'domains/Payments/PaymentService.php') {
+                continue;
+            }
+            foreach (preg_split('/\R/', (string) file_get_contents($file->getPathname())) ?: [] as $i => $line) {
+                if (preg_match('/(?<!\$this)->refund\(|::refund\(/', $line) === 1) {
+                    $hits[] = $path.':'.($i + 1);
+                }
+            }
+        }
+    }
+
+    return $hits;
+}
 it('has no way in the wallet to pay credit out: no refund, no refundable balance, no ledger refund posting', function () {
     expect(method_exists(WalletService::class, 'refund'))->toBeFalse()
         ->and(method_exists(WalletService::class, 'refundableBalance'))->toBeFalse();
@@ -67,10 +96,9 @@ it('offers no API, staff or console path that pays credit out or names a refunda
     $commands = array_keys(Artisan::all());
     expect(array_values(array_filter($commands, fn (string $c) => preg_match('#(wallet|credit).*(refund|payout)|(refund|payout).*(wallet|credit)#i', $c) === 1)))->toBe([]);
 
-    // the only refund of money to a card is PaymentService::refund, and no controller, console command or bus handler calls it
-    // (G6 adds the card refund of a withdrawn ORDER payment behind a staff step-up; that path never refunds a top-up)
-    expect(g4FilesContaining(['app', 'routes'], ['PaymentService', '->refund(']))->toBe([])
-        ->and(array_values(array_filter(g4FilesContaining(['domains'], ['PaymentService', '->refund(']), fn (string $f) => str_contains($f, '/Commands/'))))->toBe([]);
+    // the only refund of money to a card is PaymentService::refund, and nothing in app/, routes/, domains/ or platform/ calls it
+    // (G6 adds the card refund of a withdrawn ORDER payment behind a staff step-up; add that caller here with its guard)
+    expect(g4RefundCallers())->toBe([]);
     // and no presenter or controller says "refundable" to anybody
     expect(g4FilesContaining(['app/Http'], ['refundable']))->toBe([])
         ->and(g4FilesContaining(['app/Http'], ['refundableBalance']))->toBe([]);
@@ -136,3 +164,23 @@ it('tells customers in the terms and the knowledge base that credit is not refun
     // the published terms themselves
     $this->get('/dokumenty/vop')->assertOk()->assertSee('Kredit nelze vrátit v hotovosti', false);
 });
+
+it('refuses to give a credit top-up back to the card: that would be credit paid out in cash', function () {
+    Http::preventStrayRequests();
+    [, $org] = $this->customerWithOrganization();
+    $intent = PaymentIntent::query()->create(['organization_id' => $org->id, 'provider' => 'comgate', 'provider_id' => 'g4-topup-'.uniqid(), 'purpose' => 'topup', 'reference_type' => 'wallet',
+        'reference_id' => $org->id, 'amount_minor' => 100000, 'currency' => 'CZK', 'state' => 'SUCCEEDED', 'idempotency_key' => 'g4-pi-'.uniqid(), 'paid_at' => now()]);
+
+    expect(fn () => app(PaymentService::class)->refund($intent, Money::minor(100000, 'CZK'), 'customer request', 'g4-topup-refund', CommandContext::system('test')->withScope($org->id)))
+        ->toThrow(DomainError::class);
+    expect(PaymentRefund::query()->count())->toBe(0)->and((int) $intent->fresh()->refunded_minor)->toBe(0);
+})->skip(fn () => ! str_contains(g4MethodSource(PaymentService::class, 'refund'), 'topup'), 'the purpose=topup guard of PaymentService::refund lands with G1 (TASK-0111); this test runs by itself once it is on the branch');
+
+/** The source of one method, to see whether a guard another task adds is already on this branch. */
+function g4MethodSource(string $class, string $method): string
+{
+    $reflection = new ReflectionMethod($class, $method);
+    $lines = file((string) $reflection->getFileName()) ?: [];
+
+    return implode('', array_slice($lines, $reflection->getStartLine() - 1, $reflection->getEndLine() - $reflection->getStartLine() + 1));
+}

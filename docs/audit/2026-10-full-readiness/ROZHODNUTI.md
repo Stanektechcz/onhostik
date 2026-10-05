@@ -59,7 +59,8 @@ jako směr**. Jejich provedení na živých systémech dál potřebuje výslovn�
 
 ### G-R4: zákonná výjimka – odstoupení spotřebitele (§ 1831 OZ)
 
-Zákon (§ 1831 občanského zákoníku, čl. 13 směrnice 2011/83/EU) ukládá vrátit spotřebiteli, který odstoupil od smlouvy
+Citace § 1831/§ 1832 OZ je výklad pro vývoj a **musí ji potvrdit právník** (viz `resources/legal/LEGAL_REVIEW_withdrawal.md`).
+Zákon (§ 1831 občanského zákoníku, čl. 13 směrnice 2011/83/EU) podle tohoto výkladu ukládá vrátit spotřebiteli, který odstoupil od smlouvy
 uzavřené na dálku, přijaté peníze do 14 dnů **stejným způsobem, jakým je zaplatil**; jiným způsobem jen tehdy, když s tím
 spotřebitel výslovně souhlasí a nevzniknou mu tím náklady. Proto platí:
 
@@ -67,18 +68,27 @@ spotřebitel výslovně souhlasí a nevzniknou mu tím náklady. Proto platí:
   `confirm_refund_to_credit`, u oznámení e-mailem nebo dopisem `refund_to_credit_agreed` (personál potvrzuje, že souhlas je
   v oznámení). Vrácená částka je vrácený kredit (`refundable = false`) a v hotovosti se nevyplácí.
 - **Bez souhlasu** se vrací **platba za odstoupenou smlouvu** původním způsobem: platba kartou zpět na tutéž kartu
-  (`PaymentService::refund` platby objednávky), převod převodem. Nejde o výplatu kreditu: nikdy se nevrací dobití kreditu
-  a nikdy víc, než kolik stála odstoupená smlouva. Objednávka zaplacená z kreditu se vrací na kredit (to je stejný způsob).
+  (`PaymentService::refund` platby objednávky), převod převodem. Nejde o výplatu kreditu a nikdy víc, než kolik stála
+  odstoupená smlouva. Objednávka zaplacená z kreditu se vrací na kredit (to je stejný způsob). Zda lze odstoupit i od
+  **dobití kreditu** a vrátit jeho nevyčerpanou část na kartu, je **otevřené rozhodnutí** vlastníka a právníka (otázka 1
+  níže); do jeho rozhodnutí systém dobití nevrací a `PaymentService::refund` má platbu s `purpose = topup` odmítnout
+  (strážce přidává G1, TASK-0111).
 - **Stav dnes:** tato cesta v systému není. Panel i staff odstoupení bez souhlasu odmítnou (422), poučení slibuje vrácení
   původním způsobem „na žádost podpoře“ a `PaymentService::refund` nikdo nevolá. Napojení (staff akce se step-upem, jen
   platba objednávky, nikdy `purpose = topup`) patří do G6.
 
 ### Otevřené otázky pro vlastníka (G-R4)
 
-1. **Dobití kreditu a odstoupení.** Poučení (čl. 2) říká: „předplacený kredit nevyužitý v době odstoupení vracíme v plné
-   výši“. Je dobití kreditu spotřebitelem samostatná smlouva, od níž lze do 14 dnů odstoupit s vrácením na kartu? Pokud ano,
-   je to druhá zákonná výjimka (strop: nevyčerpaný zakoupený kredit, `RefundableCredit::of`). Pokud ne, musí se věta
-   v poučení změnit a vydat nová verze dokumentu. Text poučení se v G4 neměnil.
+1. **Dobití kreditu a odstoupení** (vlastník + právník). Je dobití kreditu spotřebitelem samostatná smlouva, od níž lze do
+   14 dnů odstoupit s vrácením na kartu? Pokud ano, je to druhá zákonná výjimka (jejím stropem by mohl být nevyčerpaný
+   zakoupený kredit, `RefundableCredit::of`). Poučení (čl. 2) dřív slibovalo „předplacený kredit nevyužitý v době
+   odstoupení vracíme v plné výši“, což odporovalo VOP čl. 2 bod 3; v G4 je věta přeformulovaná neutrálně (platby se
+   vracejí podle čl. 8 VOP a zákona, kredit se v hotovosti nevyplácí) a otázku nerozhoduje.
 2. **Zůstatek kreditu při zrušení účtu** (žádost o výmaz). Kredit propadne, nebo se smí vyplatit? Dnes výmaz zůstatek neřeší.
 3. **Nová verze VOP.** Čl. 2 bod 3 VOP byl upřesněn bez změny verze `2026-09` (stejně jako dřívější úpravy, viz
-   `resources/legal/LEGAL_REVIEW_withdrawal.md` otázka 6). Rozhodněte, zda vydat novou verzi.
+   `resources/legal/LEGAL_REVIEW_withdrawal.md` otázka 6). Totéž platí pro upravený čl. 2 poučení `withdrawal_waiver`.
+   Rozhodněte, zda vydat nové verze.
+4. **Prototypové obrazovky stále slibují vrácení kreditu** (jsou byte-identické, v G4 se neměnily):
+   `apps/surfaces/onhost-content.js:244` (článek znalostní báze v demo režimu), `apps/surfaces/Onhost-admin.dc.html:1460`,
+   `:2864`, `:2957`, `:2961` a `:4565` (vyprávěná data administrace). Produkční režim čte článek z databáze (opraveno);
+   prototypové texty se opraví přes seam v G8.

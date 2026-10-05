@@ -13,9 +13,10 @@ use Onhost\Platform\Money\Currency;
  * decision G-R3, 2026-10-05: purchased credit first; `replay` is that rule and stays as it is).
  *
  * It is no longer the cap of a cash refund: credit is never paid out in money (owner decision G-R4) and the wallet has no
- * refund. The measure is kept because the spend order is a decision of record, because it tells purchased credit from the
- * credit that came back from a correction in the ledger alone, and because a statutory refund of an unused prepayment (the
- * open owner question in ROZHODNUTI.md G-R4) would be capped by exactly this amount. No screen, API or command shows it.
+ * refund, and nothing in production calls `of()`. The measure is kept because the spend order is a decision of record and
+ * because it tells purchased credit from the credit that came back from a correction in the ledger alone. Whether a consumer
+ * may withdraw an unused top-up to the card is an open owner/counsel question (ROZHODNUTI.md G-R4); if it is decided yes,
+ * this is the natural cap. Until then it caps nothing and no screen, API or command shows it.
  *
  * The main wallet is ONE ledger account: money the customer paid in (a purchased top-up), credit that came back from a
  * correction (`returnToCredit`, non-refundable), bonus credit moved in for an order (`promo_used`) and staff credits all

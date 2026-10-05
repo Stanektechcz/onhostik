@@ -140,7 +140,7 @@ runbooky [billing-dunning](../runbooks/billing-dunning.md) a [historical-site-im
 | Pravidlo vypnuto | 409 `withdrawal_disabled` s odkazem na dokument o odstoupení. |
 | Zaplacená objednávka, z níž nic není dodané | `GET` a `POST /v1/orders/{order}/withdrawal` zruší objednávku a vrátí vše na kredit. |
 | Dopis nebo e-mail | Finance zaznamenají `POST /v1/staff/withdrawals` (step-up a druhá osoba). |
-| Spotřebitel nesouhlasí s vrácením na kredit | Panel i `POST /v1/staff/withdrawals` bez souhlasu odpoví 422. Zákon (§ 1831 OZ) ale ukládá vrátit **platbu** za odstoupenou smlouvu původním způsobem (kartou zaplacenou objednávku na tutéž kartu); je to jediná výjimka z G-R4 a nikdy nejde o výplatu kreditu ani dobití. V systému zatím není (G6): finance ji dnes provede ručně mimo systém. Viz `docs/audit/2026-10-full-readiness/ROZHODNUTI.md`, G-R4. |
+| Spotřebitel nesouhlasí s vrácením na kredit | Panel i `POST /v1/staff/withdrawals` bez souhlasu odpoví 422. Zákon (§ 1831 OZ) ale ukládá vrátit **platbu** za odstoupenou smlouvu původním způsobem (kartou zaplacenou objednávku na tutéž kartu); je to jediná výjimka z G-R4 a nejde o výplatu kreditu (zda lze odstoupit i od dobití kreditu, je otevřená otázka vlastníka a právníka; do rozhodnutí se dobití nevrací). V systému zatím není (G6): finance ji dnes provede ručně mimo systém. Viz `docs/audit/2026-10-full-readiness/ROZHODNUTI.md`, G-R4. |
 | Pokus vyplatit kredit po odstoupení | Neexistuje cesta v panelu, administraci, API ani příkazech (`G4NoCashRefundTest`). |
 | Zaseknutý krok | Hlášen finanční schránce (událost `withdrawal.stalled`), opakuje se hodinově; doctor „consumer withdrawals move on“. |
 
