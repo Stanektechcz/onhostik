@@ -8,6 +8,7 @@ use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Onhost\Domain\Identity\Authorization\ApprovalService;
 use Onhost\Domain\Invoicing\CzkTaxStatement;
 use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Invoicing\Models\Invoice;
@@ -35,6 +36,7 @@ use Onhost\Platform\Money\Money;
 use Onhost\Platform\Outbox\OutboxPublisher;
 use Onhost\Platform\Redaction\Redactor;
 use Onhost\Providers\Contracts\StoredMethodCharging;
+use Onhost\Providers\Payments\Bank\BankTransferPaymentProvider;
 use Throwable;
 
 /**
@@ -429,16 +431,56 @@ final class PaymentService
     {
         return DB::transaction(function () use ($refund, $reference, $context) {
             $refund = PaymentRefund::query()->lockForUpdate()->findOrFail($refund->id);
-            if ($refund->state !== 'pending') {
-                throw new DomainError('refund_not_pending', 'Only a refund waiting for its bank payout can be confirmed.', 409, ['state' => $refund->state]);
+            $intent = $this->pendingBankPayout($refund);
+            $by = mb_substr($context->actorType.':'.($context->actorId ?? 'system'), 0, 60);
+            if ($by === (string) $refund->created_by && ApprovalService::enabled()) { // review L: four eyes on money out, unless one operator runs the platform
+                throw new DomainError('refund_self_confirm', 'Another person confirms the bank payout of a refund you asked for.', 403);
             }
-            $intent = PaymentIntent::query()->lockForUpdate()->findOrFail($refund->payment_intent_id);
-            $refund->forceFill(['state' => 'succeeded', 'provider_refund_id' => mb_substr($reference, 0, 120), 'confirmed_at' => now(), 'confirmed_by' => mb_substr($context->actorType.':'.($context->actorId ?? 'system'), 0, 60)])->save();
+            $refund->forceFill(['state' => 'succeeded', 'provider_refund_id' => mb_substr($reference, 0, 120), 'confirmed_at' => now(), 'confirmed_by' => $by])->save();
             $this->audit->record($context->withScope($intent->organization_id), 'payment.refund.confirm', 'succeeded', ['refund' => $refund->id, 'amount' => Money::minor((int) $refund->amount_minor, (string) $refund->currency), 'reference' => $refund->provider_refund_id], 'payment_intent', $intent->id);
             $this->refundPaidOut($intent, $refund);
 
             return $refund;
         }, 3);
+    }
+
+    /**
+     * G6 (review L): finance cancels a pending bank payout — returned by the bank, a wrong account. The refund is `cancelled`, what
+     * it reserved of the payment is released; its credit note stays (a document is not taken back) and the next payout of the same
+     * amount uses it (OrderPaymentRefunds::unpaidCreditNote), so nothing is credited or posted twice. Nothing is announced.
+     */
+    public function cancelRefund(PaymentRefund $refund, CommandContext $context): PaymentRefund
+    {
+        return DB::transaction(function () use ($refund, $context) {
+            $refund = PaymentRefund::query()->lockForUpdate()->findOrFail($refund->id);
+            $intent = $this->pendingBankPayout($refund);
+            $refund->forceFill(['state' => 'cancelled'])->save();
+            $intent->forceFill(['refunded_minor' => max(0, (int) $intent->refunded_minor - (int) $refund->amount_minor)])->save();
+            $this->audit->record($context->withScope($intent->organization_id), 'payment.refund.cancel', 'succeeded', ['refund' => $refund->id, 'amount' => Money::minor((int) $refund->amount_minor, (string) $refund->currency)], 'payment_intent', $intent->id);
+
+            return $refund;
+        }, 3);
+    }
+
+    /**
+     * The payment of a refund finance may confirm or cancel (security review M3, M4): pending, a bank payout (a card gateway
+     * finishes its own refunds), and with its credit note — a pending refund from before G6 has none and nothing in the refund
+     * payable to pay it from. The refund row must already be locked.
+     */
+    private function pendingBankPayout(PaymentRefund $refund): PaymentIntent
+    {
+        if ($refund->state !== 'pending') {
+            throw new DomainError('refund_not_pending', 'Only a refund waiting for its bank payout can be confirmed or cancelled.', 409, ['state' => $refund->state]);
+        }
+        if ($refund->credit_note_id === null) {
+            throw new DomainError('refund_without_credit_note', 'This refund has no credit note: it is settled by hand, not confirmed here.', 409);
+        }
+        $intent = PaymentIntent::query()->lockForUpdate()->findOrFail($refund->payment_intent_id);
+        if ($intent->provider !== BankTransferPaymentProvider::providerKey()) {
+            throw new DomainError('refund_not_bank_payout', 'Only a bank payout is confirmed by finance; a card gateway finishes its own refunds.', 409, ['provider' => $intent->provider]);
+        }
+
+        return $intent;
     }
 
     /**

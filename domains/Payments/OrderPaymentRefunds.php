@@ -9,9 +9,13 @@ use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Billing\WithdrawalPolicy;
 use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Invoicing\Models\Invoice;
+use Onhost\Domain\Invoicing\Models\InvoiceLine;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Payments\Models\PaymentIntent;
 use Onhost\Domain\Payments\Models\PaymentRefund;
+use Onhost\Domain\Services\Models\Service;
+use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Support\Models\Ticket;
 use Onhost\Domain\WalletLedger\LedgerService;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditRecorder;
@@ -44,10 +48,34 @@ final class OrderPaymentRefunds
         private readonly AuditRecorder $audit,
     ) {}
 
-    /** @return array{refund:PaymentRefund, credit_note:Invoice} */
-    public function refundOnWithdrawal(PaymentIntent $intent, Money $amount, CarbonImmutable $sentAt, string $reason, string $idempotencyKey, CommandContext $context): array
+    /**
+     * Whether what a payment has been refunded so far plus this refund reaches the approval threshold of its currency (an unknown
+     * currency counts as reaching it). The command asks it before the bus decides on a second person; the refund asks it again
+     * under the payment's lock (security review of PR #111, M1), so two requests that each read the payment before the other
+     * landed cannot both pass below it.
+     */
+    public static function reachesApprovalThreshold(int $refundedWithThis, string $currency): bool
     {
-        return DB::transaction(function () use ($intent, $amount, $sentAt, $reason, $idempotencyKey, $context) {
+        $threshold = config('onhost.billing.refund_approval_threshold.'.strtoupper($currency));
+
+        return $threshold === null || $refundedWithThis >= (int) $threshold;
+    }
+
+    /**
+     * `$approved`: the bus asked a second person for this refund (the command was large when it was dispatched). `$ticketId`: the
+     * consumer's notice on record — a ticket of the payment's organization (security review M2).
+     *
+     * The gateway is called inside this transaction (review L): the credit note, the payable and the refund row commit with the
+     * gateway's answer or not at all. A gateway that refunded and a commit that then failed leaves money paid out without a row:
+     * the retry under the same key reaches the gateway with the same idempotency key (Comgate refId, Stripe key) and is answered
+     * with the refund it already made; reconciliation reports any other mismatch. A pending row before the call would need a
+     * compensation of the credit note when the gateway refuses — a document that cannot be taken back — so it is not done.
+     *
+     * @return array{refund:PaymentRefund, credit_note:Invoice}
+     */
+    public function refundOnWithdrawal(PaymentIntent $intent, Money $amount, CarbonImmutable $sentAt, string $reason, string $idempotencyKey, CommandContext $context, bool $approved = false, string $ticketId = ''): array
+    {
+        return DB::transaction(function () use ($intent, $amount, $sentAt, $reason, $idempotencyKey, $context, $approved, $ticketId) {
             $intent = PaymentIntent::query()->lockForUpdate()->findOrFail($intent->id);
             $existing = PaymentRefund::query()->where('idempotency_key', $idempotencyKey)->first();
             if ($existing !== null) { // the same request again: the refund it made (PaymentService refuses another payment or amount under the key)
@@ -55,18 +83,68 @@ final class OrderPaymentRefunds
 
                 return ['refund' => $refund, 'credit_note' => Invoice::query()->findOrFail($refund->credit_note_id)];
             }
+            $this->assertEvidence($intent, $ticketId);
             $this->assertRefundable($intent, $amount);
+            if (! $approved && self::reachesApprovalThreshold((int) $intent->refunded_minor + $amount->minor, $amount->currency->value)) {
+                throw new DomainError('refund_approval_required', 'With what this payment was refunded already, this refund needs a second person: send it again to ask for the approval.', 409, ['refunded' => Money::minor((int) $intent->refunded_minor, $amount->currency)]);
+            }
             $order = Order::query()->where('organization_id', $intent->organization_id)->find((string) $intent->reference_id)
                 ?? throw new DomainError('refund_order_missing', 'The order this payment paid is not there.', 409);
             $this->assertWithdrawal($order, $sentAt);
             $document = $this->documentOf($order);
-            $note = $this->invoices->creditNote($document, $reason, $context->withScope($intent->organization_id), null, null, $this->amounts($document, $amount));
-            $this->recognisePayable($intent, $document, $note, $context);
+            $note = $this->unpaidCreditNote($intent, $amount);
+            if ($note === null) {
+                $amounts = $this->amounts($document, $amount);
+                $this->assertServicesEnded(InvoiceLine::query()->whereIn('id', array_keys($amounts))->pluck('service_id')->filter()->all());
+                $note = $this->invoices->creditNote($document, $reason, $context->withScope($intent->organization_id), null, null, $amounts);
+                $this->recognisePayable($intent, $document, $note, $context);
+            } else {
+                $this->assertServicesEnded($note->lines()->pluck('service_id')->filter()->all());
+            }
             $refund = $this->payments->refund($intent, $amount, $reason, $idempotencyKey, $context, $note->id);
-            $this->audit->record($context->withScope($intent->organization_id), 'payment.refund.withdrawal', 'succeeded', ['payment' => $intent->id, 'order' => $order->number, 'document' => $document->number, 'credit_note' => $note->number, 'amount' => $amount, 'sent_at' => $sentAt->toIso8601String(), 'state' => $refund->state], 'payment_intent', $intent->id);
+            $this->audit->record($context->withScope($intent->organization_id), 'payment.refund.withdrawal', 'succeeded', ['payment' => $intent->id, 'order' => $order->number, 'document' => $document->number, 'credit_note' => $note->number, 'amount' => $amount, 'sent_at' => $sentAt->toIso8601String(), 'state' => $refund->state, 'ticket' => $ticketId, 'approved' => $approved], 'payment_intent', $intent->id);
 
             return ['refund' => $refund, 'credit_note' => $note];
         }, 3);
+    }
+
+    /** The consumer's notice is on record: a ticket of the payment's own organization (security review M2). */
+    private function assertEvidence(PaymentIntent $intent, string $ticketId): void
+    {
+        $ticket = $ticketId === '' ? null : Ticket::query()->find($ticketId);
+        if ($ticket === null || (string) $ticket->organization_id !== (string) $intent->organization_id) {
+            throw new DomainError('refund_evidence_mismatch', 'Name the ticket of this customer that holds their withdrawal notice.', 422, ['field' => 'ticket_id']);
+        }
+    }
+
+    /**
+     * Money back for a service the customer keeps using is no withdrawal (security review M2): every service of the refunded lines
+     * must have ended — cancelled through the ordinary saga — before its money goes back.
+     *
+     * @param  array<int, mixed>  $serviceIds
+     */
+    private function assertServicesEnded(array $serviceIds): void
+    {
+        $running = Service::query()->whereIn('id', array_values(array_unique(array_map('strval', $serviceIds))))->whereNotIn('state', [ServiceStateMachine::TERMINATED, ServiceStateMachine::FAILED])->pluck('id')->all();
+        if ($running !== []) {
+            throw new DomainError('refund_service_still_running', 'A service of the refunded lines still runs: cancel it first, then refund its money.', 409, ['services' => $running]);
+        }
+    }
+
+    /**
+     * A credit note whose payout was cancelled (a bank payout returned, a wrong account) and that no other refund pays out: the next
+     * payout of the same amount uses it, so the document is not credited twice and the payable is not posted twice (review L).
+     */
+    private function unpaidCreditNote(PaymentIntent $intent, Money $amount): ?Invoice
+    {
+        $cancelled = PaymentRefund::query()->where('payment_intent_id', $intent->id)->where('state', 'cancelled')->where('amount_minor', $amount->minor)->whereNotNull('credit_note_id')->orderBy('created_at')->pluck('credit_note_id');
+        foreach ($cancelled as $noteId) {
+            if (! PaymentRefund::query()->where('credit_note_id', $noteId)->whereIn('state', ['pending', 'succeeded'])->exists()) {
+                return Invoice::query()->find($noteId);
+            }
+        }
+
+        return null;
     }
 
     private function assertRefundable(PaymentIntent $intent, Money $amount): void
@@ -96,8 +174,11 @@ final class OrderPaymentRefunds
             throw new DomainError('withdrawal_consumers_only', 'Odstoupit od smlouvy bez udání důvodu může jen spotřebitel; objednávka byla uzavřena na firmu.', 403, ['customer_class' => $class]);
         }
         $start = CarbonImmutable::make($order->placed_at) ?? throw new DomainError('withdrawal_not_applicable', 'Objednávka nebyla odeslána.', 422, ['why' => 'no_order']);
-        if ($sentAt->lessThan($start) || $sentAt->greaterThan(CarbonImmutable::now()->addMinutes(5))) {
-            throw new DomainError('withdrawal_sent_before_order', 'Odstoupení nemůže předcházet objednávce ani být odesláno v budoucnu.', 422, ['field' => 'sent_at']);
+        if ($sentAt->greaterThan(CarbonImmutable::now())) {
+            throw new DomainError('withdrawal_sent_in_future', 'Odstoupení nemůže být odesláno v budoucnu.', 422, ['field' => 'sent_at']);
+        }
+        if ($sentAt->lessThan($start)) {
+            throw new DomainError('withdrawal_sent_before_order', 'Odstoupení nemůže předcházet objednávce.', 422, ['field' => 'sent_at']);
         }
         $deadline = WithdrawalPolicy::deadlineFrom($start);
         if ($sentAt->greaterThan($deadline)) {

@@ -54,10 +54,7 @@ final class PaymentsController extends ApiController
     public function refunds(Request $request, PaymentService $payments): JsonResponse
     {
         $this->api->authorize($request, 'staff.billing.read', CommandScope::global());
-        $state = (string) $request->query('state', '');
-        if ($state !== '' && ! in_array($state, ['pending', 'succeeded', 'failed'], true)) {
-            $state = 'pending';
-        }
+        $state = (string) ($request->validate(['state' => ['nullable', 'in:pending,succeeded,failed,cancelled']])['state'] ?? '');
 
         return $this->ok(['rows' => $payments->refunds($state, (int) min(200, max(1, (int) $request->query('limit', 100)))),
             'pending' => PaymentRefund::query()->where('state', 'pending')->count(), 'can_refund' => $this->api->can($request, 'billing.refund.execute', CommandScope::global())]);
@@ -66,13 +63,14 @@ final class PaymentsController extends ApiController
     /** G6: the payment of an order back to its source on a consumer's withdrawal, with a credit note of the order's document. */
     public function refund(Request $request, string $payment): JsonResponse
     {
-        $data = $request->validate(['amount' => ['required', 'numeric', 'min:0.01', 'max:100000000'], 'sent_at' => ['required', 'date'], 'reason' => ['required', 'string', 'min:5', 'max:250']]);
+        $data = $request->validate(['amount' => ['required', 'numeric', 'min:0.01', 'max:100000000'], 'sent_at' => ['required', 'date'], 'reason' => ['required', 'string', 'min:5', 'max:250'],
+            'ticket_id' => ['required', 'string', 'max:40']]); // the ticket holding the consumer's notice (review M2)
         $intent = PaymentIntent::query()->findOrFail($payment);
         $amount = Money::decimal((string) $data['amount'], (string) $intent->currency);
 
         return $this->dispatch(new PaymentRefundCommand($this->idempotencyKey($request, 'payments.refund:'.$intent->id), [
             'op' => 'refund.withdrawal', 'payment_id' => $intent->id, 'organization_id' => $intent->organization_id, 'amount_minor' => $amount->minor, 'currency' => $amount->currency->value, 'payment_refunded_minor' => (int) $intent->refunded_minor,
-            'sent_at' => (string) $data['sent_at'], 'reason' => $data['reason'],
+            'sent_at' => (string) $data['sent_at'], 'reason' => $data['reason'], 'ticket_id' => $data['ticket_id'],
         ]), $this->api->context($request, null, $data['reason']));
     }
 
@@ -83,5 +81,14 @@ final class PaymentsController extends ApiController
         $row = PaymentRefund::query()->findOrFail($refund);
 
         return $this->dispatch(new PaymentRefundCommand($this->idempotencyKey($request, 'payments.refund.confirm:'.$row->id), ['op' => 'refund.confirm', 'refund_id' => $row->id, 'reference' => $data['reference']]), $this->api->context($request, null, $data['reason']));
+    }
+
+    /** G6 (review L): finance cancels a pending bank payout; the reservation on the payment is released, the credit note stays. */
+    public function cancelRefund(Request $request, string $refund): JsonResponse
+    {
+        $data = $request->validate(['reason' => ['required', 'string', 'min:5', 'max:250']]);
+        $row = PaymentRefund::query()->findOrFail($refund);
+
+        return $this->dispatch(new PaymentRefundCommand($this->idempotencyKey($request, 'payments.refund.cancel:'.$row->id), ['op' => 'refund.cancel', 'refund_id' => $row->id]), $this->api->context($request, null, $data['reason']));
     }
 }

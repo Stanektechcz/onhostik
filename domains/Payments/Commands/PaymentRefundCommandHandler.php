@@ -30,12 +30,17 @@ final class PaymentRefundCommandHandler implements CommandHandler
             'refund.withdrawal' => (function () use ($command, $context): array {
                 $intent = PaymentIntent::query()->findOrFail((string) $command->get('payment_id'));
                 $amount = Money::minor((int) $command->get('amount_minor'), (string) $command->get('currency'));
-                $done = $this->refunds->refundOnWithdrawal($intent, $amount, CarbonImmutable::parse((string) $command->get('sent_at')), (string) $command->get('reason'), 'withdrawal-refund:'.$command->idempotencyKey(), $context);
+                $done = $this->refunds->refundOnWithdrawal($intent, $amount, CarbonImmutable::parse((string) $command->get('sent_at')), (string) $command->get('reason'), 'withdrawal-refund:'.$command->idempotencyKey(), $context, $command->requiresApproval(), (string) $command->get('ticket_id', ''));
 
                 return PaymentService::presentRefund($done['refund'], $intent->refresh(), (string) $done['credit_note']->number);
             })(),
             'refund.confirm' => (function () use ($command, $context): array {
                 $refund = $this->payments->confirmRefund(PaymentRefund::query()->findOrFail((string) $command->get('refund_id')), (string) $command->get('reference'), $context);
+
+                return PaymentService::presentRefund($refund, PaymentIntent::query()->find($refund->payment_intent_id), $refund->credit_note_id === null ? null : (string) Invoice::query()->whereKey($refund->credit_note_id)->value('number'));
+            })(),
+            'refund.cancel' => (function () use ($command, $context): array {
+                $refund = $this->payments->cancelRefund(PaymentRefund::query()->findOrFail((string) $command->get('refund_id')), $context);
 
                 return PaymentService::presentRefund($refund, PaymentIntent::query()->find($refund->payment_intent_id), $refund->credit_note_id === null ? null : (string) Invoice::query()->whereKey($refund->credit_note_id)->value('number'));
             })(),

@@ -204,7 +204,7 @@ final class StaffNavigation
             new N('withdrawals', 'finance', 30, 'file', ['cs' => 'Odstoupení od smlouvy', 'en' => 'Contract withdrawals'], N::SCREEN_VIEW, 'contracts', [
                 N::get('staff/withdrawals', 'staff.billing.read'),
                 // G6: an order payment back to its source when the consumer did not take credit; bank payouts confirmed by finance
-                N::get('staff/payments/refunds', 'staff.billing.read'), N::write('post', 'staff/payments/{payment}/refund', 'billing.refund.execute'), N::write('post', 'staff/payments/refunds/{refund}/confirm', 'billing.refund.execute'),
+                N::get('staff/payments/refunds', 'staff.billing.read'), N::write('post', 'staff/payments/{payment}/refund', 'billing.refund.execute'), N::write('post', 'staff/payments/refunds/{refund}/confirm', 'billing.refund.execute'), N::write('post', 'staff/payments/refunds/{refund}/cancel', 'billing.refund.execute'),
             ], all: ['staff.billing.read']),
             new N('sla_credits', 'finance', 40, 'shield', ['cs' => 'SLA kredity', 'en' => 'SLA credits'], N::SCREEN_VIEW, 'slapol', [
                 N::get('staff/sla-credits', 'sla.credit.manage'),

@@ -187,7 +187,7 @@ runbooky [billing-dunning](../runbooks/billing-dunning.md) a [historical-site-im
 
 **Kroky (karta)**
 
-1. Jako finance bez čerstvého step-upu `POST /v1/staff/payments/{payment}/refund` s `amount`, `sent_at` (den odeslání oznámení) a `reason`.
+1. Jako finance bez čerstvého step-upu `POST /v1/staff/payments/{payment}/refund` s `amount`, `sent_at` (den odeslání oznámení), `reason` a `ticket_id` (tiket zákazníka s oznámením o odstoupení). Služby z vracených řádků už musí být zrušené.
 2. Totéž se step-upem.
 3. Stejný požadavek se stejným `Idempotency-Key` znovu.
 4. Zákazník: `/panel/fakturace` a e-mail.
@@ -212,7 +212,9 @@ runbooky [billing-dunning](../runbooks/billing-dunning.md) a [historical-site-im
 - Do potvrzení: žádná událost, žádný e-mail, platba zůstává `SUCCEEDED` (částka je jen rezervovaná proti dalšímu vrácení), závazek
   `liability:refund_payable:bank` drží částku.
 - Po potvrzení: vrácení `succeeded` s referencí banky a časem potvrzení, platba `REFUNDED`, událost `payment.refunded` a e-mail jednou.
-- Druhé potvrzení: 409 `refund_not_pending`. Vrácení kartou potvrdit nelze (409 `refund_not_pending`).
+- Druhé potvrzení: 409 `refund_not_pending`. Vrácení kartou potvrdit nelze (409 `refund_not_pending` / `refund_not_bank_payout`).
+- Potvrzuje **jiná osoba** než ta, která vrácení zadala (403 `refund_self_confirm`); výjimka jen v režimu jednoho operátora (`ONHOST_FOUR_EYES=false`).
+- Vrácená platba z banky (špatný účet): `POST /v1/staff/payments/refunds/{refund}/cancel` (step-up) → `cancelled`, rezervace na platbě se uvolní, dobropis zůstává a další výplata stejné částky ho použije (žádný druhý dobropis).
 
 **Negativní varianty**
 
@@ -224,6 +226,10 @@ runbooky [billing-dunning](../runbooks/billing-dunning.md) a [historical-site-im
 | Více, než zbývá na dokladu po dřívějších dobropisech (např. odstoupení vrácené na kredit) | 409 `refund_exceeds_document`; nic se nevyplatí dvakrát. |
 | Objednávka uzavřená na firmu | 403 `withdrawal_consumers_only`. |
 | Oznámení odeslané po 14 dnech | 409 `withdrawal_period_over`. |
+| `sent_at` v budoucnosti | 422 `withdrawal_sent_in_future`. |
+| Bez tiketu nebo s tiketem jiné organizace | 422 (`ticket_id`), `refund_evidence_mismatch`. |
+| Služba z vracených řádků ještě běží | 409 `refund_service_still_running` — nejdřív ji zrušit. |
+| Dvě vrácení, která spolu dosáhnou prahu | Druhé chce druhou osobu (rozhoduje se pod zámkem platby, `refund_approval_required` při souběhu). |
 | Fakturace na splatnost (postpaid faktura) | 409 `refund_document_booked` (její dobropis vrací zaplacené na kredit sám). |
 | Částka od prahu `onhost.billing.refund_approval_threshold` (20 000 Kč / 800 €) | 403 `approval_required`, po schválení druhou osobou 200. |
 | Podpora (`support_l1`) | 403 — vrací jen finance. |

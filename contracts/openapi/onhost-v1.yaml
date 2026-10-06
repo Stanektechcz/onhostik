@@ -26878,12 +26878,12 @@ paths:
         -
           session: []
       x-token-scope: null
-  '/staff/payments/refunds/{refund}/confirm':
+  '/staff/payments/refunds/{refund}/cancel':
     post:
-      operationId: postStaffPaymentsRefundsByRefundConfirm
+      operationId: postStaffPaymentsRefundsByRefundCancel
       tags:
         - staff-payments
-      summary: 'POST /staff/payments/refunds/{refund}/confirm'
+      summary: 'POST /staff/payments/refunds/{refund}/cancel'
       parameters:
         -
           name: refund
@@ -26943,7 +26943,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Problem'
         '409':
-          description: 'Conflict with the current state — error: `refund_not_pending`'
+          description: 'Conflict with the current state — error: `refund_not_pending`, `refund_without_credit_note`, `refund_not_bank_payout`'
           content:
             application/json:
               schema:
@@ -26952,7 +26952,105 @@ paths:
                     $ref: '#/components/schemas/Problem'
                   -
                     properties:
-                      error: { enum: [refund_not_pending] }
+                      error: { enum: [refund_not_pending, refund_without_credit_note, refund_not_bank_payout] }
+      security:
+        -
+          session: []
+      x-token-scope: null
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - reason
+              properties:
+                reason:
+                  type: string
+                  minLength: 5
+                  maxLength: 250
+      description: 'Finance cancels a pending bank payout (returned by the bank, a wrong account). What it reserved of the payment is released; its credit note stays and the next payout of the same amount uses it. HIGH: a fresh step-up.'
+  '/staff/payments/refunds/{refund}/confirm':
+    post:
+      operationId: postStaffPaymentsRefundsByRefundConfirm
+      tags:
+        - staff-payments
+      summary: 'POST /staff/payments/refunds/{refund}/confirm'
+      parameters:
+        -
+          name: refund
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        '422':
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '200':
+          description: 'Success (idempotent replay or synchronous result)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes) — error: `refund_self_confirm`'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  -
+                    $ref: '#/components/schemas/Problem'
+                  -
+                    properties:
+                      error: { enum: [refund_self_confirm] }
+        '404':
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: 'Conflict with the current state — error: `refund_not_pending`, `refund_without_credit_note`, `refund_not_bank_payout`'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  -
+                    $ref: '#/components/schemas/Problem'
+                  -
+                    properties:
+                      error: { enum: [refund_not_pending, refund_without_credit_note, refund_not_bank_payout] }
       security:
         -
           session: []
@@ -26975,7 +27073,7 @@ paths:
                   type: string
                   minLength: 5
                   maxLength: 250
-      description: "Finance confirms that the bank payout of a pending refund was sent (`reference`: the bank's payment reference). The refund becomes `succeeded`, the payment `REFUNDED`/`PARTIALLY_REFUNDED`, and the customer is told (`payment.refunded`). HIGH: a fresh step-up."
+      description: "Finance confirms that the bank payout of a pending refund was sent (`reference`: the bank's payment reference). The refund becomes `succeeded`, the payment `REFUNDED`/`PARTIALLY_REFUNDED`, and the customer is told (`payment.refunded`). HIGH: a fresh step-up; another person than who asked for the refund, unless one operator runs the platform (ONHOST_FOUR_EYES=false)."
   '/staff/payments/{payment}/refund':
     post:
       operationId: postStaffPaymentsByPaymentRefund
@@ -27005,7 +27103,7 @@ paths:
                   -
                     $ref: '#/components/schemas/List'
         '422':
-          description: 'Validation or domain rule violation — error: `topup_not_refundable`, `refund_payment_not_order`, `withdrawal_sent_before_order`'
+          description: 'Validation or domain rule violation — error: `topup_not_refundable`, `refund_payment_not_order`, `refund_evidence_mismatch`, `withdrawal_sent_before_order`, `withdrawal_sent_in_future`'
           content:
             application/json:
               schema:
@@ -27014,7 +27112,7 @@ paths:
                     $ref: '#/components/schemas/Problem'
                   -
                     properties:
-                      error: { enum: [topup_not_refundable, refund_payment_not_order, withdrawal_sent_before_order] }
+                      error: { enum: [topup_not_refundable, refund_payment_not_order, refund_evidence_mismatch, withdrawal_sent_before_order, withdrawal_sent_in_future] }
         '429':
           description: 'Rate limited'
           content:
@@ -27051,7 +27149,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Problem'
         '409':
-          description: 'Conflict with the current state — error: `refund_exceeds_payment`, `refund_exceeds_document`, `refund_document_booked`, `refund_document_missing`, `withdrawal_period_over`, `payment_not_refundable`, `idempotency_key_reused`'
+          description: 'Conflict with the current state — error: `refund_exceeds_payment`, `refund_exceeds_document`, `refund_document_booked`, `refund_document_missing`, `refund_service_still_running`, `refund_approval_required`, `withdrawal_period_over`, `payment_not_refundable`, `idempotency_key_reused`'
           content:
             application/json:
               schema:
@@ -27060,7 +27158,7 @@ paths:
                     $ref: '#/components/schemas/Problem'
                   -
                     properties:
-                      error: { enum: [refund_exceeds_payment, refund_exceeds_document, refund_document_booked, refund_document_missing, withdrawal_period_over, payment_not_refundable, idempotency_key_reused] }
+                      error: { enum: [refund_exceeds_payment, refund_exceeds_document, refund_document_booked, refund_document_missing, refund_service_still_running, refund_approval_required, withdrawal_period_over, payment_not_refundable, idempotency_key_reused] }
       security:
         -
           session: []
@@ -27075,6 +27173,7 @@ paths:
                 - amount
                 - sent_at
                 - reason
+                - ticket_id
               properties:
                 amount:
                   type: number
@@ -27088,7 +27187,11 @@ paths:
                   type: string
                   minLength: 5
                   maxLength: 250
-      description: "Finance gives the payment of an ORDER back to its source (card, or a bank payout) when a consumer withdrew within fourteen days and did not agree to credit. Writes a credit note of the order's document first; never more than is left of the payment or of the document. HIGH: a fresh step-up; from `onhost.billing.refund_approval_threshold` on CRITICAL with a second person (`approval_ids`). A card refund is announced (`payment.refunded`); a bank refund stays `pending` until confirmed."
+                ticket_id:
+                  type: string
+                  maxLength: 40
+                  description: 'The ticket of this customer that holds the withdrawal notice.'
+      description: "Finance gives the payment of an ORDER back to its source (card, or a bank payout) when a consumer withdrew within fourteen days and did not agree to credit. Needs the ticket holding the consumer's notice; every service of the refunded lines must have ended. Writes a credit note of the order's document first; never more than is left of the payment or of the document. HIGH: a fresh step-up; from `onhost.billing.refund_approval_threshold` on CRITICAL with a second person (`approval_ids`). A card refund is announced (`payment.refunded`); a bank refund stays `pending` until confirmed."
   /staff/placements:
     get:
       operationId: getStaffPlacements

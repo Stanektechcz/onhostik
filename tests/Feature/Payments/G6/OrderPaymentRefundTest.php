@@ -16,12 +16,17 @@ use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\Orders\OrderStateMachine;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Payments\Commands\PaymentRefundCommand;
 use Onhost\Domain\Payments\Models\PaymentIntent;
 use Onhost\Domain\Payments\Models\PaymentRefund;
 use Onhost\Domain\Payments\PaymentProviderRegistry;
+use Onhost\Domain\Services\Models\Service;
+use Onhost\Domain\Support\Models\Ticket;
 use Onhost\Domain\WalletLedger\LedgerService;
 use Onhost\Domain\WalletLedger\Models\WalletTopup;
+use Onhost\Platform\Commands\CommandBus;
 use Onhost\Platform\Commands\CommandContext;
+use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Money\Money;
 use Onhost\Platform\Outbox\OutboxMessage;
 use Onhost\Platform\Outbox\OutboxPublisher;
@@ -106,13 +111,14 @@ beforeEach(function () {
  *
  * @return array{0:Order, 1:Invoice, 2:PaymentIntent}
  */
-function g6PaidOrder(Organization $org, string $provider = 'g6card', string $class = 'b2c', int $daysAgo = 3, string $purpose = 'order'): array
+function g6PaidOrder(Organization $org, string $provider = 'g6card', string $class = 'b2c', int $daysAgo = 3, string $purpose = 'order', ?string $serviceState = null): array
 {
+    $service = $serviceState === null ? null : Service::query()->create(['organization_id' => $org->id, 'family' => 'web', 'product_key' => 'web-pro', 'name' => 'g6-web-'.uniqid(), 'state' => $serviceState]);
     $placed = now()->subDays($daysAgo);
     $order = Order::query()->create(['number' => 'ON-G6'.substr(uniqid(), -6), 'organization_id' => $org->id, 'state' => OrderStateMachine::ACTIVE, 'currency' => 'CZK', 'subtotal_minor' => 60000, 'tax_minor' => 12600, 'total_minor' => 72600,
         'payment_mode' => 'wallet', 'idempotency_key' => 'g6-order-'.uniqid(), 'placed_at' => $placed, 'paid_at' => $placed, 'meta' => ['customer_class' => $class]]);
     foreach ([['web-pro', 'Webhosting Pro', 50000, 10500, 60500], ['backup', 'Zálohy navíc', 10000, 2100, 12100]] as [$sku, $name, $net, $tax, $total]) {
-        OrderItem::query()->create(['order_id' => $order->id, 'sku' => $sku, 'product_key' => $sku, 'name' => $name, 'qty' => 1, 'unit_net_minor' => $net, 'tax_rate' => '21', 'tax_minor' => $tax, 'total_minor' => $total, 'period' => 'month', 'config' => ['family' => 'web'], 'state' => 'active']);
+        OrderItem::query()->create(['order_id' => $order->id, 'sku' => $sku, 'product_key' => $sku, 'name' => $name, 'qty' => 1, 'unit_net_minor' => $net, 'tax_rate' => '21', 'tax_minor' => $tax, 'total_minor' => $total, 'period' => 'month', 'config' => ['family' => 'web'], 'state' => 'active', 'service_id' => $sku === 'web-pro' ? $service?->id : null]);
     }
     $statement = app(InvoiceService::class)->issueForOrder($order, CommandContext::system('test')->withScope($org->id), 'card');
     $intent = PaymentIntent::query()->create(['organization_id' => $org->id, 'provider' => $provider, 'provider_id' => 'g6-'.uniqid(), 'purpose' => $purpose, 'reference_type' => $purpose === 'topup' ? null : 'order', 'reference_id' => $purpose === 'topup' ? null : $order->id,
@@ -125,7 +131,10 @@ function g6PaidOrder(Organization $org, string $provider = 'g6card', string $cla
 /** @param array<string,mixed> $extra */
 function g6RefundBody(Order $order, float $amount, array $extra = []): array
 {
-    return ['amount' => $amount, 'sent_at' => now()->subDay()->toIso8601String(), 'reason' => 'Odstoupení e-mailem, peníze zpět na kartu.'] + $extra;
+    // the consumer's notice is on record: a ticket of the same organization (G6 review M2)
+    $ticket = Ticket::query()->create(['number' => 'TK-2026-'.random_int(10000, 99999), 'organization_id' => $order->organization_id, 'email' => 'owner@example.test', 'subject' => 'Odstoupení od smlouvy']);
+
+    return array_merge(['amount' => $amount, 'sent_at' => now()->subDay()->toIso8601String(), 'reason' => 'Odstoupení e-mailem, peníze zpět na kartu.', 'ticket_id' => $ticket->id], $extra); // $extra overrides
 }
 
 it('refunds an order payment to the card behind a step-up, with a credit note of the order\'s document, and tells the customer', function () {
@@ -280,3 +289,96 @@ function g6FinanceSteppedUp(TestCase $test): void
     app(StepUpService::class)->grant($finance, 'totp', null, '127.0.0.1');
     $test->actingAs($finance, 'sanctum');
 }
+
+/*
+ * G6 security review (PR #111): M1 the second person is decided under the payment's lock; M2 a notice on record, nothing sent in
+ * the future, and no service of the refunded lines still running; M3/M4 only a bank payout with its credit note is confirmed;
+ * L a different person confirms (unless one operator runs the platform), an unknown filter is 422, a pending payout can be
+ * cancelled — the reservation is released and the credit note waits for the next payout instead of a second one.
+ */
+
+it('decides the second person under the payment\'s lock, not on what the controller read before', function () {
+    config(['onhost.billing.refund_approval_threshold' => ['CZK' => 50000, 'EUR' => 2000]]);
+    [, $org] = $this->customerWithOrganization();
+    [$order, , $intent] = g6PaidOrder($org);
+    g6FinanceSteppedUp($this);
+    $this->withHeader('Idempotency-Key', 'g6-m1-1')->postJson("/v1/staff/payments/{$intent->id}/refund", g6RefundBody($order, 300.0))->assertOk();
+
+    // a second request that read the payment before the first one landed: below the threshold by its own numbers
+    $body = g6RefundBody($order, 300.0);
+    $stale = new PaymentRefundCommand('g6-m1-stale', ['op' => 'refund.withdrawal', 'payment_id' => $intent->id, 'organization_id' => $org->id, 'amount_minor' => 30000, 'currency' => 'CZK', 'payment_refunded_minor' => 0,
+        'sent_at' => $body['sent_at'], 'reason' => $body['reason'], 'ticket_id' => $body['ticket_id']]);
+    expect($stale->requiresApproval())->toBeFalse();
+    $user = auth()->user();
+    expect(fn () => app(CommandBus::class)->dispatch($stale, $this->staffContextFor($user, null, 'totp')))->toThrow(DomainError::class, 'second person');
+    expect((int) $intent->fresh()->refunded_minor)->toBe(30000)->and(G6CardGateway::$refunds)->toBe(1);
+});
+
+it('wants the consumer\'s notice on record and refuses a notice dated in the future', function () {
+    [, $org] = $this->customerWithOrganization();
+    [, $other] = $this->customerWithOrganization();
+    [$order, , $intent] = g6PaidOrder($org);
+    g6FinanceSteppedUp($this);
+
+    $body = g6RefundBody($order, 100.0);
+    unset($body['ticket_id']);
+    $this->withHeader('Idempotency-Key', 'g6-m2-none')->postJson("/v1/staff/payments/{$intent->id}/refund", $body)->assertStatus(422);
+    $foreign = Ticket::query()->create(['number' => 'TK-2026-'.random_int(10000, 99999), 'organization_id' => $other->id, 'email' => 'x@example.test', 'subject' => 'Cizí']);
+    $this->withHeader('Idempotency-Key', 'g6-m2-foreign')->postJson("/v1/staff/payments/{$intent->id}/refund", g6RefundBody($order, 100.0, ['ticket_id' => $foreign->id]))->assertStatus(422)->assertJsonPath('error', 'refund_evidence_mismatch');
+    $this->withHeader('Idempotency-Key', 'g6-m2-future')->postJson("/v1/staff/payments/{$intent->id}/refund", g6RefundBody($order, 100.0, ['sent_at' => now()->addDay()->toIso8601String()]))->assertStatus(422)->assertJsonPath('error', 'withdrawal_sent_in_future');
+    expect(G6CardGateway::$refunds)->toBe(0)->and(Invoice::query()->where('type', 'credit_note')->count())->toBe(0);
+});
+
+it('refunds no line whose service still runs: the service ends first', function () {
+    [, $org] = $this->customerWithOrganization();
+    [$order, , $intent] = g6PaidOrder($org, serviceState: 'ACTIVE');
+    g6FinanceSteppedUp($this);
+    $this->withHeader('Idempotency-Key', 'g6-m2-running')->postJson("/v1/staff/payments/{$intent->id}/refund", g6RefundBody($order, 100.0))->assertStatus(409)->assertJsonPath('error', 'refund_service_still_running');
+    expect(G6CardGateway::$refunds)->toBe(0);
+
+    [$ended, , $endedIntent] = g6PaidOrder($org, serviceState: 'TERMINATED');
+    $this->withHeader('Idempotency-Key', 'g6-m2-ended')->postJson("/v1/staff/payments/{$endedIntent->id}/refund", g6RefundBody($ended, 100.0))->assertOk();
+});
+
+it('confirms only a bank payout that has its credit note, and never by the person who asked for it', function () {
+    [, $org] = $this->customerWithOrganization();
+    [$order, , $intent] = g6PaidOrder($org, provider: 'bank');
+    $requester = User::factory()->staff()->create();
+    PolicyBinding::query()->create(['principal_type' => 'user', 'principal_id' => $requester->id, 'role_key' => 'billing_finance_admin', 'scope_type' => 'global', 'scope_id' => null, 'organization_id' => null]);
+    app(StepUpService::class)->grant($requester, 'totp', null, '127.0.0.1');
+    $this->actingAs($requester, 'sanctum');
+    $id = $this->withHeader('Idempotency-Key', 'g6-l-bank')->postJson("/v1/staff/payments/{$intent->id}/refund", g6RefundBody($order, 100.0))->assertOk()->json('id');
+
+    $this->withHeader('Idempotency-Key', 'g6-l-self')->postJson("/v1/staff/payments/refunds/{$id}/confirm", ['reference' => 'FIO-1', 'reason' => 'Odesláno z banky.'])->assertForbidden()->assertJsonPath('error', 'refund_self_confirm');
+    config(['onhost.identity.four_eyes' => false]); // one operator runs the platform: they confirm their own payout
+    $this->withHeader('Idempotency-Key', 'g6-l-solo')->postJson("/v1/staff/payments/refunds/{$id}/confirm", ['reference' => 'FIO-1', 'reason' => 'Odesláno z banky.'])->assertOk();
+    config(['onhost.identity.four_eyes' => true]);
+
+    // M4: a pending refund from before G6 has no credit note (and nothing in refund_payable): not confirmed
+    $legacy = PaymentRefund::query()->create(['payment_intent_id' => $intent->id, 'amount_minor' => 100, 'currency' => 'CZK', 'state' => 'pending', 'idempotency_key' => 'g6-legacy', 'created_by' => 'user:someone']);
+    g6FinanceSteppedUp($this);
+    $this->withHeader('Idempotency-Key', 'g6-m4')->postJson("/v1/staff/payments/refunds/{$legacy->id}/confirm", ['reference' => 'FIO-2', 'reason' => 'Odesláno z banky.'])->assertStatus(409)->assertJsonPath('error', 'refund_without_credit_note');
+
+    // M3: a card gateway's refund left pending is the gateway's to finish, not finance's to confirm
+    [, , $cardIntent] = g6PaidOrder($org);
+    $card = PaymentRefund::query()->create(['payment_intent_id' => $cardIntent->id, 'amount_minor' => 100, 'currency' => 'CZK', 'state' => 'pending', 'idempotency_key' => 'g6-card-pending', 'created_by' => 'user:someone', 'credit_note_id' => 'inv_x', 'provider_refund_id' => 'gw-1']);
+    $this->withHeader('Idempotency-Key', 'g6-m3')->postJson("/v1/staff/payments/refunds/{$card->id}/confirm", ['reference' => 'FIO-3', 'reason' => 'Odesláno z banky.'])->assertStatus(409)->assertJsonPath('error', 'refund_not_bank_payout');
+    $this->getJson('/v1/staff/payments/refunds?state=nonsense')->assertStatus(422);
+});
+
+it('cancels a pending bank payout: the reservation is released and the next payout uses the same credit note', function () {
+    [, $org] = $this->customerWithOrganization();
+    [$order, , $intent] = g6PaidOrder($org, provider: 'bank');
+    g6FinanceSteppedUp($this);
+    $id = $this->withHeader('Idempotency-Key', 'g6-l-c1')->postJson("/v1/staff/payments/{$intent->id}/refund", g6RefundBody($order, 726.0))->assertOk()->json('id');
+
+    $this->withHeader('Idempotency-Key', 'g6-l-cancel')->postJson("/v1/staff/payments/refunds/{$id}/cancel", ['reason' => 'Účet zákazníka neexistuje, vráceno bankou.'])->assertOk()->assertJsonPath('state', 'cancelled');
+    expect((int) $intent->fresh()->refunded_minor)->toBe(0)->and($intent->fresh()->state)->toBe('SUCCEEDED')
+        ->and(OutboxMessage::query()->where('name', 'payment.refunded')->count())->toBe(0);
+    $this->withHeader('Idempotency-Key', 'g6-l-cancel-2')->postJson("/v1/staff/payments/refunds/{$id}/cancel", ['reason' => 'Znovu omylem.'])->assertStatus(409)->assertJsonPath('error', 'refund_not_pending');
+
+    // the payout again (to the right account): no second credit note, nothing posted twice to the refund payable
+    $again = $this->withHeader('Idempotency-Key', 'g6-l-c2')->postJson("/v1/staff/payments/{$intent->id}/refund", g6RefundBody($order, 726.0))->assertOk()->json();
+    expect($again['state'])->toBe('pending')->and(Invoice::query()->where('type', 'credit_note')->count())->toBe(1)
+        ->and(app(LedgerService::class)->balance('liability:refund_payable:bank:CZK', 'CZK')->minor)->toBe(72600);
+});
