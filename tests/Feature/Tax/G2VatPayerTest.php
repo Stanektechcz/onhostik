@@ -325,7 +325,7 @@ it('runs a payer\'s advance: proforma (no tax document) → tax document for the
     expect($html)->toContain('Zúčtování zálohy / Advance settlement')->and($html)->toContain($receipt->number)->and($html)->toContain('Zbývá uhradit / Amount due: 0 Kč');
 
     // two tax documents, the VAT of the sale once: the receipt states it, the final invoice states the difference — zero
-    expect(g2TaxDocuments($org)->pluck('type')->all())->toBe(['receipt', 'invoice']);
+    expect(g2TaxDocuments($org)->pluck('type')->sort()->values()->all())->toBe(['invoice', 'receipt']); // both rows may share a created_at tick: order-insensitive
     $kh = app(VatReports::class)->kh('2026-10');
     expect(collect($kh['a5'])->sum('tax_minor'))->toBe($orderTax);
 });
