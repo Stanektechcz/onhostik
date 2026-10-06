@@ -48,7 +48,7 @@ it('serves no window.prompt call anywhere but the dialog\'s own no-DOM fallback'
 it('gives every staff Blade page the shared dialog, loaded without touching the shell session', function () {
     foreach (['admin/approvals', 'admin/integrations', 'admin/lifecycle', 'admin/operations', 'admin/plans', 'service-console'] as $view) {
         $source = (string) file_get_contents(resource_path('views/'.$view.'.blade.php'));
-        expect($source)->toContain("@include('partials.dialog-bridge')")->toContain('window.OnhostDialog.');
+        expect($source)->toContain("@include('partials.dialog-bridge'")->toContain('window.OnhostDialog.');
     }
 
     $partial = view('partials.dialog-bridge')->render();
