@@ -62,7 +62,6 @@ final class StaffNavigation
         'dns.global.write' => 'bus: platform DNS writes (four eyes)',
         'domain.critical.manage' => 'bus: critical domain operations (four eyes)',
         'billing.invoice.manage' => 'bus: invoice writes (mark paid, credit notes) from the customer detail',
-        'billing.refund.execute' => 'bus: refunds and recorded withdrawals',
         'billing.refund.execute_large' => 'bus: large refunds (four eyes)',
         'billing.credit.adjust_mass' => 'bus: mass credit (four eyes)',
         'billing.tax_rule.manage' => 'bus: a VAT status set by hand and the VAT payer mode switch (four eyes); its one GET, the mode report, is in API_ALLOW_LIST',
@@ -204,6 +203,8 @@ final class StaffNavigation
             ], all: ['billing.dunning.manage']),
             new N('withdrawals', 'finance', 30, 'file', ['cs' => 'Odstoupení od smlouvy', 'en' => 'Contract withdrawals'], N::SCREEN_VIEW, 'contracts', [
                 N::get('staff/withdrawals', 'staff.billing.read'),
+                // G6: an order payment back to its source when the consumer did not take credit; bank payouts confirmed by finance
+                N::get('staff/payments/refunds', 'staff.billing.read'), N::write('post', 'staff/payments/{payment}/refund', 'billing.refund.execute'), N::write('post', 'staff/payments/refunds/{refund}/confirm', 'billing.refund.execute'), N::write('post', 'staff/payments/refunds/{refund}/cancel', 'billing.refund.execute'),
             ], all: ['staff.billing.read']),
             new N('sla_credits', 'finance', 40, 'shield', ['cs' => 'SLA kredity', 'en' => 'SLA credits'], N::SCREEN_VIEW, 'slapol', [
                 N::get('staff/sla-credits', 'sla.credit.manage'),

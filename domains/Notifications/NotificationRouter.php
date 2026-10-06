@@ -6,6 +6,7 @@ namespace Onhost\Domain\Notifications;
 
 use Carbon\CarbonImmutable;
 use Onhost\Domain\Identity\Models\User;
+use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Orders\CreditOrderPolicy;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Organizations\GrantPolicy;
@@ -183,7 +184,7 @@ final class NotificationRouter
             'service.recovered' => $this->internal($m, 'service', 'Služba opět v pořádku', '', '/sprava/sluzby'),
             // one payment produces a proforma, a receipt and a statement: only the documents the customer acts on or files (proforma,
             // invoice, credit note) are mailed as "Doklad"; the receipt is covered by "Platba přijata", the statement stays in the panel
-            'invoice.issued' => $this->customer($m, 'invoice.issued', "Nový doklad {$p['number']}", $money($p['total'] ?? null).(($p['type'] ?? '') === 'invoice' ? ' · splatnost 14 dní' : ''), '/panel/fakturace', 'info', in_array($p['type'] ?? 'invoice', ['proforma', 'invoice', 'credit_note'], true) ? $email : null, 'invoice', ['cislo' => $p['number'], 'castka' => $money($p['total'] ?? null), 'splatnost' => $p['due_at'] ?? '', 'url' => "{$portal}/panel/fakturace"]),
+            'invoice.issued' => $this->customer($m, 'invoice.issued', "Nový doklad {$p['number']}", $money($p['total'] ?? null).(self::stillOwed($m, $p) ? ' · splatnost 14 dní' : ''), '/panel/fakturace', 'info', in_array($p['type'] ?? 'invoice', ['proforma', 'invoice', 'credit_note'], true) ? $email : null, 'invoice', ['cislo' => $p['number'], 'castka' => $money($p['total'] ?? null), 'splatnost' => $p['due_at'] ?? '', 'url' => "{$portal}/panel/fakturace"]),
             'invoice.cancelled' => $this->customer($m, 'invoice.issued', "Doklad {$p['number']} byl stornován", (string) ($p['reason'] ?? 'objednávka zrušena, nic k úhradě'), '/panel/fakturace'),
             'invoice.overdue' => $this->customer($m, 'invoice.issued', "Doklad {$p['number']} je po splatnosti", $money($p['outstanding'] ?? ($p['total'] ?? null)), '/panel/fakturace', 'hot', $email, 'invoice-overdue', ['cislo' => $p['number'], 'castka' => $money($p['outstanding'] ?? ($p['total'] ?? null)), 'url' => "{$portal}/panel/fakturace"]),
             'invoice.paid' => $this->both($m, 'invoice', "Platba {$p['number']}", ($org?->name ?? '').' · '.$money($p['amount'] ?? null), "Platba přijata: {$p['number']}", $money($p['amount'] ?? null).' · služby se zřizují', '/sprava/doklady', '/panel/fakturace', 'info', ($p['type'] ?? '') === 'invoice' ? $email : null, 'payment-received', ['cislo' => $p['number'] ?? '', 'castka' => $money($p['amount'] ?? null), 'url' => $portal.'/panel/fakturace']), // receipts are announced by payment.succeeded (order) or wallet.topup.completed (top-up)
@@ -205,7 +206,7 @@ final class NotificationRouter
             'payment.method.saved' => $this->customer($m, 'wallet', 'Karta •••• '.($p['last4'] ?? '').' uložena pro automatické dobití', ! empty($p['auto_topup']) ? 'Automatické dobití kreditu ji použije, když kredit nepokryje obnovy příštího týdne. Odebrat ji můžete ve Fakturaci.' : 'Zapněte automatické dobití kreditu ve Fakturaci a obnovy proběhnou bez vašeho zásahu. Kartu můžete kdykoli odebrat.', '/panel/fakturace', 'info'),
             'payment.succeeded' => ($p['purpose'] ?? '') === 'order' ? $this->customer($m, 'invoice.issued', 'Platba přijata', $money($p['amount'] ?? null).($orderNumber !== '' ? " · objednávka {$orderNumber}" : '').' · služby se zřizují', '/panel/objednavky', 'info', $email, 'payment-received', ['cislo' => $orderNumber !== '' ? $orderNumber : ($p['reference'][1] ?? ''), 'castka' => $money($p['amount'] ?? null), 'url' => $portal.'/panel/objednavky']) : null,
             // F12b: a refund the gateway confirmed (no credit note says so); written in the organization's language here, as Lexicon has no line for it
-            'payment.refunded' => $this->customer($m, 'wallet', $locale === 'en' ? 'Payment refunded' : 'Platba vrácena', $locale === 'en' ? $money($p['amount'] ?? null).' went back to the original payment method.' : 'Částka '.$money($p['amount'] ?? null).' se vrátila na původní platební metodu.', '/panel/fakturace', 'info'),
+            'payment.refunded' => $this->customer($m, 'wallet', $locale === 'en' ? 'Payment refunded' : 'Platba vrácena', $locale === 'en' ? $money($p['amount'] ?? null).' went back to the original payment method.' : 'Částka '.$money($p['amount'] ?? null).' se vrátila na původní platební metodu.', '/panel/fakturace', 'info', $email, 'payment-refunded', ['castka' => $money($p['amount'] ?? null), 'doklad' => (string) ($p['credit_note'] ?? ''), 'url' => "{$portal}/panel/fakturace"]), // G6: and by mail
             'wallet.topup.completed' => $this->customer($m, 'wallet', 'Kredit dobit', $money($p['amount'] ?? null), '/panel/fakturace', 'info', ($p['purpose'] ?? 'topup') === 'topup' ? $email : null, 'wallet-topup', ['castka' => $money($p['amount'] ?? null), 'zustatek' => $money($p['balance'] ?? null) ?: '—', 'url' => $portal.'/panel/fakturace']),
             'wallet.frozen' => $this->both($m, 'wallet', 'Peněženka zmrazena', (string) ($p['reason'] ?? ''), 'Peněženka byla zmrazena', 'Kontaktujte prosím podporu.', '/sprava/zakaznici', '/panel/fakturace', 'hot'),
             'budget.threshold' => $this->customer($m, 'wallet', 'Rozpočet: '.($p['threshold'] ?? '').' %', 'Útrata dosáhla nastaveného prahu.', '/panel/fakturace', 'warn'),
@@ -572,6 +573,19 @@ final class NotificationRouter
         }
 
         return ($said === [] ? 'DNS domény neodpovídá tomu, co jsme pro ni nastavili' : implode(' · ', $said)).'. Záznamy k nastavení najdete u služby.';
+    }
+
+    /**
+     * G6: whether an issued invoice still has a payment term to announce — not the final invoice of a proforma order (issued due at
+     * once, paid by its advance: `due_days` 0), nor an invoice paid by the time the notice goes out. Events from before G6 carry no
+     * `due_days` and keep the term while the invoice is unpaid.
+     *
+     * @param  array<string,mixed>  $p
+     */
+    private static function stillOwed(OutboxMessage $m, array $p): bool
+    {
+        return ($p['type'] ?? '') === 'invoice' && (int) ($p['due_days'] ?? 14) > 0
+            && Invoice::query()->whereKey((string) $m->aggregate_id)->whereIn('state', [Invoice::ISSUED, Invoice::OVERDUE])->exists();
     }
 
     private function customer(OutboxMessage $m, string $kind, string $title, string $body, string $surface, string $severity = 'info', ?string $mailTo = null, ?string $template = null, array $vars = []): void

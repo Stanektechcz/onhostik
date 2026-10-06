@@ -70,6 +70,7 @@ final class StaffReadAudit
         'v1/staff/partners/requests' => ['partner_requests', null, null],
         'v1/staff/partners/{partner}' => ['partner', 'partner', Partner::class],
         'v1/staff/payments/bank' => ['bank_payments', null, null],
+        'v1/staff/payments/refunds' => ['payment_refunds', null, null], // G6: refunds of customers' payments, the bank payouts still to send
         'v1/staff/provisioning/board' => ['operations_board', null, null],
         'v1/staff/provisioning/deletions' => ['deletions', null, null],
         'v1/staff/provisioning/jobs' => ['operations', null, null],

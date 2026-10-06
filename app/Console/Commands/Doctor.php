@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Onhost\Domain\Billing\ReinstatementHealth;
 use Onhost\Domain\Billing\WithdrawalHealth;
 use Onhost\Domain\Catalog\CatalogRevisions;
 use Onhost\Domain\Catalog\CatalogService;
@@ -109,6 +110,9 @@ final class Doctor extends Command
         $this->controlPoints();
         foreach (app(WithdrawalHealth::class)->checks() as $check) { // TASK-0025: the lawyer's review and stuck withdrawals
             $this->add($check['area'], $check['check'], $check['ok'], $check['detail'], $check['blocking']);
+        }
+        foreach (app(ReinstatementHealth::class)->checks() as $check) { // G6: pay and restore waits for the owner — the consequence and the way to switch it on
+            $this->addChecked($check);
         }
         // ── TASK-0031: VIES on and configured, customers waiting for an answer, the last answer, lapsing reverse charge (no HTTP) ──
         foreach (app(VatHealth::class)->checks() as $check) {

@@ -394,6 +394,35 @@ payer mode, proformas and the final invoice“. Automaticky: [`G2VatPayerTest`](
 
 ---
 
+## F7-13 Zaplacená konečná faktura neoznamuje splatnost (G6)
+
+**Kroky:** objednávka zaplacená zálohovou fakturou (F7-11) skončí konečnou fakturou, která je vystavená už zaplacená. Zkontrolovat
+oznámení „Nový doklad …“ v `/panel/fakturace`. Pro srovnání faktura na splatnost (postpaid), dosud nezaplacená.
+
+**Očekávaný výsledek**
+
+- Konečná faktura zaplacená zálohou: oznámení uvádí jen částku, **bez** „splatnost 14 dní“ (událost `invoice.issued` nese `due_days: 0`).
+- Faktura, kterou zákazník ještě dluží: „… · splatnost 14 dní“. Faktura zaplacená dřív, než oznámení odešlo, splatnost neuvádí.
+
+**Automaticky:** `PaidInvoiceWordingTest` (G6).
+
+---
+
+## F7-14 Doctor: „Zaplatit a obnovit“ čeká na rozhodnutí vlastníka (G6)
+
+**Kroky:** `php artisan onhost:doctor`; řádek „pay and restore (services.reinstate)“.
+
+**Očekávaný výsledek**
+
+- Pravidlo vypnuté (výchozí): **WARN**, nikdy FAIL. Detail říká, co to znamená (zaplacená faktura zrušené služby nic neobnoví,
+  odvolané zrušení se znovu neúčtuje), náprava: `php artisan onhost:billing:reinstatement-audit`, pak zapnout pravidlo v konzoli
+  (Automatizace) nebo `PUT /v1/staff/automation/services.reinstate` — až rozhodne vlastník.
+- Pravidlo zapnuté: OK, bez nápravy.
+
+**Automaticky:** `ReinstateDoctorTest` (G6).
+
+---
+
 ## Pokrytí E2E testem
 
 | Případ | Test v `BillingDunningFlowTest` |
@@ -405,3 +434,4 @@ payer mode, proformas and the final invoice“. Automaticky: [`G2VatPayerTest`](
 | F7-07 | „states the VAT of a renewal invoice in euro in crowns at the bank rate of the supply day, and its credit note at the rate of the invoice“ |
 | F7-08, F7-09 | mimo E2E; viz `LoyaltyClawbackTest`, `G4NoCashRefundTest`, `RefundableBalanceTest` |
 | F7-08b | `LoyaltyRedeemFlowTest`: „redeems points in the cart, spends them with the card payment, shows them on the document and gives them back with a credit note“ |
+| F7-13, F7-14 | mimo E2E; viz `PaidInvoiceWordingTest`, `ReinstateDoctorTest` (G6) |

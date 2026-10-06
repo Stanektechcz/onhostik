@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Http\Presenters\Presenters;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -83,7 +84,7 @@ final class CartController extends ApiController
         $versions['tax_reasons'] = array_values(array_filter((array) ($versions['tax_reasons'] ?? []), fn ($reason) => ! str_contains((string) $reason, 'name_mismatch')));
 
         return response()->json(['data' => [
-            'quote_id' => $quote->id, 'valid_until' => $quote->valid_until?->toIso8601String(), 'currency' => $quote->currency, 'lines' => $quote->lines, 'subtotal' => $quote->subtotal_minor, 'discount' => $quote->discount_minor, 'tax' => $quote->tax_minor, 'total' => $quote->total_minor, 'renewal_total' => $quote->renewal_total_minor, 'versions' => $versions,
+            'quote_id' => $quote->id, 'valid_until' => $quote->valid_until?->toIso8601String(), 'currency' => $quote->currency, 'lines' => Presenters::quoteLines((array) $quote->lines), 'subtotal' => $quote->subtotal_minor, 'discount' => $quote->discount_minor, 'tax' => $quote->tax_minor, 'total' => $quote->total_minor, 'renewal_total' => $quote->renewal_total_minor, 'versions' => $versions,
             'required_documents' => $organization ? app(CheckoutService::class)->requiredDocuments($quote, $organization) : null,
             'withdrawal_notice' => WithdrawalPolicy::checkoutNotice((array) $quote->lines, (string) $customer['customer_class']), // TASK-0025: a consumer hears before the order that a registered domain cannot be withdrawn
             'loyalty' => $versions['loyalty'] ?? null, // G3: the points asked for, how many apply and why not more (cap, minimum, balance)

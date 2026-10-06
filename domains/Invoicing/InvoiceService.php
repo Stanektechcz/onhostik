@@ -351,7 +351,7 @@ final class InvoiceService
             if ($intoFiled) {
                 $this->audit->record($context->withScope($invoice->organization_id), 'invoice.duzp_in_filed_period', 'succeeded', ['number' => $invoice->number, 'type' => $invoice->type, 'supply_date' => $supplyDay, 'filed_through' => $filedThrough], 'invoice', $invoice->id);
             }
-            $this->outbox->publish(GenericEvent::of('invoice.issued', 'invoice', $invoice->id, ['number' => $invoice->number, 'type' => $invoice->type, 'total' => $invoice->total(), 'due_at' => $invoice->due_at?->toISOString()], $invoice->organization_id));
+            $this->outbox->publish(GenericEvent::of('invoice.issued', 'invoice', $invoice->id, ['number' => $invoice->number, 'type' => $invoice->type, 'total' => $invoice->total(), 'due_at' => $invoice->due_at?->toISOString(), 'due_days' => $dueDays], $invoice->organization_id)); // G6: due_days 0 = nothing to pay later (a final invoice paid by its advance)
 
             return $invoice;
         }, 3);

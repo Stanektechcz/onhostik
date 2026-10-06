@@ -26822,6 +26822,376 @@ paths:
             schema:
               type: object
               additionalProperties: true
+  /staff/payments/refunds:
+    get:
+      operationId: getStaffPaymentsRefunds
+      tags:
+        - staff-payments
+      summary: 'GET /staff/payments/refunds'
+      parameters:
+        -
+          $ref: '#/components/parameters/LimitOnly'
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        '422':
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+      x-token-scope: null
+  '/staff/payments/refunds/{refund}/cancel':
+    post:
+      operationId: postStaffPaymentsRefundsByRefundCancel
+      tags:
+        - staff-payments
+      summary: 'POST /staff/payments/refunds/{refund}/cancel'
+      parameters:
+        -
+          name: refund
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        '422':
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '200':
+          description: 'Success (idempotent replay or synchronous result)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: 'Conflict with the current state — error: `refund_not_pending`, `refund_without_credit_note`, `refund_not_bank_payout`'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  -
+                    $ref: '#/components/schemas/Problem'
+                  -
+                    properties:
+                      error: { enum: [refund_not_pending, refund_without_credit_note, refund_not_bank_payout] }
+      security:
+        -
+          session: []
+      x-token-scope: null
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - reason
+              properties:
+                reason:
+                  type: string
+                  minLength: 5
+                  maxLength: 250
+      description: 'Finance cancels a pending bank payout (returned by the bank, a wrong account). What it reserved of the payment is released; its credit note stays and the next payout of the same amount uses it. HIGH: a fresh step-up.'
+  '/staff/payments/refunds/{refund}/confirm':
+    post:
+      operationId: postStaffPaymentsRefundsByRefundConfirm
+      tags:
+        - staff-payments
+      summary: 'POST /staff/payments/refunds/{refund}/confirm'
+      parameters:
+        -
+          name: refund
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        '422':
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '200':
+          description: 'Success (idempotent replay or synchronous result)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes) — error: `refund_self_confirm`'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  -
+                    $ref: '#/components/schemas/Problem'
+                  -
+                    properties:
+                      error: { enum: [refund_self_confirm] }
+        '404':
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: 'Conflict with the current state — error: `refund_not_pending`, `refund_without_credit_note`, `refund_not_bank_payout`'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  -
+                    $ref: '#/components/schemas/Problem'
+                  -
+                    properties:
+                      error: { enum: [refund_not_pending, refund_without_credit_note, refund_not_bank_payout] }
+      security:
+        -
+          session: []
+      x-token-scope: null
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - reference
+                - reason
+              properties:
+                reference:
+                  type: string
+                  minLength: 2
+                  maxLength: 120
+                reason:
+                  type: string
+                  minLength: 5
+                  maxLength: 250
+      description: "Finance confirms that the bank payout of a pending refund was sent (`reference`: the bank's payment reference). The refund becomes `succeeded`, the payment `REFUNDED`/`PARTIALLY_REFUNDED`, and the customer is told (`payment.refunded`). HIGH: a fresh step-up; another person than who asked for the refund, unless one operator runs the platform (ONHOST_FOUR_EYES=false)."
+  '/staff/payments/{payment}/refund':
+    post:
+      operationId: postStaffPaymentsByPaymentRefund
+      tags:
+        - staff-payments
+      summary: 'POST /staff/payments/{payment}/refund'
+      parameters:
+        -
+          name: payment
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        '422':
+          description: 'Validation or domain rule violation — error: `topup_not_refundable`, `refund_payment_not_order`, `refund_evidence_mismatch`, `withdrawal_sent_before_order`, `withdrawal_sent_in_future`'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  -
+                    $ref: '#/components/schemas/Problem'
+                  -
+                    properties:
+                      error: { enum: [topup_not_refundable, refund_payment_not_order, refund_evidence_mismatch, withdrawal_sent_before_order, withdrawal_sent_in_future] }
+        '429':
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '200':
+          description: 'Success (idempotent replay or synchronous result)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes) — error: `withdrawal_consumers_only`, `approval_required`'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  -
+                    $ref: '#/components/schemas/Problem'
+                  -
+                    properties:
+                      error: { enum: [withdrawal_consumers_only, approval_required] }
+        '404':
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: 'Conflict with the current state — error: `refund_exceeds_payment`, `refund_exceeds_document`, `refund_document_booked`, `refund_document_missing`, `refund_service_still_running`, `refund_approval_required`, `withdrawal_period_over`, `payment_not_refundable`, `idempotency_key_reused`'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  -
+                    $ref: '#/components/schemas/Problem'
+                  -
+                    properties:
+                      error: { enum: [refund_exceeds_payment, refund_exceeds_document, refund_document_booked, refund_document_missing, refund_service_still_running, refund_approval_required, withdrawal_period_over, payment_not_refundable, idempotency_key_reused] }
+      security:
+        -
+          session: []
+      x-token-scope: null
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - amount
+                - sent_at
+                - reason
+                - ticket_id
+              properties:
+                amount:
+                  type: number
+                  minimum: 0.01
+                  description: 'In the currency of the payment, major units.'
+                sent_at:
+                  type: string
+                  format: date-time
+                  description: 'When the consumer sent the withdrawal: decides the fourteen days.'
+                reason:
+                  type: string
+                  minLength: 5
+                  maxLength: 250
+                ticket_id:
+                  type: string
+                  maxLength: 40
+                  description: 'The ticket of this customer that holds the withdrawal notice.'
+      description: "Finance gives the payment of an ORDER back to its source (card, or a bank payout) when a consumer withdrew within fourteen days and did not agree to credit. Needs the ticket holding the consumer's notice; every service of the refunded lines must have ended. Writes a credit note of the order's document first; never more than is left of the payment or of the document. HIGH: a fresh step-up; from `onhost.billing.refund_approval_threshold` on CRITICAL with a second person (`approval_ids`). A card refund is announced (`payment.refunded`); a bank refund stays `pending` until confirmed."
   /staff/placements:
     get:
       operationId: getStaffPlacements

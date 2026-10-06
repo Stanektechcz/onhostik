@@ -140,7 +140,7 @@ runbooky [billing-dunning](../runbooks/billing-dunning.md) a [historical-site-im
 | Pravidlo vypnuto | 409 `withdrawal_disabled` s odkazem na dokument o odstoupení. |
 | Zaplacená objednávka, z níž nic není dodané | `GET` a `POST /v1/orders/{order}/withdrawal` zruší objednávku a vrátí vše na kredit. |
 | Dopis nebo e-mail | Finance zaznamenají `POST /v1/staff/withdrawals` (step-up a druhá osoba). |
-| Spotřebitel nesouhlasí s vrácením na kredit | Panel i `POST /v1/staff/withdrawals` bez souhlasu odpoví 422. Zákon (§ 1831 OZ) ale ukládá vrátit **platbu** za odstoupenou smlouvu původním způsobem (kartou zaplacenou objednávku na tutéž kartu); je to jediná výjimka z G-R4 a nejde o výplatu kreditu (zda lze odstoupit i od dobití kreditu, je otevřená otázka vlastníka a právníka; do rozhodnutí se dobití nevrací). V systému zatím není (G6): finance ji dnes provede ručně mimo systém. Viz `docs/audit/2026-10-full-readiness/ROZHODNUTI.md`, G-R4. |
+| Spotřebitel nesouhlasí s vrácením na kredit | Panel i `POST /v1/staff/withdrawals` bez souhlasu odpoví 422. Zákon (§ 1831 OZ) ale ukládá vrátit **platbu** za odstoupenou smlouvu původním způsobem (kartou zaplacenou objednávku na tutéž kartu); je to jediná výjimka z G-R4 a nejde o výplatu kreditu (zda lze odstoupit i od dobití kreditu, je otevřená otázka vlastníka a právníka; do rozhodnutí se dobití nevrací). Finance ji provede v systému (G6), viz F8-06. Viz `docs/audit/2026-10-full-readiness/ROZHODNUTI.md`, G-R4. |
 | Pokus vyplatit kredit po odstoupení | Neexistuje cesta v panelu, administraci, API ani příkazech (`G4NoCashRefundTest`). |
 | Zaseknutý krok | Hlášen finanční schránce (událost `withdrawal.stalled`), opakuje se hodinově; doctor „consumer withdrawals move on“. |
 
@@ -177,6 +177,67 @@ runbooky [billing-dunning](../runbooks/billing-dunning.md) a [historical-site-im
 
 ---
 
+## F8-06 Vrácení platby objednávky na kartu nebo účet při odstoupení (G6)
+
+**Pravidlo (G-R1, G-R4, § 1831 OZ):** spotřebitel, který odstoupil do 14 dnů a **nesouhlasil** s vrácením na kredit, dostane zpět
+**platbu objednávky** původním způsobem. Je to vrácení platby, ne výplata kreditu: dobití kreditu (`purpose: topup`) se nevrací nikdy.
+
+**Předpoklady:** spotřebitel (objednávka uzavřená jako `b2c`) zaplatil objednávku kartou 3. den, oznámení o odstoupení poslal e-mailem
+5. den; finance (`billing_finance_admin`) se step-upem. Druhý případ: objednávka zaplacená bankovním převodem.
+
+**Kroky (karta)**
+
+1. Jako finance bez čerstvého step-upu `POST /v1/staff/payments/{payment}/refund` s `amount`, `sent_at` (den odeslání oznámení), `reason` a `ticket_id` (tiket zákazníka s oznámením o odstoupení). Služby z vracených řádků už musí být zrušené.
+2. Totéž se step-upem.
+3. Stejný požadavek se stejným `Idempotency-Key` znovu.
+4. Zákazník: `/panel/fakturace` a e-mail.
+
+**Očekávaný výsledek**
+
+- Bez step-upu 403; se step-upem 200, `state: succeeded`, `credit_note` = číslo dobropisu k dokladu objednávky.
+- Dobropis na vrácenou částku (po řádcích dokladu); kredit zákazníka se **nezmění** (peníze jdou na kartu, ne na kredit).
+- V hlavní knize: tržba a DPH zpět proti `liability:refund_payable:<brána>`, výplata z účtu brány; závazek skončí na nule.
+- Platba je `PARTIALLY_REFUNDED` nebo `REFUNDED`. Událost `payment.refunded` jednou (s `credit_note`); zákazník dostane oznámení
+  v panelu a e-mail „payment-refunded“ ve svém jazyce; věrnostní body platby se odeberou podle pravidel R6.
+- Opakovaný požadavek vrátí totéž vrácení: žádná druhá platba u brány, žádný druhý dobropis.
+
+**Kroky (bankovní převod)**
+
+1. `POST /v1/staff/payments/{payment}/refund` se step-upem → `state: pending`; `GET /v1/staff/payments/refunds?state=pending` ho ukazuje.
+2. Finance pošle příkaz z banky, pak `POST /v1/staff/payments/refunds/{refund}/confirm` s `reference` (reference platby v bance) a `reason`.
+3. Potvrdit podruhé.
+
+**Očekávaný výsledek**
+
+- Do potvrzení: žádná událost, žádný e-mail, platba zůstává `SUCCEEDED` (částka je jen rezervovaná proti dalšímu vrácení), závazek
+  `liability:refund_payable:bank` drží částku.
+- Po potvrzení: vrácení `succeeded` s referencí banky a časem potvrzení, platba `REFUNDED`, událost `payment.refunded` a e-mail jednou.
+- Druhé potvrzení: 409 `refund_not_pending`. Vrácení kartou potvrdit nelze (409 `refund_not_pending` / `refund_not_bank_payout`).
+- Potvrzuje **jiná osoba** než ta, která vrácení zadala (403 `refund_self_confirm`); výjimka jen v režimu jednoho operátora (`ONHOST_FOUR_EYES=false`).
+- Vrácená platba z banky (špatný účet): `POST /v1/staff/payments/refunds/{refund}/cancel` (step-up) → `cancelled`, rezervace na platbě se uvolní, dobropis zůstává a další výplata stejné částky ho použije (žádný druhý dobropis).
+
+**Negativní varianty**
+
+| Varianta | Očekávání |
+| --- | --- |
+| Dobití kreditu | 422 `topup_not_refundable` (kredit se nevyplácí, G-R4). |
+| Platba faktury, ne objednávky | 422 `refund_payment_not_order`. |
+| Více, než zbývá z platby | 409 `refund_exceeds_payment`. |
+| Více, než zbývá na dokladu po dřívějších dobropisech (např. odstoupení vrácené na kredit) | 409 `refund_exceeds_document`; nic se nevyplatí dvakrát. |
+| Objednávka uzavřená na firmu | 403 `withdrawal_consumers_only`. |
+| Oznámení odeslané po 14 dnech | 409 `withdrawal_period_over`. |
+| `sent_at` v budoucnosti | 422 `withdrawal_sent_in_future`. |
+| Bez tiketu nebo s tiketem jiné organizace | 422 (`ticket_id`), `refund_evidence_mismatch`. |
+| Služba z vracených řádků ještě běží | 409 `refund_service_still_running` — nejdřív ji zrušit. |
+| Dvě vrácení, která spolu dosáhnou prahu | Druhé chce druhou osobu (rozhoduje se pod zámkem platby, `refund_approval_required` při souběhu). |
+| Fakturace na splatnost (postpaid faktura) | 409 `refund_document_booked` (její dobropis vrací zaplacené na kredit sám). |
+| Částka od prahu `onhost.billing.refund_approval_threshold` (20 000 Kč / 800 €) | 403 `approval_required`, po schválení druhou osobou 200. |
+| Podpora (`support_l1`) | 403 — vrací jen finance. |
+
+**Automaticky:** `tests/Feature/Payments/G6/OrderPaymentRefundTest.php`.
+
+---
+
 ## Pokrytí E2E testem
 
 | Případ | Test v `CancellationFlowTest` |
@@ -184,4 +245,5 @@ runbooky [billing-dunning](../runbooks/billing-dunning.md) a [historical-site-im
 | F8-01, F8-02 | „ends a web hosting at the end of the paid period: undo, archive, deactivation, removal of everything under the site, the historical rows untouched“ |
 | F8-03 | „cancels at once behind a destructive preview and a fresh step-up, refuses a confirmation that went stale, and brings the service back inside the window“ |
 | F8-04 | „lets a consumer withdraw within 14 days: the unused part goes back to the credit, the service ends, and it cannot be resumed for free“; „refuses a company the 14-day withdrawal, and a consumer the day after the deadline“; kredit bez výplaty: `G4NoCashRefundTest`, `WithdrawalTest` |
+| F8-06 | mimo E2E; viz `OrderPaymentRefundTest` (G6) |
 | F8-05 | „ends an account only for its owner, behind a step-up and 14 days, can be stopped inside the window, and is carried out by the scheduled command“ |

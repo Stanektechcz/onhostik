@@ -237,6 +237,24 @@ final class Presenters
         return ['active' => $active->count(), 'stalled' => $stalled !== null, 'since' => $stalled?->queued_at?->toIso8601String(), 'next_run_at' => $stalled?->next_run_at?->toIso8601String()];
     }
 
+    /**
+     * G6: the lines of a quote as the customer sees them — without the executor (the vendor panel behind the product, an
+     * implementation detail customers never learn; orderItem() strips it the same way). The stored quote keeps it for its order.
+     *
+     * @param  array<int|string, mixed>  $lines
+     * @return list<mixed>
+     */
+    public static function quoteLines(array $lines): array
+    {
+        return array_values(array_map(function (mixed $line): mixed {
+            if (is_array($line) && is_array($line['config'] ?? null)) {
+                unset($line['config']['executor']);
+            }
+
+            return $line;
+        }, $lines));
+    }
+
     public static function orderItem(OrderItem $item): array
     {
         $currency = (string) ($item->config['currency'] ?? 'CZK');
