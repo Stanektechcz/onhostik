@@ -112,7 +112,7 @@ final class CustomIsoWorkflow implements Workflow
                         return StepResult::done(['detached' => false]); // not on this server: nothing to put back here
                     }
 
-                    return StepResult::done($drive->detach($service, false, $context->actor, 'the image is being deleted'));
+                    return StepResult::done($drive->detach($service, false, $context->actor, CustomIsoDrive::REASON_DELETING));
                 }
 
                 return StepResult::done($drive->detach($service, (bool) $context->desired('reboot', false), $context->actor));

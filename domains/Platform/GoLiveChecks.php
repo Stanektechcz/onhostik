@@ -215,7 +215,8 @@ final class GoLiveChecks
         if (CustomIso::query()->where('state', '!=', CustomIso::DELETED)->exists()) {
             return true;
         }
-        foreach (Plan::query()->get() as $plan) {
+        // H1 (TASK-0121): a plan of a product on sale — the custom ISO add-on is seeded as a draft and sells nothing until it is published
+        foreach (Plan::query()->whereHas('product', fn ($q) => $q->where('state', 'active'))->get() as $plan) {
             $entitlements = (array) ($plan->currentVersion()->entitlements ?? []);
             if (filter_var($entitlements[CustomIsoPolicy::FEATURE] ?? false, FILTER_VALIDATE_BOOLEAN)) {
                 return true;

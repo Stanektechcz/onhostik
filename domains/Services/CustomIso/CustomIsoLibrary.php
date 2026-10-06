@@ -121,7 +121,7 @@ final class CustomIsoLibrary
         $this->disk()->move((string) $row->path, $path);
         $row->forceFill(['state' => CustomIso::READY, 'path' => $path, 'node_copies' => []])->save();
         $this->audit->record($context->withScope($service->organization_id), 'service.iso.upload', 'succeeded', ['iso_id' => $row->id, 'name' => $row->name, 'size_bytes' => $row->size_bytes], 'service', $service->id);
-        $this->outbox->publish(GenericEvent::of('service.iso.uploaded', 'service', $service->id, ['iso_id' => $row->id, 'name' => $row->name, 'size_bytes' => $row->size_bytes], $service->organization_id));
+        $this->outbox->publish(GenericEvent::of('service.iso.uploaded', 'service', $service->id, ['iso_id' => $row->id, 'name' => $row->name, 'size_bytes' => $row->size_bytes, 'label' => (string) ($service->label ?: $service->name)], $service->organization_id));
 
         return $row;
     }
@@ -140,28 +140,45 @@ final class CustomIsoLibrary
 
     /**
      * What dead uploads left behind (review H2): staging rows older than `$hours` with their files, and files in `incoming/` older
-     * than that which no staging row claims. `onhost:isos:sweep`, hourly.
+     * than that which no staging row claims — in folders under it too (H1). `onhost:isos:sweep`, hourly.
      *
-     * @return array{rows:int, files:int}
+     * H1 (TASK-0121): and `orphans` — an image file outside `incoming/` that no kept image (READY) or upload in flight (STAGING)
+     * claims: the row is gone or DELETED (a delete whose file removal failed, a database restored from before the upload). The
+     * same age window protects a file an upload may be moving right now. A kept image's file is never touched.
+     *
+     * @return array{rows:int, files:int, orphans:int}
      */
     public function sweep(?int $hours = null): array
     {
         $hours = max(1, $hours ?? (int) config('onhost.custom_iso.staging_hours', 6));
         $cutoff = now()->subHours($hours);
-        $stats = ['rows' => 0, 'files' => 0];
+        $stats = ['rows' => 0, 'files' => 0, 'orphans' => 0];
         foreach (CustomIso::query()->where('state', CustomIso::STAGING)->where('created_at', '<', $cutoff)->get() as $row) {
             $this->drop($row);
             $stats['rows']++;
         }
         $disk = $this->disk();
         $live = CustomIso::query()->where('state', CustomIso::STAGING)->pluck('id')->all();
-        foreach ($disk->files(self::INCOMING) as $file) {
+        foreach ($disk->allFiles(self::INCOMING) as $file) {
             $id = pathinfo($file, PATHINFO_FILENAME);
             if (in_array($id, $live, true) || $disk->lastModified($file) >= $cutoff->getTimestamp()) {
                 continue;
             }
             $disk->delete($file);
             $stats['files']++;
+        }
+        $claimed = array_flip(CustomIso::query()->whereIn('state', [CustomIso::READY, CustomIso::STAGING])->pluck('path')->map(fn ($p) => (string) $p)->all());
+        foreach ($disk->directories() as $folder) {
+            if (preg_match('/^org_[0-9a-z]+$/', (string) $folder) !== 1) {
+                continue; // only an organization's folder (store() writes <organization>/<id>.iso) — never incoming/, lost+found or the operator's
+            }
+            foreach ($disk->allFiles($folder) as $file) {
+                if (isset($claimed[$file]) || $disk->lastModified($file) >= $cutoff->getTimestamp()) {
+                    continue;
+                }
+                $disk->delete($file);
+                $stats['orphans']++;
+            }
         }
 
         return $stats;

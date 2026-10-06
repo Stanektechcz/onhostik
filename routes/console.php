@@ -830,7 +830,7 @@ Artisan::command('onhost:services:rescue-expire {--limit=50 : how many services 
 Artisan::command('onhost:isos:sweep {--hours= : staged uploads older than this many hours are dead (default onhost.custom_iso.staging_hours)}', function (CustomIsoLibrary $library) {
     $hours = $this->option('hours');
     $stats = $library->sweep($hours === null || $hours === '' ? null : max(1, (int) $hours));
-    $this->info(sprintf('custom ISO uploads swept: %d staging row(s), %d stray file(s)', $stats['rows'], $stats['files']));
+    $this->info(sprintf('custom ISO uploads swept: %d staging row(s), %d stray file(s), %d orphaned image file(s)', $stats['rows'], $stats['files'], $stats['orphans'])); // H1: image files no kept image claims
 })->purpose('Remove custom ISO uploads that never finished (staging rows and incoming files)');
 
 // TASK-0110 review M1: uploads are refused (503) while this fails — EICAR must be found and a file beyond clamd's limits reported.

@@ -318,6 +318,46 @@ runbook [custom-iso](../runbooks/custom-iso.md) (úložiště, clamd, limity, ru
 
 ---
 
+## F5-09 Oznámení k vlastnímu ISO, doplněk „Vlastní ISO“ a úklid (H1)
+
+**Předem:** server s vlastním ISO podle F5-08. Pro doplněk server s tarifem **bez** vlastního ISO (např. Compute 2) a doplněk
+`custom-iso` zveřejněný v administraci (v katalogu je jako koncept s navrženou cenou 99 Kč měsíčně; cenu a zveřejnění určuje vlastník,
+viz [custom-iso-plans](../proposals/custom-iso-plans.md)). Na skutečném uzlu jen na určeném testovacím uzlu a se souhlasem vlastníka.
+
+**Kroky**
+
+1. Jako člen organizace, který nic nenahrával, otevřít v panelu oznámení (zvoneček) po krocích 2–5 z F5-08 (nahrát, připojit, odpojit, smazat).
+2. Organizace s jazykem angličtina: totéž, oznámení musí být anglicky.
+3. Doplněk: do košíku server Compute 2 a k němu doplněk „Vlastní ISO do 4 GB“ (`POST /v1/cart/quote`, řádek `custom-iso` s
+   `parent_line_id` serveru), objednat a zaplatit. Na záložce Disky se objeví „Nahrát ISO“; `GET /v1/services/{service}/features`
+   vrátí `custom_iso` zapnuté.
+4. Doplněk zrušit (zrušení služby doplňku v panelu). Na záložce Disky už nahrávání ani připojení nejde, odpojit a smazat ano.
+5. Úklid: `php artisan onhost:isos:sweep` (běží každou hodinu).
+
+**Očekávaný výsledek**
+
+- Oznámení (jen v panelu, žádný e-mail): „Vlastní ISO nahráno: …“ (velikost v MB), „Vlastní ISO připojeno k serveru …“ (varování,
+  když server z obrazu nabootuje), „Vlastní ISO odpojeno od serveru …“, „Vlastní ISO smazáno: …“. Při smazání připojeného obrazu
+  přijde jen oznámení o smazání, ne navíc o odpojení. Popis událostí `service.iso.uploaded`, `service.iso.attached`, `service.iso.detached`
+  a `service.iso.deleted` je v katalogu událostí.
+- V angličtině žádná česká věta („Custom ISO uploaded: …“ atd.).
+- Doplněk změní tarif jen tohoto serveru: `custom_iso` a `custom_iso_max_mb` (4096, nebo víc, pokud tarif prodává víc); kvóta organizace
+  se nemění. Zrušení vrátí obě hodnoty, jak byly před nákupem; pokud je mezitím někdo změnil, nechá je obě.
+- Sweep vypíše `… orphaned image file(s)`: smaže soubory obrazů, ke kterým už není žádný platný obraz, i zbytky ve složkách pod
+  `incoming/` — ale jen starší než `ONHOST_CUSTOM_ISO_STAGING_HOURS`. Soubor obrazu, který organizace má, nikdy.
+
+**Negativní varianty**
+
+| Varianta | Očekávání |
+| --- | --- |
+| Doplněk `custom-iso` k webhostingu | V košíku se nenabízí; přímé použití odmítne `addon_parent_mismatch` (jen cloudový server). |
+| Doplněk ještě není zveřejněný (koncept) | Nikde se nenabízí; objednávka ho nepřijme. |
+
+**Automaticky:** [`CustomIsoNotificationsTest`](../../tests/Feature/Compute/H1/CustomIsoNotificationsTest.php),
+[`CustomIsoAddonTest`](../../tests/Feature/Compute/H1/CustomIsoAddonTest.php), [`CustomIsoSweepTest`](../../tests/Feature/Compute/H1/CustomIsoSweepTest.php).
+
+---
+
 ## Pokrytí E2E testem
 
 | Případ | Test v `VpsFlowTest` |
@@ -330,6 +370,7 @@ runbook [custom-iso](../runbooks/custom-iso.md) (úložiště, clamd, limity, ru
 | F5-06 | „issues a console token to the owner, and to an API token only when it carries the console scope“ |
 | F5-07 | „pauses a server on its owner's word and brings it back as it was …“ |
 | F5-08 | [`CustomIsoTest`](../../tests/Feature/Compute/CustomIsoTest.php) proti stavovému hypervizoru (`e2ePveClusterWithIsoStorage`): bez tarifu 403, nahrání → připojení → odpojení → smazání, antivirus, limity, cizí organizace, opakování, názvy a cesty, záchranný režim, cesta ven po změně tarifu |
+| F5-09 | mimo E2E; viz `CustomIsoNotificationsTest`, `CustomIsoAddonTest`, `CustomIsoSweepTest` (H1) |
 
 Související: [`VmReinstallTest`](../../tests/Feature/Provisioning/VmReinstallTest.php), [`RescueModeTest`](../../tests/Feature/Provisioning/RescueModeTest.php),
 runbooky [provisioning-queue](../runbooks/provisioning-queue.md) a [console-relay](../runbooks/console-relay.md).
