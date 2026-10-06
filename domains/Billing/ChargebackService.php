@@ -137,7 +137,7 @@ final class ChargebackService
      */
     public static function net(array $rows, string $field, string $share): int
     {
-        return (int) array_sum(array_map(fn (array $row) => (int) ($row[$field] ?? 0) - (int) ($row[$share] ?? 0), $rows));
+        return max(0, (int) array_sum(array_map(fn (array $row) => (int) ($row[$field] ?? 0) - (int) ($row[$share] ?? 0), $rows))); // review L: never less than nothing
     }
 
     /**

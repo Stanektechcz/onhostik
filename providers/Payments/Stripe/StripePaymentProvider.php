@@ -13,6 +13,7 @@ use Onhost\Platform\Secrets\SecretRef;
 use Onhost\Platform\Secrets\SecretStore;
 use Onhost\Providers\Contracts\PaymentProvider;
 use Onhost\Providers\Contracts\StoredMethodCharging;
+use Onhost\Providers\Payments\ReturnUrls;
 
 /**
  * Stripe (international contingency): hosted Checkout Session -> PaymentIntent.
@@ -53,8 +54,8 @@ final class StripePaymentProvider implements PaymentProvider, StoredMethodChargi
             'line_items[0][price_data][unit_amount]' => $amount->minor,
             'line_items[0][price_data][product_data][name]' => (string) $input['description'],
             'line_items[0][quantity]' => 1,
-            'success_url' => $input['return_url'],
-            'cancel_url' => $input['cancel_url'],
+            'success_url' => ReturnUrls::allowed($input['return_url'] ?? null, 'return_url'), // H3 review: the same check as Comgate
+            'cancel_url' => ReturnUrls::allowed($input['cancel_url'] ?? null, 'cancel_url'),
             'client_reference_id' => (string) $input['reference'],
             'customer_email' => (string) $input['email'],
             'metadata[reference]' => (string) $input['reference'],

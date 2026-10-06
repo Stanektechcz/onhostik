@@ -472,7 +472,7 @@ portálu, jednou s cizí doménou (`https://example.com/…`).
 
 - Adresa portálu (`ONHOST_PORTAL_URL`) nebo aplikace (`APP_URL`) projde, brána po zaplacení vrátí zákazníka zpět do portálu.
 - Cizí doména, relativní adresa, `//host`, `javascript:`, adresa se jménem a heslem nebo jiný port: **422** `payment_return_url_invalid`
-  ještě před voláním brány. Další hosty (jen https) povoluje `COMGATE_RETURN_HOSTS`.
+  ještě před voláním brány. Další hosty (jen https) povoluje `PAYMENT_RETURN_HOSTS` (platí pro Comgate, GoPay i Stripe).
 - Bez `return_urls` platí adresy nastavené u obchodníka v Comgate.
 
 **Automaticky:** `ComgateReturnUrlTest` (H3); nabídka v košíku ukazuje z konfigurace řádku jen povolené klíče (`QuoteLinesAllowListTest`).

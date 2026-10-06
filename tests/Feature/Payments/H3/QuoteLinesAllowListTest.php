@@ -59,3 +59,21 @@ it('answers a real cart quote with no key outside the list, and with the keys th
         ->and($lines[0]['config'])->toHaveKey('periods_billed')
         ->and($lines[1]['config']['parent_line_id'])->toBe('l1');
 });
+
+it('keeps inside the nested values only what the customer may read: no cost, no margin, no staff approval (review L)', function () {
+    $lines = Presenters::quoteLines([[
+        'sku' => 'x', 'config' => [
+            'line_id' => 'l1',
+            'options_priced' => [['key' => 'nvme_gb', 'label' => 'Disk', 'qty' => 2, 'unit_net' => 100, 'net' => 200, 'cost_minor' => 40, 'margin_pct' => 60]],
+            'limit_raise' => ['metric' => 'mailboxes', 'units' => 5, 'list_net_minor' => 500, 'purchase_cost_minor' => 120, 'waived' => ['approval_ids' => ['apr_1'], 'by' => 'user:usr_staff', 'reason' => 'goodwill']],
+            'loyalty' => ['points' => 300, 'value_minor' => 30000, 'margin_minor' => 999],
+            'plan_change' => ['from_plan' => 'start', 'to_plan' => 'standard', 'new_net_minor' => 100, 'cost_minor' => 50],
+        ],
+    ]]);
+    $config = $lines[0]['config'];
+
+    expect($config['options_priced'][0])->toBe(['key' => 'nvme_gb', 'label' => 'Disk', 'qty' => 2, 'unit_net' => 100, 'net' => 200])
+        ->and($config['limit_raise'])->toBe(['metric' => 'mailboxes', 'units' => 5, 'list_net_minor' => 500, 'waived' => true])
+        ->and($config['loyalty'])->toBe(['points' => 300, 'value_minor' => 30000])
+        ->and($config['plan_change'])->toBe(['from_plan' => 'start', 'to_plan' => 'standard', 'new_net_minor' => 100]);
+});

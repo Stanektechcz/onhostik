@@ -343,8 +343,10 @@ viz [custom-iso-plans](../proposals/custom-iso-plans.md)). Na skutečném uzlu j
 - V angličtině žádná česká věta („Custom ISO uploaded: …“ atd.).
 - Doplněk změní tarif jen tohoto serveru: `custom_iso` a `custom_iso_max_mb` (4096, nebo víc, pokud tarif prodává víc); kvóta organizace
   se nemění. Zrušení vrátí obě hodnoty, jak byly před nákupem; pokud je mezitím někdo změnil, nechá je obě.
-- Sweep vypíše `… orphaned image file(s)`: smaže soubory obrazů, ke kterým už není žádný platný obraz, i zbytky ve složkách pod
-  `incoming/` — ale jen starší než `ONHOST_CUSTOM_ISO_STAGING_HOURS`. Soubor obrazu, který organizace má, nikdy.
+- Sweep vypíše `… orphaned image file(s) quarantined`: soubory obrazů, ke kterým už není žádný platný obraz, **nesmaže**, ale přesune do
+  `quarantine/<datum-čas>/…`; smaže je až po `ONHOST_CUSTOM_ISO_QUARANTINE_DAYS` (14 dní). Zbytky ve složkách pod `incoming/` smaže. Bere jen soubory starší
+  než `ONHOST_CUSTOM_ISO_STAGING_HOURS` a jen ve složkách pojmenovaných přesně jako id organizace; soubor obrazu, který organizace má, nikdy.
+  `--dry-run` jen vypíše, co by udělal, a nic nezmění.
 
 **Negativní varianty**
 

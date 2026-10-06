@@ -48,7 +48,7 @@ beforeEach(function () {
     $_ENV['COMGATE_SECRET'] = 'recorded-callback-secret';
     config()->set('onhost.payments.comgate.merchant', '123456');
     config()->set('onhost.payments.comgate.callback_allowlist', []);
-    config()->set('onhost.payments.comgate.return_hosts', ['portal.test']); // H3: the recorded calls send the payer back to this host
+    config()->set('onhost.payments.return_hosts', ['portal.test']); // H3: the recorded calls send the payer back to this host
 });
 
 it('creates a payment from the recorded answer and sends the merchant credentials and money in minor units', function () {

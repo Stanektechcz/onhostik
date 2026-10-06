@@ -827,10 +827,14 @@ Artisan::command('onhost:services:rescue-expire {--limit=50 : how many services 
 })->purpose('End the rescue sessions whose window has passed and put the servers back');
 
 // TASK-0110 review H2: an upload whose process died left a reservation against the organization's quota and a file on the image disk.
-Artisan::command('onhost:isos:sweep {--hours= : staged uploads older than this many hours are dead (default onhost.custom_iso.staging_hours)}', function (CustomIsoLibrary $library) {
+Artisan::command('onhost:isos:sweep {--hours= : staged uploads older than this many hours are dead (default onhost.custom_iso.staging_hours)} {--dry-run : count what would be removed or quarantined, change nothing}', function (CustomIsoLibrary $library) {
     $hours = $this->option('hours');
-    $stats = $library->sweep($hours === null || $hours === '' ? null : max(1, (int) $hours));
-    $this->info(sprintf('custom ISO uploads swept: %d staging row(s), %d stray file(s), %d orphaned image file(s)', $stats['rows'], $stats['files'], $stats['orphans'])); // H1: image files no kept image claims
+    $dry = (bool) $this->option('dry-run');
+    $stats = $library->sweep($hours === null || $hours === '' ? null : max(1, (int) $hours), $dry);
+    if ($dry) {
+        $this->warn('dry run: nothing was changed');
+    }
+    $this->info(sprintf('custom ISO uploads swept: %d staging row(s), %d stray file(s), %d orphaned image file(s) quarantined, %d quarantined file(s) past retention deleted', $stats['rows'], $stats['files'], $stats['quarantined'], $stats['purged'])); // H1: orphans wait in quarantine/ (review M1)
 })->purpose('Remove custom ISO uploads that never finished (staging rows and incoming files)');
 
 // TASK-0110 review M1: uploads are refused (503) while this fails — EICAR must be found and a file beyond clamd's limits reported.

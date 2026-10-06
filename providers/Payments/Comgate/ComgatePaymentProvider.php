@@ -13,6 +13,7 @@ use Onhost\Platform\Secrets\SecretRef;
 use Onhost\Platform\Secrets\SecretStore;
 use Onhost\Providers\Contracts\PaymentProvider;
 use Onhost\Providers\Contracts\StoredMethodCharging;
+use Onhost\Providers\Payments\ReturnUrls;
 
 /**
  * Comgate Payments API v2.0 (REST/JSON, HTTP Basic merchant:secret).
@@ -65,7 +66,7 @@ final class ComgatePaymentProvider implements PaymentProvider, StoredMethodCharg
         $save = ! empty($input['save_method']);
         $returns = [];
         foreach (['url_paid' => 'return_url', 'url_cancelled' => 'cancel_url', 'url_pending' => 'pending_url'] as $param => $key) {
-            $returns[$param] = self::returnUrl($input[$key] ?? null, $key); // H3: refused before anything reaches the gateway
+            $returns[$param] = ReturnUrls::allowed($input[$key] ?? null, $key); // H3: refused before anything reaches the gateway
         }
         $locale = (string) ($input['locale'] ?? 'cs'); // G6: optional — a missing or unsupported language is Czech, never an undefined key
         $response = $this->send('POST', '/payment', 'payment.create', array_filter([
@@ -88,42 +89,6 @@ final class ComgatePaymentProvider implements PaymentProvider, StoredMethodCharg
         $this->assertOk($response, 'payment.create');
 
         return ['provider_id' => (string) $response['transId'], 'redirect_url' => (string) ($response['redirect'] ?? ''), 'state' => 'PENDING', 'raw' => $response + ['initRecurring' => $save]];
-    }
-
-    /**
-     * H3 (TASK-0121): an address the gateway sends the payer back to is the platform's own. An order or invoice payment may carry
-     * `return_urls` from its request; passed on as they came, a link could make ONhost's payment page forward a paying customer to
-     * any site. Allowed: an absolute URL without credentials on the portal's or the application's own origin (scheme, host and port
-     * as configured), or https on a host of `onhost.payments.comgate.return_hosts`. Nothing (null or '') keeps the merchant's own.
-     */
-    public static function returnUrl(mixed $url, string $field): ?string
-    {
-        if ($url === null || $url === '') {
-            return null;
-        }
-        $parts = is_string($url) && strlen($url) <= 2000 && preg_match('/[\s\x00-\x1f\\\\]/', $url) !== 1 ? parse_url($url) : false;
-        $scheme = is_array($parts) ? strtolower((string) ($parts['scheme'] ?? '')) : '';
-        $host = is_array($parts) ? strtolower((string) ($parts['host'] ?? '')) : '';
-        if (! is_array($parts) || ! in_array($scheme, ['https', 'http'], true) || $host === '' || isset($parts['user']) || isset($parts['pass'])) {
-            throw new DomainError('payment_return_url_invalid', 'The return address of a payment must be an address of this portal.', 422, ['field' => $field]);
-        }
-        $origin = $scheme.'://'.$host.':'.(int) ($parts['port'] ?? ($scheme === 'https' ? 443 : 80));
-        $allowed = [];
-        foreach ([(string) config('onhost.portal_url'), (string) config('app.url')] as $own) {
-            $o = parse_url($own);
-            if (is_array($o) && isset($o['scheme'], $o['host'])) {
-                $s = strtolower((string) $o['scheme']);
-                $allowed[] = $s.'://'.strtolower((string) $o['host']).':'.(int) ($o['port'] ?? ($s === 'https' ? 443 : 80));
-            }
-        }
-        foreach ((array) config('onhost.payments.comgate.return_hosts', []) as $extra) {
-            $allowed[] = 'https://'.strtolower(trim((string) $extra)).':443';
-        }
-        if (! in_array($origin, $allowed, true)) {
-            throw new DomainError('payment_return_url_invalid', 'The return address of a payment must be an address of this portal.', 422, ['field' => $field]);
-        }
-
-        return $url;
     }
 
     public function storedMethodsAvailable(): bool

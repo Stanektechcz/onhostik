@@ -111,3 +111,12 @@ it('changes nothing for a line bought without points', function () {
         ->and($estimate['lines'][0]['redemption_minor'])->toBe(0)
         ->and($estimate['refund_minor'])->toBe((int) $estimate['lines'][0]['refund_minor']);
 });
+
+it('never estimates less than nothing, even when the points share is larger than what a line still gives back (review L)', function () {
+    $rows = [
+        ['refund_minor' => 1000, 'redemption_minor' => 1500],
+        ['refund_minor' => 200, 'redemption_minor' => 0],
+    ];
+    expect(ChargebackService::net($rows, 'refund_minor', 'redemption_minor'))->toBe(0)
+        ->and(ChargebackService::net([['refund_minor' => 500, 'redemption_minor' => 100]], 'refund_minor', 'redemption_minor'))->toBe(400);
+});

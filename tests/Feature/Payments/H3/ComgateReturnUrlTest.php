@@ -16,7 +16,7 @@ use Onhost\Platform\Money\Money;
  * `url_pending`) are the platform's own. An order or an invoice payment may carry `return_urls` from the request; the adapter
  * passed them to the gateway as they came, so a link could make the payment page of ONhost send a paying customer on to any
  * site (an open redirect behind a trusted payment page). Now each URL must be absolute, without credentials, on an allowed
- * origin: the portal's and the application's own, or a host listed in `onhost.payments.comgate.return_hosts` (https only). A
+ * origin: the portal's and the application's own, or a host listed in `onhost.payments.return_hosts` (https only). A
  * URL that fails is refused before anything reaches the gateway.
  */
 
@@ -27,7 +27,7 @@ beforeEach(function () {
     config()->set('onhost.payments.comgate.merchant', '123456');
     config()->set('onhost.portal_url', 'https://portal.onhost.test');
     config()->set('app.url', 'https://api.onhost.test');
-    config()->set('onhost.payments.comgate.return_hosts', ['pay.partner.test']);
+    config()->set('onhost.payments.return_hosts', ['pay.partner.test']);
     $GLOBALS['h3ComgateSent'] = [];
     Http::fake(function (HttpRequest $request) {
         $GLOBALS['h3ComgateSent'][] = $request->data();

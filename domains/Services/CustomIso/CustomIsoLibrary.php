@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Services\CustomIso;
 
 use Illuminate\Contracts\Filesystem\Filesystem;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -40,6 +41,9 @@ use Throwable;
 final class CustomIsoLibrary
 {
     public const INCOMING = 'incoming';
+
+    /** Where an orphaned image waits before it is deleted (security review of PR #116, M1). */
+    public const QUARANTINE = 'quarantine';
 
     public function __construct(
         private readonly IsoScanner $scanner,
@@ -119,6 +123,7 @@ final class CustomIsoLibrary
         }
         $path = $service->organization_id.'/'.$row->id.'.iso';
         $this->disk()->move((string) $row->path, $path);
+        self::touch($this->disk(), $path); // M2: a moved file keeps the staged file's time; the sweep must see it as new
         $row->forceFill(['state' => CustomIso::READY, 'path' => $path, 'node_copies' => []])->save();
         $this->audit->record($context->withScope($service->organization_id), 'service.iso.upload', 'succeeded', ['iso_id' => $row->id, 'name' => $row->name, 'size_bytes' => $row->size_bytes], 'service', $service->id);
         $this->outbox->publish(GenericEvent::of('service.iso.uploaded', 'service', $service->id, ['iso_id' => $row->id, 'name' => $row->name, 'size_bytes' => $row->size_bytes, 'label' => (string) ($service->label ?: $service->name)], $service->organization_id));
@@ -142,19 +147,23 @@ final class CustomIsoLibrary
      * What dead uploads left behind (review H2): staging rows older than `$hours` with their files, and files in `incoming/` older
      * than that which no staging row claims — in folders under it too (H1). `onhost:isos:sweep`, hourly.
      *
-     * H1 (TASK-0121): and `orphans` — an image file outside `incoming/` that no kept image (READY) or upload in flight (STAGING)
-     * claims: the row is gone or DELETED (a delete whose file removal failed, a database restored from before the upload). The
-     * same age window protects a file an upload may be moving right now. A kept image's file is never touched.
+     * H1 (TASK-0121): and orphans — an image file in an organization's folder that no kept image (READY) or upload in flight
+     * (STAGING) claims: the row is gone or DELETED (a delete whose file removal failed, a database restored from before the upload).
+     * The same age window protects a file an upload may be moving right now; a kept image's file is never touched. Security review
+     * of PR #116: an orphan is a customer's file, so it is never deleted at once — it moves to `quarantine/<when>/<its path>` and is
+     * deleted only after `onhost.custom_iso.quarantine_days` (M1); only folders named exactly like an organization id are looked into
+     * (M3); each file is checked against the rows again just before it moves (M2, with the fresh time `store()` gives the image).
+     * `$dryRun`: counts what would happen and changes nothing.
      *
-     * @return array{rows:int, files:int, orphans:int}
+     * @return array{rows:int, files:int, quarantined:int, purged:int}
      */
-    public function sweep(?int $hours = null): array
+    public function sweep(?int $hours = null, bool $dryRun = false): array
     {
         $hours = max(1, $hours ?? (int) config('onhost.custom_iso.staging_hours', 6));
         $cutoff = now()->subHours($hours);
-        $stats = ['rows' => 0, 'files' => 0, 'orphans' => 0];
+        $stats = ['rows' => 0, 'files' => 0, 'quarantined' => 0, 'purged' => 0];
         foreach (CustomIso::query()->where('state', CustomIso::STAGING)->where('created_at', '<', $cutoff)->get() as $row) {
-            $this->drop($row);
+            $dryRun || $this->drop($row);
             $stats['rows']++;
         }
         $disk = $this->disk();
@@ -164,24 +173,59 @@ final class CustomIsoLibrary
             if (in_array($id, $live, true) || $disk->lastModified($file) >= $cutoff->getTimestamp()) {
                 continue;
             }
-            $disk->delete($file);
+            $dryRun || $disk->delete($file);
             $stats['files']++;
         }
+        $stats['quarantined'] = $this->quarantineOrphans($cutoff->getTimestamp(), $dryRun);
+        $stats['purged'] = $this->purgeQuarantine($dryRun);
+
+        return $stats;
+    }
+
+    /** Image files in an organization's folder that no READY or STAGING row claims, older than the window → quarantine (M1). */
+    private function quarantineOrphans(int $cutoff, bool $dryRun): int
+    {
+        $disk = $this->disk();
         $claimed = array_flip(CustomIso::query()->whereIn('state', [CustomIso::READY, CustomIso::STAGING])->pluck('path')->map(fn ($p) => (string) $p)->all());
+        $stamp = now()->format('Ymd-His');
+        $moved = 0;
         foreach ($disk->directories() as $folder) {
-            if (preg_match('/^org_[0-9a-z]+$/', (string) $folder) !== 1) {
-                continue; // only an organization's folder (store() writes <organization>/<id>.iso) — never incoming/, lost+found or the operator's
+            if (! Organization::isValidPublicId((string) $folder)) {
+                continue; // only an organization's folder (store() writes <organization>/<id>.iso) — never incoming/, quarantine/, lost+found or the operator's (M3)
             }
             foreach ($disk->allFiles($folder) as $file) {
-                if (isset($claimed[$file]) || $disk->lastModified($file) >= $cutoff->getTimestamp()) {
+                if (isset($claimed[$file]) || $disk->lastModified($file) >= $cutoff) {
                     continue;
                 }
-                $disk->delete($file);
-                $stats['orphans']++;
+                if (CustomIso::query()->whereIn('state', [CustomIso::READY, CustomIso::STAGING])->where('path', $file)->exists()) {
+                    continue; // claimed since the list was read (M2)
+                }
+                if (! $dryRun) {
+                    $disk->move($file, self::QUARANTINE.'/'.$stamp.'/'.$file);
+                }
+                $moved++;
             }
         }
 
-        return $stats;
+        return $moved;
+    }
+
+    /** Quarantine folders older than `onhost.custom_iso.quarantine_days` are deleted (M1). Returns the files deleted. */
+    private function purgeQuarantine(bool $dryRun): int
+    {
+        $disk = $this->disk();
+        $before = now()->subDays(max(1, (int) config('onhost.custom_iso.quarantine_days', 14)));
+        $purged = 0;
+        foreach ($disk->directories(self::QUARANTINE) as $folder) {
+            $when = \DateTimeImmutable::createFromFormat('!Ymd-His', basename((string) $folder));
+            if ($when === false || $when->getTimestamp() > $before->getTimestamp()) {
+                continue; // not one of ours, or still within the retention
+            }
+            $purged += count($disk->allFiles($folder));
+            $dryRun || $disk->deleteDirectory($folder);
+        }
+
+        return $purged;
     }
 
     /** What the organization holds and has reserved: kept images and uploads in flight. @return array{used_bytes:int, images:int} */
@@ -269,6 +313,18 @@ final class CustomIsoLibrary
     }
 
     /** A staging row and whatever it staged. */
+    /** Sets a file's time to now where the disk is local (the dedicated mount); elsewhere the sweep's second look at the rows protects it. */
+    private static function touch(Filesystem $disk, string $path): void
+    {
+        if ($disk instanceof FilesystemAdapter) {
+            try {
+                @touch($disk->path($path));
+            } catch (Throwable) {
+                // not a local disk: no path to touch
+            }
+        }
+    }
+
     private function drop(CustomIso $row): void
     {
         try {
