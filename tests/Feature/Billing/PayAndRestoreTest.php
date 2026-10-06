@@ -241,7 +241,8 @@ it('does not let the customer undo a cancellation that was refunded through a ch
         'unused_minor' => 24200, 'refund_minor' => 16940, 'operation_id' => 'op_chargeback_1', 'cancelled_at' => now()->subDays(5), 'refunded_at' => now()->subDays(5)]);
     $services = app(ServiceService::class);
 
-    // switch off: the refund was paid for giving the service up — the customer cannot take it back for free
+    // switch off (H0, H-R3: the default is on, staff switch it off): the refund was paid for giving the service up — the customer cannot take it back for free
+    reinstateSwitchOn(false);
     expect(fn () => $services->requestAction($service, 'resume', $this->contextFor($owner, $org), 'cb-undo-off'))->toThrow(DomainError::class, 'chargeback');
 
     // switch on: the refunded period does not count, a whole new one is owed, and a plain resume asks for it
@@ -374,6 +375,7 @@ it('charges once and resumes once however often the request arrives', function (
 });
 
 it('changes nothing while the switch is off', function () {
+    reinstateSwitchOn(false); // H0 (H-R3): on by default; staff switched it off
     [$owner, $org] = $this->customerWithOrganization();
     app(WalletService::class)->topup($org, Money::decimal('1000', 'CZK'), 'bank', 'seed', $this->contextFor($owner, $org));
     $service = reinstateCancelled($org, ['period_end' => now()->addDays(10)]);
@@ -947,6 +949,7 @@ it('undoes a refunded cancellation on the platform authority only for a staff bi
     ChargebackRequest::query()->create(['organization_id' => $org->id, 'service_id' => $service->id, 'requested_by' => $owner->id, 'state' => ChargebackRequest::REFUNDED, 'reason' => 'Odcházíme jinam.', 'percent' => 70, 'currency' => 'CZK',
         'unused_minor' => 24200, 'refund_minor' => 16940, 'operation_id' => 'op_chargeback_p16', 'cancelled_at' => now()->subDays(5), 'refunded_at' => now()->subDays(5)]);
     $reinstatement = app(ServiceReinstatement::class);
+    reinstateSwitchOn(false); // the switch-off path (H0, H-R3: on by default); with it on, support is refused for want of the credit key
 
     // support manages services, it does not give the customer's money back: the refunded period is not undone for free by it
     expect(fn () => $reinstatement->assertCustomerMayResume($service, $this->staffContextFor($this->staff('support_l2'), $org)))

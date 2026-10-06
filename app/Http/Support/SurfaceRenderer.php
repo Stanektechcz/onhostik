@@ -1587,10 +1587,19 @@ HTML;
         if ($relative === '' || str_contains($relative, '..') || str_starts_with($relative, '/')) {
             return null;
         }
+        if (str_starts_with($relative, '_archive/')) {
+            return null; // H0 (H-R6): an archived prototype is kept for reference, never served
+        }
         $full = $this->root.'/'.$relative;
         $real = realpath($full);
         $rootReal = realpath($this->root);
         if ($real === false || $rootReal === false || ! str_starts_with($real, $rootReal) || ! is_file($real)) {
+            return null;
+        }
+        // H0 (H-R6, review L): an archived prototype is kept for reference, never served — decided on the real path, whatever the
+        // spelling (`_ARCHIVE/…`, `./_archive/…`, a backslash) or the case-insensitive file system that resolves it
+        $inside = strtolower(str_replace('\\', '/', ltrim(substr($real, strlen($rootReal)), '\\/')));
+        if ($inside === '_archive' || str_starts_with($inside, '_archive/')) {
             return null;
         }
 

@@ -129,6 +129,7 @@ it('every HIGH or CRITICAL authorize() outside the bus is classified', function 
         'Api/V1/Staff/RegistrarController.php::domain.registrar.manage' => 'read: connections; the connection write is RegistrarConnectionCommand',
         'Api/V1/Staff/ReportController.php::billing.dunning.manage' => 'read: GET /v1/staff/dunning (the run is authorizeAction)',
         'Api/V1/Staff/CustomerController.php::billing.limit_raise.waive' => 'bus: StaffCustomerCommand (CRITICAL, four-eyes)',
+        'Api/V1/ComplianceController.php::organization.close' => 'read: GET /v1/data-requests/deletion-preview (H0, H-R5: the forfeited credit before an erasure; the erasure itself is DataRequestCommand)',
     ];
     $root = app_path('Http/Controllers');
     $found = [];

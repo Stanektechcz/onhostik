@@ -9,6 +9,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Onhost\Domain\Billing\Commands\WithdrawalStaffCommand;
 use Onhost\Domain\Billing\Models\Withdrawal;
+use Onhost\Domain\Billing\WithdrawalPolicy;
 use Onhost\Domain\Billing\WithdrawalService;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Platform\Commands\CommandScope;
@@ -38,6 +39,11 @@ final class WithdrawalController extends ApiController
     /** A notice received by e-mail or letter: the day it was SENT decides the deadline and the refund; four eyes, because staff may date it back. */
     public function store(Request $request): JsonResponse
     {
+        // H0 (H-R5, review M2): said before a second person is asked to approve anything — whatever id names the top-up
+        $named = array_filter([(string) $request->input('topup_id', ''), (string) $request->input('order_id', '')], fn (string $v) => $v !== '');
+        if ($request->filled('topup_id') || array_filter($named, fn (string $id) => WithdrawalPolicy::isTopUpReference($id, (string) $request->input('organization_id', ''))) !== []) {
+            WithdrawalPolicy::refuseTopUp();
+        }
         $data = $request->validate([
             'organization_id' => ['required', 'string', 'max:40'], 'service_id' => ['required_without:order_id', 'nullable', 'string', 'max:40'], 'order_id' => ['required_without:service_id', 'nullable', 'string', 'max:40'],
             'sent_at' => ['required', 'date'], 'refund_to_credit_agreed' => ['accepted'], 'reason' => ['required', 'string', 'min:5', 'max:1000'],

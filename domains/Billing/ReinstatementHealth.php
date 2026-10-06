@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace Onhost\Domain\Billing;
 
 /**
- * G6: what the doctor says about pay and restore (`services.reinstate`, owner decision 23, TASK-0025). The rule is default-off
- * and is switched on only when the owner decides; until then the doctor names the consequence and the way to switch it on. A
- * warning, never blocking: the switch is a decision, not a defect.
+ * G6: what the doctor says about pay and restore (`services.reinstate`, owner decision 23, TASK-0025). Since H0 (owner decision H-R3,
+ * 2026-10-06) the rule is ON by default: a restored service is billed again. Switched off by staff, the doctor names the
+ * consequence and the way back. A warning, never blocking: the switch is a decision, not a defect.
  */
 final class ReinstatementHealth
 {
@@ -22,8 +22,8 @@ final class ReinstatementHealth
             'area' => 'billing', 'check' => 'pay and restore (services.reinstate)', 'ok' => $on, 'blocking' => false,
             'detail' => $on
                 ? 'on: a cancelled service in its restore window comes back once paid; an undone cancellation is billed again'
-                : 'off (default, waits for the owner\'s decision): a paid invoice of a service cancelled by dunning restores nothing and the purge then removes a service that was paid for; an expired subscription can be neither paid for nor resumed; a cancellation the customer took back runs on and is not billed again',
-            'remedy' => $on ? '' : 'when the owner decides: php artisan onhost:billing:reinstatement-audit (reads only: who is affected), then switch the rule on in the staff console (Automatizace) or PUT /v1/staff/automation/services.reinstate; bill an undone cancellation one service at a time with --apply --service=<id> (docs/runbooks/billing-dunning.md)',
+                : 'off (switched off by staff; the default is on since owner decision H-R3): a paid invoice of a service cancelled by dunning restores nothing and the purge then removes a service that was paid for; an expired subscription can be neither paid for nor resumed; a cancellation the customer took back runs on and is not billed again',
+            'remedy' => $on ? '' : 'php artisan onhost:billing:reinstatement-audit (reads only: who is affected), then switch the rule back on in the staff console (Automatizace) or PUT /v1/staff/automation/services.reinstate; bill an undone cancellation one service at a time with --apply --service=<id> (docs/runbooks/billing-dunning.md)',
         ]];
     }
 }

@@ -6,6 +6,7 @@ namespace Onhost\Domain\Identity\Commands;
 
 use Onhost\Domain\Identity\Authorization\ApprovalService;
 use Onhost\Domain\Identity\Authorization\Models\Approval;
+use Onhost\Domain\Identity\Authorization\TokenApprovals;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Platform\Commands\Command;
 use Onhost\Platform\Commands\CommandContext;
@@ -28,6 +29,9 @@ final class ApprovalDecisionCommandHandler implements CommandHandler
         $approval = Approval::query()->lockForUpdate()->find((string) $command->get('approval_id'));
         if ($approval === null) {
             throw DomainError::notFound('approval');
+        }
+        if (TokenApprovals::tokenOf($approval) !== null) { // H0 (H-R1): a customer's automation is the customer's owner's decision, not staff's
+            throw new DomainError('token_approval_owner_only', 'A request of an API token is decided by the owner of its organization in the portal, not by staff.', 403);
         }
 
         return ApprovalService::present($this->approvals->decide($approval, $decider, (string) $command->get('decision'), $command->get('note') === null ? null : (string) $command->get('note'), $context));

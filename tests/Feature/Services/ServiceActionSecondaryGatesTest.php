@@ -335,9 +335,10 @@ it('does not let a power-only API token lower what the backup schedule keeps', f
     sasgPanels();
     $token = $owner->createToken('ci', ['services:read', 'services:power'])->plainTextToken;
 
-    // the schedule PUT is in the token's `services` family; a token has no person to give the step-up that thinning takes
+    // the schedule PUT is in the token's `services` family; a token has no person to give the step-up that thinning takes, so it
+    // waits for the organization owner's approval (H0, owner decision H-R1)
     $this->withToken($token);
-    sasgSchedulePut($this, $web, ['generations' => 1], 'sasg-bst-1')->assertForbidden()->assertJsonPath('error', 'step_up_required');
+    sasgSchedulePut($this, $web, ['generations' => 1], 'sasg-bst-1')->assertForbidden()->assertJsonPath('error', 'approval_required');
     expect(BackupPolicy::query()->where('service_id', $web->id)->exists())->toBeFalse();
     sasgSchedulePut($this, $web, ['frequency' => 'weekly'], 'sasg-bst-2')->assertOk(); // keeping what is kept is still the token's
 });
@@ -408,7 +409,7 @@ it('does not let a more frequent schedule thin out the history for somebody who 
     // a power-only token of the owner: no person to give the step-up
     $this->app['auth']->forgetGuards();
     $this->withToken($owner->createToken('ci', ['services:read', 'services:power'])->plainTextToken);
-    sasgSchedulePut($this, $web, ['frequency' => 'daily'], 'sasg-bf-3')->assertForbidden()->assertJsonPath('error', 'step_up_required');
+    sasgSchedulePut($this, $web, ['frequency' => 'daily'], 'sasg-bf-3')->assertForbidden()->assertJsonPath('error', 'approval_required');
     $unchanged();
 });
 

@@ -77,21 +77,29 @@ it('judges the age of the national bank list', function () {
     expect(goLiveRow($name))->toMatchArray(['ok' => true, 'remedy' => '']);
 });
 
-it('refuses a wildcard proxy, warns on an empty list in production and accepts exact addresses', function () {
+it('refuses a wildcard proxy, accepts the local nginx or nothing, and warns on a proxy in front in production (H-R2)', function () {
     $name = 'trusted proxies are exact addresses';
     TrustProxies::at('*');
     $wild = goLiveRow($name, new GoLiveChecks(production: false));
     expect($wild['ok'])->toBeFalse()->and($wild['blocking'])->toBeTrue()->and($wild['remedy'])->toContain('exact address');
 
+    // H0, owner decision H-R2: no proxy or CDN in front of the origin — nothing trusted is fine (nginx → PHP-FPM over FastCGI) …
     TrustProxies::flushState();
     $emptyProd = goLiveRow($name, new GoLiveChecks(production: true));
-    $emptyDev = goLiveRow($name, new GoLiveChecks(production: false));
-    expect($emptyProd['ok'])->toBeFalse()->and($emptyProd['blocking'])->toBeFalse()->and($emptyProd['remedy'])->toContain('TRUSTED_PROXIES')
-        ->and($emptyDev['ok'])->toBeTrue();
+    expect($emptyProd['ok'])->toBeTrue()->and($emptyProd['detail'])->toContain('FastCGI');
 
-    TrustProxies::at(['10.0.0.5', '10.0.0.6']);
-    $exact = goLiveRow($name, new GoLiveChecks(production: true));
-    expect($exact['ok'])->toBeTrue()->and($exact['detail'])->toContain('10.0.0.5')->and($exact['remedy'])->toBe('');
+    // … the local aaPanel nginx is the default …
+    TrustProxies::at(['127.0.0.1', '::1']);
+    $local = goLiveRow($name, new GoLiveChecks(production: true));
+    expect($local['ok'])->toBeTrue()->and($local['detail'])->toContain('H-R2')->and($local['remedy'])->toBe('');
+
+    // … and an address beyond it is a proxy the owner said is not there
+    TrustProxies::at(['127.0.0.1', '10.0.0.5']);
+    $foreign = goLiveRow($name, new GoLiveChecks(production: true));
+    $foreignDev = goLiveRow($name, new GoLiveChecks(production: false));
+    expect($foreign['ok'])->toBeFalse()->and($foreign['blocking'])->toBeFalse()->and($foreign['detail'])->toContain('10.0.0.5')
+        ->and($foreign['remedy'])->toContain('ROZHODNUTI.md')->and($foreignDev['ok'])->toBeTrue();
+    TrustProxies::flushState();
 });
 
 it('shows the API base URL as information only', function () {
@@ -172,7 +180,7 @@ it('treats the other wildcard, a blank proxy value and an exact list correctly',
     expect(goLiveRow($name, new GoLiveChecks(production: false))['ok'])->toBeFalse();
     TrustProxies::at(' , ');
     $blank = goLiveRow($name, new GoLiveChecks(production: true));
-    expect($blank['ok'])->toBeFalse()->and($blank['blocking'])->toBeFalse()->and($blank['remedy'])->toContain('process environment variable');
+    expect($blank['ok'])->toBeTrue()->and($blank['detail'])->toContain('nothing is trusted'); // H-R2: no proxy in front, nothing trusted is fine
 });
 
 it('warns for the array and null cache drivers in production too', function () {

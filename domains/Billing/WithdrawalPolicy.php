@@ -8,16 +8,20 @@ use Carbon\CarbonImmutable;
 use Onhost\Domain\Billing\Models\ChargebackRequest;
 use Onhost\Domain\Billing\Models\Withdrawal;
 use Onhost\Domain\Invoicing\AccountingClock;
+use Onhost\Domain\Invoicing\Models\Invoice;
+use Onhost\Domain\Invoicing\Models\InvoiceLine;
 use Onhost\Domain\Loyalty\LoyaltyRedemptions;
 use Onhost\Domain\Orders\Models\Consent;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\Orders\OrderStateMachine;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Payments\Models\PaymentIntent;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Services\IncludedServices;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\WalletLedger\Models\WalletTopup;
 use Onhost\Platform\Errors\DomainError;
 
 /**
@@ -41,6 +45,46 @@ final class WithdrawalPolicy
     public function enabled(): bool
     {
         return $this->ledger->enabled(self::RULE);
+    }
+
+    /**
+     * H0, owner decision H-R5 (2026-10-06): a credit top-up is not withdrawn from. It is an advance on services the customer has
+     * not chosen yet, and credit is never paid out in money (G-R4) — the withdrawal belongs to each service bought with it
+     * (forService), whose unused part comes back to the credit. Told the same way to the panel, to staff recording a notice and
+     * to the bus.
+     */
+    public static function refuseTopUp(): never
+    {
+        throw new DomainError('withdrawal_not_applicable', 'Od dobití kreditu nelze odstoupit: kredit je záloha na služby, které si teprve vyberete, a v penězích se nevrací (obchodní podmínky). Odstoupit můžete od každé služby, kterou z kreditu zaplatíte.', 422, ['why' => 'credit_topup', 'terms_url' => self::TERMS_URL]);
+    }
+
+    /**
+     * H0 (review M2 of #117): whether `$id` names a credit top-up of `$organizationId` — the top-up itself, its payment, or the
+     * document issued for that payment (a receipt or a payment confirmation of a top-up payment, or a document with a `topup`
+     * line). Asked of whatever id a withdrawal names, so a top-up is refused for what it is, not for the key it was sent under.
+     * Another organization's ids are never recognised: they stay "not found".
+     */
+    public static function isTopUpReference(string $id, string $organizationId): bool
+    {
+        if ($id === '' || $organizationId === '') {
+            return false;
+        }
+        if (WalletTopup::query()->whereKey($id)->where('organization_id', $organizationId)->exists()) {
+            return true;
+        }
+        if (PaymentIntent::query()->whereKey($id)->where('organization_id', $organizationId)->where('purpose', 'topup')->exists()) {
+            return true;
+        }
+        $document = Invoice::query()->whereKey($id)->where('organization_id', $organizationId)->first();
+        if ($document === null) {
+            return false;
+        }
+        $intent = data_get($document->meta, 'payment_intent_id');
+        if (is_string($intent) && $intent !== '' && PaymentIntent::query()->whereKey($intent)->where('purpose', 'topup')->exists()) {
+            return true;
+        }
+
+        return InvoiceLine::query()->where('invoice_id', $document->id)->where('sku', 'topup')->exists();
     }
 
     public static function days(): int

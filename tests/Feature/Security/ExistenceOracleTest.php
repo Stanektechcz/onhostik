@@ -16,6 +16,7 @@ use Onhost\Domain\Dns\Models\DnsZone;
 use Onhost\Domain\Domains\DomainStateMachine;
 use Onhost\Domain\Domains\Models\Domain;
 use Onhost\Domain\Domains\Models\RegistrarConnection;
+use Onhost\Domain\Identity\Authorization\Models\Approval;
 use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
 use Onhost\Domain\Identity\Models\ServiceAccount;
 use Onhost\Domain\Identity\Models\User;
@@ -242,12 +243,16 @@ function eoMoreRowsOfA(User $owner, Organization $org, array $ids): array
     $session = app(WebSessions::class)->open($owner->id, '127.0.0.1', 'pest');
     $endpoint = WebhookEndpoint::query()->create(['organization_id' => $org->id, 'url' => 'https://hooks.example.com/a', 'secret' => 'whsec-eo', 'events' => ['*'], 'state' => 'active', 'created_by' => $owner->id]);
     $delivery = WebhookDelivery::query()->create(['endpoint_id' => $endpoint->id, 'event' => 'service.activated', 'payload' => ['x' => 1], 'state' => 'failed', 'attempts' => 1]);
+    // H0 (H-R1): a request A's service account token opened for the owner to decide
+    $approval = Approval::query()->create(['action' => 'service.terminate', 'organization_id' => $org->id, 'payload' => ['permission' => 'service.delete', 'token' => ['id' => (string) $accountToken->getKey(), 'principal_type' => 'service_account', 'principal_id' => $account->id]],
+        'payload_hash' => str_repeat('a', 64), 'requested_by' => $account->id, 'state' => 'pending', 'expires_at' => now()->addDay()]);
 
     return [
         'case' => $abuse->id, 'dataRequest' => $dataRequest->id, 'hook' => $hook->id, 'link' => $link->id, 'listing' => $listing->id,
         'MarketplaceController@order' => $marketOrder->id, 'entry' => 'evidence-1', 'key' => 'file-1', 'connection' => $connection->id, 'account' => $account->id,
         'ServiceAccountController@token' => (string) $accountToken->getKey(), 'MeController@token' => (string) $personal->getKey(), 'ticket' => $ticket->id, 'offer' => $offer->id,
         'method' => $method->id, 'session' => $session, 'invitation' => $invitation->id, 'user' => $owner->id, 'endpoint' => $endpoint->id, 'delivery' => $delivery->id,
+        'approval' => $approval->id,
     ];
 }
 

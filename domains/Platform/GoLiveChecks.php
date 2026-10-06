@@ -58,7 +58,7 @@ final class GoLiveChecks
             $this->apiBaseUrl(), $this->cacheStore(), $this->tokenOrganization(),
             app(OutboxDeadLetters::class)->row(), // G7 (TASK-0115): events the relay gave up on
             // G10 (TASK-0119): what phase G added
-            $this->vatMode(), $this->customIsoScanner(), $this->customIsoStorage(), $this->loyalty(), $this->webhookSecretOverlap(),
+            $this->legalEntityVatMode(), $this->vatMode(), $this->customIsoScanner(), $this->customIsoStorage(), $this->loyalty(), $this->webhookSecretOverlap(),
         ];
     }
 
@@ -135,13 +135,23 @@ final class GoLiveChecks
             return $this->row('security', 'trusted proxies are exact addresses', false, 'TRUSTED_PROXIES trusts every sender (*): any client can claim any IP and dodge rate limits and the audit trail',
                 'set TRUSTED_PROXIES to the exact address(es) of the reverse proxy (comma separated) as a real process environment variable (systemd unit / FPM pool env, not .env), then php artisan config:cache', true);
         }
+        // H0, owner decision H-R2 (2026-10-06): no proxy and no CDN in front of the origin. The only proxy is aaPanel's own nginx on
+        // the same host, so the default trusts the loopback addresses alone (bootstrap/app.php) — and nothing at all is fine too
+        // while nginx hands requests to PHP-FPM over FastCGI (the client's address is REMOTE_ADDR itself)
         if ($list === []) {
-            return $this->row('security', 'trusted proxies are exact addresses', ! $this->isProduction(), 'TRUSTED_PROXIES is empty'.($this->isProduction() ? ': behind a proxy every client appears as the proxy' : ' (not production: nothing to judge)'),
-                'set TRUSTED_PROXIES to the exact address(es) of the reverse proxy (comma separated) as a real process environment variable (systemd unit / FPM pool env, not .env: bootstrap reads env() and config:cache skips .env), then php artisan config:cache; no proxy in front: leave it empty and accept this row');
+            return $this->row('security', 'trusted proxies are exact addresses', true, 'TRUSTED_PROXIES is set empty: nothing is trusted to name the client — right while nginx talks FastCGI to PHP-FPM; behind a local proxy_pass every client would be 127.0.0.1 (unset it to trust the local nginx, owner decision H-R2)', '');
+        }
+        $foreign = array_values(array_filter($list, fn (string $p) => ! in_array($p, self::LOOPBACK, true)));
+        if ($foreign === []) {
+            return $this->row('security', 'trusted proxies are exact addresses', true, 'only the local aaPanel nginx reverse proxy ('.implode(', ', $list).'); no proxy or CDN in front of the origin (owner decision H-R2)', '');
         }
 
-        return $this->row('security', 'trusted proxies are exact addresses', true, count($list).' address(es): '.implode(', ', array_slice($list, 0, 5)), '');
+        return $this->row('security', 'trusted proxies are exact addresses', ! $this->isProduction(), count($foreign).' address(es) beyond the local nginx: '.implode(', ', array_slice($foreign, 0, 5)).' — owner decision H-R2 says no proxy or CDN stands in front of the origin, so these may name any client\'s address',
+            'unset TRUSTED_PROXIES (the default trusts only 127.0.0.1 and ::1, the local aaPanel nginx) or set it to exactly those, as a real process environment variable (systemd unit / FPM pool env, not .env: bootstrap reads env() and config:cache skips .env), then php artisan config:cache; a CDN or proxy in front is a new owner decision recorded in docs/audit/2026-10-full-readiness/ROZHODNUTI.md first');
     }
+
+    /** H0 (H-R2): the addresses of the local aaPanel nginx — the only proxy the origin has. */
+    public const LOOPBACK = ['127.0.0.1', '::1', '127.0.0.0/8', '::1/128'];
 
     /** What the HTTP kernel was actually told, (set from TRUSTED_PROXIES in bootstrap/app.php). @return array<int,string>|string|null */
     private function configuredProxies(): array|string|null
@@ -190,6 +200,27 @@ final class GoLiveChecks
     // ── G10 (TASK-0119): the rows of phase G ──
 
     /** G2: the VAT mode documents are issued in is a decision, and the legal entity that issues them must carry a real VAT number if it is a payer. */
+    /**
+     * H0 (H-R0, review M4 of #117): documents are issued in the legal entity's VAT mode, so the row must exist and carry a mode.
+     * Without it the platform falls back to the declaration alone and the first document has no seller to freeze. Blocking: a
+     * deploy does not go on without it (FAIL in production).
+     */
+    private function legalEntityVatMode(): array
+    {
+        $key = (string) config('onhost.billing.legal_entity', 'onhost-cz');
+        $entity = VatPayerMode::legalEntity();
+        if ($entity === null) {
+            return $this->row('documents', 'legal entity carries its VAT mode', false, "legal entity {$key} is missing: no document can be issued and the VAT mode follows ONHOST_VAT_PAYER alone",
+                'php artisan onhost:production:prepare --legal (LegalEntitySeeder creates it with the declared ONHOST_VAT_PAYER; set the real legal entity values first)', true);
+        }
+        if ($entity->getAttribute('vat_payer') === null) {
+            return $this->row('documents', 'legal entity carries its VAT mode', false, "legal entity {$key} has no VAT mode (vat_payer is empty)",
+                'php artisan onhost:production:prepare --legal writes the declared ONHOST_VAT_PAYER into an entity without a mode; to change a mode later, finance switches it with a step-up and a second person: POST /v1/staff/tax/vat-payer-mode (docs/runbooks/vat-payer-mode.md)', true);
+        }
+
+        return $this->row('documents', 'legal entity carries its VAT mode', true, "legal entity {$key}: ".((bool) $entity->vat_payer ? 'VAT payer' : 'non-payer (owner decision H-R0)'), '', true);
+    }
+
     private function vatMode(): array
     {
         $report = app(VatPayerMode::class)->report();

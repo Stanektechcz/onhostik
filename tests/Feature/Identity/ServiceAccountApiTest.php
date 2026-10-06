@@ -230,10 +230,10 @@ it('never lets a service account token take a step-up action or act as a person'
     // (G7, TASK-0115: managing service accounts is no token's at all, so the bus says that before it asks for a step-up) …
     expect(fn () => app(CommandBus::class)->dispatch(new ServiceAccountCommand($org->id, 'sa-self-'.Str::ulid(), ['op' => 'create', 'name' => 'child', 'role' => 'viewer', 'scopes' => ['services:read']]), $context))
         ->toThrow(DomainError::class, 'This action is not available to API tokens');
-    // … and a HIGH action its scope does cover (a restore under services:power) still meets the step-up it can never take
+    // … and a HIGH action its scope does cover (a restore under services:power) cannot take a step-up: it waits for the owner's approval (H0, owner decision H-R1)
     $web = featureWebService($org, 'aapanel');
     expect(fn () => app(CommandBus::class)->dispatch(new ServiceActionCommand($org->id, 'sa-restore-'.Str::ulid(), ['service_id' => $web->id, 'project_id' => $web->project_id, 'action' => 'restore', 'params' => []]), $context))
-        ->toThrow(DomainError::class, 'Service accounts cannot perform actions that require step-up');
+        ->toThrow(DomainError::class, 'needs the approval of the organization\'s owner');
     expect(ServiceAccount::query()->count())->toBe(1);
 });
 

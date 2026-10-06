@@ -242,12 +242,13 @@ it('lets the owner issue a scoped personal token that reads what it was given an
     // 4. the token acts for its organization only
     apiFlowCall($this, 'GET', '/v1/services', [], ['X-Organization' => 'org_someone_else'])->assertForbidden()->assertJsonPath('error', 'token_organization_mismatch');
 
-    // 5. HIGH actions are refused through a token even when its scope covers the family: a token session never holds a step-up
+    // 5. HIGH actions are refused through a token even when its scope covers the family: a token session never holds a step-up, so the
+    //    refusal opens a request the organization's owner approves in the portal (H0, owner decision H-R1)
     apiFlowOwner($this, 'owner.token@example.cz', $password);
     [$powerPlain, $powerId] = apiFlowPersonalToken($this, ['services:read', 'services:power'], 'operator');
     apiFlowToken($this, $powerPlain);
     $terminate = apiFlowCall($this, 'POST', "/v1/services/{$service->id}/actions", ['action' => 'terminate', 'params' => []], apiFlowKey('terminate'), TokenScopes::SERVICES_POWER);
-    expect($terminate->getStatusCode())->toBeIn([403, 428])->and($terminate->json('error'))->toBe('step_up_required');
+    expect($terminate->getStatusCode())->toBeIn([403, 428])->and($terminate->json('error'))->toBe('approval_required');
     expect($service->refresh()->state)->toBe(ServiceStateMachine::ACTIVE);
 
     // 6. a write replays under the same Idempotency-Key, refuses the same key with another body, and is 409 while the first copy still runs

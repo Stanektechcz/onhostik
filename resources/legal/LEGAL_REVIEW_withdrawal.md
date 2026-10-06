@@ -43,3 +43,13 @@ vypnutý, dokud ho provozovatel nezapne.
    přeformulovaná neutrálně (platby podle čl. 8 VOP a zákona, kredit se v hotovosti nevyplácí). Potvrďte text a výklad
    § 1831/§ 1832 OZ, o který se opírá výjimka v `docs/audit/2026-10-full-readiness/ROZHODNUTI.md` (G-R4).
 9. Zůstatek kreditu při zrušení účtu (výmaz): propadá, nebo musí být vrácen?
+
+**Rozhodnutí vlastníka H-R5 (2026-10-06)** k otázkám 8 a 9 — provedeno v kódu, právník ověří text a výklad:
+
+* Od dobití kreditu se neodstupuje (`WithdrawalPolicy::refuseTopUp`, `why: credit_topup`; i finanční tým při zápisu oznámení
+  zaslaného e-mailem či dopisem). Odstupuje se od služeb zaplacených z kreditu.
+* Při výmazu účtu kredit propadá: náhled `GET /v1/data-requests/deletion-preview` ukáže zůstatek a varování, žádost o výmaz
+  se zůstatkem projde jen s `credit_forfeit_acknowledged: true`, a výmaz zaúčtuje propadnutí (`credit_forfeit`: koupený kredit
+  do výnosu `revenue:forfeited_credit`, promo kredit zpět do `expense:promo`).
+* Texty: VOP čl. 2 body 4 a 5, poučení čl. 1 bod 5 a čl. 2 — opět bez změny verze `2026-09` (viz otázka 6): rozhodněte, zda
+  vydat novou verzi a jak naložit se souhlasy ke staré verzi. Účetní posoudí DPH u propadlé zálohy (až bude ONhost plátcem).

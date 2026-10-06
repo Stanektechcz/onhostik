@@ -689,6 +689,84 @@ Koncové body, které jednají za člověka (třeba tikety), mu odpovídají `40
 curl -s "$ONHOST_API/me" -H "Authorization: Bearer $SA_TOKEN" -H "Accept: application/json"
 ```
 
+### Riskantní akce klíčem čeká na schválení vlastníka (H0)
+
+Akci s vysokým rizikem (zrušení služby, obnova ze zálohy, smazání zálohy …) klíč sám neprovede: potvrzení (step-up) klíč nikdy
+nemá. Místo odmítnutí dostane `403 approval_required` s `approval_id` — otevřela se žádost, kterou **schvaluje vlastník nebo správce
+organizace (`org_admin`)** v panelu s čerstvým potvrzením. Klíč pak pošle **stejný požadavek** znovu s `approval_ids` a ten se provede jednou.
+Schválení platí jen pro ten klíč, tu akci a ta data; žádost svého vlastního osobního klíče si nikdo neschválí (schválí ji jiný správce nebo vlastník; na
+automatizaci je servisní účet). Zaměstnanci ONhost žádosti klíčů neschvalují.
+
+Vlastník založí druhý účet, který smí služby ovládat (role správce, rozsahy `services:read` a `services:power`):
+
+```bash
+# expect: 201
+# scope: none
+# save: SA2_ID=data.id
+# save: SA2_TOKEN=token
+curl -s -X POST "$ONHOST_API/service-accounts" -b "$JAR" -c "$JAR" -H "Referer: $ONHOST_BASE" -H "X-XSRF-TOKEN: $XSRF" -H "Accept: application/json" -H "Content-Type: application/json" -H "Idempotency-Key: $(uuidgen)" -d '{"name":"Nasazení","role":"org_admin","scopes":["services:read","services:power"]}'
+```
+
+```bash
+# expect: 200
+# scope: services:read
+# save: SVC_ID=data.0.id
+curl -s "$ONHOST_API/services?limit=1" -H "Authorization: Bearer $SA2_TOKEN" -H "Accept: application/json"
+```
+
+Klíč požádá o zrušení služby. **Nic se nestane**, jen se otevře žádost (na stagingu použijte službu, o kterou nepřijdete; v tomhle
+scénáři žádost vlastník zamítne):
+
+```bash
+# expect: 403
+# scope: services:power
+# expect-error: approval_required
+# save: APPROVAL_ID=approval_id
+curl -s -X POST "$ONHOST_API/services/$SVC_ID/actions" -H "Authorization: Bearer $SA2_TOKEN" -H "Accept: application/json" -H "Content-Type: application/json" -H "Idempotency-Key: $(uuidgen)" -d '{"action":"terminate","params":[]}'
+```
+
+Žádost vidí vlastník a správci (a jinak jen ten, komu patří osobní klíč, který o ni požádal); klíč na tenhle seznam nesmí:
+
+```bash
+# expect: 200
+# scope: none
+# expect-json: data.0.id=$APPROVAL_ID
+# expect-json: data.0.state=pending
+curl -s "$ONHOST_API/token-approvals" -b "$JAR" -c "$JAR" -H "Referer: $ONHOST_BASE" -H "X-XSRF-TOKEN: $XSRF" -H "Accept: application/json"
+```
+
+```bash
+# expect: 403
+# scope: none
+curl -s "$ONHOST_API/token-approvals" -H "Authorization: Bearer $SA2_TOKEN" -H "Accept: application/json"
+```
+
+Vlastník (nebo správce) rozhodne (čerstvé potvrzení z kroku 2; jinak zopakujte krok 8). Schválení je `{"decision":"approved"}`; tady žádost zamítne:
+
+```bash
+# expect: 200
+# scope: none
+# expect-json: data.state=rejected
+curl -s -X POST "$ONHOST_API/token-approvals/$APPROVAL_ID/decision" -b "$JAR" -c "$JAR" -H "Referer: $ONHOST_BASE" -H "X-XSRF-TOKEN: $XSRF" -H "Accept: application/json" -H "Content-Type: application/json" -H "Idempotency-Key: $(uuidgen)" -d '{"decision":"rejected","note":"ruční test"}'
+```
+
+Zamítnutá žádost nic neodemkne: stejný požadavek s `approval_ids` je zase `403` a otevře novou žádost (po schválení by tady
+přišlo `202` a akce by se provedla jednou; ověřuje `tests/Feature/OwnerDecisionsH0/TokenApprovalTest.php`):
+
+```bash
+# expect: 403
+# scope: services:power
+# expect-error: approval_required
+curl -s -X POST "$ONHOST_API/services/$SVC_ID/actions" -H "Authorization: Bearer $SA2_TOKEN" -H "Accept: application/json" -H "Content-Type: application/json" -H "Idempotency-Key: $(uuidgen)" -d "{\"action\":\"terminate\",\"params\":[],\"approval_ids\":[\"$APPROVAL_ID\"]}"
+```
+
+```bash
+# expect: 200
+# scope: none
+# expect-json: deleted=true
+curl -s -X DELETE "$ONHOST_API/service-accounts/$SA2_ID" -b "$JAR" -c "$JAR" -H "Referer: $ONHOST_BASE" -H "X-XSRF-TOKEN: $XSRF" -H "Accept: application/json"
+```
+
 Po zrušení klíče je další požadavek `401`. Klíč se zruší vlastníkem v panelu nebo takto:
 
 ```bash
@@ -854,4 +932,5 @@ odpoví `409 loyalty_points_unavailable` a košík je třeba obnovit.
 - [ ] 9b: po otočení tajemství podepisuje starý klíč dál v `X-ONhost-Signature-Previous` po dobu překryvu (`previous_secret_valid_until`), s `{"overlap":false}` hned přestane
 - [ ] 3b: rozsah klíče platí i na sběrnici: bez `tickets:write` ani předání chatu, bez `services:console` žádný shell, zrušený klíč je 401
 - [ ] 10: servisní účet jen vlastník, `/me` s ním řekne `type: service_account` s rolí a rozsahy, po zrušení klíče `401`
+- [ ] 10b (H0): riskantní akce klíčem = `403 approval_required` s `approval_id`; žádost vidí a rozhoduje vlastník nebo správce v panelu se step-upem (nikdy ten, kdo žádá), klíč ani personál ne; zamítnutá ani cizí žádost nic neodemkne, schválená jednou
 - [ ] 12: body jen z panelu, nejméně 100, ne víc než volných; nabídka má řádek `loyalty-redeem` a strop 20 % (`max_points`)

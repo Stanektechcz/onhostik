@@ -4,11 +4,31 @@ Owner decision G-R1 (2026-10-05): only the invoice is a tax document, and the pl
 seller who is not one, with proforma (advance) invoices. This runbook is for the operator and finance; the accountant's open
 questions are at the end.
 
+## Owner decision H-R0 (2026-10-06): not a VAT payer now
+
+ONhost is **not** a VAT payer today and becomes one later. Therefore:
+
+* the declaration defaults to `ONHOST_VAT_PAYER=false` (`config/vat.php`, `.env.example`); a legal entity created by
+  `LegalEntitySeeder` / `onhost:production:prepare --legal` is a non-payer (before H0 the seeder never wrote the declaration — the
+  re-fetched row was never "recently created" — so every new entity kept the column default *payer*);
+* a platform without its legal entity follows the declaration (it used to count as a payer whatever was declared);
+* an **existing** legal entity is never switched by a deploy or a seeder run: if it still says *payer*, `onhost:doctor` (row
+  *VAT payer mode*) and `php artisan onhost:vat:payer-mode` (exit 1) show the disagreement, and finance switches it with the path
+  below (step-up, second person) **before the first document is issued**;
+* **becoming a payer later** is the same path the other way: `ONHOST_VAT_PAYER=true` + `config:cache`, then
+  `POST /v1/staff/tax/vat-payer-mode {payer: true, reason}` with a step-up and a second person; documents issued before keep
+  their seller (no VAT on them).
+
+Non-payer documents show no VAT (no DUZP, no VAT columns, "Neplátce DPH", no CZK recap): `G2VatPayerTest` ("keeps a
+non-payer's invoice …", "gives a non-payer's advance a payment confirmation …", "… a non-payer's EUR invoice has no CZK VAT
+recap") and `tests/Feature/OwnerDecisionsH0/VatNonPayerDefaultTest.php`. The test suite itself runs as a payer (`phpunit.xml`
+sets `ONHOST_VAT_PAYER=true`), because most of its VAT tests describe the payer.
+
 ## The mode
 
 | Where | What |
 | --- | --- |
-| `ONHOST_VAT_PAYER` → `config/vat.php` `payer` (default `true`) | the mode the operator declares |
+| `ONHOST_VAT_PAYER` → `config/vat.php` `payer` (default **`false`** since owner decision H-R0, 2026-10-06: ONhost is not a VAT payer now) | the mode the operator declares |
 | `legal_entities.vat_payer` (+ `meta.vat_payer_history`) | the mode documents are issued in |
 | active tax rules `supplier.vat_payer` | can only narrow it (a rule set that says `false` makes the seller a non-payer) |
 | `Onhost\Domain\Tax\VatPayerMode` | the one answer: payer = legal entity **and** tax rules |

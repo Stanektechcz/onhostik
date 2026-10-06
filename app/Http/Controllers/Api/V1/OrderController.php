@@ -85,9 +85,22 @@ final class OrderController extends ApiController
         return $this->dispatch(new DecideOrderApprovalCommand($organization->id, $this->idempotencyKey($request, "order.approval:{$model->id}"), ['order_id' => $model->id, 'decision' => $data['decision'], 'reason' => $data['reason'] ?? null]), $this->api->context($request, $organization, $data['reason'] ?? null));
     }
 
+    /**
+     * H0 (H-R5, review M2 of #117): the id of one of the caller's own top-ups (its document, its payment) is answered as a top-up —
+     * no withdrawal — not as a missing order. Another organization's ids stay not found (no oracle).
+     */
+    private function refuseTopUpReference(Request $request, string $id): void
+    {
+        $organization = $this->api->organization($request, false);
+        if ($organization !== null && WithdrawalPolicy::isTopUpReference($id, $organization->id)) {
+            WithdrawalPolicy::refuseTopUp();
+        }
+    }
+
     /** Consumer withdrawal from a paid order nothing of which was delivered yet (TASK-0025): whether it is still possible and until when. */
     public function withdrawal(Request $request, WithdrawalPolicy $policy, WithdrawalService $withdrawals, string $order): JsonResponse
     {
+        $this->refuseTopUpReference($request, $order);
         $model = $this->resolve($request, $order);
         $this->api->authorize($request, 'billing.wallet.read', CommandScope::organization($model->organization_id)); // the refund, the credit notes and what went back to the credit are the organization's money
         $record = Withdrawal::query()->where('subject_key', 'order:'.$model->id)->first();
@@ -98,6 +111,7 @@ final class OrderController extends ApiController
     /** The consumer withdraws from the order (fresh step-up): it is cancelled, every line credited and the credit freed. */
     public function requestWithdrawal(Request $request, string $order): JsonResponse
     {
+        $this->refuseTopUpReference($request, $order);
         $model = $this->resolve($request, $order);
         $data = $request->validate(['confirm_refund_to_credit' => ['accepted'], 'statement' => ['nullable', 'string', 'max:2000']]);
 

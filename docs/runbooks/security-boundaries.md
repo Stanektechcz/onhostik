@@ -849,6 +849,11 @@ Tests: `tests/Feature/Identity/ServiceAccountApiTest.php`, `tests/Feature/Http/A
 Every API limiter that matters for abuse (`probes`, `callbacks`, `public`, `auth`, the failed-authentication throttle) is keyed by the
 client **address**. Operator note:
 
+* **Owner decision H-R2 (2026-10-06): no proxy and no CDN in front of the origin.** Without `TRUSTED_PROXIES` the platform trusts only the
+  local aaPanel nginx (`127.0.0.1`, `::1`, `bootstrap/app.php`); an explicit empty value trusts nothing (right while nginx hands requests
+  to PHP-FPM over FastCGI — the client's address is `REMOTE_ADDR` itself). A loopback trust lets any process on the host name a client
+  address through `X-Forwarded-For`; the platform host runs nothing that is not ours. A CDN or another proxy in front is a new owner
+  decision recorded in `docs/audit/2026-10-full-readiness/ROZHODNUTI.md` first; the doctor warns about any address beyond loopback.
 * Behind a reverse proxy, load balancer or CDN set `TRUSTED_PROXIES` in `.env` to the **exact** proxy addresses (comma-separated).
   Without it Laravel sees the proxy's address for every request, so **every client shares one bucket** — one noisy caller (or a
   burst of bearer guesses) then answers 429 for everybody.

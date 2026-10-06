@@ -121,7 +121,7 @@ final class ApprovalService
         $waived = self::waivesFor((string) $context->actorId);
         $existing = Approval::query()->where('action', $command->name())->where('payload_hash', $hash)->where('requested_by', (string) $context->actorId)
             ->where('state', 'pending')->where('expires_at', '>', now())->orderBy('created_at')->get()
-            ->first(fn (Approval $a) => ! $waived || self::timeLockOf($a) !== null);
+            ->first(fn (Approval $a) => TokenApprovals::tokenOf($a) === null && (! $waived || self::timeLockOf($a) !== null)); // H0: a token's request is never the portal's
         if ($existing !== null) {
             return $existing;
         }
@@ -304,7 +304,8 @@ final class ApprovalService
         ];
     }
 
-    private static function scopeOf(Approval $approval): CommandScope
+    /** The scope an approval was asked at (public since H0: TokenApprovals asks the owner's right there too). */
+    public static function scopeOf(Approval $approval): CommandScope
     {
         $scope = (array) data_get($approval->payload, 'scope', []);
         $organization = is_string($scope['organization_id'] ?? null) ? (string) $scope['organization_id'] : '';
