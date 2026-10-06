@@ -1387,3 +1387,7 @@ Schedule::command('onhost:withdrawals:finish')->hourlyAt(25)->withoutOverlapping
 // ── TASK-0031: re-check the VIES-valid VAT numbers before their 30 days run out (tax.vies_recheck, off by default) ──
 Schedule::command('onhost:vat:recheck')->dailyAt('04:20')->withoutOverlapping()->onOneServer();
 // ── end TASK-0031 ──
+
+// ── TASK-0123: every running Penpot answers, and gets its daily backup (database dump + assets on its node) ──
+Schedule::command('onhost:penpot:sweep')->everyTenMinutes()->withoutOverlapping()->onOneServer();
+// ── end TASK-0123 ──

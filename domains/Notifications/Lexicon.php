@@ -263,6 +263,12 @@ final class Lexicon
         '; mechanika a pořadí bootování jsou zpět, jak byly před připojením.' => ' out of the drive; the drive and the boot order are back as they were before it was attached.',
         'Vlastní ISO smazáno: ' => 'Custom ISO deleted: ', 'Obraz i jeho kopie na serverech jsou pryč a místo v kvótě organizace je volné.' => 'The image and its copies on the servers are gone, and its room in the organization\'s quota is free.',
         'Služba dnes zabírá víc, než tarif nabízí. Do data účinnosti uvolněte místo (staré zálohy, logy, nepoužívané databáze nebo schránky), nebo přejděte na vyšší tarif — jinak po tomto datu nepůjde přidávat další obsah.' => 'The service takes more today than the plan offers. Free up space before the effective date (old backups, logs, unused databases or mailboxes) or move to a higher plan; after that date no more content can be added.',
+        // TASK-0123: Penpot for web hosting (PenpotNotifications)
+        'Penpot je připraven' => 'Penpot is ready', 'Adresa: ' => 'Address: ', '. Přihlašovací e-mail: ' => '. Sign-in e-mail: ', '. Heslo k účtu si nastavíte v panelu u služby.' => '. Set the account password in the panel, with the service.',
+        'Penpot neodpovídá' => 'Penpot is not responding', ' teď neodpovídá. Technici o tom vědí a řeší to.' => ' is not responding right now. Our engineers know and are on it.',
+        'Penpot opět běží' => 'Penpot is running again', ' znovu odpovídá.' => ' responds again.',
+        'Heslo k Penpotu bylo změněno' => 'The Penpot password was changed', 'Heslo účtu ' => 'The password of the account ', ' v instanci ' => ' in the instance ',
+        ' bylo změněno. Pokud jste to nebyli vy, změňte ho znovu a napište podpoře.' => ' was changed. If it was not you, change it again and contact support.',
     ];
 
     public static function translate(?string $text, string $locale): ?string

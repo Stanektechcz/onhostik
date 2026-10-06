@@ -29,6 +29,7 @@ use Onhost\Providers\Contracts\MailProvider;
 use Onhost\Providers\Contracts\ResourceRef;
 use Onhost\Providers\Contracts\WebHostingProvider;
 use Onhost\Providers\Contracts\WebToolsProvider;
+use Onhost\Providers\Penpot\PenpotDockerProvider;
 use Throwable;
 
 /**
@@ -135,6 +136,7 @@ final class FinalArchive
                     'game' => $this->game($adapter, $ref, $work, $gaps),
                     'mail' => $this->mail($adapter, $ref, $work, $gaps),
                     'cloud', 'data' => $snapshot = $this->snapshot($adapter, $ref, $gaps),
+                    'penpot' => $this->penpot($adapter, $ref, $work), // TASK-0123: the database dump and the assets, pulled off the node
                     default => $gaps[] = "family {$service->family}: only the service metadata is archived",
                 };
             }
@@ -661,6 +663,28 @@ final class FinalArchive
         }
         if ($bytes < 64) {
             throw new DomainError('final_archive_download', 'The game server backup could not be downloaded; nothing was deleted.', 503);
+        }
+    }
+
+    /**
+     * A Penpot stack (TASK-0123): a fresh backup on the node (pg_dump + the assets volume), both files pulled into the archive.
+     * Anything short of that refuses the termination — the designs exist nowhere else.
+     */
+    private function penpot(?object $adapter, ?ResourceRef $ref, string $work): void
+    {
+        if (! $adapter instanceof PenpotDockerProvider || $ref === null) {
+            throw new DomainError('final_archive_backup', 'The Penpot node is not reachable for the final backup; nothing was deleted.', 503);
+        }
+        try {
+            $stamp = (string) ($adapter->backup($ref, ['notes' => 'final archive before termination'])->data['backup_uuid'] ?? '');
+            foreach (['db.sql.gz' => 'penpot-database.sql.gz', 'assets.tar.gz' => 'penpot-assets.tar.gz'] as $file => $name) {
+                $adapter->downloadBackup($ref, $stamp, $file, $work.'/'.$name);
+                if (! is_file($work.'/'.$name) || (int) filesize($work.'/'.$name) < 20) {
+                    throw new DomainError('final_archive_download', "The Penpot backup file {$file} came back empty; nothing was deleted.", 503);
+                }
+            }
+        } catch (ProviderException $e) {
+            throw new DomainError('final_archive_download', 'The Penpot backup could not be taken or downloaded; nothing was deleted. ('.mb_substr($e->getMessage(), 0, 160).')', 503);
         }
     }
 

@@ -334,3 +334,16 @@ no longer open it) and `service.console.closed` (the relay's alive check closed 
 | `webhook.endpoint.suspended` | webhook_endpoint | `host` (the endpoint's host, never its path: chat URLs carry a credential there), `failures` (consecutive failed attempts, 20), `last_status` (HTTP status of the last attempt, null for a transport error) — an endpoint that kept failing was suspended; nothing is sent to it until the customer turns it on again (`POST /v1/webhooks/{id}/enable`). Routed to the customer (portal notice `account`, mail `webhook-suspended`); not itself a webhook event | WebhookDispatcher |
 | `webhook.ping` | webhook_endpoint | `endpoint_id` — not an outbox event: the test delivery `POST /v1/webhooks/{id}/ping` sends to that endpoint only | WebhookDispatcher::ping |
 <!-- TASK-0077 webhooks: end -->
+
+<!-- TASK-0123 penpot: begin -->
+Penpot for web hosting (H8). Routed by `domains/Services/Penpot/PenpotNotifications.php` (a listener of its own, in the
+organization's language through the Lexicon), not by NotificationRouter; `service.terminated` of a Penpot service also removes its
+vault entry (`ForgetPenpotSecrets`).
+
+| Event | Aggregate | Payload / meaning | Source |
+| --- | --- | --- | --- |
+| `penpot.instance.ready` | service | `label`, `url`, `owner_email` — the instance answers on its address; the customer in-app ("Penpot je připraven": address, sign-in e-mail, set the password in the panel) | ProvisionPenpotWorkflow (last step) |
+| `penpot.instance.unreachable` | service | `label`, `status` (containers: running/stopped/degraded/missing/unreachable), `http` (status code of the probe, 0 = nothing) — two silent probes in a row; the customer in-app (warn) and staff in-app (hot) | PenpotSweep (`onhost:penpot:sweep`) |
+| `penpot.instance.recovered` | service | `label` — an instance that was reported unreachable answers again; the customer in-app | PenpotSweep |
+| `penpot.owner_password.changed` | service | `label`, `owner_email`, `actor_id` — the password of the owner's Penpot account was set (never the password); the customer in-app (warn: "if it was not you…") | PenpotOwnerWorkflow |
+<!-- TASK-0123 penpot: end -->
