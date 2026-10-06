@@ -615,3 +615,77 @@ Stav nad `origin/development` po sloučení PR #103 až #114 (úkoly TASK-0110 a
 * Nestabilní testy: #74 (Discord) a #96 (`LexiconCoverageTest`) jsou věc jiných relací (PR otevřené).
 * Doba běhu sady: `pest-postgres` trvá 17 až 25 minut a opakovaně se rušil; limit úlohy zvýšen na 40 minut (tato změna). Úvaha o rozdělení sady zůstává.
 * Vlastní ISO: zákaznická oznámení k událostem `service.iso.*` (Lexicon), záznamy v `docs/architecture/events-catalog.md`, úklid osiřelých souborů `incoming/`, případný doplněk, který `custom_iso` přidá (nic z toho není postavené).
+
+## Stav po fázi H (2026-10-06)
+
+Stav nad `origin/development` po sloučení PR #116 až #121 (úkoly TASK-0121 až TASK-0126, všechny `INTEGRATED`; úkol TASK-0127 je tento závěrečný zápis). Rozhodnutí vlastníka H-R0 až H-R6 (a varianty H-R0a, H-R1a, H-R3a, H-R5a, H-R5b, H-R6a) jsou v `ROZHODNUTI.md`. Žádný server nebyl změněn; krok rehearsalu (H6) je připravený, ne spuštěný.
+
+### Sloučená práce fáze H
+
+| PR | Úkol | Obsah |
+|---|---|---|
+| #116 | H1 + H3, TASK-0121 | Oznámení zákazníkovi k vlastním ISO obrazům (`service.iso.*`), doplněk „Vlastní ISO“ pro jedno VPS, úklid osiřelých souborů `incoming/` (karanténa, retence, `--dry-run`). Peníze: report vratek, které nikdo znovu nevyplatil, odhad vratky podle skutečně zaplaceného, povolený seznam klíčů v nabídce košíku, návratové adresy brány jen na portál (`PAYMENT_RETURN_HOSTS` pro Comgate, GoPay i Stripe). |
+| #117 | H0, TASK-0122 | Rozhodnutí vlastníka z 2026-10-06: výchozí neplátce DPH, riskantní akce tokenu čekají na schválení vlastníka nebo správce organizace (S1-05), `TRUSTED_PROXIES` jen loopback, `services.reinstate` zapnuto, tarify s vlastním ISO schválené (dokumentace), od dobití kreditu nelze odstoupit a kredit při výmazu propadá, prototyp `onhost-domains.js` archivován. |
+| #118 | H2 + H4, TASK-0124 | UI: `window.prompt` pryč z admin Blade a `service-console` (`OnhostDialog`), opravy seamů. CI: rozdělená sada `pest-postgres` na shardy, průchod oraclů. |
+| #119 | H8, TASK-0123 | Penpot pro webhosting: vlastní Docker uzel přes SSH, zpevněný; jen s fakes, katalogová revize připravená a neaplikovaná (`docs/runbooks/penpot.md`, ruční test `11-penpot.md`). |
+| #120 | H5, TASK-0125 | Výkon: indexy, benchmark v doctoru, přepis závislosti `shell-quote`. |
+| #121 | H6, TASK-0126 | Skript zkoušky go-live na stagingu (`docs/runbooks/staging-rehearsal-2026-10.md`), připravený, nespuštěný. |
+
+### Nálezy a navazující body, jejichž stav se ve fázi H změnil
+
+| Bod | Stav | PR | Poznámka |
+|---|---|---|---|
+| S1-05 schvalování riskantních akcí tokenu | hotovo | #117 | `403 approval_required`, rozhoduje vlastník/správce organizace se step-upem; personál ne. |
+| `TRUSTED_PROXIES` | rozhodnuto, hotovo | #117 | Loopback; doctor hlídá. |
+| `services.reinstate` | rozhodnuto, zapnuto | #117 | Audit `onhost:billing:reinstatement-audit` před nasazením. |
+| Tarify s vlastním ISO | rozhodnuto | #117 | Revizi `2026-10-custom-iso` provede operátor po krocích G-4 až G-7. |
+| G-R4 otázky 1 a 2 (dobití a odstoupení, kredit při zrušení účtu) | rozhodnuto | #117 | H-R5; zbývá potvrzení právníkem a znění VOP (otázka 3). |
+| VAT: kdy přejít na plátce | rozhodnuto (zatím neplátce) | #117 | H-R0; přechod je akce financí. |
+| Mrtvý modul `OnhostDomains` | hotovo | #117 | Archivován, ne smazán. |
+| `window.prompt` v admin Blade a `service-console` | hotovo | #118 | – |
+| Doba běhu sady `pest-postgres` | hotovo | #118 | Shardy. |
+| Zákaznická oznámení `service.iso.*`, doplněk `custom_iso`, úklid `incoming/` | hotovo | #116 | – |
+| Vratky bez výplaty, odhad vratky, návratové URL brány | hotovo | #116 | – |
+| Penpot pro webhosting | kód hotový, produkt neprodáván | #119 | Čeká na uzel a revizi katalogu. |
+| Výkon (indexy, benchmark) | hotovo | #120 | – |
+| Zkouška go-live na stagingu | připraveno | #121 | Nespuštěno. |
+
+### Otevřené body po fázi H
+
+#### Rozhodnutí vlastníka
+
+* R3: výsledek kontroly PBS, teprve potom `backups.compute`.
+* Spící oprávnění.
+* Testovací účet Comgate (skutečný záznam odpovědí).
+* Nová verze VOP (G-R4/3) a ověření právníkem: odstoupení od dobití, propadnutí kreditu (`resources/legal/LEGAL_REVIEW_withdrawal.md`, otázky 8 a 9); účetní posoudí DPH propadlé zálohy, až bude ONhost plátcem.
+* Texty prototypových obrazovek, které stále slibují vrácení kreditu.
+* Potvrzení účetní: sleva za věrnostní body je sleva při prodeji; potvrzení právníkem výkladu § 1831 OZ.
+* R7: rozhodnutí financí o dvojím naúčtování (migrace může na produkci s reálným duplicitním naúčtováním zastavit).
+* Kdy a jak přepnout na plátce DPH (`ONHOST_VAT_PAYER`, finance se step-upem a druhou osobou).
+* Zda a kdy prodávat Penpot (uzel, cena, revize katalogu) a kdy spustit revizi `2026-10-custom-iso`.
+
+#### Kroky na serveru (operátor)
+
+* Ověřit direktivu usranalyse.
+* `onhost:billing:reinstatement-audit` před nasazením H0, pak `onhost:catalog:revise --apply` (a po krocích G-4 až G-7 revize `2026-10-custom-iso`; revize Penpotu).
+* Zkontrolovat řádky doctoru *legal entity carries its VAT mode* (`onhost:production:prepare --legal`) a *trusted proxies*.
+* TOTP a obnova `expected-nonok`.
+* Capacity basis, klíče Turnstile, clamd (podmínka vlastního ISO, `docs/runbooks/custom-iso.md`).
+* Sdílený cache store.
+* `ONHOST_TOKEN_ORGANIZATION_REQUIRED` po `operator:tokens:unbound`.
+* Nasazení relay konzole.
+* Test reinstalace VPS na testovacím uzlu.
+* Ověření úklidu aaPanelu.
+* `systemctl enable --now onhost-queue@webhooks`.
+* Dedikovaný Penpot uzel (SSH, Docker) podle `docs/runbooks/penpot.md`.
+* Spustit zkoušku `docs/runbooks/staging-rehearsal-2026-10.md` na stagingu; překontrolovat §10 go-live checklistu a runbook prvního dne (G10).
+
+#### Inženýrské navazující body
+
+* Tvrzení prototypu v `onhost-svc-*.js` a texty o vrácení kreditu (prototypy mění jen seam).
+* Znovu vygenerovat API klienty.
+* UX rotace remember tokenu.
+* Dvojí započtení základu fragmentu.
+* Resize aaPanelu (známý limit).
+* Rozšířit `ExistenceOracleTest`.
+* Nestabilní testy: #74 (Discord) a #96 (`LexiconCoverageTest`), věc jiných relací.
