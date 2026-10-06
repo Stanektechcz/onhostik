@@ -375,7 +375,7 @@ Technické navazující body:
 
 ## Stav po fázi F (závěrečný průchod, 2026-10-05)
 
-Závěrečný průchod nad `origin/development` (poslední sloučený PR #101) vychází z čerstvého čtení tohoto souboru a kódu. „Hotovo“ znamená sloučeno s testy; „otevřeno“ znamená, že práce neproběhla, nebo čeká na rozhodnutí vlastníka či zásah operátora na serveru. Čísla PR jsou z repozitáře `Stanektechcz/onhostik`.
+Závěrečný průchod nad `origin/development` (stav k PR #101; po něm viz „Stav po fázi G“ na konci) vychází z čerstvého čtení tohoto souboru a kódu. „Hotovo“ znamená sloučeno s testy; „otevřeno“ znamená, že práce neproběhla, nebo čeká na rozhodnutí vlastníka či zásah operátora na serveru. Čísla PR jsou z repozitáře `Stanektechcz/onhostik`.
 
 Opravy proti starším tabulkám:
 - Seeder `wedos-main` je opravený v #99: zakládá se vypnutý a bez přihlašovacích údajů, stav poskytovatele se nastaví jen při vytvoření záznamu.
@@ -528,3 +528,90 @@ Opravy proti starším tabulkám:
 * Nestabilní testy: #74 (Discord, PR otevřen) a #96 (`LexiconCoverageTest`, PR otevřen) jsou věc jiných relací. `getenv()` při paralelním běhu (číselný název proměnné prostředí, int klíč pod `strict_types`) a náhodné hodnoty v `ArchiveRestoreScopeTest` opraveny v G9.
 * ~~Stavové řádky v `.ai/tasks`.~~ Sloučené úkoly jsou sjednocené na `INTEGRATED` (G9, TASK-0116).
 * ~~README neobsahuje #65, #73 a #74.~~ Doplněno: #65 = uzavření fáze C (TASK-0072), #73 = uzavření fáze D (TASK-0080), #74 = oprava okna dávky action hooků (otevřený PR).
+
+## Stav po fázi G (2026-10-06)
+
+Stav nad `origin/development` po sloučení PR #103 až #114 (úkoly TASK-0110 až TASK-0119, všechny `INTEGRATED`). „Hotovo“ znamená sloučeno s testy; co závisí na rozhodnutí vlastníka nebo na serveru, je v otevřených bodech níže. Rozhodnutí G-R1 až G-R5 jsou v `ROZHODNUTI.md`.
+
+### Sloučená práce fáze G
+
+| PR | Úkol | Obsah |
+|---|---|---|
+| #103 | G1, TASK-0111 | Jediným daňovým dokladem je faktura (G-R1): platba nevytváří druhý doklad, doklad prodejce podle režimu DPH. |
+| #104 | G4, TASK-0112 | Kredit se v hotovosti nikdy nevyplácí (G-R4); `WalletService::refund` odstraněn, pořadí čerpání kreditu G-R3. |
+| #105 | G5, TASK-0110 | Vlastní ISO jen v tarifu (G-R5): ClamAV, kvóta organizace, připojení/odpojení/smazání, 403 mimo tarif. |
+| #106 | G2, TASK-0113 | Režim plátce DPH, zálohová faktura, doklad k přijaté platbě, konečná faktura, podklady KH/SH. |
+| #107 | G3, TASK-0114 | Uplatnění věrnostních bodů (strop 20 %, dluh bodů, doplňky a domény se nezlevňují). |
+| #108 | G7, TASK-0115 | Rozsah tokenu platí na sběrnici příkazů, audit čtení personálem, alert dead letters, fronta webhooků a překryv při rotaci tajného klíče (`X-ONhost-Signature-Previous`). |
+| #109 | G9, TASK-0116 | Spectral v CI, přehrávání odpovědí Comgate, EN lexikon, opravené nestabilní testy, sjednocené stavy úkolů. |
+| #111 | G6, TASK-0117 | Vrácení platby objednávky na kartu při odstoupení (step-up, schválení, důkazy, potvrzení bankou druhou osobou, storno), e-mail `payment.refunded`, oprava partnerského tarifu, doctor `services.reinstate`, executor v nabídce. |
+| #112 | G10, TASK-0119 | Řádky doctoru, go-live checklist §10, runbook prvního dne. |
+| #113 | oprava | Uvozování v generovaném OpenAPI. |
+| #114 | G8, TASK-0118 | UI servisních účtů, opakované odeslání ověření e-mailu, tlačítko SSO personálu, EN náhled, `qemu` na `vm`, `OnhostDialog`, plurály, seam nároků na kredit. |
+
+### Nálezy a navazující body, jejichž stav se ve fázi G změnil
+
+| Bod | Stav po G | PR | Poznámka |
+|---|---|---|---|
+| P1-9 Spectral v CI | hotovo | #109 | Úloha `openapi-lint`, pravidla `.spectral.yaml`. |
+| P1-12 Webhooky: fronta, rotace | hotovo | #108 | Vyhrazená fronta `webhooks` (jednotka `onhost-queue@webhooks`) a překryv rotace; zapnutí fronty na serveru je krok operátora. |
+| P1-13 Věrnostní body | hotovo | #107, #111 | Uplatnění G-R2; stržení bodů při potvrzeném refundu v #111. |
+| P1-14 Nahrané odpovědi Comgate | částečně | #109 | Přehrávání hotové; skutečný záznam z testovacího účtu Comgate zůstává na vlastníkovi. |
+| P2-1f SSO do panelu v admin UI | hotovo | #114 | Tlačítko SSO personálu. |
+| P2-2 Vlastní ISO | částečně | #105 | Kód hotový; tarify s `custom_iso` je jen návrh (`docs/proposals/custom-iso-plans.md`), katalog zatím nikdo neprodává. Reinstalace VPS: test na testovacím uzlu zbývá. |
+| P2-14 Dead letters bez alertu | hotovo | #108 | Alert a řádek doctoru. |
+| P2-15 StaffReadAudit | hotovo | #108 | Průchod napříč čtecími cestami personálu (`StaffReadAuditSweepTest`); seznam vrácení platby doplněn v #111. |
+| P3-2 `window.prompt` | částečně | #114 | Moduly klientského API používají `OnhostDialog`; zbývá 8 výskytů v admin Blade (`approvals`, `integrations`, `lifecycle`, `operations`, `plans`) a `service-console`. |
+| P3-3 České plurály | hotovo | #114 | – |
+| Typ vazby „qemu“ viditelný zákazníkovi | hotovo | #114 | Zobrazuje se `vm`. |
+| UI pro service accounty | hotovo | #114 | – |
+| UI opakovaného odeslání ověřovacího e-mailu (R5) | hotovo | #114 | – |
+| `DestructivePreview` jen česky | hotovo | #114 | EN náhled. |
+| `WalletService::refund` bez volajícího | hotovo | #104 | Odstraněno (G-R4). `PaymentService::refund` volá vrácení při odstoupení (#111). |
+| Šablona `payment.refunded`, cesta potvrzení bankovního refundu | hotovo | #111 | – |
+| Token s oprávněním chatu a předání | hotovo | #108 | Bus uplatňuje rozsah tokenu. |
+| Dvojí doklad DPH, pořadí čerpání kreditu, vratky z kreditu v hotovosti, uplatnění bodů, vlastní ISO | rozhodnuto | #103 až #107 | G-R1 až G-R5. |
+
+### Otevřené body po fázi G
+
+#### Rozhodnutí vlastníka
+
+* R3: výsledek kontroly PBS, teprve potom `backups.compute`.
+* S1-05: automatizační grants.
+* `TRUSTED_PROXIES`.
+* R7: rozhodnutí financí o dvojím naúčtování (migrace může na produkci s reálným duplicitním naúčtováním zastavit).
+* Spící oprávnění.
+* Testovací účet Comgate (skutečný záznam odpovědí).
+* `services.reinstate` („Zaplatit a obnovit“, řádek doctoru z G6; ruční test F7-14).
+* Tarify s vlastním ISO: schválit návrh `docs/proposals/custom-iso-plans.md` a spustit revizi `2026-10-custom-iso`.
+* G-R4, otevřené otázky: (1) dobití kreditu a odstoupení (vlastník + právník), (2) zůstatek kreditu při zrušení účtu, (3) nová verze VOP, (4) texty prototypových obrazovek, které stále slibují vrácení kreditu.
+* Potvrzení účetní: sleva za věrnostní body je sleva při prodeji (snižuje základ daně), ne platba; potvrzení právníkem výkladu § 1831 OZ (`resources/legal/LEGAL_REVIEW_withdrawal.md`).
+* Kdy a jak přepnout platformu na plátce DPH (`ONHOST_VAT_PAYER`, finance se step-upem a druhou osobou).
+
+#### Kroky na serveru (operátor)
+
+* Ověřit direktivu usranalyse.
+* `onhost:catalog:revise --apply` (a později revize `2026-10-custom-iso`).
+* TOTP a obnova `expected-nonok`.
+* Capacity basis, klíče Turnstile, clamd (clamd je i podmínka vlastního ISO; viz `docs/runbooks/custom-iso.md`: disk, limity PHP/nginx, úložiště Proxmoxu `custom_iso_storage`).
+* Sdílený cache store.
+* `ONHOST_TOKEN_ORGANIZATION_REQUIRED` po `operator:tokens:unbound`.
+* Nasazení relay konzole.
+* Test reinstalace VPS na testovacím uzlu.
+* Ověření úklidu aaPanelu.
+* Zapnout frontu webhooků: `systemctl enable --now onhost-queue@webhooks`.
+* Překontrolovat §10 go-live checklistu a runbook prvního dne (G10).
+
+#### Inženýrské navazující body
+
+* Tvrzení prototypu v `onhost-svc-*.js` a texty prototypu o vrácení kreditu (`onhost-content.js`, `Onhost-admin.dc.html`; prototypy jsou byte-identické a mění se jen přes seam).
+* Znovu vygenerovat API klienty.
+* UX rotace remember tokenu.
+* Dvojí započtení základu fragmentu.
+* Resize aaPanelu (známý limit).
+* `window.prompt` v admin Blade a `service-console` (8 výskytů) převést na `OnhostDialog`.
+* Mrtvý modul `OnhostDomains`.
+* Rozšířit `ExistenceOracleTest`.
+* Nestabilní testy: #74 (Discord) a #96 (`LexiconCoverageTest`) jsou věc jiných relací (PR otevřené).
+* Doba běhu sady: `pest-postgres` trvá 17 až 25 minut a opakovaně se rušil; limit úlohy zvýšen na 40 minut (tato změna). Úvaha o rozdělení sady zůstává.
+* Vlastní ISO: zákaznická oznámení k událostem `service.iso.*` (Lexicon), záznamy v `docs/architecture/events-catalog.md`, úklid osiřelých souborů `incoming/`, případný doplněk, který `custom_iso` přidá (nic z toho není postavené).
