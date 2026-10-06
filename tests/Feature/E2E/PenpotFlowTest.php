@@ -73,7 +73,8 @@ it('takes a web hosting customer from the order form to a running Penpot of thei
     e2eStepUp($this, $password);
     $set = $this->withHeaders(e2eHeaders('pw-2'))->postJson("/v1/services/{$service->id}/penpot/owner-password", ['password' => 'Studio-Penpot-2026'])->assertStatus(202);
     expect(driveOperation(Operation::query()->findOrFail($set->json('operation_id')))->state)->toBe(Operation::SUCCEEDED)
-        ->and($node->matching("update-profile --email 'studio.e2e@example.cz' --password 'Studio-Penpot-2026'"))->toHaveCount(1);
+        ->and($node->matching("update-profile --email 'studio.e2e@example.cz' < "))->toHaveCount(1)
+        ->and($node->matching('Studio-Penpot-2026'))->toBe([]); // the password went to the node in a 0600 file on stdin, never on a command line
 
     // a backup through the ordinary service action
     $backup = $this->withHeaders(e2eHeaders('backup'))->postJson("/v1/services/{$service->id}/actions", ['action' => 'backup', 'params' => ['kind' => 'manual']])->assertStatus(202);

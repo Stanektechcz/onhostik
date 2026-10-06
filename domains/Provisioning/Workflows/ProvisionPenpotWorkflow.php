@@ -74,7 +74,10 @@ final class ProvisionPenpotWorkflow implements Workflow
                     $hostname = (string) ($context->desired('hostname') ?: $service->hostname);
                     // bound before the node is touched: a run that fails half-way leaves a binding the compensation takes back
                     $node = $context->get('node_name');
-                    $context->bind($context->instance(), 'stack', $stack, is_string($node) ? $node : null, ['identifier' => $stack, 'name' => $stack, 'hostname' => $hostname], ['managed_by' => 'onhost']);
+                    $bound = $context->binding('stack'); // a run again over a running service (a repair) keeps the binding it has
+                    if ($bound === null || (string) $bound->remote_id !== $stack) {
+                        $context->bind($context->instance(), 'stack', $stack, is_string($node) ? $node : null, ['identifier' => $stack, 'name' => $stack, 'hostname' => $hostname], ['managed_by' => 'onhost']);
+                    }
                     $secrets = $context->container->make(PenpotSecrets::class)->ensure($service);
                     try {
                         $result = $adapter->provision($context->spec('penpot_stack', ['stack' => $stack, 'hostname' => $hostname, 'entitlements' => (array) $service->entitlements])->with(['secrets' => $secrets]));
@@ -82,7 +85,10 @@ final class ProvisionPenpotWorkflow implements Workflow
                         return self::fromProviderException($e);
                     }
                     $ref = $result->ref;
-                    if ($ref !== null) {
+                    $bound = $context->binding('stack');
+                    if ($bound !== null && (string) $bound->remote_id === $stack && ! str_starts_with((string) $bound->idempotency_key, $context->operation->idempotency_key.':')) {
+                        $bound->forceFill(['meta' => array_replace((array) $bound->meta, $ref->meta ?? [])])->save(); // the repair refreshes the port and limits of the binding it kept
+                    } elseif ($ref !== null) {
                         $context->bind($context->instance(), 'stack', $ref->remoteId, $ref->node ?? (is_string($node) ? $node : null), $ref->meta, ['managed_by' => 'onhost']);
                     }
 
@@ -127,6 +133,10 @@ final class ProvisionPenpotWorkflow implements Workflow
                 public function run(StepContext $context): StepResult
                 {
                     $service = $this->service($context);
+                    $known = (string) data_get($service->tags, 'penpot.owner_email', '');
+                    if ($known !== '') { // a running instance run through again (a repair): its owner account and the password they set stay untouched
+                        return StepResult::done(['owner_email' => $known, 'owner_created' => false, 'owner_kept' => true]);
+                    }
                     $organization = Organization::query()->findOrFail($service->organization_id);
                     $email = PenpotInstances::ownerEmail($organization);
                     if ($email === null) {
@@ -169,7 +179,8 @@ final class ProvisionPenpotWorkflow implements Workflow
                     $url = 'https://'.(string) ($context->get('hostname') ?: $service->hostname);
                     $owner = (string) $context->get('owner_email', '');
                     $fresh = Service::query()->findOrFail($service->id);
-                    $fresh->forceFill(['tags' => array_replace((array) $fresh->tags, ['penpot' => ['stack' => $ref->remoteId, 'url' => $url, 'owner_email' => $owner, 'owner_password_set' => false, 'version' => (string) $context->instance()->option('version', config('penpot.version'))]])])->save();
+                    $penpot = array_replace((array) data_get($fresh->tags, 'penpot', []), ['stack' => $ref->remoteId, 'url' => $url, 'owner_email' => $owner, 'owner_password_set' => (bool) data_get($fresh->tags, 'penpot.owner_password_set', false), 'version' => (string) $context->instance()->option('version', config('penpot.version'))]);
+                    $fresh->forceFill(['tags' => array_replace((array) $fresh->tags, ['penpot' => $penpot])])->save(); // a repair keeps what the owner set
                     $context->container->make(ServiceService::class)->activate($fresh, $context->actor, $context->operation, ['url' => $url, 'hostname' => (string) $fresh->hostname]);
                     $context->container->make(OutboxPublisher::class)->publish(GenericEvent::of('penpot.instance.ready', 'service', $service->id, ['label' => (string) ($fresh->label ?: $fresh->hostname), 'url' => $url, 'owner_email' => $owner], $service->organization_id));
 

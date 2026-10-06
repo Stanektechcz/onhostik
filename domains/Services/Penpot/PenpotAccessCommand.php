@@ -13,14 +13,18 @@ use Onhost\Platform\Commands\OrganizationCommand;
  * The owner's way into their Penpot (TASK-0123). payload: service_id, project_id, op `owner.password`, password.
  *
  * A Penpot account opens every design of the instance, so setting its password is what a password of a game panel account is
- * to a game server: `service.manage` on the service, HIGH with a fresh step-up. The password never reaches the audit
+ * to a game server: `service.console` on the service, HIGH with a fresh step-up. The password never reaches the audit
  * (AUDIT_STRIP) or the bus's stored answer.
  */
 final class PenpotAccessCommand extends OrganizationCommand implements RiskAwareCommand
 {
     public const OPS = ['owner.password'];
 
-    public const PERMISSION = 'service.manage';
+    /**
+     * The owner, an organization admin or whoever holds the service's console (security review of PR #119, M3): the Penpot
+     * account opens every design of the instance, as a shell opens a site — `svc_manage` ("without a shell") does not reach it.
+     */
+    public const PERMISSION = 'service.console';
 
     public function scope(): CommandScope
     {

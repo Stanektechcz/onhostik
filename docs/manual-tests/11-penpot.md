@@ -59,7 +59,9 @@ nezůstane rozpracovaný adresář ani web v proxy (kompenzace).
 **Očekávaný výsledek:** heslo se nikde nezobrazí ani neuloží (operace ho po doběhnutí zapomene); přijde oznámení o změně
 hesla (událost `penpot.owner_password.changed`). Heslo kratší než 12 znaků → 422.
 
-**Negativní varianty:** jiná organizace na stejné id → 404 (karta i heslo). Člen bez oprávnění spravovat službu → 403.
+**Negativní varianty:** jiná organizace na stejné id → 404 (karta i heslo). Host se sdílením „Služba: správa“ (`svc_manage`) kartu
+vidí, heslo nastavit nesmí → 403; smí vlastník, admin organizace a držitel konzole služby (`svc_console`). V příkazech na uzlu
+(`journalctl`/historie) se heslo nesmí objevit: jde do souboru 0600 a do `manage.py` na stdin.
 
 ## H8-04 Zálohy a obnova
 

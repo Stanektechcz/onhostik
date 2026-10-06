@@ -34,7 +34,8 @@ How it is wired:
   answering (two misses in a row) and when it is back; starts the daily backup when the last one is older than 23 hours.
 * Customer panel: the service appears with the web services; its card (`GET /v1/services/{service}/penpot`) shows the address,
   the sign-in e-mail, limits, availability and backups. **Open Penpot** is a plain link to the instance. The owner sets the
-  password of their Penpot account there (`POST /v1/services/{service}/penpot/owner-password`, HIGH, fresh step-up).
+  password of their Penpot account there (`POST /v1/services/{service}/penpot/owner-password`, HIGH, fresh step-up). Who may:
+  the owner, an organization admin, or whoever holds the service's console (`service.console`) — a `svc_manage` share does not.
 
 ### What "SSO" is and is not
 
@@ -85,17 +86,24 @@ Nothing below was done; there is no Penpot node yet. Every step is the operator'
    Without SMTP, e-mail verification is off and invitations are only logged in the backend container (`enable-log-emails`) — the
    owner then shares the instance with the team by creating their accounts or setting up SMTP first.
 8. **Register the node in the platform** (staff console or API, step-up):
-   * provider instance: `provider: penpot`, `key` e.g. `penpot-cz1`, `region_code: cz1`, `base_url: ssh://<host>`,
-     options `{ssh_host, ssh_port, ssh_user, ssh_fingerprint, public_ipv4, public_ipv6}` (+ any key of `config/penpot.php` to override),
-     capabilities `{"penpot.stack": true}`;
+   * provider instance: `provider: penpot`, `key` e.g. `penpot-cz1`, `region_code: cz1`, `base_url: https://<node host>` (its host is the
+     SSH host unless `ssh_host` says otherwise), options `{ssh_host, ssh_port, ssh_user, ssh_fingerprint, public_ipv4, public_ipv6,
+     quota_command}` (+ any key of `config/penpot.php` to override), capabilities `{"penpot.stack": true}` (the default);
+   * **`ssh_fingerprint` is required** (`SHA256:` + 43 characters, as `ssh-keyscan <host> | ssh-keygen -lf -` prints it, read on a
+     trusted machine): an instance without it is refused (`instance_ssh_fingerprint_required`), and the adapter sends nothing to a
+     node whose fingerprint is missing or does not match;
    * the private key: `php artisan onhost:integrations:secret penpot-cz1 ssh_private_key` (hidden prompt — never paste keys into
      chat, code or arguments);
    * a node row with `role: penpot`, its capacity and `tags.public_ipv4`;
-   * check: `php artisan onhost:doctor` — rows *Penpot is sold only with a Penpot node to run it* and *Penpot has a price before
-     it is on sale*.
+   * check: `php artisan onhost:doctor` — rows *Penpot is sold only with a Penpot node to run it*, *Penpot has a price before it
+     is on sale*, *every Penpot node pins its SSH host key*, *every Penpot node limits the storage of a stack*, *Penpot images are
+     pinned by digest*.
 9. **Queue worker lane** `provider-penpot` (already in `infra/aapanel/install.sh`, `staging.sh`, `infra/docker-compose.yml` and
    `QueueScaler::QUEUES`): restart the workers after the deploy.
 10. **Smoke test on a test node** with a staff assisted order (placement pinned to the node), then the manual test 11-penpot.md.
+
+11. **Port allocation**: each stack's port is chosen under `flock` on `<root>/.ports.lock` (the platform user needs `flock`, part of
+    util-linux), so two provisionings on one node never share a port.
 
 ## Day to day
 
@@ -105,20 +113,70 @@ Nothing below was done; there is no Penpot node yet. Every step is the operator'
 | A provisioning failed | The operation names the step. A failed `up` takes the half-made directory and proxy site back (compensation); retry the operation once the node is fixed (staff console, `POST /v1/staff/provisioning/jobs/{operation}/retry`). |
 | Customer forgot the Penpot password | They set a new one in the panel (step-up). Staff do not see or set it. |
 | Restore | The ordinary `restore` action with a backup id (`backup.restore` permission): stops frontend/backend/exporter, replaces the database and the assets, starts the stack. |
-| Upgrade Penpot | Raise `version` (config or instance option) for NEW stacks. Existing stacks keep the tag in their `.env`; upgrade one by one on the node (`PENPOT_VERSION=<new>` in `.env`, `docker compose pull && docker compose up -d`), after a backup, step by step as the Penpot docs advise. |
+| Upgrade Penpot | Images are pinned by digest (`config/penpot.php` `images`, or the instance option `images`): set the new tag **and** its digest (`curl -s https://hub.docker.com/v2/repositories/<repo>/tags/<tag>` → `digest`) — new stacks use them. Existing stacks keep the images in their `.env`; upgrade one by one on the node (the five `*_IMAGE` lines of `.env`, `docker compose pull && docker compose up -d`), after a backup, step by step as the Penpot docs advise. |
 | Cancellation | The ordinary terminate: a final archive (database dump + assets) is pulled into platform storage, the stack is stopped; the purge after the restore window removes the stack, its volumes, its node backups, its proxy site, the DNS record and the vault entry `db://penpot/<service id>`. |
 
 ## Secrets
 
 * `db://penpot/<service id>`: `secret_key`, `db_password` — generated at the first provisioning, written to the stack's `.env`
   (mode 0600) over SFTP, never in a command line, an operation, an event or a log (tested: `PenpotLifecycleTest`).
-* The owner's Penpot password is never stored: it goes to the node in one `manage.py update-profile` call and the operation forgets
-  it (OperationSecrets). The first profile is created with a random password nobody sees.
+* The owner's Penpot password is never stored and never on a command line: it is written into `<stack dir>/.owner-password` (made
+  0600 before anything is written; the directory is 0750), read by `manage.py create-profile|update-profile` on stdin (Python's
+  `getpass` reads stdin without a terminal — **verify on the first test node**) and removed in the same command; the operation
+  forgets it (OperationSecrets). The first profile gets a random password nobody sees, and a provisioning run again over a running
+  instance never touches the account (it is looked up with `search-profile`, never reset).
+* `.env` and `.env.smtp` are created 0600 (`install -m 0600 /dev/null`) before their content is written.
 * The node's SSH key: the provider instance's credential `ssh_private_key`; SMTP password: `smtp_password`.
+
+## Container hardening
+
+Every container: `security_opt: no-new-privileges:true`, `cap_drop: [ALL]`, `pids_limit`, memory and CPU limits.
+
+| Container | Capabilities back | Why |
+| --- | --- | --- |
+| frontend, backend, exporter | none | the Penpot images run as `USER penpot:penpot` (docker/images/Dockerfile.{frontend,backend,exporter} on `develop`; frontend nginx listens on 8080) |
+| postgres | CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID | the official entrypoint starts as root, fixes the owner and mode of `PGDATA`, then `gosu postgres` |
+| valkey | CHOWN, SETGID, SETUID | the official entrypoint chowns `/data`, then `setpriv` to the `valkey` user |
+
+**Verify on the first test node** (not done — there is no node yet): all five containers become `healthy`/`running`, and
+`docker inspect` shows the capabilities above. If a pinned release runs a Penpot image as root after all, give it back only what
+its entrypoint needs and write it down here.
+
+## Storage quota (server step, XFS project quota)
+
+Docker volumes on ext4 have no size limit, so the plan's `storage_gb` is enforced on the server:
+
+1. `/var/lib/docker` on its own **XFS** filesystem mounted with `prjquota` (`/etc/fstab`: `… /var/lib/docker xfs defaults,prjquota 0 2`).
+2. The helper `/usr/local/sbin/onhost-penpot-quota` (root-owned, 0755), allowed to the platform user by one sudoers line
+   (`onhost ALL=(root) NOPASSWD: /usr/local/sbin/onhost-penpot-quota`):
+
+   ```sh
+   #!/bin/sh
+   # onhost-penpot-quota <stack> <GB>: one XFS project per Penpot stack over its two volumes (TASK-0123)
+   set -eu
+   stack="$1"; gb="$2"
+   case "$stack" in penpot-[a-z0-9]*) ;; *) echo "invalid stack" >&2; exit 2 ;; esac
+   case "$gb" in ''|*[!0-9]*) echo "invalid size" >&2; exit 2 ;; esac
+   mnt=$(df --output=target /var/lib/docker | tail -n 1)
+   id=$(( $(printf '%s' "$stack" | cksum | cut -d' ' -f1) % 2000000000 + 1000 ))
+   for v in "${stack}_penpot_assets" "${stack}_penpot_postgres_v15"; do
+     dir=$(docker volume inspect -f '{{.Mountpoint}}' "$v")
+     xfs_quota -x -c "project -s -p $dir $id" "$mnt"
+   done
+   xfs_quota -x -c "limit -p bhard=${gb}g $id" "$mnt"
+   ```
+
+3. Instance option `quota_command: "sudo /usr/local/sbin/onhost-penpot-quota"`. The adapter runs it after every new stack and after a
+   resize, with the stack name and the plan's GB; a failure fails the step. Without it the doctor row *every Penpot node limits the
+   storage of a stack* is WARN and the plan's storage is only measured.
+4. Check: `xfs_quota -x -c 'report -p -h' /var/lib/docker`.
+
+Before a new stack is started the adapter also checks the free space (`df -Pk` of the stacks root): less than the plan's storage
+plus `min_free_gb` (default 10 GB) refuses the stack (CAPACITY, the provisioning fails and the customer's order is followed up).
 
 ## Limits
 
 Memory and CPU are hard limits per container (`deploy.resources.limits`: backend 45 %, exporter 25 %, PostgreSQL 20 %, frontend 10 % of
-the plan's memory minus 256 MB for Valkey). Storage (`storage_gb`) is not a hard quota — Docker volumes on ext4 have none. The adapter can
+the plan's memory minus 256 MB for Valkey). Storage (`storage_gb`) is a hard limit only where the node runs the quota helper (above). The adapter can
 measure it (`PenpotDockerProvider::usage`: assets + database volume), but nothing feeds that reading into the usage watch yet (open
 follow-up); until then the plan's 20 GB is a fair-use number the operator watches on the node (`docker system df -v`). Upload size: 350 MB per request (proxy + Penpot).

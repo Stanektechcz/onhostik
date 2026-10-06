@@ -40,6 +40,15 @@ final class PenpotNodeDouble implements NodeShell
 
     public bool $upFails = false;
 
+    /** @var array<string,int> project => port the allocation gave it */
+    public array $ports = [];
+
+    /** @var array<string,bool> Penpot profiles by e-mail */
+    public array $profiles = [];
+
+    /** Free space under the stacks root, in kB (`df -Pk`). */
+    public int $freeKb = 524288000;
+
     public bool $createProfileFails = false;
 
     public int $http = 200;
@@ -52,6 +61,20 @@ final class PenpotNodeDouble implements NodeShell
             $this->dirs[$d[1]] = true;
 
             return new ShellResult(0, '');
+        }
+        if (str_contains($command, '.ports.lock') && preg_match("/(penpot-[a-z0-9]+)\/\.port/", $command, $pp) === 1) {
+            if (isset($this->ports[$pp[1]])) {
+                return new ShellResult(0, 'existing '.$this->ports[$pp[1]]."\n");
+            }
+            $this->ports[$pp[1]] = 19002 + count($this->ports); // 19001 belongs to a stack of another customer
+
+            return new ShellResult(0, 'new '.$this->ports[$pp[1]]."\n");
+        }
+        if (str_starts_with($command, 'df -Pk ')) {
+            return new ShellResult(0, $this->freeKb."\n");
+        }
+        if (str_contains($command, 'search-profile') && preg_match("/--email '([^']+)'/", $command, $se) === 1) {
+            return new ShellResult(0, isset($this->profiles[$se[1]]) ? "id: x\nemail: {$se[1]}\n" : '');
         }
         if (str_contains($command, 'docker version')) {
             return new ShellResult(0, "28.5.1\n2.40.0\n");
@@ -92,7 +115,13 @@ final class PenpotNodeDouble implements NodeShell
             return new ShellResult(0, implode("\n", $rows));
         }
         if ($project !== null && str_contains($command, 'create-profile')) {
-            return $this->createProfileFails ? new ShellResult(1, '', 'profile already exists') : new ShellResult(0, '');
+            preg_match("/--email '([^']+)'/", $command, $ce);
+            if ($this->createProfileFails || isset($this->profiles[$ce[1] ?? ''])) {
+                return new ShellResult(1, '', 'profile already exists');
+            }
+            $this->profiles[$ce[1] ?? ''] = true;
+
+            return new ShellResult(0, '');
         }
         if ($project !== null && str_ends_with(trim($command), ' stop')) {
             $this->stacks[$project] = 'stopped';
@@ -145,6 +174,9 @@ final class PenpotFilesDouble implements FileTransport
     /** @var array<string,int> absolute path => mode */
     public static array $modes = [];
 
+    /** @var list<array{0:string,1:string}> every write: absolute path, content */
+    public static array $history = [];
+
     public function __construct(private readonly string $root) {}
 
     private function abs(string $path): string
@@ -165,6 +197,7 @@ final class PenpotFilesDouble implements FileTransport
     public function write(string $path, string $content): void
     {
         self::$files[$this->abs($path)] = $content;
+        self::$history[] = [$this->abs($path), $content];
     }
 
     public function upload(string $path, string $localFile): void
@@ -213,7 +246,7 @@ function penpotLab(): PenpotNodeDouble
 {
     Region::query()->firstOrCreate(['code' => 'cz1'], ['name' => 'Praha', 'country' => 'CZ', 'state' => 'active']);
     $_ENV['PENPOT_CZ1_SSH_PRIVATE_KEY'] = 'test-key-not-a-real-one';
-    $instance = ProviderInstance::query()->firstOrCreate(['key' => 'penpot-cz1'], ['provider' => 'penpot', 'name' => 'Penpot node cz1', 'region_code' => 'cz1', 'base_url' => 'ssh://198.51.100.20', 'secret_ref' => 'env://PENPOT_CZ1', 'state' => 'active', 'capabilities' => ['penpot.stack' => true], 'options' => ['ssh_host' => '198.51.100.20', 'public_ipv4' => '198.51.100.20']]);
+    $instance = ProviderInstance::query()->firstOrCreate(['key' => 'penpot-cz1'], ['provider' => 'penpot', 'name' => 'Penpot node cz1', 'region_code' => 'cz1', 'base_url' => 'ssh://198.51.100.20', 'secret_ref' => 'env://PENPOT_CZ1', 'state' => 'active', 'capabilities' => ['penpot.stack' => true], 'options' => ['ssh_host' => '198.51.100.20', 'ssh_fingerprint' => 'SHA256:'.str_repeat('A', 43), 'public_ipv4' => '198.51.100.20']]);
     Node::query()->firstOrCreate(['provider_instance_id' => $instance->id, 'name' => 'penpot01'], ['region_code' => 'cz1', 'role' => 'penpot', 'state' => 'active', 'capacity' => ['cpu_cores' => 16, 'ram_mb' => 65536, 'disk_gb' => 1000], 'usage' => [], 'tags' => ['public_ipv4' => '198.51.100.20']]);
     if (! Product::query()->where('key', 'penpot')->exists()) {
         CatalogRevisions::createDefined('penpot');
@@ -226,6 +259,7 @@ function penpotLab(): PenpotNodeDouble
     PenpotDockerProvider::$transportFactory = fn ($instance, string $root) => new PenpotFilesDouble($root);
     PenpotFilesDouble::$files = [];
     PenpotFilesDouble::$modes = [];
+    PenpotFilesDouble::$history = [];
 
     return $node;
 }

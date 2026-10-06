@@ -13,6 +13,7 @@ use Onhost\Domain\Provisioning\Scheduling\NodeScheduler;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Platform\Errors\DomainError;
+use Onhost\Providers\Penpot\PenpotDockerProvider;
 
 /**
  * Doctor rows and the service health finding of Penpot (TASK-0123). The rows never call a node: they read the catalogue, the
@@ -57,6 +58,21 @@ final class PenpotHealth
         $rows[] = ['area' => 'penpot', 'check' => 'every Penpot instance answers', 'ok' => $down === [] && $unprobed === 0, 'blocking' => false,
             'detail' => $running->isEmpty() ? 'no Penpot instance runs' : count($running).' running, '.count($down).' not answering'.($down === [] ? '' : ' ('.implode(', ', array_slice($down, 0, 5)).')').", {$unprobed} without a recent probe",
             'remedy' => $down === [] && $unprobed === 0 ? '' : 'php artisan onhost:penpot:sweep; on the node: docker compose -p <stack> ps / logs (docs/runbooks/penpot.md)'];
+
+        // TASK-0123 security review of PR #119: the nodes themselves (M4, M2) and the images (L)
+        $nodes = ProviderInstance::query()->platform()->where('provider', 'penpot')->where('state', '!=', 'disabled')->orderBy('key')->get();
+        $unpinned = $nodes->filter(fn (ProviderInstance $i) => preg_match(PenpotDockerProvider::FINGERPRINT_PATTERN, (string) $i->option('ssh_fingerprint', '')) !== 1)->pluck('key')->all();
+        $rows[] = ['area' => 'penpot', 'check' => 'every Penpot node pins its SSH host key', 'ok' => $unpinned === [], 'blocking' => false,
+            'detail' => $nodes->isEmpty() ? 'no Penpot node registered' : ($unpinned === [] ? $nodes->count().' node(s), every one with options.ssh_fingerprint' : 'without options.ssh_fingerprint (the adapter sends them nothing): '.implode(', ', $unpinned)),
+            'remedy' => $unpinned === [] ? '' : 'ssh-keyscan <host> | ssh-keygen -lf - on a trusted machine, then set options.ssh_fingerprint of the instance (SHA256:…)'];
+        $noQuota = $nodes->filter(fn (ProviderInstance $i) => trim((string) $i->option('quota_command', config('penpot.quota_command'))) === '')->pluck('key')->all();
+        $rows[] = ['area' => 'penpot', 'check' => 'every Penpot node limits the storage of a stack', 'ok' => $noQuota === [], 'blocking' => false,
+            'detail' => $nodes->isEmpty() ? 'no Penpot node registered' : ($noQuota === [] ? 'every node runs its quota helper (XFS project quota) for each stack' : 'no storage quota (the plan\'s storage is only measured): '.implode(', ', $noQuota)),
+            'remedy' => $noQuota === [] ? '' : 'docs/runbooks/penpot.md "Storage quota": XFS with prjquota under /var/lib/docker, the helper script, then options.quota_command'];
+        $loose = array_keys(array_filter((array) config('penpot.images', []), fn ($image) => preg_match('/@sha256:[a-f0-9]{64}$/', (string) $image) !== 1));
+        $rows[] = ['area' => 'penpot', 'check' => 'Penpot images are pinned by digest', 'ok' => $loose === [], 'blocking' => false,
+            'detail' => $loose === [] ? implode(', ', array_map(fn ($image) => (string) strtok((string) $image, '@'), (array) config('penpot.images', []))) : 'by tag only: '.implode(', ', $loose),
+            'remedy' => $loose === [] ? '' : 'pin every image of config/penpot.php `images` as <repo>:<tag>@sha256:<digest>'];
 
         return $rows;
     }

@@ -66,7 +66,7 @@ it('provisions a Penpot stack end to end: node, vault secrets, compose up, proxy
     expect($env)->toContain('PENPOT_SECRET_KEY='.$secrets['secret_key'])->toContain('PENPOT_DATABASE_PASSWORD='.$secrets['db_password'])
         ->toContain('PENPOT_PUBLIC_URI=https://'.$service->hostname)->toContain('disable-registration')->toContain('enable-prepl-server')->toContain('ONHOST_PORT=19002');
     expect(PenpotFilesDouble::$modes["/srv/onhost-penpot/{$stack}/.env"])->toBe(0600);
-    expect($compose)->not->toContain($secrets['secret_key'])->toContain('penpotapp/backend:${PENPOT_VERSION}')->toContain('127.0.0.1:${ONHOST_PORT}:8080')
+    expect($compose)->not->toContain($secrets['secret_key'])->toContain('image: "${PENPOT_BACKEND_IMAGE}"')->toContain('127.0.0.1:${ONHOST_PORT}:8080')
         ->toContain('PENPOT_REDIS_URI: redis://penpot-valkey/0')->toContain('PENPOT_OBJECTS_STORAGE_FS_DIRECTORY: /opt/data/assets')->toContain('memory: 1728m');
     expect(PenpotFilesDouble::$files["/etc/caddy/onhost-penpot/{$stack}.caddy"])->toContain($service->hostname.' {')->toContain('reverse_proxy 127.0.0.1:19002');
 
@@ -154,7 +154,9 @@ it('lets the owner set the Penpot password with a fresh step-up, and forgets it 
     $response = $this->actingAs($user, 'sanctum')->postJson("/v1/services/{$service->id}/penpot/owner-password", ['password' => $ownerPassword], $headers + ['Idempotency-Key' => 'pp-pw-3'])->assertStatus(202);
     $operation = driveOperation(Operation::query()->findOrFail($response->json('operation_id')));
 
-    expect($operation->state)->toBe(Operation::SUCCEEDED)->and($node->matching("update-profile --email 'owner@studio.test' --password '{$ownerPassword}'"))->toHaveCount(1);
+    expect($operation->state)->toBe(Operation::SUCCEEDED)->and($node->matching("update-profile --email 'owner@studio.test' < "))->toHaveCount(1)
+        ->and(end(PenpotFilesDouble::$history))->toBe(['/srv/onhost-penpot/'.PenpotInstances::stackName($service).'/.owner-password', $ownerPassword.'
+']); // on stdin, from a 0600 file
     expect(data_get($service->refresh()->tags, 'penpot.owner_password_set'))->toBeTrue();
     expect(json_encode($operation->refresh()->desired))->not->toContain($ownerPassword); // OperationSecrets forgot it
     app(OutboxPublisher::class)->relayPending(1000);

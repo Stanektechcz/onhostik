@@ -106,7 +106,7 @@ final class GenerateRoleMatrix extends Command
         ['Předat vlastnictví organizace (uzavření a předání jsou jen vlastníka)', 'POST /v1/organizations/{organization}/ownership-transfer', 'organization.close'],
         ['Nastavit výplatní účet partnera (jen vlastník)', 'PUT /v1/partner/payout-account', 'partner.payout_account.manage'],
         ['Zobrazit kartu Penpotu (adresa, přihlašovací e-mail, limity)', 'GET /v1/services/{service}/penpot', 'service.read'], // TASK-0123
-        ['Nastavit heslo účtu vlastníka v Penpotu (s ověřením)', 'POST /v1/services/{service}/penpot/owner-password', 'service.manage'], // TASK-0123
+        ['Nastavit heslo účtu vlastníka v Penpotu (s ověřením; vlastník, admin nebo držitel konzole služby)', 'POST /v1/services/{service}/penpot/owner-password', 'service.console'], // TASK-0123, security review M3
     ];
 
     /**

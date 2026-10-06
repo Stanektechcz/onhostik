@@ -55,6 +55,12 @@ final class PenpotDockerProvider implements BackupCapable, InfrastructureProvide
 
     private const STAMP_PATTERN = '/^\d{8}-\d{6}-[a-z0-9]{4}$/';
 
+    /** The SSH host key fingerprint as SshShell compares it: `SHA256:` + unpadded base64 of the key's SHA-256. */
+    public const FINGERPRINT_PATTERN = '/^SHA256:[A-Za-z0-9+\/]{43}$/';
+
+    /** Exit code of the port allocation when the range is full. */
+    private const PORTS_EXHAUSTED = 75;
+
     private ?NodeShell $shell = null;
 
     /** @param array<string,string> $credentials */
@@ -126,18 +132,21 @@ final class PenpotDockerProvider implements BackupCapable, InfrastructureProvide
         if (strlen((string) ($secrets['secret_key'] ?? '')) < 64 || strlen((string) ($secrets['db_password'] ?? '')) < 24) {
             throw new ProviderException('penpot', ProviderErrorCode::VALIDATION, 'The stack secrets are missing (vault)');
         }
-        $dir = $this->dir($project);
-        $existing = trim($this->run('test -f '.Q::arg($dir.'/docker-compose.yaml').' && cat '.Q::arg($dir.'/.port').' 2>/dev/null || true', 30, 'stack.lookup')->stdout);
-        $port = ctype_digit($existing) ? (int) $existing : $this->freePort();
         $limits = $this->limits((array) $spec->get('entitlements', []));
-        $this->writeStack($project, $port, $hostname, $limits, $secrets);
+        $this->run('install -d -m 0750 '.Q::arg($this->dir($project)), 30, 'stack.dir');
+        [$port, $existing] = $this->allocatePort($project);
+        if (! $existing) {
+            $this->assertDiskRoom($limits['storage_gb']);
+        }
+        $this->writeStack($project, $hostname, $limits, $secrets, $port);
         $this->run($this->compose($project).' up -d --remove-orphans', 900, 'stack.up');
+        $this->applyQuota($project, $limits['storage_gb']);
         $this->writeProxy((string) $spec->serviceId, $project, $hostname, $port);
 
         return ProviderResult::completed(
             new ResourceRef('stack', $project, $this->instance->option('node_name'), ['identifier' => $project, 'name' => $project, 'port' => $port, 'hostname' => $hostname, 'public_uri' => 'https://'.$hostname, 'limits' => $limits]),
             ['port' => $port, 'hostname' => $hostname, 'limits' => $limits],
-            ctype_digit($existing),
+            $existing,
         );
     }
 
@@ -179,6 +188,7 @@ final class PenpotDockerProvider implements BackupCapable, InfrastructureProvide
         $limits = $this->limits((array) $spec->get('entitlements', []));
         $this->transport($this->root())->write($project.'/docker-compose.yaml', PenpotCompose::compose($project, $limits));
         $this->run($this->compose($project).' up -d --remove-orphans', 900, 'stack.resize');
+        $this->applyQuota($project, $limits['storage_gb']);
 
         return ProviderResult::completed($ref->withMeta(['limits' => $limits]), ['limits' => $limits]);
     }
@@ -308,21 +318,25 @@ final class PenpotDockerProvider implements BackupCapable, InfrastructureProvide
     public function ensureOwner(ResourceRef $ref, string $email, string $fullname, string $password): array
     {
         $this->assertOwner($email, $password);
-        $c = $this->compose(self::project($ref->remoteId));
-        $created = $this->shell()->run($c.' exec -T penpot-backend python3 manage.py create-profile --email '.Q::arg($email).' --fullname '.Q::arg(mb_substr(trim($fullname) ?: $email, 0, 120)).' --password '.Q::arg($password).' --skip-tutorial --skip-walkthrough', ['timeout' => 180]);
+        $project = self::project($ref->remoteId);
+        $created = $this->withPassword($project, $password, 'python3 manage.py create-profile --email '.Q::arg($email).' --fullname '.Q::arg(mb_substr(trim($fullname) ?: $email, 0, 120)).' --skip-tutorial --skip-walkthrough');
         if ($created->ok()) {
             return ['created' => true];
         }
-        $this->setOwnerPassword($ref, $email, $password);
+        // a profile that is already there keeps its password (a retried step, a repair of a running instance): it is looked up,
+        // never overwritten — only the owner sets it (PenpotOwnerWorkflow)
+        $found = $this->shell()->run($this->compose($project).' exec -T penpot-backend python3 manage.py search-profile --email '.Q::arg($email), ['timeout' => 120]);
+        if ($found->ok() && str_contains(strtolower($found->stdout), strtolower($email))) {
+            return ['created' => false];
+        }
 
-        return ['created' => false];
+        throw new ProviderException('penpot', $created->timedOut ? ProviderErrorCode::TRANSIENT : ProviderErrorCode::UNKNOWN, 'Penpot did not create the owner profile (exit '.$created->exitCode.')');
     }
 
     public function setOwnerPassword(ResourceRef $ref, string $email, string $password): ProviderResult
     {
         $this->assertOwner($email, $password);
-        $c = $this->compose(self::project($ref->remoteId));
-        $result = $this->shell()->run($c.' exec -T penpot-backend python3 manage.py update-profile --email '.Q::arg($email).' --password '.Q::arg($password), ['timeout' => 180]);
+        $result = $this->withPassword(self::project($ref->remoteId), $password, 'python3 manage.py update-profile --email '.Q::arg($email));
         if (! $result->ok()) {
             // the CLI's own words may quote the command: they are not repeated, only that it failed
             throw new ProviderException('penpot', $result->timedOut ? ProviderErrorCode::TRANSIENT : ProviderErrorCode::UNKNOWN, 'Penpot refused the owner password change (exit '.$result->exitCode.')');
@@ -349,6 +363,10 @@ final class PenpotDockerProvider implements BackupCapable, InfrastructureProvide
     {
         if ($this->shell !== null) {
             return $this->shell;
+        }
+        // the host key is pinned (security review of PR #119, M4): a node without its fingerprint is never sent a key or a secret
+        if (preg_match(self::FINGERPRINT_PATTERN, (string) $this->instance->option('ssh_fingerprint', '')) !== 1) {
+            throw new ProviderException('penpot', ProviderErrorCode::AUTH, 'The Penpot node has no SSH host key fingerprint (options.ssh_fingerprint, SHA256:…); nothing is sent to it');
         }
         if (self::$shellFactory !== null && app()->runningUnitTests()) {
             $scripted = (self::$shellFactory)($this->instance);
@@ -380,23 +398,82 @@ final class PenpotDockerProvider implements BackupCapable, InfrastructureProvide
     }
 
     /** @param array<string,mixed> $limits @param array<string,mixed> $secrets */
-    private function writeStack(string $project, int $port, string $hostname, array $limits, array $secrets): void
+    /** @param array{ram_mb:int, cpus:float, storage_gb:int} $limits @param array<string,mixed> $secrets */
+    private function writeStack(string $project, string $hostname, array $limits, array $secrets, int $port): void
     {
         $smtp = (array) $this->instance->option('smtp', []);
         $flags = array_values(array_unique(array_merge((array) $this->option('flags'), trim((string) ($smtp['host'] ?? '')) === '' ? (array) $this->option('flags_without_smtp') : ['enable-smtp'])));
-        $this->run('install -d -m 0750 '.Q::arg($this->dir($project)), 30, 'stack.dir');
         $files = $this->transport($this->root());
+        foreach (['.env', '.env.smtp'] as $secretFile) { // 0600 before a byte of a secret is in it
+            $this->run('install -m 0600 /dev/null '.Q::arg($this->dir($project).'/'.$secretFile), 30, 'stack.secret_file');
+        }
         $files->write($project.'/.env', PenpotCompose::env([
-            'version' => (string) $this->option('version'), 'port' => $port, 'public_uri' => 'https://'.$hostname, 'flags' => $flags,
+            'images' => (array) $this->option('images'), 'port' => $port, 'public_uri' => 'https://'.$hostname, 'flags' => $flags,
             'secret_key' => (string) $secrets['secret_key'], 'db_password' => (string) $secrets['db_password'],
-            'postgres_image' => (string) $this->option('postgres_image'), 'valkey_image' => (string) $this->option('valkey_image'),
             'valkey_maxmemory' => (string) $this->option('valkey_maxmemory'), 'max_body_size' => (int) $this->option('max_body_size'),
         ]));
         $files->chmod($project.'/.env', 0600);
         $files->write($project.'/.env.smtp', PenpotCompose::smtpEnv($smtp, $this->credentials['smtp_password'] ?? null));
         $files->chmod($project.'/.env.smtp', 0600);
         $files->write($project.'/docker-compose.yaml', PenpotCompose::compose($project, $limits));
-        $files->write($project.'/.port', $port."\n");
+    }
+
+    /**
+     * Runs `manage.py <args>` in the stack's backend with the password on stdin (Python's getpass reads stdin when there is no
+     * terminal): the password is a file of the stack's own 0750 directory, made 0600 before it is written, read by the command and
+     * removed in the same command whatever the answer. No password is ever part of a command line (security review, M1).
+     */
+    private function withPassword(string $project, string $password, string $manage): ShellResult
+    {
+        $file = $this->dir($project).'/.owner-password';
+        $this->run('install -m 0600 /dev/null '.Q::arg($file), 30, 'owner.file');
+        $this->transport($this->root())->write($project.'/.owner-password', $password."\n");
+
+        return $this->shell()->run($this->compose($project).' exec -T penpot-backend '.$manage.' < '.Q::arg($file).'; rc=$?; rm -f '.Q::arg($file).'; exit $rc', ['timeout' => 180]);
+    }
+
+    /**
+     * The stack's port, chosen under a lock on the node (security review, L): two provisionings never get the same one. The port
+     * file is written by the lock holder; a stack that already has one keeps it. @return array{0:int, 1:bool} port, existed before
+     */
+    private function allocatePort(string $project): array
+    {
+        $range = (array) $this->option('ports');
+        $from = (int) ($range['from'] ?? 19001);
+        $to = (int) ($range['to'] ?? 19999);
+        $root = $this->root();
+        $own = $this->dir($project).'/.port';
+        $script = 'exec 9>'.Q::arg($root.'/.ports.lock').' && flock -w 60 9 && if [ -s '.Q::arg($own).' ]; then echo "existing $(cat '.Q::arg($own).')"; else '
+            .'used=$(cat '.Q::arg($root).'/*/.port 2>/dev/null); p='.$from.'; while [ $p -le '.$to.' ] && printf \'%s\n\' "$used" | grep -qx "$p"; do p=$((p+1)); done; '
+            .'[ $p -le '.$to.' ] || exit '.self::PORTS_EXHAUSTED.'; echo $p > '.Q::arg($own).' && echo "new $p"; fi';
+        $result = $this->shell()->run($script, ['timeout' => 90]);
+        if ($result->exitCode === self::PORTS_EXHAUSTED) {
+            throw new ProviderException('penpot', ProviderErrorCode::CAPACITY, 'No free port for another Penpot stack on this node');
+        }
+        if (! $result->ok() || preg_match('/^(existing|new) (\d+)$/m', trim($result->stdout), $m) !== 1) {
+            throw new ProviderException('penpot', ProviderErrorCode::TRANSIENT, 'The port of the Penpot stack could not be allocated (exit '.$result->exitCode.')');
+        }
+
+        return [(int) $m[2], $m[1] === 'existing'];
+    }
+
+    /** A new stack is not started on a disk that cannot hold what the plan sells plus the headroom (security review, M2). */
+    private function assertDiskRoom(int $storageGb): void
+    {
+        $free = trim($this->run('df -Pk '.Q::arg($this->root()).' | awk \'NR==2 {print $4}\'', 30, 'disk.free')->stdout);
+        $needGb = $storageGb + max(0, (int) $this->option('min_free_gb'));
+        if (! ctype_digit($free) || (int) $free < $needGb * 1048576) {
+            throw new ProviderException('penpot', ProviderErrorCode::CAPACITY, 'Not enough free disk on the Penpot node for a new stack: '.(ctype_digit($free) ? round((int) $free / 1048576, 1) : '?').' GB free, '.$needGb.' GB needed');
+        }
+    }
+
+    /** The operator's storage quota helper (XFS project quota on the stack's volumes, docs/runbooks/penpot.md), when the node has one. */
+    private function applyQuota(string $project, int $storageGb): void
+    {
+        $command = trim((string) $this->option('quota_command'));
+        if ($command !== '') {
+            $this->run($command.' '.Q::arg($project).' '.Q::arg((string) $storageGb), 120, 'stack.quota');
+        }
     }
 
     private function writeProxy(string $serviceId, string $project, string $hostname, int $port): void
@@ -406,20 +483,6 @@ final class PenpotDockerProvider implements BackupCapable, InfrastructureProvide
     }
 
     /** The lowest port of the range no stack of this node holds (`.port` of every project directory). */
-    private function freePort(): int
-    {
-        $range = (array) $this->option('ports');
-        $from = (int) ($range['from'] ?? 19001);
-        $to = (int) ($range['to'] ?? 19999);
-        $taken = array_map('intval', array_filter(array_map('trim', explode("\n", $this->run('cat '.Q::arg($this->root()).'/*/.port 2>/dev/null; true', 30, 'stack.ports')->stdout)), 'ctype_digit'));
-        for ($port = $from; $port <= $to; $port++) {
-            if (! in_array($port, $taken, true)) {
-                return $port;
-            }
-        }
-
-        throw new ProviderException('penpot', ProviderErrorCode::CAPACITY, 'No free port for another Penpot stack on this node');
-    }
 
     /** @param array<string,mixed> $entitlements @return array{ram_mb:int, cpus:float, storage_gb:int} */
     private function limits(array $entitlements): array

@@ -14,10 +14,17 @@ declare(strict_types=1);
  * (help.penpot.app/technical-guide, docker/images/docker-compose.yaml) — see docs/runbooks/penpot.md.
  */
 return [
-    // the image tag of every Penpot image of a NEW stack; a running stack keeps the tag it was created with (`.env` on the node)
+    // the Penpot release of a NEW stack (shown on the card); a running stack keeps the images it was created with (`.env` on the node)
     'version' => '2.18',
-    'postgres_image' => 'postgres:15',
-    'valkey_image' => 'valkey/valkey:8.1',
+    // pinned by digest (security review of PR #119): the multi-arch index digest of each tag on Docker Hub, read 2026-10-06 from
+    // hub.docker.com/v2/repositories/<repo>/tags/<tag>. An upgrade changes the tag AND the digest here (docs/runbooks/penpot.md).
+    'images' => [
+        'frontend' => 'penpotapp/frontend:2.18@sha256:bb8abe27d53de84c95597f2c02c0e702b2779971fb0703e543f9ecf183e999f6',
+        'backend' => 'penpotapp/backend:2.18@sha256:2df1b3440d2a82cc3571db211b4ffdfa2b89ccc910759e8d5e9387fb62971b5c',
+        'exporter' => 'penpotapp/exporter:2.18@sha256:418232d6ca3120b1c2bfde298a56a05a1f41f567cd8494deac3fe7fbc186cfbd',
+        'postgres' => 'postgres:15@sha256:7e2070cf6ad06fb3cbbd141b1bafbb7fd5bb63e2b6001e6daf34448eb555e4b3',
+        'valkey' => 'valkey/valkey:8.1@sha256:640c5e62cea04b6d6f2084232651d0cc70362d31f4f805e7be94dbed6855e8f2',
+    ],
 
     // where the customer reaches the instance: <label>.<suffix>, an A/AAAA record in the platform zone (onhost.dns.platform_zones)
     'hostname_suffix' => 'penpot.onhost.cz',
@@ -42,6 +49,13 @@ return [
 
     // the valkey cache of one stack (official example: --maxmemory 128mb --maxmemory-policy volatile-lfu)
     'valkey_maxmemory' => '128mb',
+
+    // a new stack is refused when the stacks' disk has less free than the plan's storage plus this headroom (GB)
+    'min_free_gb' => 10,
+
+    // the operator's storage quota helper (XFS project quota, docs/runbooks/penpot.md): run as `<command> '<stack>' '<GB>'` after a
+    // stack is made or resized; empty = no quota on this node (the doctor warns)
+    'quota_command' => '',
 
     // backups kept on the node per stack (the platform's backup rows carry their own retention)
     'keep_backups' => 14,
