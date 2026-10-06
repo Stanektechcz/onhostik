@@ -286,7 +286,24 @@ await check('a short reason never reaches the server', async () => {
   assert.match(drawer.innerHTML, /nejméně 10 znaků/);
 });
 
-/* ── Czech counts (item 7) ───────────────────────────────────────────────────────────────────────────────────── */
+await check('H2: a sign-on link that does not start with https: is never opened nor offered (javascript:, data:, http:)', async () => {
+  for (const url of ['javascript:alert(1)', 'data:text/html,x', 'http://panel.example/login?t=1', '//panel.example/x']) {
+    const org = { id: 'org_1', name: 'Firma', currency: 'CZK', services: [{ id: 'svc_1', label: 'firma.cz', state: 'ACTIVE' }], orders: [], invoices: [], wallet: {}, can: {} };
+    const w = makeWindow({ 'GET /staff/customers/org_1': { data: org }, 'POST /staff/services/svc_1/panel-login': { data: { url, expires_in_seconds: 60, consented: true } } });
+    vm.runInContext(read('onhost-admin-customer.api.js'), w.ctx, { filename: 'onhost-admin-customer.api.js' });
+    w.ctx.OnhostAdminCustomer.open('org_1');
+    await settle();
+    const drawer = w.body.children[0];
+    drawer.fire('click', { target: { closest: () => ({ disabled: false, getAttribute: (k) => ({ 'data-a': 'sso', 'data-v': 'svc_1' })[k] }) } });
+    answerDialog(w, ['T-100', 'zákazník žádá o pomoc s webem']);
+    await settle();
+    eq(w.opened, []);
+    assert.equal(openDialog(w), null, 'no copy-the-link dialog for ' + url);
+    assert.match(drawer.innerHTML, /nezačíná https:/);
+  }
+});
+
+/* ── Czech counts (item 7)───────────────────────────────────────────────────────────────────────────────────── */
 await check('a count takes the Czech form of its noun: 1 den, 2 dny, 5 dní, 1,5 dne; English one/other', async () => {
   const w = makeWindow();
   const cn = w.ctx.OnhostI18n.cn;

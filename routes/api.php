@@ -525,6 +525,7 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
         Route::post('payments/refunds/{refund}/cancel', [PaymentsController::class, 'cancelRefund']);
         Route::post('payments/{payment}/refund', [PaymentsController::class, 'refund']);
         // ── end G6 ──
+        Route::get('payments/refunds/not-paid-out', [PaymentsController::class, 'refundsNotPaidOut']); // H3 (TASK-0121): cancelled payouts nobody sent again
         Route::get('registrars', [RegistrarController::class, 'index']);
         Route::post('registrars/costs/refresh', [RegistrarController::class, 'refresh']);
         Route::post('registrars/costs/scrape', [RegistrarController::class, 'scrape']);

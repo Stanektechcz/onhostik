@@ -82,3 +82,18 @@ seam, so a deploy never serves a stale transform.
   (`onhost-content.js`, the admin and panel pages, `onhost-svc-web.js`) on the way out; the prototypes stay byte-identical and
   `G8UiFollowUpsTest` pins every needle against them.
 * **Bindings** — a customer sees `vm`, not the hypervisor's `qemu`.
+
+## H2 UI truth (TASK-0124)
+
+* **No `window.prompt` is served.** The staff Blade pages (`admin/approvals`, `integrations`, `lifecycle`, `operations`, `plans`) and
+  `service-console` ask through `window.OnhostDialog`; they load the session bridge through `partials/dialog-bridge.blade.php` with
+  `window.ONHOST = { dialogOnly: true }`, which makes the bridge define the dialog and the wording helpers and stop (it never touches the
+  shell's session or storage). `tests/Feature/H2H4/H2UiTruthTest.php` fails when a `window.prompt(` call appears anywhere served except
+  the dialog's own no-DOM fallback.
+* **The claims seam corrects the template, not the boot JSON.** `SurfaceRenderer::render()` applies `CreditClaimsSeam` to the prototype
+  template before the boot object is injected, so a customer's own text equal to a needle is never rewritten.
+* **Two more prototype untruths corrected** (needles in `resources/surfaces/credit-claims.php`): the admin demo cards that promised a
+  "bonus 10 %" on top-ups (no rule gives one), and "downloadable for 30 days after cancellation" (the archive of a removed service is
+  kept `DeletionPolicy::retentionDays()`, 60 by default; `{retention_days}` in a corrected sentence is filled in by the seam).
+* **Staff sign-on** opens the one-time link only when it starts with `https:`; otherwise it says so and offers nothing.
+* **Sessions view** says before the click that ending a session renews the "remember me" token, so remembered browsers sign in again.

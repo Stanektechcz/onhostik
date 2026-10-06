@@ -13,6 +13,7 @@ concurrency:
 
 jobs:
   # Spectral over the committed contract (ruleset: .spectral.yaml). Errors and warnings fail; waived rules are documented there.
+  # The CLI is pinned to an exact version: a floating `@6` let a new release add findings to an unchanged contract (raise it on purpose).
   openapi-lint:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -24,7 +25,7 @@ jobs:
           node-version: '22'
 
       - name: Spectral
-        run: npx --yes @stoplight/spectral-cli@6 lint contracts/openapi/onhost-v1.yaml --ruleset .spectral.yaml --fail-severity=warn
+        run: npx --yes @stoplight/spectral-cli@6.17.0 lint contracts/openapi/onhost-v1.yaml --ruleset .spectral.yaml --fail-severity=warn
 
   pest:
     runs-on: ubuntu-latest
@@ -37,6 +38,16 @@ jobs:
           php-version: '8.3'
           extensions: mbstring, intl, sqlite3, pdo_sqlite, gd, bcmath, sodium
           coverage: none
+
+      - name: Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-${{ runner.os }}-
 
       - name: Install PHP dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
@@ -65,9 +76,17 @@ jobs:
         run: composer audit --no-interaction
 
   # The same suite against PostgreSQL 16 — the production database (go-live checklist §1); SQLite habits fail here first.
-  pest-postgres:
+  # One run took ~25 minutes, so the suite is cut into four shards (Pest's --shard, by test file), each with a database of its own: about
+  # 8 minutes each, in parallel. The job named `pest-postgres` below only reports the four, so the check name the branch rules wait for
+  # stays the same and one rerun of a failed shard is enough.
+  pest-postgres-shard:
+    name: pest-postgres shard ${{ matrix.shard }}/4
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     services:
       postgres:
         image: postgres:16
@@ -97,6 +116,16 @@ jobs:
           extensions: mbstring, intl, pgsql, pdo_pgsql, gd, bcmath, sodium
           coverage: none
 
+      - name: Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-${{ runner.os }}-
+
       - name: Install PHP dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
 
@@ -106,8 +135,19 @@ jobs:
       - name: Migrations on PostgreSQL
         run: php artisan migrate --force
 
-      - name: Pest on PostgreSQL
-        run: php artisan test --compact
+      - name: Pest on PostgreSQL (shard ${{ matrix.shard }} of 4)
+        run: php artisan test --compact --shard=${{ matrix.shard }}/4
+
+  pest-postgres:
+    needs: pest-postgres-shard
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: All four PostgreSQL shards passed
+        run: |
+          echo "shards: ${{ needs.pest-postgres-shard.result }}"
+          test "${{ needs.pest-postgres-shard.result }}" = "success"
 
   # The gated deployer (TASK-0032): syntax, ShellCheck, and a real release A → B → A of this tree through the installed
   # deployer (maintenance mode, composer --no-dev, migrations, config/route/event caches, openapi, backup + verify,
