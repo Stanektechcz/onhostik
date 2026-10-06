@@ -51,6 +51,9 @@ function usageWatchSite(array &$quota): void
 }
 
 it('warns at 85 %, escalates at 95 %, marks the panel rows, and orders the next plan from credit when the policy allows it', function () {
+    // H4: the watch tells once per DAY (`notified_on` is today's date), so a run that crossed midnight UTC between two lines of this test saw a
+    // "new day" where the test expects the same one. The clock stands still at noon for the whole test; the new day below is made explicit.
+    $this->travelTo(now()->utc()->setTime(12, 0));
     [$owner, $org] = $this->customerWithOrganization([], ['street' => 'Dlouhá 1', 'city' => 'Praha', 'postal_code' => '11000', 'billing_email' => 'billing@example.cz']);
     $ctx = $this->contextFor($owner, $org);
     app(WalletService::class)->topup($org, Money::decimal('5000', 'CZK'), 'card', 'seed', $ctx, bankProvider: 'comgate');

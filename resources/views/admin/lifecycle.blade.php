@@ -120,6 +120,7 @@
     <p class="hint" id="s-error" style="color:#ae1800"></p>
   </form>
 </dialog>
+@include('partials.dialog-bridge')
 <script>
 (function () {
   var API = '/v1';
@@ -215,11 +216,13 @@
   document.addEventListener('click', function (e) {
     var b = e.target.closest ? e.target.closest('button[data-purge]') : null;
     if (!b) return;
-    var reason = window.prompt('Odstranění přeskočí lhůtu na obnovu. Důvod (min. 5 znaků):', '');
-    if (!reason || reason.length < 5) return;
-    api('POST', '/staff/provisioning/services/' + encodeURIComponent(b.dataset.purge) + '/purge', { reason: reason })
-      .then(function () { alertBox('Odstranění zařazeno; proběhne po ověření identity a kontrole zálohy.', true); load(); })
-      .catch(function (err) { alertBox('Odstranění neprošlo: ' + err.message); });
+    var target = b.dataset.purge;
+    window.OnhostDialog.prompt('Odstranění přeskočí lhůtu na obnovu. Důvod (min. 5 znaků):', '', { title: 'Odstranit službu', confirm: 'Odstranit' }).then(function (reason) {
+      if (!reason || reason.length < 5) return;
+      api('POST', '/staff/provisioning/services/' + encodeURIComponent(target) + '/purge', { reason: reason })
+        .then(function () { alertBox('Odstranění zařazeno; proběhne po ověření identity a kontrole zálohy.', true); load(); })
+        .catch(function (err) { alertBox('Odstranění neprošlo: ' + err.message); });
+    });
   });
 
   load();

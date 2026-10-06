@@ -169,10 +169,7 @@ final class SurfaceController extends Controller
         if ($user instanceof User && $surface === 'partner' && ! $demo && ! $this->runsPartnership($user, $boot['user'] ?? null)) {
             return redirect(self::PARTNER_APPLICATION);
         }
-        $html = $this->renderer->render($surface, $boot, $demo);
-        if (! $demo && in_array($surface, ['admin', 'panel'], true)) { // sentences that promise credit back in cash are corrected on the way out (G8 item 9)
-            $html = CreditClaimsSeam::apply($html, [$surface]);
-        }
+        $html = $this->renderer->render($surface, $boot, $demo); // the credit/bonus/archive sentences are corrected inside render(), in the template only (G8 item 9, H2)
         $headers = ['Content-Type' => 'text/html; charset=utf-8', 'Cache-Control' => 'no-store', 'X-Frame-Options' => 'SAMEORIGIN', 'Referrer-Policy' => 'strict-origin-when-cross-origin'];
         if (in_array($surface, self::CONCEPT_SURFACES, true)) {
             $headers['X-Robots-Tag'] = 'noindex, nofollow';
