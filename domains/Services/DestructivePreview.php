@@ -35,6 +35,22 @@ final class DestructivePreview
 
     public function __construct(private readonly ServiceFeatures $features, private readonly DeletionPolicy $policy) {}
 
+    /**
+     * The preview speaks the language of the person asking (G8, audit follow-up): English when the request says `?locale=en` (the
+     * panel always does, from the language the page is in), Czech otherwise. The browser's Accept-Language is deliberately not
+     * consulted: the application default is English and nearly every browser sends en-US, so it would turn the Czech preview of a
+     * Czech customer English. Only the words differ; the fingerprint is made from the target and is the same in both languages.
+     */
+    private static function t(string $cs, string $en): string
+    {
+        return self::english() ? $en : $cs;
+    }
+
+    private static function english(): bool
+    {
+        return request()->query('locale') === 'en';
+    }
+
     public static function destructive(string $action): bool
     {
         return in_array($action, self::ACTIONS, true);
@@ -47,7 +63,7 @@ final class DestructivePreview
     public function of(Service $service, string $action, array $params = []): array
     {
         if (! self::destructive($action)) {
-            throw new DomainError('action_not_destructive', 'Tato akce nic nemaže ani nepřepisuje; náhled není potřeba.', 422, ['action' => $action]);
+            throw new DomainError('action_not_destructive', self::t('Tato akce nic nemaže ani nepřepisuje; náhled není potřeba.', 'This action deletes and overwrites nothing; no preview is needed.'), 422, ['action' => $action]);
         }
         $target = $this->target($service, $action, $params);
 
@@ -73,7 +89,7 @@ final class DestructivePreview
         }
         $now = self::fingerprint($service, $action, $this->target($service, $action, $params));
         if (! hash_equals($now, $confirm)) {
-            throw new DomainError('target_changed', 'Od zobrazení náhledu se změnilo, čeho se akce týká. Otevřete náhled znovu a potvrďte ho.', 409, ['action' => $action, 'fingerprint' => $now]);
+            throw new DomainError('target_changed', self::t('Od zobrazení náhledu se změnilo, čeho se akce týká. Otevřete náhled znovu a potvrďte ho.', 'What the action affects has changed since the preview was shown. Open the preview again and confirm it.'), 409, ['action' => $action, 'fingerprint' => $now]);
         }
     }
 
@@ -145,26 +161,26 @@ final class DestructivePreview
         $mailboxes = (array) data_get($target, 'contents.mailboxes', []);
         $backup = (array) ($target['backup'] ?? []);
         match ($action) {
-            'terminate' => $out[] = 'Služba se vypne a po ochranné lhůtě odstraní.',
-            'purge' => $out[] = 'Služba se odstraní u poskytovatele. Tohle je konec, ne pozastavení.',
-            'restore', 'archive.restore' => $out[] = 'Současný obsah služby se přepíše zálohou'.(($backup['at'] ?? null) !== null ? ' z '.$backup['at'] : '').'.',
-            'rollback_snapshot' => $out[] = 'Server se vrátí do stavu ze snapshotu „'.($target['snapshot'] ?? '').'“; všechno, co udělal od té doby, zmizí.',
+            'terminate' => $out[] = self::t('Služba se vypne a po ochranné lhůtě odstraní.', 'The service is switched off and removed after the grace period.'),
+            'purge' => $out[] = self::t('Služba se odstraní u poskytovatele. Tohle je konec, ne pozastavení.', 'The service is removed at the provider. This is the end, not a suspension.'),
+            'restore', 'archive.restore' => $out[] = self::t('Současný obsah služby se přepíše zálohou'.(($backup['at'] ?? null) !== null ? ' z '.$backup['at'] : '').'.', 'The current content of the service is overwritten by the backup'.(($backup['at'] ?? null) !== null ? ' from '.$backup['at'] : '').'.'),
+            'rollback_snapshot' => $out[] = self::t('Server se vrátí do stavu ze snapshotu „'.($target['snapshot'] ?? '').'“; všechno, co udělal od té doby, zmizí.', 'The server goes back to the state of the snapshot "'.($target['snapshot'] ?? '').'"; everything it has done since then is lost.'),
             'reinstall' => $out[] = $service->family === 'cloud'
-                ? 'Systémový disk serveru se nahradí čistou instalací '.((string) ($target['image'] ?? '') ?: 'vybraného systému').'; všechno, co na něm je, zmizí. Server se na chvíli vypne. Původní disk zůstane odpojený u snapshotu před reinstalací.'
-                : 'Soubory serveru se přepíšou instalací od začátku.',
-            'database.delete' => $out[] = 'Databáze se smaže i s obsahem.',
-            'backup.delete', 'gbackup.delete' => $out[] = 'Záloha se smaže; obnovit z ní už nepůjde.',
-            'staging.delete' => $out[] = 'Testovací kopie webu se odstraní. Ostrý web zůstává.',
-            'site.delete' => $out[] = 'Web '.($target['site'] ?? '').' se vypne, zazálohuje a po ochranné lhůtě odstraní i se soubory a databázemi. Ostatní weby služby zůstávají.',
-            'staging.push' => $out[] = 'Ostrý web se přepíše obsahem testovací kopie.',
+                ? self::t('Systémový disk serveru se nahradí čistou instalací '.((string) ($target['image'] ?? '') ?: 'vybraného systému').'; všechno, co na něm je, zmizí. Server se na chvíli vypne. Původní disk zůstane odpojený u snapshotu před reinstalací.', 'The system disk of the server is replaced by a clean installation of '.((string) ($target['image'] ?? '') ?: 'the chosen system').'; everything on it is lost. The server is switched off for a moment. The original disk stays detached with the snapshot taken before the reinstall.')
+                : self::t('Soubory serveru se přepíšou instalací od začátku.', 'The files of the server are overwritten by an installation from scratch.'),
+            'database.delete' => $out[] = self::t('Databáze se smaže i s obsahem.', 'The database is deleted with its content.'),
+            'backup.delete', 'gbackup.delete' => $out[] = self::t('Záloha se smaže; obnovit z ní už nepůjde.', 'The backup is deleted; nothing can be restored from it any more.'),
+            'staging.delete' => $out[] = self::t('Testovací kopie webu se odstraní. Ostrý web zůstává.', 'The test copy of the site is removed. The live site stays.'),
+            'site.delete' => $out[] = self::t('Web '.($target['site'] ?? '').' se vypne, zazálohuje a po ochranné lhůtě odstraní i se soubory a databázemi. Ostatní weby služby zůstávají.', 'The site '.($target['site'] ?? '').' is switched off, backed up and, after the grace period, removed with its files and databases. The other sites of the service stay.'),
+            'staging.push' => $out[] = self::t('Ostrý web se přepíše obsahem testovací kopie.', 'The live site is overwritten by the content of the test copy.'),
             default => null,
         };
         if (in_array($action, ['terminate', 'purge', 'reinstall', 'restore', 'rollback_snapshot', 'staging.push'], true)) {
             if ($databases !== []) {
-                $out[] = count($databases).'× databáze: '.implode(', ', array_slice($databases, 0, 6)).(count($databases) > 6 ? ' …' : '');
+                $out[] = count($databases).self::t('× databáze: ', '× database: ').implode(', ', array_slice($databases, 0, 6)).(count($databases) > 6 ? ' …' : '');
             }
             if ($mailboxes !== []) {
-                $out[] = count($mailboxes).'× poštovní schránka: '.implode(', ', array_slice($mailboxes, 0, 6)).(count($mailboxes) > 6 ? ' …' : '');
+                $out[] = count($mailboxes).self::t('× poštovní schránka: ', '× mailbox: ').implode(', ', array_slice($mailboxes, 0, 6)).(count($mailboxes) > 6 ? ' …' : '');
             }
         }
 
@@ -181,27 +197,27 @@ final class DestructivePreview
         $addons = Service::query()->where('family', 'addon')->where('tags->parent_service_id', $service->id)
             ->whereIn('state', [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED])->pluck('product_key')->all();
         if ($addons !== []) {
-            $out[] = 'Zruší se i doplňky: '.implode(', ', $addons).'.';
+            $out[] = self::t('Zruší se i doplňky: ', 'The add-ons are cancelled too: ').implode(', ', $addons).'.';
         }
         try {
             $staging = app(StagingService::class)->link($service);
             if ($staging !== null) {
-                $out[] = 'Odstraní se i testovací kopie webu.';
+                $out[] = self::t('Odstraní se i testovací kopie webu.', 'The test copy of the site is removed too.');
             }
             // the further sites of the plan go with the service too — each one archived first, like the service itself
             $sites = array_values(array_diff(IncludedServices::domains($service), [(string) $staging?->staging_domain]));
             if ($sites !== []) {
-                $out[] = 'Zruší se i další weby služby: '.implode(', ', array_slice($sites, 0, 10)).(count($sites) > 10 ? ' a další' : '').'.';
+                $out[] = self::t('Zruší se i další weby služby: ', 'The other sites of the service are cancelled too: ').implode(', ', array_slice($sites, 0, 10)).(count($sites) > 10 ? self::t(' a další', ' and more') : '').'.';
             }
         } catch (Throwable) {
             // no staging link is not a reason to refuse a preview
         }
         $zones = DnsZone::query()->where('organization_id', $service->organization_id)->where('name', (string) $service->hostname)->count();
         if ($zones > 0) {
-            $out[] = 'DNS zóna '.$service->hostname.' zůstane; záznamy na tuto službu přestanou platit.';
+            $out[] = self::t('DNS zóna '.$service->hostname.' zůstane; záznamy na tuto službu přestanou platit.', 'The DNS zone '.$service->hostname.' stays; the records pointing at this service stop working.');
         }
         if (Subscription::query()->where('service_id', $service->id)->whereNotIn('state', [Subscription::CANCELLED])->exists()) {
-            $out[] = 'Předplatné se zruší, další platba se nestrhne.';
+            $out[] = self::t('Předplatné se zruší, další platba se nestrhne.', 'The subscription is cancelled; no further payment is taken.');
         }
 
         return $out;
@@ -211,20 +227,20 @@ final class DestructivePreview
     private function recovery(Service $service, string $action): array
     {
         if (in_array($action, ['backup.delete', 'gbackup.delete'], true)) {
-            return ['kind' => 'none', 'note' => 'Smazanou zálohu už obnovit nepůjde.'];
+            return ['kind' => 'none', 'note' => self::t('Smazanou zálohu už obnovit nepůjde.', 'A deleted backup cannot be restored any more.')];
         }
         if (in_array($action, ['terminate', 'purge'], true)) {
             return ['kind' => 'final_archive', 'grace_days' => $this->policy->graceDays(), 'retention_days' => $this->policy->retentionDays(),
-                'note' => 'Před odstraněním uděláme úplnou zálohu a uchováme ji '.$this->policy->retentionDays().' dní; službu lze obnovit '.$this->policy->graceDays().' dní.'];
+                'note' => self::t('Před odstraněním uděláme úplnou zálohu a uchováme ji '.$this->policy->retentionDays().' dní; službu lze obnovit '.$this->policy->graceDays().' dní.', 'Before the removal we make a full backup and keep it for '.$this->policy->retentionDays().' days; the service can be restored for '.$this->policy->graceDays().' days.')];
         }
         if (in_array($action, ['restore', 'rollback_snapshot', 'reinstall'], true)) {
             $latest = Backup::query()->where('service_id', $service->id)->whereIn('kind', ['pre_restore', 'pre_rollback', 'pre_reinstall'])
                 ->where('state', 'completed')->orderByDesc('finished_at')->orderByDesc('id')->first();
 
             return ['kind' => 'safety_copy', 'retention_days' => $this->policy->retentionDays(), 'previous' => $latest?->finished_at?->toIso8601String(),
-                'note' => 'Než cokoli přepíšeme, uděláme zálohu současného stavu a uchováme ji '.$this->policy->retentionDays().' dní.'];
+                'note' => self::t('Než cokoli přepíšeme, uděláme zálohu současného stavu a uchováme ji '.$this->policy->retentionDays().' dní.', 'Before we overwrite anything we make a backup of the current state and keep it for '.$this->policy->retentionDays().' days.')];
         }
 
-        return ['kind' => 'backups', 'note' => 'Obnovit jde z poslední zálohy služby.'];
+        return ['kind' => 'backups', 'note' => self::t('Obnovit jde z poslední zálohy služby.', 'You can restore from the latest backup of the service.')];
     }
 }

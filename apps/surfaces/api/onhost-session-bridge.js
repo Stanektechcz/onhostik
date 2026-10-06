@@ -593,7 +593,91 @@
       if (Math.floor(x) !== x || (x >= 2 && x <= 4)) return f[1] !== undefined ? f[1] : f[f.length - 1];
       return f[2] !== undefined ? f[2] : f[f.length - 1];
     }
-    return { plural: plural, count: function (n, forms, lang) { return n + ' ' + plural(n, forms, lang); }, en: isEn };
+    return { plural: plural, count: function (n, forms, lang) { return n + ' ' + plural(n, forms, lang); }, cn: function (n, cs, en, lang) { var l = lang || (isEn() ? 'en' : 'cs'); return n + ' ' + plural(n, l === 'en' ? en : cs, l); }, en: isEn };
+  })();
+
+  /* 6b. one input dialog for every API module (G8 item 6): replaces window.prompt. A real modal (role=dialog, labelled fields, focus on
+   *     the first field, Enter submits, Escape and the backdrop cancel) in the page's language. Promise-based:
+   *       OnhostDialog.form({ title, lead, confirm, cancel, danger, fields: [{ key, label, value, type: text|number|textarea|select|password, options, required, hint, placeholder }] })
+   *         → resolves the values { key: string } or null when cancelled;
+   *       OnhostDialog.prompt(label, value, opts) → the string, or null when cancelled (the shape of window.prompt, asynchronous);
+   *       OnhostDialog.confirm(title, lead, opts) → true / false.
+   *     Without a DOM (a test harness) it falls back to the browser's own prompt/confirm. */
+  window.OnhostDialog = window.OnhostDialog || (function () {
+    var seq = 0;
+    function cs() { return !window.OnhostI18n.en(); }
+    function form(o) {
+      o = o || {};
+      var doc = typeof document !== 'undefined' ? document : null, fields = o.fields || [];
+      if (!doc || !doc.body || typeof doc.createElement !== 'function') {
+        var out = {};
+        for (var i = 0; i < fields.length; i++) { var v = window.prompt((o.title ? o.title + ' · ' : '') + fields[i].label, fields[i].value == null ? '' : String(fields[i].value)); if (v === null || v === undefined) return Promise.resolve(null); out[fields[i].key] = String(v); }
+        return Promise.resolve(out);
+      }
+      return new Promise(function (resolve) {
+        var id = 'onhost-dlg-' + (++seq), c = cs();
+        var el = function (tag, css, text, attrs) { var e = doc.createElement(tag); if (css) e.style.cssText = css; if (text != null) e.textContent = text; Object.keys(attrs || {}).forEach(function (k) { e.setAttribute(k, attrs[k]); }); return e; };
+        var line = 'color-mix(in srgb,var(--a-fg,var(--fg,#201e1d)) 30%,transparent)';
+        var wrap = el('div', 'position:fixed;inset:0;z-index:9700;display:flex;align-items:center;justify-content:center;background:rgba(20,18,17,.55);font-family:inherit', null, { role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': id + '-t', 'data-onhost-dialog': 'form' });
+        var box = el('form', 'background:var(--a-bg,var(--bg,#fff));color:var(--a-fg,var(--fg,#201e1d));width:min(480px,calc(100vw - 32px));max-height:calc(100vh - 48px);overflow:auto;padding:24px;border:1px solid ' + line + ';border-radius:12px;box-shadow:0 24px 60px rgba(0,0,0,.35);display:flex;flex-direction:column;gap:12px', null, { novalidate: 'novalidate' });
+        box.appendChild(el('div', 'font-weight:700;font-size:17px;line-height:1.3', o.title || '', { id: id + '-t' }));
+        if (o.lead) box.appendChild(el('div', 'font-size:13.5px;line-height:1.5;opacity:.85;white-space:pre-line', o.lead));
+        var inputs = {};
+        fields.forEach(function (f, n) {
+          var fid = id + '-f' + n, label = el('label', 'display:flex;flex-direction:column;gap:5px;font-size:13px', null, { 'for': fid });
+          label.appendChild(el('span', 'font-weight:600', f.label + (f.required ? ' *' : '')));
+          var inp;
+          var css = 'font:inherit;font-size:14px;padding:9px 10px;border:1px solid ' + line + ';border-radius:8px;background:transparent;color:inherit;width:100%;box-sizing:border-box';
+          if (f.type === 'select') {
+            inp = el('select', css, null, { id: fid });
+            (f.options || []).forEach(function (op) { var ov = Array.isArray(op) ? op[0] : op, ol = Array.isArray(op) ? op[1] : op, e = el('option', '', ol, { value: ov }); if (String(ov) === String(f.value)) e.setAttribute('selected', 'selected'); inp.appendChild(e); });
+          } else if (f.type === 'textarea') {
+            inp = el('textarea', css + ';min-height:84px;resize:vertical', null, { id: fid }); inp.value = f.value == null ? '' : String(f.value);
+          } else {
+            inp = el('input', css, null, { id: fid, type: f.type || 'text', autocomplete: 'off' }); inp.value = f.value == null ? '' : String(f.value);
+          }
+          if (f.placeholder) inp.setAttribute('placeholder', f.placeholder);
+          if (f.required) inp.setAttribute('aria-required', 'true');
+          label.appendChild(inp);
+          if (f.hint) label.appendChild(el('span', 'font-size:12px;opacity:.7;line-height:1.4', f.hint));
+          inputs[f.key] = inp; box.appendChild(label);
+        });
+        var err = el('div', 'display:none;color:#8f1c0a;font-size:13px', null, { role: 'alert' });
+        box.appendChild(err);
+        var row = el('div', 'display:flex;gap:8px;justify-content:flex-end;margin-top:4px;flex-wrap:wrap'), btn = 'font:inherit;font-size:13.5px;padding:9px 14px;border-radius:8px;cursor:pointer;';
+        var cancel = el('button', btn + 'border:1px solid ' + line + ';background:transparent;color:inherit', o.cancel || (c ? 'Zrušit' : 'Cancel'), { type: 'button', 'data-act': 'cancel' });
+        var ok = el('button', btn + 'font-weight:600;color:#fff;border:1px solid ' + (o.danger ? '#8f1c0a;background:#8f1c0a' : 'var(--a-acc,var(--acc,#ec3013));background:var(--a-acc,var(--acc,#ec3013))'), o.confirm || 'OK', { type: 'submit', 'data-act': 'confirm' });
+        row.appendChild(cancel); row.appendChild(ok); box.appendChild(row); wrap.appendChild(box);
+        var onKey = null;
+        var done = function (v) { try { doc.removeEventListener('keydown', onKey, true); wrap.remove(); } catch (e) { /* already gone */ } resolve(v); };
+        onKey = function (ev) { if (ev && ev.key === 'Escape') { if (ev.stopPropagation) ev.stopPropagation(); done(null); } };
+        cancel.addEventListener('click', function () { done(null); });
+        wrap.addEventListener('click', function (ev) { if (ev && ev.target === wrap) done(null); });
+        box.addEventListener('submit', function (ev) {
+          if (ev && ev.preventDefault) ev.preventDefault();
+          var vals = {}, missing = null;
+          fields.forEach(function (f) { var v = String(inputs[f.key].value == null ? '' : inputs[f.key].value); vals[f.key] = v; if (f.required && !v.trim() && !missing) missing = f; });
+          if (missing) { err.style.display = 'block'; err.textContent = (c ? 'Vyplňte: ' : 'Fill in: ') + missing.label; try { inputs[missing.key].focus(); } catch (e) { /* not focusable */ } return; }
+          done(vals);
+        });
+        doc.addEventListener('keydown', onKey, true);
+        doc.body.appendChild(wrap);
+        setTimeout(function () { try { (fields.length ? inputs[fields[0].key] : ok).focus(); } catch (e) { /* not focusable */ } }, 30);
+      });
+    }
+    function prompt(label, value, opts) {
+      opts = opts || {};
+      var text = String(label == null ? '' : label), long = text.length > 64 || text.indexOf('\n') >= 0; // a sentence or a list is the lead, not the title
+      return form({ title: opts.title || (long ? (cs() ? 'Zadejte hodnotu' : 'Enter a value') : text), lead: opts.title || long ? text : opts.lead, confirm: opts.confirm, cancel: opts.cancel, fields: [{ key: 'v', label: opts.fieldLabel || (cs() ? 'Hodnota' : 'Value'), value: value, type: opts.type, required: opts.required, hint: opts.hint, placeholder: opts.placeholder, options: opts.options }] })
+        .then(function (v) { return v === null ? null : v.v; });
+    }
+    function confirm(title, lead, opts) {
+      opts = opts || {};
+      var doc = typeof document !== 'undefined' ? document : null;
+      if (!doc || !doc.body || typeof doc.createElement !== 'function') return Promise.resolve(window.confirm([title, lead].filter(Boolean).join('\n\n')));
+      return form({ title: title, lead: lead, confirm: opts.confirm || (cs() ? 'Pokračovat' : 'Continue'), cancel: opts.cancel, danger: opts.danger, fields: [] }).then(function (v) { return v !== null; });
+    }
+    return { form: form, prompt: prompt, confirm: confirm };
   })();
 
   /* 7. the organization this browser works in (TASK-0070): a person in several organizations picks one; the server keeps the choice in

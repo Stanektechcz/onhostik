@@ -67,3 +67,18 @@ widget and strip of the panel, including the Fakturace "Co kdyby" what-if price 
 
 The transform cache key includes the renderer's own mtime, the shell/support scripts and every `api/*.js`
 seam, so a deploy never serves a stale transform.
+
+## G8 follow-ups (TASK-0118)
+
+* **One input dialog** — `window.OnhostDialog` (session bridge: `form`, `prompt`, `confirm`) replaced every `window.prompt` of the
+  `api/*.js` modules; several questions in a row became one form. `tests/js/g8-ui.harness.mjs` fails if a module calls
+  `window.prompt` again.
+* **Czech counts** — `OnhostI18n.cn(n, csForms, enForms, lang)` gives "1 den, 2 dny, 5 dní"; the modules use a local `cq(_, n, cs, en)`.
+* **Service accounts and the verification mail** — the API keys view lists, creates, issues keys for and removes service accounts
+  (owner only, `/v1/service-accounts`); an unverified sign-in address offers `POST /v1/me/email/verification`.
+* **Staff sign-on** — the customer drawer's "Vstoupit do panelu" calls `POST /v1/staff/services/{id}/panel-login` (ticket + reason).
+* **Destructive preview** — asked with `?locale=` from the page's language; English only on `locale=en`.
+* **Credit is never paid back in cash** — `App\Http\Support\CreditClaimsSeam` corrects the prototype sentences that promised it
+  (`onhost-content.js`, the admin and panel pages, `onhost-svc-web.js`) on the way out; the prototypes stay byte-identical and
+  `G8UiFollowUpsTest` pins every needle against them.
+* **Bindings** — a customer sees `vm`, not the hypervisor's `qemu`.

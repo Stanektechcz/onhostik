@@ -8,6 +8,9 @@
  * databases: export/import/remote access; files: upload/rename/copy/chmod/zip). Everything is a feature-gated API
  * call; the surface stays byte-identical. */
 (function () {
+  /* a count with its noun in the right Czech form (1 den, 2 dny, 5 dní) — G8 item 7 */
+  function cn(n, cs, en, lang) { var I = window.OnhostI18n; return I ? I.cn(n, cs, en, lang) : n + ' ' + (lang === 'en' ? (n === 1 ? en[0] : en[1]) : (n === 1 ? cs[0] : (n >= 2 && n <= 4 ? cs[1] : cs[2]))); }
+  function cq(_, n, cs, en) { return _(cn(n, cs, en, 'cs'), cn(n, cs, en, 'en')); }
   if (window.OnhostPanelTools) return;
   var API = window.OnhostApi, WB = window.OnhostPanelWorkbench;
   if (!API || !WB || !WB.TABS) return;
@@ -334,10 +337,11 @@
     var settings = p && p.settings ? p.settings : {}, editable = p && p.editable ? p.editable : [];
     var rows = p === null ? [] : editable.map(function (k) {
       return [k, settings[k] == null || settings[k] === '' ? _('(výchozí)', '(default)') : settings[k], '', [ctx.A(_('Změnit', 'Change'), function () {
-        var val = window.prompt(_('Nová hodnota pro ' + k + ' (např. 256M, 60, On/Off, Europe/Prague):', 'New value for ' + k + ' (e.g. 256M, 60, On/Off, Europe/Prague):'), settings[k] || '');
+        window.OnhostDialog.prompt(_('Nová hodnota pro ' + k + ' (např. 256M, 60, On/Off, Europe/Prague):', 'New value for ' + k + ' (e.g. 256M, 60, On/Off, Europe/Prague):'), settings[k] || '').then(function (val) {
         if (val === null) return;
         var s = {}; s[k] = String(val).trim();
         act(ctx, 'php.settings', { settings: s }, ['php_settings'], _('Nastavení PHP uloženo', 'PHP setting saved'), _('Platí do minuty pro celý web.', 'Applies within a minute to the whole site.'));
+        });
       })]];
     });
     if (p && !p.__error) {
@@ -377,7 +381,7 @@
     var c = res(ctx, 'certificates');
     var rows = c === null ? loadingRow(ctx) : (c.__error ? errRow(ctx, c.__error) : (c.certificates || []).map(function (x) {
       var st = { pending: ['objednáno', 'ordered'], validating: ['ověřujeme DNS', 'validating DNS'], issued: ['vystaven', 'issued'], failed: ['selhalo', 'failed'] }[x.state] || [x.state, x.state];
-      return { cells: [ctx.cell((x.domains || []).join(', '), '1 1 240px', 1), ctx.cell(_(st[0], st[1]), '0 0 130px'), ctx.cell(x.expires_at ? String(x.expires_at).slice(0, 10) + (x.days_left != null ? ' · ' + x.days_left + _(' dní', ' days') : '') : '—', '0 0 160px', 1)], note: x.last_error || (x.issuer ? x.issuer : ''), actions: [] };
+      return { cells: [ctx.cell((x.domains || []).join(', '), '1 1 240px', 1), ctx.cell(_(st[0], st[1]), '0 0 130px'), ctx.cell(x.expires_at ? String(x.expires_at).slice(0, 10) + (x.days_left != null ? ' · ' + cq(_, x.days_left, ['den', 'dny', 'dní'], ['day', 'days']) : '') : '—', '0 0 160px', 1)], note: x.last_error || (x.issuer ? x.issuer : ''), actions: [] };
     }));
     if (c && !c.__error && !(c.certificates || []).length) rows = loadingRow(ctx, _('zatím žádný wildcard certifikát', 'no wildcard certificate yet'));
     var panel = { key: 'real:wildcard', title: _("Let's Encrypt a wildcard · ", "Let's Encrypt and wildcard · ") + ctx.sel.name,
@@ -407,7 +411,7 @@
     }
     var sch = ctx.opt('backup_schedule');
     if (ctx.on('backup_schedule') && sch) {
-      core.note = core.note + ' · ' + _('plán: ', 'schedule: ') + ({ '15m': _('každých 15 min', 'every 15 min'), hourly: _('každou hodinu', 'hourly'), '6h': _('každých 6 h', 'every 6 h'), daily: _('denně', 'daily'), weekly: _('týdně', 'weekly') }[sch.frequency] || sch.frequency) + ', ' + sch.days + _(' dní', ' days') + ', ' + sch.generations + _(' generací', ' generations');
+      core.note = core.note + ' · ' + _('plán: ', 'schedule: ') + ({ '15m': _('každých 15 min', 'every 15 min'), hourly: _('každou hodinu', 'hourly'), '6h': _('každých 6 h', 'every 6 h'), daily: _('denně', 'daily'), weekly: _('týdně', 'weekly') }[sch.frequency] || sch.frequency) + ', ' + cq(_, sch.days, ['den', 'dny', 'dní'], ['day', 'days']) + ', ' + cq(_, sch.generations, ['generace', 'generace', 'generací'], ['generation', 'generations']);
       core.form = { title: _('Plán záloh (v mezích tarifu)', 'Backup schedule (within the plan)'), fields: [ctx.F('a', _('frekvence: 15m | hourly | 6h | daily | weekly', 'frequency: 15m | hourly | 6h | daily | weekly'), '0 0 260px'), ctx.F('b', _('uchovat dní', 'keep days'), '0 0 120px'), ctx.F('c', _('generací', 'generations'), '0 0 120px')], submit: _('Uložit plán', 'Save schedule'), on: function () {
         var body = {};
         if (v(ctx, 'a')) body.frequency = v(ctx, 'a');
@@ -426,7 +430,7 @@
     if (ctx.s.wbCronLog) {
       var logs = res(ctx, 'cron_logs', 'remote_id=' + encodeURIComponent(ctx.s.wbCronLog));
       var lines = Array.isArray(logs) ? logs : (logs && logs.lines ? logs.lines : []);
-      return { key: 'real:cronlog', title: _('Log úlohy · ', 'Job log · ') + sel.name, note: _('posledních 200 řádků výstupu úlohy', 'the last 200 lines of the job output'), state: logs === null ? _('načítám', 'loading') : lines.length + _(' řádků', ' lines'), console: true, conStatus: logs === null ? 'loading' : 'loaded', conMeta: sel.name, conPrompt: '', consoleLines: (logs && logs.__error ? [{ t: '', src: '', m: logs.__error, l: 'err' }] : lines.map(function (l) { return { t: '', src: '', m: String(l), l: /error|fatal|failed/i.test(String(l)) ? 'err' : 'ok' }; })).slice().reverse(), form: null,
+      return { key: 'real:cronlog', title: _('Log úlohy · ', 'Job log · ') + sel.name, note: _('posledních 200 řádků výstupu úlohy', 'the last 200 lines of the job output'), state: logs === null ? _('načítám', 'loading') : cq(_, lines.length, ['řádek', 'řádky', 'řádků'], ['line', 'lines']), console: true, conStatus: logs === null ? 'loading' : 'loaded', conMeta: sel.name, conPrompt: '', consoleLines: (logs && logs.__error ? [{ t: '', src: '', m: logs.__error, l: 'err' }] : lines.map(function (l) { return { t: '', src: '', m: String(l), l: /error|fatal|failed/i.test(String(l)) ? 'err' : 'ok' }; })).slice().reverse(), form: null,
         extra: [{ label: _('Zpět na úlohy', 'Back to jobs'), primary: true, on: function () { ctx.cmp.setState({ wbCronLog: null }); } }, { label: _('Obnovit', 'Refresh'), on: function () { drop(ctx, ['cron_logs']); } }] };
     }
     var list = res(ctx, 'cron');
@@ -481,10 +485,11 @@
         }));
       }
       if (ctx.on('db_access')) row.actions.push(ctx.A(_('Vzdálený přístup', 'Remote access'), function () {
-        var ips = window.prompt(_('Povolit připojení zvenčí k ' + d.name + '? Zadejte IP adresy oddělené čárkou (prázdné = odkudkoli, "off" = vypnout):', 'Allow outside connections to ' + d.name + '? Enter IP addresses separated by commas (empty = anywhere, "off" = disable):'), '');
+        window.OnhostDialog.prompt(_('Povolit připojení zvenčí k ' + d.name + '? Zadejte IP adresy oddělené čárkou (prázdné = odkudkoli, "off" = vypnout):', 'Allow outside connections to ' + d.name + '? Enter IP addresses separated by commas (empty = anywhere, "off" = disable):'), '').then(function (ips) {
         if (ips === null) return;
         var off = ips.trim().toLowerCase() === 'off';
         act(ctx, 'database.access', { remote_id: d.remote_id, remote: !off, hosts: off ? [] : ips.split(/[\s,;]+/).filter(Boolean) }, ['database_access'], _('Vzdálený přístup nastaven', 'Remote access set'), off ? _('Databáze přijímá jen místní připojení.', 'The database accepts local connections only.') : _('Připojte se na adresu webu, port 3306.', 'Connect to the site address, port 3306.'));
+        });
       }));
     });
     return core;
@@ -504,9 +509,9 @@
       if (!row) return;
       var path = (dir ? dir + '/' : '') + e.name;
       row.actions = row.actions || [];
-      row.actions.push(ctx.A(_('Přejmenovat', 'Rename'), function () { var to = window.prompt(_('Nový název:', 'New name:'), e.name); if (!to || to === e.name) return; act(ctx, 'file.rename', { from: path, to: (dir ? dir + '/' : '') + to }, [], _('Přejmenováno', 'Renamed'), '').then(refresh); }));
-      row.actions.push(ctx.A(_('Kopírovat', 'Copy'), function () { var to = window.prompt(_('Cílová cesta kopie:', 'Target path of the copy:'), path + (e.type === 'dir' ? '-copy' : '.bak')); if (!to) return; act(ctx, 'file.copy', { from: path, to: to }, [], _('Zkopírováno', 'Copied'), '').then(refresh); }));
-      row.actions.push(ctx.A(_('Práva', 'Permissions'), function () { var mode = window.prompt(_('Práva (např. 644 pro soubory, 755 pro složky):', 'Permissions (e.g. 644 for files, 755 for folders):'), e.type === 'dir' ? '755' : '644'); if (!mode) return; act(ctx, 'file.chmod', { path: path, mode: mode.trim() }, [], _('Práva nastavena', 'Permissions set'), '').then(refresh); }));
+      row.actions.push(ctx.A(_('Přejmenovat', 'Rename'), function () { window.OnhostDialog.prompt(_('Nový název:', 'New name:'), e.name).then(function (to) { if (!to || to === e.name) return; act(ctx, 'file.rename', { from: path, to: (dir ? dir + '/' : '') + to }, [], _('Přejmenováno', 'Renamed'), '').then(refresh); }); }));
+      row.actions.push(ctx.A(_('Kopírovat', 'Copy'), function () { window.OnhostDialog.prompt(_('Cílová cesta kopie:', 'Target path of the copy:'), path + (e.type === 'dir' ? '-copy' : '.bak')).then(function (to) { if (!to) return; act(ctx, 'file.copy', { from: path, to: to }, [], _('Zkopírováno', 'Copied'), '').then(refresh); }); }));
+      row.actions.push(ctx.A(_('Práva', 'Permissions'), function () { window.OnhostDialog.prompt(_('Práva (např. 644 pro soubory, 755 pro složky):', 'Permissions (e.g. 644 for files, 755 for folders):'), e.type === 'dir' ? '755' : '644').then(function (mode) { if (!mode) return; act(ctx, 'file.chmod', { path: path, mode: mode.trim() }, [], _('Práva nastavena', 'Permissions set'), '').then(refresh); }); }));
       if (/\.(zip|tar\.gz|tgz)$/i.test(e.name)) row.actions.push(ctx.A(_('Rozbalit', 'Extract'), function () { act(ctx, 'file.extract', { path: path, target: dir }, [], _('Rozbaluji', 'Extracting'), '').then(refresh); }));
       else row.actions.push(ctx.A(_('Zabalit (zip)', 'Zip'), function () { act(ctx, 'file.archive', { paths: [path], target: path.replace(/\/+$/, '') + '.zip' }, [], _('Balím', 'Zipping'), '').then(refresh); }));
     });
@@ -719,7 +724,7 @@
       pairs.push([_('Chráněné adresy', 'Proxied hosts'), (c.proxied_records || []).join(', ') || '—']);
       var s = c.settings || {};
       pairs.push([_('Nastavení', 'Settings'), 'TLS ' + (s.ssl || 'full') + ' · HTTPS ' + yesno(ctx, s.always_use_https) + ' · HTTP/3 ' + yesno(ctx, s.http3) + ' · ' + _('úroveň ochrany ', 'security level ') + (s.security_level || 'medium') + ' · TLS min ' + (s.min_tls_version || '1.2')]);
-      if (c.analytics) pairs.push([_('Posledních 24 h', 'Last 24 h'), c.analytics.requests + _(' požadavků · ', ' requests · ') + bytes(c.analytics.bandwidth_bytes) + (c.analytics.cached_ratio != null ? ' · ' + Math.round(c.analytics.cached_ratio * 100) + _(' % z cache', ' % cached') : '') + (c.analytics.threats ? ' · ' + c.analytics.threats + _(' hrozeb blokováno', ' threats blocked') : '')]);
+      if (c.analytics) pairs.push([_('Posledních 24 h', 'Last 24 h'), cq(_, c.analytics.requests, ['požadavek', 'požadavky', 'požadavků'], ['request', 'requests']) + ' · ' + bytes(c.analytics.bandwidth_bytes) + (c.analytics.cached_ratio != null ? ' · ' + Math.round(c.analytics.cached_ratio * 100) + _(' % z cache', ' % cached') : '') + (c.analytics.threats ? ' · ' + cq(_, c.analytics.threats, ['hrozba', 'hrozby', 'hrozeb'], ['threat', 'threats']) + _(' blokováno', ' blocked') : '')]);
       if (c.last_error) pairs.push([_('Poslední chyba', 'Last error'), c.last_error]);
     } else {
       pairs.push([_('DNS domény', 'Domain DNS'), c.dns_managed ? _('u ONhost — záznamy zrcadlíme na edge automaticky', 'at ONhost — records are mirrored to the edge automatically') : _('mimo ONhost — na edge nastavíme jen web (A/AAAA)', 'outside ONhost — only the web records (A/AAAA) go to the edge')]);
@@ -749,7 +754,7 @@
     var kind = ctx.s.wbImportKind || 'upload';
     var panel = table(ctx, 'real:import', _('Import webu · ', 'Site import · ') + sel.name, _('přeneste web z jiného hostingu: záloha z cPanelu/Plesku, archiv (zip/tar.gz) nebo jeho URL; soubory jdou do kořene webu, SQL dumpy se stanou databázemi a WordPress přesměrujeme na novou doménu', 'move a site from another host: a cPanel/Plesk backup, an archive (zip/tar.gz) or its URL; files go to the site root, SQL dumps become databases and WordPress is re-pointed at the new domain'),
       list, [ctx.cell(_('Zdroj', 'Source'), '1 1 220px'), ctx.cell(_('Stav', 'State'), '0 0 120px'), ctx.cell(_('Výsledek', 'Result'), '1 1 220px')],
-      function (x) { var s = x.stats || {}; return { cells: [ctx.cell((x.kind || '') + ' · ' + (x.source || ''), '1 1 220px', 1), ctx.cell({ running: _('běží', 'running'), succeeded: _('hotovo', 'done'), failed: _('selhalo', 'failed') }[x.state] || x.state, '0 0 120px'), ctx.cell(s.files != null ? s.files + _(' souborů · ', ' files · ') + (s.databases || 0) + _(' databází', ' databases') + (s.wordpress ? ' · WordPress' : '') : '—', '1 1 220px', 1)], note: x.log ? String(x.log).split('\n').slice(-2).join(' · ') : '', actions: x.log ? [ctx.A(_('Log', 'Log'), function () { window.alert(String(x.log).slice(-4000)); })] : [] }; },
+      function (x) { var s = x.stats || {}; return { cells: [ctx.cell((x.kind || '') + ' · ' + (x.source || ''), '1 1 220px', 1), ctx.cell({ running: _('běží', 'running'), succeeded: _('hotovo', 'done'), failed: _('selhalo', 'failed') }[x.state] || x.state, '0 0 120px'), ctx.cell(s.files != null ? cq(_, s.files, ['soubor', 'soubory', 'souborů'], ['file', 'files']) + ' · ' + cq(_, s.databases || 0, ['databáze', 'databáze', 'databází'], ['database', 'databases']) + (s.wordpress ? ' · WordPress' : '') : '—', '1 1 220px', 1)], note: x.log ? String(x.log).split('\n').slice(-2).join(' · ') : '', actions: x.log ? [ctx.A(_('Log', 'Log'), function () { window.alert(String(x.log).slice(-4000)); })] : [] }; },
       { title: _('Import z URL', 'Import from a URL'), fields: [ctx.F('a', 'https://…/backup.tar.gz', '1 1 300px'), ctx.F('b', _('podsložka v kořeni webu (volitelně)', 'sub-folder in the site root (optional)'), '0 0 220px')], submit: _('Importovat z URL', 'Import from URL'), on: function () {
         if (!v(ctx, 'a')) { ctx.X.flash(ctx.cmp, _('Zadejte URL archivu', 'Enter the archive URL'), ''); return; }
         act(ctx, 'import.run', { kind: 'url', source: v(ctx, 'a'), files: true, databases: true, subdir: v(ctx, 'b') }, ['imports', 'files', 'databases'], _('Import běží', 'Import running'), _('Stažení, rozbalení a nahrání trvají podle velikosti minuty až desítky minut.', 'Download, unpack and upload take minutes to tens of minutes depending on size.'));
@@ -813,9 +818,10 @@
     var names = docs && !docs.__error && docs.names ? docs.names : null;
     if (ctx.on('default_docs')) {
       panel.extra = (panel.extra || []).concat([{ label: _('Výchozí soubory: ', 'Default documents: ') + (names === null ? _('načítám…', 'loading…') : (names.length ? names.join(', ') : _('výchozí serveru', 'server default'))), on: function () {
-        var cur = window.prompt(_('Pořadí výchozích souborů (oddělte čárkou):', 'Default document order (comma separated):'), names && names.length ? names.join(', ') : 'index.php, index.html');
+        window.OnhostDialog.prompt(_('Pořadí výchozích souborů (oddělte čárkou):', 'Default document order (comma separated):'), names && names.length ? names.join(', ') : 'index.php, index.html').then(function (cur) {
         if (cur === null) return;
         act(ctx, 'index.set', { names: cur.split(',').map(function (n) { return n.trim(); }).filter(Boolean) }, ['default_docs'], _('Výchozí soubory nastaveny', 'Default documents set'), '');
+        });
       } }]);
     }
     return panel;
@@ -931,7 +937,7 @@
     var per = d.period === 'year' ? _('/ rok', '/ year') : _('/ měsíc', '/ month');
     d.plans.forEach(function (p) {
       var e = p.entitlements || {};
-      var sum = [e.sites ? e.sites + _(' web', ' site') + (e.sites > 1 ? _('y', 's') : '') : null, e.nvme_gb ? e.nvme_gb + ' GB NVMe' : null, e.php_workers ? e.php_workers + ' PHP' : null, e.vcpu ? e.vcpu + ' vCPU' : null, e.ram_mb ? Math.round(e.ram_mb / 1024) + ' GB RAM' : null, e.mailboxes ? e.mailboxes + _(' schránek', ' mailboxes') : null].filter(Boolean).join(' · ');
+      var sum = [e.sites ? cq(_, e.sites, ['web', 'weby', 'webů'], ['site', 'sites']) : null, e.nvme_gb ? e.nvme_gb + ' GB NVMe' : null, e.php_workers ? e.php_workers + ' PHP' : null, e.vcpu ? e.vcpu + ' vCPU' : null, e.ram_mb ? Math.round(e.ram_mb / 1024) + ' GB RAM' : null, e.mailboxes ? cq(_, e.mailboxes, ['schránka', 'schránky', 'schránek'], ['mailbox', 'mailboxes']) : null].filter(Boolean).join(' · ');
       pairs.push([p.name + (p.current ? _(' · aktuální', ' · current') : ''), fmtMoney(ctx, p.price) + ' ' + per + (sum ? ' · ' + sum : ''),
         p.current ? _('platí do ', 'until ') + (d.period_end ? new Date(d.period_end).toLocaleDateString('cs-CZ') : '') : (p.direction === 'upgrade' ? _('doplatek teď ', 'pay now ') + fmtMoney(ctx, p.change_now) + _(' bez DPH', ' excl. VAT') : _('bez doplatku, nižší limity ihned', 'no charge, lower limits at once')),
         p.current || !d.changeable ? [] : [ctx.A(_('Přejít', 'Switch'), function () { changePlan(ctx, p, d); })]]);

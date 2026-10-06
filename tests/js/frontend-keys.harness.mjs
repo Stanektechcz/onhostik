@@ -210,7 +210,7 @@ it('the staff drawer sends the Idempotency-Key with the assistant\'s action and 
   const create = w.ctx.document.createElement;
   w.ctx.document.createElement = () => { const el = create(); made.push(el); return el; };
   w.load('onhost-admin-customer.api.js');
-  w.ctx.prompt = () => '1210';
+  w.ctx.OnhostDialog.prompt = () => Promise.resolve('1210'); // the amount is typed in the shared dialog now (G8 item 6), not window.prompt
   assert.equal(w.ctx.OnhostAdminCustomer.open('org1'), true);
   await settle();
   const drawer = made.filter((el) => el.className === 'ohac')[0];

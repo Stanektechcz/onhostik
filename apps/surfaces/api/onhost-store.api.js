@@ -183,12 +183,18 @@
       var o = this.order(id); if (!o) return null;
       var f = ORDER_FLOW[o.state];
       if (!f || f.next.indexOf(to) < 0) return null;
-      var path = staff ? '/staff/orders/' + o.apiId + '/transition' : '/orders/' + o.apiId + '/transition';
-      var reason = who || 'panel';
-      if (staff) { // a cancellation by staff says why: the reason goes to the audit and, for a paid order, onto the credit note
-        reason = window.prompt('Důvod zrušení objednávky ' + id + ' (zapíše se do auditu a na opravný doklad):', '');
-        if (!reason || !String(reason).trim()) return null;
+      var self = this;
+      if (staff) { // a cancellation by staff says why: the reason goes to the audit and, for a paid order, onto the credit note (asked in a dialog, G8 item 6)
+        window.OnhostDialog.prompt('Důvod zrušení objednávky ' + id + ' (zapíše se do auditu a na opravný doklad):', '', { title: 'Změna stavu objednávky ' + id, fieldLabel: 'Důvod', required: true }).then(function (why) {
+          if (!why || !String(why).trim()) return;
+          self.commitOrderState(o, id, to, who, why);
+        });
+        return o;
       }
+      return this.commitOrderState(o, id, to, who, who || 'panel');
+    },
+    commitOrderState: function (o, id, to, who, reason) {
+      var path = staff ? '/staff/orders/' + o.apiId + '/transition' : '/orders/' + o.apiId + '/transition';
       var before = o.state;
       A.post(path, { state: ORDER_API[to] || to, reason: String(reason).trim() }, A.key()).then(refresh)
         .catch(function (e) { o.state = before; o.hist.pop(); log('system', 'Změna stavu ' + id + ' selhala: ' + e.message); emit(); refresh(); });
