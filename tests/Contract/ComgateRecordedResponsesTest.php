@@ -48,6 +48,7 @@ beforeEach(function () {
     $_ENV['COMGATE_SECRET'] = 'recorded-callback-secret';
     config()->set('onhost.payments.comgate.merchant', '123456');
     config()->set('onhost.payments.comgate.callback_allowlist', []);
+    config()->set('onhost.payments.comgate.return_hosts', ['portal.test']); // H3: the recorded calls send the payer back to this host
 });
 
 it('creates a payment from the recorded answer and sends the merchant credentials and money in minor units', function () {
@@ -103,7 +104,7 @@ it('turns a recorded gateway error into a payment_provider_error that carries th
     comgateReplay([comgateFixture('error_wrong_parameter')], $sent);
 
     try {
-        comgate()->createPaymentIntent(Money::minor(1, 'CZK'), ['description' => 'x', 'reference' => 'r', 'email' => 'a@b.cz', 'locale' => 'cs', 'return_url' => 'u', 'cancel_url' => 'u', 'pending_url' => 'u']);
+        comgate()->createPaymentIntent(Money::minor(1, 'CZK'), ['description' => 'x', 'reference' => 'r', 'email' => 'a@b.cz', 'locale' => 'cs', 'return_url' => 'https://portal.test/u', 'cancel_url' => 'https://portal.test/u', 'pending_url' => 'https://portal.test/u']);
         $this->fail('The adapter accepted an error answer.');
     } catch (DomainError $e) {
         expect($e->getMessage())->toContain('[1309]')->and($e->getMessage())->toContain('Wrong parameter: price');

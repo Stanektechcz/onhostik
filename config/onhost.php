@@ -214,6 +214,9 @@ return [
             'base_url' => env('COMGATE_BASE_URL', 'https://payments.comgate.cz/v2.0'),
             'callback_allowlist' => array_filter(explode(',', (string) env('COMGATE_CALLBACK_IPS', ''))),
             'recurring' => (bool) env('COMGATE_RECURRING', true), // stored cards for automatic top-ups (initRecurring / initRecurringId); switch off if the merchant contract has no recurring payments
+            // H3 (TASK-0121): hosts besides the portal's and the application's own that the gateway may send a payer back to (https only);
+            // any other return address is refused before the gateway is called (an open redirect behind the payment page)
+            'return_hosts' => array_values(array_filter(array_map('trim', explode(',', (string) env('COMGATE_RETURN_HOSTS', ''))))),
 
         ],
         'gopay' => [
@@ -808,4 +811,14 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
         'secret_overlap_minutes' => max(0, min(1440, (int) env('ONHOST_WEBHOOK_SECRET_OVERLAP_MINUTES', 60))),
     ],
     // ── end G7 ──
+    // ── H3 (TASK-0121): what of a quote line's config the customer reads (Presenters::quoteLines) — an allow-list; the stored quote
+    // keeps everything. `executor` and `entitlements` are never shown, whatever this list says (vendor neutrality, the plan's internals) ──
+    'quote' => [
+        'customer_line_config' => [
+            'line_id', 'parent_line_id', 'parent_service_id', 'label', 'hostname', 'fqdn', 'domain', 'aliases', 'tld', 'period_years', 'action', 'discount_label',
+            'region', 'region_code', 'image', 'egg', 'version', 'options', 'options_priced', 'periods_billed', 'price_region', 'price_region_pct', 'loyalty_pct',
+            'sla_class', 'upgrade_of', 'plan_change', 'limit_raise', 'loyalty',
+        ],
+    ],
+    // ── end H3 ──
 ];

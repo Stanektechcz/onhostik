@@ -241,19 +241,27 @@ final class Presenters
      * G6: the lines of a quote as the customer sees them — without the executor (the vendor panel behind the product, an
      * implementation detail customers never learn; orderItem() strips it the same way). The stored quote keeps it for its order.
      *
+     * H3 (TASK-0121): of a line's `config` only the keys `onhost.quote.customer_line_config` allows — an allow-list, so a key a later
+     * change writes into a line does not reach the customer until somebody decides it should. `executor` and `entitlements` never do.
+     *
      * @param  array<int|string, mixed>  $lines
      * @return list<mixed>
      */
     public static function quoteLines(array $lines): array
     {
-        return array_values(array_map(function (mixed $line): mixed {
+        $allowed = array_flip(array_diff(array_map('strval', (array) config('onhost.quote.customer_line_config', [])), self::QUOTE_CONFIG_NEVER));
+
+        return array_values(array_map(function (mixed $line) use ($allowed): mixed {
             if (is_array($line) && is_array($line['config'] ?? null)) {
-                unset($line['config']['executor']);
+                $line['config'] = array_intersect_key($line['config'], $allowed);
             }
 
             return $line;
         }, $lines));
     }
+
+    /** Keys of a quote line's config no configuration may show to a customer (H3). */
+    private const QUOTE_CONFIG_NEVER = ['executor', 'entitlements'];
 
     public static function orderItem(OrderItem $item): array
     {
