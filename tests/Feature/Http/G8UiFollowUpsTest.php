@@ -90,7 +90,7 @@ it('keeps every sentence that promised credit back in cash out of what is served
     $surfaces = base_path('apps/surfaces/');
     $files = ['content' => 'onhost-content.js', 'admin' => 'Onhost-admin.dc.html', 'panel' => 'Onhost-app.dc.html', 'svc-web' => 'onhost-svc-web.js'];
 
-    foreach (CreditClaimsSeam::CLAIMS as $group => $pairs) {
+    foreach (CreditClaimsSeam::claims() as $group => $pairs) {
         $prototype = (string) file_get_contents($surfaces.$files[$group]);
         foreach ($pairs as $needle => $true) {
             // the seam can only correct what is still there: a rewritten prototype sentence must fail here, not escape quietly
