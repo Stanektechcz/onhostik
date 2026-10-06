@@ -1593,6 +1593,12 @@ HTML;
         if ($real === false || $rootReal === false || ! str_starts_with($real, $rootReal) || ! is_file($real)) {
             return null;
         }
+        // H0 (H-R6, review L): an archived prototype is kept for reference, never served — decided on the real path, whatever the
+        // spelling (`_ARCHIVE/…`, `./_archive/…`, a backslash) or the case-insensitive file system that resolves it
+        $inside = strtolower(str_replace('\\', '/', ltrim(substr($real, strlen($rootReal)), '\\/')));
+        if ($inside === '_archive' || str_starts_with($inside, '_archive/')) {
+            return null;
+        }
 
         return $real;
     }

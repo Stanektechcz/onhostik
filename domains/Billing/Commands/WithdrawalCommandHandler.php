@@ -60,6 +60,10 @@ final class WithdrawalCommandHandler implements CommandHandler
 
     private function order(string $organizationId, string $id): Order
     {
+        if (WithdrawalPolicy::isTopUpReference($id, $organizationId)) {
+            WithdrawalPolicy::refuseTopUp(); // H0 (review M2): a top-up named by its document, its payment or itself
+        }
+
         return Order::query()->where('organization_id', $organizationId)->whereKey($id)->first() ?? throw DomainError::notFound('order');
     }
 }

@@ -13,8 +13,8 @@ use Onhost\Platform\Errors\DomainError;
 
 /**
  * H0 (owner decision H-R1, permission program S1-05): requests an API token opened for a risky action of its organization. The
- * owner sees every one and decides them (fresh step-up, TokenApprovalDecisionCommand); anybody else sees only the requests of
- * their own personal tokens. API tokens do not reach these routes at all (TokenRouteScope: no family) — a token never approves.
+ * owner and the organization's administrators see every one and decide them (fresh step-up, TokenApprovalDecisionCommand; never a
+ * request of their own token); anybody else sees only the requests of their own personal tokens. API tokens do not reach these routes at all (TokenRouteScope: no family) — a token never approves.
  */
 final class TokenApprovalController extends ApiController
 {
@@ -23,7 +23,8 @@ final class TokenApprovalController extends ApiController
         $organization = $this->api->organization($request);
         $user = $this->api->user($request);
         $query = Approval::query()->where('organization_id', $organization->id)->whereNotNull('payload->'.TokenApprovals::PAYLOAD_KEY.'->id');
-        if ((string) $organization->owner_user_id !== $user->id) {
+        $decides = TokenApprovals::mayDecide($organization, $user);
+        if (! $decides) {
             $query->where('requested_by', $user->id);
         }
         $state = (string) $request->query('state', '');
@@ -34,7 +35,7 @@ final class TokenApprovalController extends ApiController
         }
         $rows = $query->orderByRaw("case state when 'pending' then 0 else 1 end")->orderByDesc('created_at')->limit(max(1, min(200, (int) $request->query('limit', 100))))->get();
 
-        return $this->ok(['data' => $rows->map(fn (Approval $a) => TokenApprovals::present($a))->values()->all(), 'meta' => ['can_decide' => (string) $organization->owner_user_id === $user->id]]);
+        return $this->ok(['data' => $rows->map(fn (Approval $a) => TokenApprovals::present($a))->values()->all(), 'meta' => ['can_decide' => $decides]]);
     }
 
     public function decide(Request $request, string $approval): JsonResponse
@@ -44,8 +45,8 @@ final class TokenApprovalController extends ApiController
         if (! Approval::query()->whereKey($approval)->where('organization_id', $organization->id)->whereNotNull('payload->'.TokenApprovals::PAYLOAD_KEY.'->id')->exists()) {
             throw DomainError::notFound('approval');
         }
-        if ((string) $organization->owner_user_id !== $this->api->user($request)->id) {
-            throw DomainError::forbidden('A request of an API token is decided by the owner of the organization.');
+        if (! TokenApprovals::mayDecide($organization, $this->api->user($request))) {
+            throw DomainError::forbidden('A request of an API token is decided by the owner or an administrator of the organization.');
         }
         $data = $request->validate(['decision' => ['required', 'string', 'in:approved,rejected'], 'note' => ['nullable', 'string', 'max:1000']]);
 

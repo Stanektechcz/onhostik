@@ -9,6 +9,7 @@ use Onhost\Domain\Identity\Models\PersonalAccessToken;
 use Onhost\Domain\Identity\Models\ServiceAccount;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Audit\HashChain;
 use Onhost\Platform\Commands\Command;
@@ -25,6 +26,8 @@ use Onhost\Platform\Redaction\Redactor;
  * every HIGH or CRITICAL action through a personal token or a service account was refused outright. Now the refusal opens a
  * request instead (403 `approval_required` with its id): the organization's owner, signed in to the portal with a fresh step-up,
  * approves it (`POST /v1/token-approvals/{id}/decision`), and the token repeats the very same request with `approval_ids`.
+ * Since the security review of #117 "an administrator" is the owner OR an organization administrator (`org_admin`) of that
+ * organization, by their membership — never staff by a global role, never the principal that asked, never a token.
  *
  * An approval of this kind is bound to more than a staff four-eyes approval: the action and the hash of its payload, the
  * principal that asked (the person behind a personal token, or the service account) AND the one token that asked — another token
@@ -42,7 +45,7 @@ final class TokenApprovals
     /** At most this many undecided requests per token: a leaked token cannot flood the owner with requests. */
     public const MAX_PENDING_PER_TOKEN = 20;
 
-    public const REFUSAL = 'Through an API token this action needs the approval of the organization\'s owner: a request for approval was opened. Repeat the same request with approval_ids once the owner approved it in the portal.';
+    public const REFUSAL = 'Through an API token this action needs the approval of the organization\'s owner or an administrator: a request for approval was opened. Repeat the same request with approval_ids once it was approved in the portal.';
 
     public function __construct(
         private readonly Authorizer $authorizer,
@@ -50,6 +53,23 @@ final class TokenApprovals
         private readonly OutboxPublisher $outbox,
         private readonly Redactor $redactor,
     ) {}
+
+    /** Organization roles whose members decide a token's request besides the owner (security review of #117, H-R1). */
+    public const DECIDER_ROLES = ['owner', 'org_admin'];
+
+    /**
+     * Whether `$user` decides the token requests of `$organization`: its owner, or an active member with an administrator's role.
+     * A member of staff is no administrator of a customer's organization by a global role — only by a membership of their own.
+     */
+    public static function mayDecide(Organization $organization, User $user): bool
+    {
+        if ((string) $organization->owner_user_id === $user->id) {
+            return true;
+        }
+
+        return OrganizationMembership::query()->where('organization_id', $organization->id)->where('user_id', $user->id)
+            ->where('state', 'active')->whereIn('role_key', self::DECIDER_ROLES)->exists();
+    }
 
     /** The token id of a context that came with an API token (`token:<id>`, ApiContext::sessionId), else null. */
     public static function tokenIdOf(?string $sessionId): ?string
@@ -149,16 +169,16 @@ final class TokenApprovals
     }
 
     /**
-     * The owner's decision. Approving needs the owner of the approval's organization, who could take the action themselves and is
-     * not the principal that asked; turning a request down is open to the owner always (their own token's included).
+     * The decision of the owner or an administrator (mayDecide). Approving needs somebody who could take the action themselves and
+     * is not the principal that asked; turning a request down is open to them always (their own token's included).
      */
     public function decide(Approval $approval, Organization $organization, User $decider, string $decision, ?string $note, CommandContext $context): Approval
     {
         if (self::tokenOf($approval) === null || $approval->organization_id !== $organization->id) {
             throw DomainError::notFound('approval');
         }
-        if ((string) $organization->owner_user_id !== $decider->id) {
-            throw DomainError::forbidden('A request of an API token is decided by the owner of the organization.');
+        if (! self::mayDecide($organization, $decider)) {
+            throw DomainError::forbidden('A request of an API token is decided by the owner or an administrator of the organization.');
         }
         if (! in_array($decision, ['approved', 'rejected'], true)) {
             throw new DomainError('decision_invalid', 'decision must be approved or rejected.', 422, ['field' => 'decision']);

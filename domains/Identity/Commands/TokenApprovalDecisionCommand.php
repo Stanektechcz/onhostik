@@ -11,7 +11,7 @@ use Onhost\Platform\Commands\OrganizationCommand;
 /**
  * H0 (owner decision H-R1): the organization's owner decides a request an API token opened — payload {approval_id, decision:
  * approved|rejected, note?}. A credential decision: `api_token.manage` (no token scope, so no token decides one) with a fresh
- * step-up; the handler asks for the owner of the organization in a portal session (TokenApprovals::decide).
+ * step-up; the handler asks for the owner or an administrator of the organization in a portal session (TokenApprovals::decide).
  */
 final class TokenApprovalDecisionCommand extends OrganizationCommand implements RiskAwareCommand
 {

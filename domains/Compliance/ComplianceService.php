@@ -508,6 +508,25 @@ final class ComplianceService
             'credit' => ['forfeited' => $credit !== [], 'amounts' => $credit, 'warning' => $credit === [] ? null : self::forfeitWarning($credit)]];
     }
 
+    /**
+     * H0 (review M1): the currencies whose credit is now above what the owner acknowledged (purchased and promotional together).
+     *
+     * @param  array<int|string, mixed>  $acknowledged
+     * @param  list<array{currency:string, purchased_minor:int, promo_minor:int}>  $now
+     * @return list<array{currency:string, purchased_minor:int, promo_minor:int}>
+     */
+    private static function creditGrown(array $acknowledged, array $now): array
+    {
+        $known = [];
+        foreach ($acknowledged as $row) {
+            if (is_array($row) && isset($row['currency'])) {
+                $known[(string) $row['currency']] = (int) ($row['purchased_minor'] ?? 0) + (int) ($row['promo_minor'] ?? 0);
+            }
+        }
+
+        return array_values(array_filter($now, fn (array $r) => $r['purchased_minor'] + $r['promo_minor'] > ($known[$r['currency']] ?? 0)));
+    }
+
     /** @param list<array{currency:string, purchased_minor:int, promo_minor:int}> $credit */
     private static function forfeitWarning(array $credit): string
     {
@@ -704,6 +723,16 @@ final class ComplianceService
                 return;
             }
             $request->forceFill(['state' => 'rejected', 'meta' => ['reason' => $e->error, 'blocks' => $blocks]])->save();
+
+            return;
+        }
+        // H0 (review M1 of #117): the owner acknowledged the credit the account held when the erasure was asked for. Money that
+        // arrived during the grace period (a transfer, an automatic top-up, credit given back) was never acknowledged: the erasure
+        // does not forfeit it — the request is turned down and the owner asks again, acknowledging the amount there is now
+        $grown = self::creditGrown((array) data_get($request->meta, 'credit_at_request', []), $this->wallets->forfeitable($organization->id));
+        if ($grown !== []) {
+            $request->forceFill(['state' => 'rejected', 'completed_at' => $now, 'meta' => array_merge((array) $request->meta, ['reason' => 'credit_grew_since_acknowledgement', 'credit_now' => $grown])])->save();
+            $this->audit->record(CommandContext::system('gdpr.deletion')->withScope($organization->id), 'compliance.data_request.deletion_rejected', 'succeeded', ['request' => $request->id, 'reason' => 'credit_grew_since_acknowledgement', 'credit_now' => $grown], 'data_request', $request->id);
 
             return;
         }

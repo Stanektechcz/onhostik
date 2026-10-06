@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+use App\Http\Support\SurfaceRenderer;
 
 /*
  * H0, owner decision H-R6 (2026-10-06): the prototype `onhost-domains.js` was loaded by nothing — archived, not deleted. Its
@@ -18,4 +19,12 @@ it('keeps the archived prototype byte for byte, serves it nowhere and loads it f
     foreach (glob(base_path('apps/surfaces/*.{html,js,jsx}'), GLOB_BRACE) ?: [] as $file) {
         expect((string) file_get_contents($file))->not->toContain('onhost-domains.js', basename($file).' loads the archived prototype');
     }
+});
+
+it('serves nothing under the archive whatever the spelling of its path (review L)', function () {
+    $renderer = app(SurfaceRenderer::class);
+    foreach (['_archive/onhost-domains.js', '_ARCHIVE/onhost-domains.js', '_Archive/onhost-domains.js', './_archive/onhost-domains.js', '_archive//onhost-domains.js', '_archive\\onhost-domains.js', '_archive/README.md'] as $path) {
+        expect($renderer->assetPath($path))->toBeNull($path);
+    }
+    expect($renderer->assetPath('onhost-shell.js'))->not->toBeNull();
 });

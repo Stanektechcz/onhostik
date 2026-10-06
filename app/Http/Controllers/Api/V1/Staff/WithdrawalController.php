@@ -39,8 +39,10 @@ final class WithdrawalController extends ApiController
     /** A notice received by e-mail or letter: the day it was SENT decides the deadline and the refund; four eyes, because staff may date it back. */
     public function store(Request $request): JsonResponse
     {
-        if ($request->filled('topup_id')) {
-            WithdrawalPolicy::refuseTopUp(); // H0 (H-R5): said before a second person is asked to approve anything
+        // H0 (H-R5, review M2): said before a second person is asked to approve anything — whatever id names the top-up
+        $named = array_filter([(string) $request->input('topup_id', ''), (string) $request->input('order_id', '')], fn (string $v) => $v !== '');
+        if ($request->filled('topup_id') || array_filter($named, fn (string $id) => WithdrawalPolicy::isTopUpReference($id, (string) $request->input('organization_id', ''))) !== []) {
+            WithdrawalPolicy::refuseTopUp();
         }
         $data = $request->validate([
             'organization_id' => ['required', 'string', 'max:40'], 'service_id' => ['required_without:order_id', 'nullable', 'string', 'max:40'], 'order_id' => ['required_without:service_id', 'nullable', 'string', 'max:40'],

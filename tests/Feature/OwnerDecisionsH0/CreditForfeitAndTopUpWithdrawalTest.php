@@ -2,10 +2,14 @@
 
 declare(strict_types=1);
 
+use Database\Seeders\LegalEntitySeeder;
+use Database\Seeders\TaxRuleSeeder;
 use Onhost\Domain\Billing\Commands\WithdrawalStaffCommand;
 use Onhost\Domain\Compliance\ComplianceService;
 use Onhost\Domain\Compliance\Models\DataRequest;
 use Onhost\Domain\Identity\StepUp\StepUpService;
+use Onhost\Domain\Invoicing\InvoiceService;
+use Onhost\Domain\Payments\Models\PaymentIntent;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\WalletLedger\LedgerService;
 use Onhost\Domain\WalletLedger\Models\LedgerTransaction;
@@ -111,4 +115,53 @@ it('refuses a withdrawal from a credit top-up, also when staff record a notice',
         expect($e->error)->toBe('withdrawal_not_applicable')->and($e->extra['why'] ?? null)->toBe('credit_topup');
     }
     expect(app(WalletService::class)->balances($org->id, 'CZK')['available']->minor)->toBe(50000);
+});
+
+it('does not forfeit credit that grew after it was acknowledged: the erasure needs a new acknowledgement (review M1)', function () {
+    [$owner, $org] = h0ErasureSignIn($this, ...$this->customerWithOrganization());
+    app(WalletService::class)->topup($org, Money::decimal('250', 'CZK'), 'bank', 'h0-m1-a', CommandContext::system('test')->withScope($org->id));
+    $id = $this->postJson('/v1/data-requests', ['kind' => 'deletion', 'credit_forfeit_acknowledged' => true])->assertStatus(202)->json('data.id');
+    expect(DataRequest::query()->findOrFail($id)->meta['credit_at_request'][0]['purchased_minor'] ?? null)->toBe(25000);
+
+    // a transfer arrives during the grace period: more than what was acknowledged
+    app(WalletService::class)->topup($org, Money::decimal('100', 'CZK'), 'bank', 'h0-m1-b', CommandContext::system('test')->withScope($org->id));
+    app(ComplianceService::class)->processDataRequests(now()->addDays(30));
+
+    $request = DataRequest::query()->findOrFail($id);
+    expect($request->state)->toBe('rejected')->and($request->meta['reason'] ?? null)->toBe('credit_grew_since_acknowledgement')
+        ->and(LedgerTransaction::query()->where('kind', 'credit_forfeit')->where('organization_id', $org->id)->exists())->toBeFalse()
+        ->and($owner->fresh()->state)->toBe('active');
+
+    // asked again with the new amount acknowledged, it runs
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
+    $again = $this->postJson('/v1/data-requests', ['kind' => 'deletion', 'credit_forfeit_acknowledged' => true])->assertStatus(202)->json('data.id');
+    expect(app(ComplianceService::class)->processDataRequests(now()->addDays(60))['deleted'])->toBe(1)
+        ->and(DataRequest::query()->findOrFail($again)->meta['credit_forfeited'][0]['purchased_minor'] ?? null)->toBe(35000);
+});
+
+it('refuses a withdrawal named by the id of a top-up document, a top-up payment or the top-up itself (review M2)', function () {
+    $this->seed([TaxRuleSeeder::class, LegalEntitySeeder::class]);
+    [$owner, $org] = $this->customerWithOrganization();
+    app(AutomationLedger::class)->setEnabled('billing.withdrawal', true);
+    $intent = PaymentIntent::query()->create(['organization_id' => $org->id, 'provider' => 'comgate', 'provider_id' => 'h0-m2-'.uniqid(), 'purpose' => 'topup', 'reference_type' => 'wallet',
+        'reference_id' => $org->id, 'amount_minor' => 50000, 'currency' => 'CZK', 'state' => 'SUCCEEDED', 'idempotency_key' => 'h0-m2-pi-'.uniqid(), 'paid_at' => now()]);
+    $document = app(InvoiceService::class)->issueTopupDocument($org, Money::decimal('500', 'CZK'), 'card', CommandContext::system('test')->withScope($org->id), $intent->id);
+    $topup = app(WalletService::class)->topup($org, Money::decimal('500', 'CZK'), 'card', 'pi:'.$intent->id, CommandContext::system('test')->withScope($org->id), $intent->id);
+
+    $finance = $this->staff('billing_finance_admin');
+    app(StepUpService::class)->grant($finance, 'totp', null, '127.0.0.1');
+    foreach ([$document->id, $intent->id, $topup->id] as $i => $id) {
+        $this->actingAs($finance, 'sanctum')->postJson('/v1/staff/withdrawals', ['organization_id' => $org->id, 'order_id' => $id, 'sent_at' => now()->toIso8601String(), 'refund_to_credit_agreed' => true, 'reason' => 'Odstoupení e-mailem'], ['Idempotency-Key' => 'h0-m2-staff-'.$i])
+            ->assertUnprocessable()->assertJsonPath('why', 'credit_topup');
+    }
+    app('auth')->forgetGuards();
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
+    $this->actingAs($owner, 'sanctum')->withHeaders(['X-Organization' => $org->id]);
+    $this->postJson("/v1/orders/{$document->id}/withdrawal", ['confirm_refund_to_credit' => true])->assertUnprocessable()->assertJsonPath('why', 'credit_topup');
+    $this->getJson("/v1/orders/{$document->id}/withdrawal")->assertUnprocessable()->assertJsonPath('why', 'credit_topup');
+
+    // another organization's top-up document stays not found for this owner: no oracle
+    [, $other] = $this->customerWithOrganization(['email' => 'other-m2@example.cz']);
+    $foreign = app(InvoiceService::class)->issueTopupDocument($other, Money::decimal('100', 'CZK'), 'card', CommandContext::system('test')->withScope($other->id));
+    $this->postJson("/v1/orders/{$foreign->id}/withdrawal", ['confirm_refund_to_credit' => true])->assertNotFound();
 });

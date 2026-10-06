@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
 use Onhost\Domain\Invoicing\Models\LegalEntity;
+use Onhost\Domain\Platform\GoLiveChecks;
 use Onhost\Domain\Tax\TaxEngine;
 use Onhost\Domain\Tax\VatPayerMode;
 use Onhost\Platform\Money\Money;
@@ -77,4 +78,17 @@ it('never switches an existing legal entity by seeding again: becoming a payer l
     expect(LegalEntity::query()->findOrFail('onhost-cz')->vat_payer)->toBeFalse();
     $report = app(VatPayerMode::class)->report();
     expect($report['consistent'])->toBeFalse()->and($report['remedy'])->toContain('/v1/staff/tax/vat-payer-mode');
+});
+
+it('fails the go-live check while the legal entity or its VAT mode is missing (review M4)', function () {
+    $row = fn () => collect((new GoLiveChecks(production: true))->rows())->firstWhere('check', 'legal entity carries its VAT mode');
+
+    LegalEntity::query()->delete();
+    $missing = $row();
+    expect($missing['ok'])->toBeFalse()->and($missing['blocking'])->toBeTrue()->and($missing['remedy'])->toContain('onhost:production:prepare --legal');
+
+    config(['vat.payer' => false]);
+    $this->seed(LegalEntitySeeder::class);
+    $present = $row();
+    expect($present['ok'])->toBeTrue()->and($present['detail'])->toContain('non-payer');
 });

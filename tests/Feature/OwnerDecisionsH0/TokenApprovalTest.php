@@ -101,7 +101,7 @@ it('opens a request for a HIGH action of a service account token, the owner appr
     expect((string) $again->json('approval_id'))->not->toBe($approvalId)->and(Operation::query()->where('service_id', $web->id)->count())->toBe(1);
 });
 
-it('never lets the token, an admin, another organization or staff decide a token request', function () {
+it('never lets the token, a member who is no administrator, another organization or staff decide a token request', function () {
     [$owner, $org] = $this->customerWithOrganization();
     [$plain] = h0TokenAccount($this, $owner, $org);
     $web = featureWebService($org, 'aapanel');
@@ -111,10 +111,11 @@ it('never lets the token, an admin, another organization or staff decide a token
     h0TokenBearer($this, $plain, $org)->getJson('/v1/token-approvals')->assertForbidden();
     h0TokenBearer($this, $plain, $org)->postJson("/v1/token-approvals/{$approvalId}/decision", ['decision' => 'approved'])->assertForbidden();
 
-    // an organization admin (who holds every right but the owner's own) is not the owner
-    $admin = $this->customer(['email' => 'admin-h0@example.cz']);
-    app(OrganizationService::class)->attachMember($org, $admin, 'org_admin', CommandContext::system('test'), true);
-    h0TokenDecide($this, $admin, $org, $approvalId)->assertForbidden();
+    // a member who is no administrator of the organization (a developer manages services, not credentials)
+    $developer = $this->customer(['email' => 'developer-h0@example.cz']);
+    app(OrganizationService::class)->attachMember($org, $developer, 'developer', CommandContext::system('test'), true);
+    h0TokenDecide($this, $developer, $org, $approvalId)->assertForbidden();
+    expect(h0TokenPortal($this, $developer, $org)->getJson('/v1/token-approvals')->assertOk()->json('data'))->toBe([]); // nobody else's requests
 
     // the owner of another organization does not find it
     [$stranger, $strangerOrg] = $this->customerWithOrganization(['email' => 'stranger-h0@example.cz']);
@@ -180,4 +181,40 @@ it('keeps a token approval out of the portal\'s four eyes and the portal\'s appr
     expect(Approval::query()->findOrFail($approvalId)->state)->toBe('approved')
         ->and(Operation::query()->where('service_id', $web->id)->count())->toBe(0)
         ->and($tokenId)->not->toBe('');
+});
+
+it('lets an organization administrator approve as the owner does, but never a request of their own token (review of #117)', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $admin = $this->customer(['email' => 'admin-approver-h0@example.cz']);
+    app(OrganizationService::class)->attachMember($org, $admin, 'org_admin', CommandContext::system('test'), true);
+    [$plain] = h0TokenAccount($this, $owner, $org);
+    $web = featureWebService($org, 'aapanel');
+
+    // the service account's request: the administrator sees it and approves it with a step-up
+    $approvalId = (string) h0TokenTerminate($this, $plain, $org, $web)->assertForbidden()->json('approval_id');
+    expect(collect(h0TokenPortal($this, $admin, $org)->getJson('/v1/token-approvals')->assertOk()->json('data'))->pluck('id')->all())->toBe([$approvalId]);
+    app(StepUpService::class)->revokeAll($admin);
+    h0TokenDecide($this, $admin, $org, $approvalId, 'approved', false)->assertForbidden()->assertJsonPath('error', 'step_up_required');
+    h0TokenDecide($this, $admin, $org, $approvalId)->assertOk()->assertJsonPath('data.state', 'approved')->assertJsonPath('data.decided_by', $admin->id);
+    h0TokenTerminate($this, $plain, $org, $web, [$approvalId])->assertStatus(202);
+
+    // the administrator's own personal token: not approved by them — the owner may
+    $issued = $admin->createToken('admin-ci', ['services:read', 'services:power']);
+    PersonalAccessToken::query()->whereKey($issued->accessToken->getKey())->update(['organization_id' => $org->id, 'expires_at' => now()->addDays(30)]);
+    $second = featureWebService($org, 'ispconfig');
+    $own = (string) h0TokenTerminate($this, $issued->plainTextToken, $org, $second)->assertForbidden()->json('approval_id');
+    h0TokenDecide($this, $admin, $org, $own)->assertForbidden()->assertJsonPath('error', 'approval_own_request');
+    h0TokenDecide($this, $owner, $org, $own)->assertOk()->assertJsonPath('data.state', 'approved');
+});
+
+it('never counts a member of staff as an administrator of somebody else\'s organization', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    [$plain] = h0TokenAccount($this, $owner, $org);
+    $web = featureWebService($org, 'aapanel');
+    $approvalId = (string) h0TokenTerminate($this, $plain, $org, $web)->assertForbidden()->json('approval_id');
+
+    // a platform owner holds every permission globally, but is no member of this organization
+    $staff = $this->staff('platform_owner');
+    expect(h0TokenDecide($this, $staff, $org, $approvalId)->status())->toBeIn([403, 404]);
+    expect(Approval::query()->findOrFail($approvalId)->state)->toBe('pending');
 });

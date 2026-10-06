@@ -57,7 +57,7 @@ final class GoLiveChecks
             $this->apiBaseUrl(), $this->cacheStore(), $this->tokenOrganization(),
             app(OutboxDeadLetters::class)->row(), // G7 (TASK-0115): events the relay gave up on
             // G10 (TASK-0119): what phase G added
-            $this->vatMode(), $this->customIsoScanner(), $this->customIsoStorage(), $this->loyalty(), $this->webhookSecretOverlap(),
+            $this->legalEntityVatMode(), $this->vatMode(), $this->customIsoScanner(), $this->customIsoStorage(), $this->loyalty(), $this->webhookSecretOverlap(),
         ];
     }
 
@@ -199,6 +199,27 @@ final class GoLiveChecks
     // ── G10 (TASK-0119): the rows of phase G ──
 
     /** G2: the VAT mode documents are issued in is a decision, and the legal entity that issues them must carry a real VAT number if it is a payer. */
+    /**
+     * H0 (H-R0, review M4 of #117): documents are issued in the legal entity's VAT mode, so the row must exist and carry a mode.
+     * Without it the platform falls back to the declaration alone and the first document has no seller to freeze. Blocking: a
+     * deploy does not go on without it (FAIL in production).
+     */
+    private function legalEntityVatMode(): array
+    {
+        $key = (string) config('onhost.billing.legal_entity', 'onhost-cz');
+        $entity = VatPayerMode::legalEntity();
+        if ($entity === null) {
+            return $this->row('documents', 'legal entity carries its VAT mode', false, "legal entity {$key} is missing: no document can be issued and the VAT mode follows ONHOST_VAT_PAYER alone",
+                'php artisan onhost:production:prepare --legal (LegalEntitySeeder creates it with the declared ONHOST_VAT_PAYER; set the real legal entity values first)', true);
+        }
+        if ($entity->getAttribute('vat_payer') === null) {
+            return $this->row('documents', 'legal entity carries its VAT mode', false, "legal entity {$key} has no VAT mode (vat_payer is empty)",
+                'php artisan onhost:production:prepare --legal writes the declared ONHOST_VAT_PAYER into an entity without a mode; to change a mode later, finance switches it with a step-up and a second person: POST /v1/staff/tax/vat-payer-mode (docs/runbooks/vat-payer-mode.md)', true);
+        }
+
+        return $this->row('documents', 'legal entity carries its VAT mode', true, "legal entity {$key}: ".((bool) $entity->vat_payer ? 'VAT payer' : 'non-payer (owner decision H-R0)'), '', true);
+    }
+
     private function vatMode(): array
     {
         $report = app(VatPayerMode::class)->report();

@@ -26,7 +26,7 @@ final class TokenApprovalDecisionCommandHandler implements CommandHandler
         $decider = $context->actorType === 'user' && $context->actorId !== null && TokenApprovals::tokenIdOf($context->sessionId) === null
             ? User::query()->find($context->actorId) : null;
         if ($decider === null) {
-            throw DomainError::forbidden('A request of an API token is decided by the owner of the organization, signed in to the portal.');
+            throw DomainError::forbidden('A request of an API token is decided by the owner or an administrator of the organization, signed in to the portal.');
         }
         $organization = Organization::query()->find($command->organizationId) ?? throw DomainError::notFound('organization');
         $approval = Approval::query()->lockForUpdate()->where('organization_id', $organization->id)->find((string) $command->get('approval_id'));
