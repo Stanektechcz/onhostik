@@ -15,7 +15,7 @@ runbooky [billing-dunning](../runbooks/billing-dunning.md) a [historical-site-im
 | Druhý správce | Člen téže organizace s rolí správce (pro zkoušku, že konec účtu smí žádat jen vlastník). |
 | Step-up | Okamžité zrušení, odstoupení a žádost o smazání účtu jsou vysoké riziko: `POST /v1/auth/step-up`, v panelu dialog „Potvrďte heslem“. |
 | Plánované příkazy | `php artisan onhost:billing:renewals` (konec období), `onhost:services:purge` (denně 03:40, odstranění po ochranné lhůtě), `onhost:compliance:data-requests` (každých 30 minut), `onhost:withdrawals:finish` (hodinově, dokončí zaseknutá odstoupení). |
-| Přepínače | Odstoupení je za pravidlem „billing.withdrawal“ (výchozí vypnuto; zapíná se v administraci Nastavení → Automatizace, `PUT /v1/staff/automation/{key}`) a za právní revizí. „Zaplatit a obnovit“ je za pravidlem „services.reinstate“ (výchozí vypnuto). |
+| Přepínače | Odstoupení je za pravidlem „billing.withdrawal“ (výchozí vypnuto; zapíná se v administraci Nastavení → Automatizace, `PUT /v1/staff/automation/{key}`) a za právní revizí. „Zaplatit a obnovit“ je za pravidlem „services.reinstate“ (od rozhodnutí vlastníka H-R3 ve výchozím stavu **zapnuto**, lze vypnout). |
 
 ---
 
@@ -140,7 +140,7 @@ runbooky [billing-dunning](../runbooks/billing-dunning.md) a [historical-site-im
 | Pravidlo vypnuto | 409 `withdrawal_disabled` s odkazem na dokument o odstoupení. |
 | Zaplacená objednávka, z níž nic není dodané | `GET` a `POST /v1/orders/{order}/withdrawal` zruší objednávku a vrátí vše na kredit. |
 | Dopis nebo e-mail | Finance zaznamenají `POST /v1/staff/withdrawals` (step-up a druhá osoba). |
-| Spotřebitel nesouhlasí s vrácením na kredit | Panel i `POST /v1/staff/withdrawals` bez souhlasu odpoví 422. Zákon (§ 1831 OZ) ale ukládá vrátit **platbu** za odstoupenou smlouvu původním způsobem (kartou zaplacenou objednávku na tutéž kartu); je to jediná výjimka z G-R4 a nejde o výplatu kreditu (zda lze odstoupit i od dobití kreditu, je otevřená otázka vlastníka a právníka; do rozhodnutí se dobití nevrací). Finance ji provede v systému (G6), viz F8-06. Viz `docs/audit/2026-10-full-readiness/ROZHODNUTI.md`, G-R4. |
+| Spotřebitel nesouhlasí s vrácením na kredit | Panel i `POST /v1/staff/withdrawals` bez souhlasu odpoví 422. Zákon (§ 1831 OZ) ale ukládá vrátit **platbu** za odstoupenou smlouvu původním způsobem (kartou zaplacenou objednávku na tutéž kartu); je to jediná výjimka z G-R4 a nejde o výplatu kreditu (od dobití kreditu odstoupit nelze, rozhodnutí vlastníka H-R5, viz F8-07). Finance ji provede v systému (G6), viz F8-06. Viz `docs/audit/2026-10-full-readiness/ROZHODNUTI.md`, G-R4. |
 | Pokus vyplatit kredit po odstoupení | Neexistuje cesta v panelu, administraci, API ani příkazech (`G4NoCashRefundTest`). |
 | Zaseknutý krok | Hlášen finanční schránce (událost `withdrawal.stalled`), opakuje se hodinově; doctor „consumer withdrawals move on“. |
 
@@ -238,6 +238,28 @@ runbooky [billing-dunning](../runbooks/billing-dunning.md) a [historical-site-im
 
 ---
 
+## F8-07 Dobití kreditu bez odstoupení a propadnutí kreditu při smazání účtu (H0, H-R5)
+
+**Pravidlo:** od dobití kreditu nelze odstoupit; kredit při smazání účtu propadá (rozhodnutí H-R5, `docs/audit/2026-10-full-readiness/ROZHODNUTI.md`).
+
+**Kroky**
+
+1. Spotřebitel s dobitým kreditem: `POST /v1/orders/{id}/withdrawal`, kde `id` je dobití, jeho platba nebo doklad k platbě (příjemka / potvrzení platby). Totéž přes personál `POST /v1/staff/withdrawals`.
+2. Vlastník: `GET /v1/data-requests/deletion-preview` při nenulovém kreditu.
+3. `POST /v1/data-requests` s `kind: deletion` bez `credit_forfeit_acknowledged`, pak s `credit_forfeit_acknowledged: true`.
+4. Během čtrnáctidenní lhůty kredit dobít znovu a nechat žádost doběhnout (`php artisan onhost:compliance:data-requests`).
+
+**Očekávaný výsledek**
+
+- Krok 1: 422 `withdrawal_not_applicable` (`why: credit_topup`); personál dostane odmítnutí ještě před žádostí o druhou osobu; cizí id zůstává 404.
+- Krok 2: náhled ukáže zůstatek a varování, že propadne.
+- Krok 3: bez potvrzení 422 `credit_forfeit_unacknowledged` s částkou; s potvrzením žádost proběhne a uloží potvrzenou částku. Při provedení se propadnutí zaúčtuje jednou (koupený kredit proti výnosu z propadlého kreditu, promo kredit do nákladu).
+- Krok 4: kredit vyšší, než byl potvrzen, výmaz neprovede (`rejected`, `credit_grew_since_acknowledgement`); vlastník požádá znovu s novou částkou.
+
+**Automaticky:** `CreditForfeitAndTopUpWithdrawalTest` (H0). Právník ověřuje znění VOP čl. 2 body 4–5.
+
+---
+
 ## Pokrytí E2E testem
 
 | Případ | Test v `CancellationFlowTest` |
@@ -246,4 +268,5 @@ runbooky [billing-dunning](../runbooks/billing-dunning.md) a [historical-site-im
 | F8-03 | „cancels at once behind a destructive preview and a fresh step-up, refuses a confirmation that went stale, and brings the service back inside the window“ |
 | F8-04 | „lets a consumer withdraw within 14 days: the unused part goes back to the credit, the service ends, and it cannot be resumed for free“; „refuses a company the 14-day withdrawal, and a consumer the day after the deadline“; kredit bez výplaty: `G4NoCashRefundTest`, `WithdrawalTest` |
 | F8-06 | mimo E2E; viz `OrderPaymentRefundTest` (G6) |
+| F8-07 | mimo E2E; viz `CreditForfeitAndTopUpWithdrawalTest` (H0) |
 | F8-05 | „ends an account only for its owner, behind a step-up and 14 days, can be stopped inside the window, and is carried out by the scheduled command“ |
