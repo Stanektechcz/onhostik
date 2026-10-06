@@ -14,6 +14,7 @@ recorded in the hash-chained audit log. Never edit rows in the database during a
 | [provider-calls-audit.md](provider-calls-audit.md) | Read-only check whether an ISPConfig record was acted on by a service that did not own it (the TASK-0005 hole, before the fix); incident steps |
 | [pricing.md](pricing.md) | Discounts, promo codes, add-ons, plan versions, catalogue revisions (`onhost:catalog:revise`), paid limit raises and what a plan may promise |
 | [go-live-checklist.md](go-live-checklist.md) | Everything production needs before the first paying customer, with the state of each item and the operator steps of the default-off switches |
+| [first-day-production.md](first-day-production.md) | Hour-by-hour checks of the first production day (doctor, dead letters, payments and Comgate reconciliation, dunning, webhook lane, metrics) and the rollback triggers |
 | [production-readiness-audit.md](production-readiness-audit.md) | Findings with evidence (§7 table), what is fixed, what stays open |
 | [security-boundaries.md](security-boundaries.md) | The rules the customer-facing edge keeps (parameter allow-lists, egress, keys and tokens, roles, money) — read before adding an endpoint |
 | [provider-outage.md](provider-outage.md) | Proxmox / ISPConfig / aaPanel / Pterodactyl / PowerDNS / WEDOS unreachable or erroring |
