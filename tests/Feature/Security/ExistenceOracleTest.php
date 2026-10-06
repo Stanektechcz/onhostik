@@ -6,6 +6,7 @@ use Database\Seeders\CatalogSeeder;
 use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Routing\Middleware\ThrottleRequests;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use Onhost\Domain\Billing\Models\Subscription;
@@ -36,6 +37,8 @@ use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Organizations\Models\Project;
 use Onhost\Domain\Partners\Models\Partner;
 use Onhost\Domain\Payments\Models\PaymentMethod;
+use Onhost\Domain\Provisioning\Models\Node;
+use Onhost\Domain\Provisioning\Models\ProviderBinding;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Support\Models\WorkOffer;
@@ -339,3 +342,101 @@ it('answers a stranger the same for organization A\'s identifier as for a missin
         ->and(array_keys($controllers))->toContain('MarketplaceController', 'RegistrarConnectionController', 'ServiceAccountController', 'SupportController', 'WalletController', 'WebSessionController', 'MeController', 'OrganizationController', 'ComplianceController', 'IntegrationController', 'ArchiveController', 'CustomIsoController', 'WebhookController');
 });
 // ── end G7 ──
+
+// ── H4 (TASK-0124): the browser-side customer routes ──
+/*
+ * The two sweeps above walk `v1/*`. The routes a browser opens outside the API — the graphical console page, the console token
+ * pre-flight, the signed downloads (data export, archive, calendar feed, mailbox password page) — address a row by an identifier
+ * too. A stranger must get the same answer for organization A's identifier as for one that does not exist; the signed ones are
+ * refused for the signature before any row is looked up. The router is the list: a new web route with a parameter and with
+ * `auth` or `signed` middleware that is not named below fails this test until it gets a row.
+ */
+
+/** The web (non-API) customer routes with a parameter and why each is covered. @return array<string,string> uri => why */
+function eoBrowserRoutesCovered(): array
+{
+    return [
+        'panel/konzole/{service}' => 'the noVNC page: 404 to anybody who may not open this server\'s console',
+        'console/check/{token}' => 'the token pre-flight: valid:false for a token that is not yours, as for one that does not exist',
+        'export/{dataRequest}/{token}' => 'signed: the signature is checked before the row',
+        'archiv/{organization}/{backup}' => 'signed: the signature is checked before the row',
+        'calendar/{organization}.ics' => 'signed: the signature is checked before the row',
+        'mailbox/password/{token}' => 'signed (GET and POST): the signature is checked before the token',
+        'sprava/konzole/{service}' => 'staff console page: refused for a customer, with or without the row',
+    ];
+}
+
+it('names every browser-side customer route that addresses a row, so a new one cannot escape the sweep', function () {
+    $found = [];
+    foreach (Route::getRoutes()->getRoutes() as $route) {
+        $uri = $route->uri();
+        if (str_starts_with($uri, 'v1/') || ! str_contains($uri, '{')) {
+            continue;
+        }
+        $middleware = array_map('strval', $route->gatherMiddleware());
+        if (in_array('auth:sanctum', $middleware, true) || in_array('signed', $middleware, true)) {
+            $found[$uri] = true;
+        }
+    }
+
+    expect(array_values(array_diff(array_keys($found), array_keys(eoBrowserRoutesCovered()))))->toBe([], 'A web route with a parameter and auth/signed middleware has no row in eoBrowserRoutesCovered() and no probe below.')
+        ->and(array_values(array_diff(array_keys(eoBrowserRoutesCovered()), array_keys($found))))->toBe([], 'eoBrowserRoutesCovered() names a route that no longer exists.');
+});
+
+it('answers a stranger the same for organization A\'s console page, console token and signed links as for ones that do not exist', function () {
+    config()->set('onhost.console.relay_url', 'wss://relay.onhost.test');
+    [$owner, $org, $ctx] = eoOwnerOf($this->customerWithOrganization());
+    [, $ids] = eoOrganizationA($owner, $org, $ctx);
+    [$stranger] = $this->customerWithOrganization();
+
+    $instance = pveLab();
+    $vps = Service::query()->create([
+        'organization_id' => $org->id, 'product_key' => 'vps', 'family' => 'cloud', 'name' => 'Compute 4', 'label' => 'eo-console', 'hostname' => 'vm-eo.cust.onhost.cz', 'state' => 'active',
+        'region_code' => 'cz1', 'provider_instance_id' => $instance->id, 'node_id' => Node::query()->where('name', 'prg1-n2')->firstOrFail()->id,
+        'desired_spec' => ['executor' => 'proxmox', 'family' => 'cloud'], 'entitlements' => ['vcpu' => 4, 'ram_mb' => 8192, 'nvme_gb' => 160], 'sla_class' => 'standard', 'activated_at' => now(), 'tags' => [],
+    ]);
+    ProviderBinding::query()->create(['service_id' => $vps->id, 'provider_instance_id' => $instance->id, 'remote_type' => 'qemu', 'remote_id' => '1043', 'remote_node' => 'prg1-n2', 'meta' => [], 'ownership' => ['managed_by' => 'onhost'], 'idempotency_key' => 'eo-console-binding']);
+    $missingService = 'svc_01JZZZZZZZZZZZZZZZZZZZZZZZ';
+
+    // the console page: the owner is let in, a stranger is told "not found" for A's server exactly as for one that is not there
+    $this->actingAs($owner)->get("/panel/konzole/{$vps->id}")->assertOk();
+    app('auth')->forgetGuards();
+    $a = $this->actingAs($stranger)->get("/panel/konzole/{$vps->id}");
+    app('auth')->forgetGuards();
+    $b = $this->actingAs($stranger)->get("/panel/konzole/{$missingService}");
+    app('auth')->forgetGuards();
+    expect([$a->getStatusCode(), $b->getStatusCode()])->toBe([404, 404]);
+
+    // the staff console page is refused to a customer whatever the identifier
+    $c = $this->actingAs($stranger)->get("/sprava/konzole/{$vps->id}");
+    app('auth')->forgetGuards();
+    $d = $this->actingAs($stranger)->get("/sprava/konzole/{$missingService}");
+    app('auth')->forgetGuards();
+    expect($c->getStatusCode())->toBe($d->getStatusCode())->and($c->getStatusCode())->not->toBe(200);
+
+    // the token pre-flight: a live console token of A is "not valid" for a stranger, the same body as a token nobody issued
+    $token = 'eo-console-token-'.bin2hex(random_bytes(6));
+    Cache::put("onhost:console:{$token}", ['kind' => 'vnc', 'service_id' => $vps->id, 'organization_id' => $org->id, 'issued_to' => $owner->id, 'issued_at' => now()->toIso8601String()], 120);
+    $real = $this->actingAs($stranger, 'sanctum')->getJson("/console/check/{$token}");
+    app('auth')->forgetGuards();
+    $none = $this->actingAs($stranger, 'sanctum')->getJson('/console/check/eo-console-token-nobody');
+    app('auth')->forgetGuards();
+    expect($real->json('data.valid'))->toBeFalse()->and($real->json('data.valid'))->toBe($none->json('data.valid'))->and($real->getStatusCode())->toBe($none->getStatusCode());
+
+    // the signed links: refused for the signature, before any row is looked up, so A's identifier and a missing one cannot be told apart
+    $probes = [
+        ['GET', "/export/{$ids['order']}/anytoken", '/export/01JZZZZZZZZZZZZZZZZZZZZZZZ/anytoken'],
+        ['GET', "/archiv/{$org->id}/{$ids['backup']}", '/archiv/01JZZZZZZZZZZZZZZZZZZZZZZZ/01JZZZZZZZZZZZZZZZZZZZZZZZ'],
+        ['GET', "/calendar/{$org->id}.ics", '/calendar/01JZZZZZZZZZZZZZZZZZZZZZZZ.ics'],
+        ['GET', '/mailbox/password/'.$token, '/mailbox/password/eo-console-token-nobody'],
+        ['POST', '/mailbox/password/'.$token, '/mailbox/password/eo-console-token-nobody'],
+    ];
+    foreach ($probes as [$method, $foreign, $absent]) {
+        $x = $this->actingAs($stranger)->call($method, $foreign);
+        app('auth')->forgetGuards();
+        $y = $this->actingAs($stranger)->call($method, $absent);
+        app('auth')->forgetGuards();
+        expect([$x->getStatusCode(), $y->getStatusCode()])->toBe([403, 403], "{$method} {$foreign}");
+    }
+});
+// ── end H4 ──

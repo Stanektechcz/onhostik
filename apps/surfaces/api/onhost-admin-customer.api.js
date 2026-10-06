@@ -210,6 +210,7 @@
           var d = r.data || r; state.busy = false;
           if (!d.url) { state.msg = ['ok', 'Žádost o vstup čeká na schválení druhou osobou.']; return render(); }
           state.msg = ['ok', 'Odkaz do panelu je připraven (platí ' + (d.expires_in_seconds || 60) + ' s, jednou).' + (d.consented ? '' : ' Zákazník nedal souhlas předem, vstup je zapsán v auditu.')]; render();
+          if (!/^https:/i.test(String(d.url))) { state.msg = ['err', 'Odkaz do panelu nezačíná https:, proto ho neotevírám ani nenabízím.']; return render(); } // a server answer is not a license to open any scheme (javascript:, data:, http:)
           var w = null; try { w = window.open(d.url, '_blank', 'noopener'); } catch (e) { w = null; }
           if (!w) window.OnhostDialog.prompt('Odkaz zkopírujte do nové karty; platí jednou.', d.url, { title: 'Odkaz do panelu', fieldLabel: 'Odkaz', cancel: 'Zavřít' });
         });

@@ -33,6 +33,7 @@
 </header>
 <div id="msg">Konzole běží přes náš relay s jednorázovým tokenem; přístup je v auditu služby. Token platí krátce — po odpojení se připojte znovu.</div>
 <div id="screen"></div>
+@include('partials.dialog-bridge', ['nonce' => $nonce])
 <script type="application/json" id="console-config">@json($config)</script>
 <script type="module" nonce="{{ $nonce }}">
 import RFB from @json($novnc);
@@ -83,8 +84,8 @@ $('disconnect').addEventListener('click', () => { if (rfb) rfb.disconnect(); });
 $('cad').addEventListener('click', () => { if (rfb) rfb.sendCtrlAltDel(); });
 $('paste').addEventListener('click', () => {
   if (!rfb) return;
-  const text = window.prompt('Text pro schránku serveru (systém ho vloží tam, kde schránku podporuje):', '');
-  if (text) rfb.clipboardPasteFrom(text);
+  window.OnhostDialog.form({ title: 'Vložit do schránky serveru', lead: 'Systém text vloží tam, kde schránku podporuje.', confirm: 'Vložit', fields: [{ key: 'text', label: 'Text', type: 'textarea' }] })
+    .then((v) => { if (v && v.text && rfb) rfb.clipboardPasteFrom(v.text); });
 });
 $('full').addEventListener('click', () => { const el = document.documentElement; if (document.fullscreenElement) document.exitFullscreen(); else if (el.requestFullscreen) el.requestFullscreen(); });
 connect();
