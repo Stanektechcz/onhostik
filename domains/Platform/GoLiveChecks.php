@@ -27,7 +27,7 @@ use Onhost\Platform\Errors\DomainError;
 /**
  * Doctor rows an operator meets on the way to go-live (E11, go-live checklist §0): each says what is wrong in `detail` and
  * what fixes it in `remedy` (a command or a setting; empty when the row is OK). Read-only: config, the database and the
- * running PHP — no outbound call, no secret ever printed (counts and presence only).
+ * running PHP — no outbound call except the custom ISO scanner's own self-test (a local clamd, cached for minutes, 15 s timeout, only asked once custom ISO is on sale), no secret ever printed (counts and presence only).
  *
  * `blocking` follows Doctor::add: FAIL in production and WARN elsewhere. Only a risk the platform cannot tolerate is
  * blocking; everything else is a standing WARN with the remedy next to it.
@@ -306,7 +306,7 @@ final class GoLiveChecks
 
     /**
      * Organizations whose points credited on or before yesterday's cutoff are still on the balance: yesterday's run did not happen.
-     * Bounded (200 organizations) so the doctor stays fast; the daily run itself never skips one.
+     * Bounded (500 candidates) so the doctor stays fast; the daily run itself never skips one.
      *
      * @return array{0:int, 1:int} organizations, points
      */
@@ -317,7 +317,13 @@ final class GoLiveChecks
             return [0, 0];
         }
         $expiry = app(LoyaltyExpiry::class);
-        $organizations = LoyaltyPoint::query()->where('points', '>', 0)->where('created_at', '<=', $cutoff)->distinct()->orderBy('organization_id')->limit(200)->pluck('organization_id');
+        // one SQL aggregate finds the organizations whose old points are not used up (earned up to the cutoff less every debit); the
+        // exact rule (reservations too) then confirms the few candidates — a healthy installation has none, so no id order can hide one
+        $notEarned = LoyaltyExpiry::NOT_EARNED;
+        $in = implode(',', array_fill(0, count($notEarned), '?'));
+        $organizations = LoyaltyPoint::query()->groupBy('organization_id')->orderBy('organization_id')
+            ->havingRaw("sum(case when points > 0 and rule not in ({$in}) and created_at <= ? then points else 0 end) + sum(case when points < 0 or rule in ({$in}) then points else 0 end) > 0", [...$notEarned, $cutoff->toDateTimeString(), ...$notEarned])
+            ->limit(500)->pluck('organization_id');
         $count = 0;
         $points = 0;
         foreach ($organizations as $id) {

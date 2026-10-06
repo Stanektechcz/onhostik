@@ -5,13 +5,16 @@ declare(strict_types=1);
 use Database\Seeders\CatalogSeeder;
 use Database\Seeders\LegalEntitySeeder;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Onhost\Domain\Invoicing\Models\LegalEntity;
 use Onhost\Domain\Loyalty\Models\LoyaltyPoint;
 use Onhost\Domain\Notifications\Models\WebhookEndpoint;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Platform\GoLiveChecks;
+use Onhost\Domain\Services\CustomIso\ClamdIsoScanner;
 use Onhost\Domain\Services\CustomIso\IsoScanner;
+use Onhost\Platform\Files\VirusScanner;
 
 /*
  * G10 (TASK-0119): the go-live doctor rows of phase G — the VAT payer mode and its legal entity, the virus scan and the storage of
@@ -189,4 +192,69 @@ it('flags a webhook secret that is still stored after its overlap ended', functi
     $row = g10Row('rotated webhook secrets overlap only briefly');
 
     expect($row['ok'])->toBeFalse()->and($row['detail'])->toContain('still store a secret')->and($row['remedy'])->toContain('onhost-queue@webhooks');
+});
+
+it('still sees overdue loyalty expiry of an organization that sorts after hundreds of others', function () {
+    $this->seed([LegalEntitySeeder::class]);
+    config(['loyalty.expiry.counted_from' => '2024-01-01']);
+    for ($i = 0; $i < 230; $i++) {
+        $young = Organization::query()->create(['slug' => 'young-'.$i, 'name' => 'Young '.$i, 'owner_user_id' => 'usr_y'.$i, 'country' => 'CZ']);
+        LoyaltyPoint::query()->create(['organization_id' => $young->id, 'rule' => 'welcome', 'reference' => 'r', 'points' => 10])->forceFill(['created_at' => now()->subMonths(30)])->save();
+        LoyaltyPoint::query()->create(['organization_id' => $young->id, 'rule' => 'expiry', 'reference' => 'e', 'points' => -10]); // already expired: nothing due
+    }
+    $old = Organization::query()->create(['slug' => 'late-old', 'name' => 'Late old', 'owner_user_id' => 'usr_late', 'country' => 'CZ']);
+    LoyaltyPoint::query()->create(['organization_id' => $old->id, 'rule' => 'welcome', 'reference' => 'r', 'points' => 100])->forceFill(['created_at' => now()->subMonths(30)])->save();
+
+    $row = g10Row('loyalty expiry runs and balances are sane');
+
+    expect($row['ok'])->toBeFalse()->and($row['detail'])->toContain('1 organization(s) hold 100 point(s) past their');
+});
+
+it('gives the scanner self-test its own short timeout and keeps the long one for images', function () {
+    config(['onhost.custom_iso.scan_timeout_seconds' => 900]);
+    $seen = [];
+    $replies = ['stream: Eicar-Test-Signature FOUND', 'stream: Heuristics.Limits.Exceeded FOUND'];
+    $scanner = new ClamdIsoScanner(app(VirusScanner::class), function (string $command, $stream, ?int $timeout = null) use (&$seen, &$replies) {
+        $seen[] = $timeout;
+
+        return array_shift($replies) ?? 'stream: OK';
+    });
+    Cache::forget(ClamdIsoScanner::SELF_TEST_KEY);
+
+    expect($scanner->selfTest()['ok'])->toBeTrue()->and($seen)->toBe([15, 15]);
+
+    $scanner->scan(fopen('php://memory', 'r+'));
+    expect($seen[2])->toBe(900);
+});
+
+it('forgets the cached scanner self-test with --fresh', function () {
+    $calls = 0;
+    $replies = ['stream: Eicar-Test-Signature FOUND', 'stream: Heuristics.Limits.Exceeded FOUND'];
+    app()->instance(IsoScanner::class, new ClamdIsoScanner(app(VirusScanner::class), function () use (&$calls, &$replies) {
+        $calls++;
+        $reply = array_shift($replies);
+        if ($reply === null) {
+            $replies = ['stream: Eicar-Test-Signature FOUND', 'stream: Heuristics.Limits.Exceeded FOUND'];
+            $reply = array_shift($replies);
+        }
+
+        return $reply;
+    }));
+    Cache::forget(ClamdIsoScanner::SELF_TEST_KEY);
+
+    expect(Artisan::call('onhost:isos:scanner-check'))->toBe(0)->and($calls)->toBe(2);
+    expect(Artisan::call('onhost:isos:scanner-check'))->toBe(0)->and($calls)->toBe(2); // cached
+    expect(Artisan::call('onhost:isos:scanner-check', ['--fresh' => true]))->toBe(0)->and($calls)->toBe(4);
+});
+
+it('names only staff routes in the first-day runbook that exist', function () {
+    $text = (string) file_get_contents(base_path('docs/runbooks/first-day-production.md'));
+    preg_match_all('/\b(GET|POST) (\/v1\/staff\/[A-Za-z0-9_\/{}\-]+)/', $text, $m, PREG_SET_ORDER);
+    expect($m)->not->toBeEmpty();
+    $routes = collect(app('router')->getRoutes()->getRoutes())->map(fn ($r) => [implode('|', $r->methods()), preg_replace('/\{[^}]+\??\}/', '{}', '/'.ltrim($r->uri(), '/'))]);
+    foreach ($m as [$whole, $verb, $path]) {
+        $normal = preg_replace('/\{[^}]+\}/', '{}', rtrim($path, '/'));
+        $found = $routes->contains(fn ($r) => str_contains($r[0], $verb) && str_ends_with($r[1], $normal));
+        expect($found)->toBeTrue("{$verb} {$path} is not a route");
+    }
 });

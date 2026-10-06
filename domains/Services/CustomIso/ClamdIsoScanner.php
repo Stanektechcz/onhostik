@@ -30,7 +30,10 @@ final class ClamdIsoScanner implements IsoScanner
 {
     private const CHUNK = 65536;
 
-    private const SELF_TEST_KEY = 'onhost:custom-iso:scanner-self-test';
+    /** The self-test is two tiny files: it must not wait as long as an image of several gigabytes may (`scan_timeout_seconds`). */
+    private const SELF_TEST_TIMEOUT = 15;
+
+    public const SELF_TEST_KEY = 'onhost:custom-iso:scanner-self-test';
 
     /** EICAR, the antivirus test file, kept encoded so no scanner on a developer's machine quarantines this source file. */
     private const EICAR_B64 = 'WDVPIVAlQEFQWzRcUFpYNTQoUF4pN0NDKTd9JEVJQ0FSLVNUQU5EQVJELUFOVElWSVJVUy1URVNULUZJTEUhJEgrSCo=';
@@ -38,16 +41,25 @@ final class ClamdIsoScanner implements IsoScanner
     /** Deeper than any MaxRecursion clamd is configured with in practice (default 17, maximum sensible well below this). */
     private const NESTING = 64;
 
-    /** @param (Closure(string, resource|null): string)|null $transport */
+    /** @param (Closure(string, resource|null, int=): string)|null $transport the seam of the tests; its third argument is the timeout in seconds */
     public function __construct(private readonly VirusScanner $scanner, private readonly ?Closure $transport = null) {}
 
     public function scan($stream): array
+    {
+        return $this->scanWithin($stream, null);
+    }
+
+    /**
+     * @param  resource  $stream
+     * @param  ?int  $timeout  seconds clamd may take; null = `scan_timeout_seconds`
+     */
+    private function scanWithin($stream, ?int $timeout): array
     {
         if (! $this->scanner->enabled() && $this->transport === null) {
             return ['result' => self::UNAVAILABLE, 'signature' => null];
         }
         try {
-            $reply = $this->converse('zINSTREAM', $stream);
+            $reply = $this->converse('zINSTREAM', $stream, $timeout);
         } catch (Throwable) {
             return ['result' => self::UNAVAILABLE, 'signature' => null];
         }
@@ -96,7 +108,7 @@ final class ClamdIsoScanner implements IsoScanner
         if (! $this->scanner->enabled() && $this->transport === null) {
             return ['ok' => false, 'detail' => 'no clamd is configured (ONHOST_CLAMAV_HOST)'];
         }
-        $eicar = $this->scan(self::memory((string) base64_decode(self::EICAR_B64)));
+        $eicar = $this->scanWithin(self::memory((string) base64_decode(self::EICAR_B64)), self::SELF_TEST_TIMEOUT);
         if ($eicar['result'] !== self::INFECTED) {
             return ['ok' => false, 'detail' => 'clamd did not find the EICAR test file ('.$eicar['result'].')'];
         }
@@ -104,7 +116,7 @@ final class ClamdIsoScanner implements IsoScanner
         for ($i = 0; $i < self::NESTING; $i++) {
             $nested = (string) gzencode($nested);
         }
-        $limits = $this->scan(self::memory($nested));
+        $limits = $this->scanWithin(self::memory($nested), self::SELF_TEST_TIMEOUT);
         if ($limits['result'] !== self::INCOMPLETE) {
             return ['ok' => false, 'detail' => 'clamd passes a file it could not read in full ('.$limits['result'].'): set AlertExceedsMax yes'];
         }
@@ -113,12 +125,12 @@ final class ClamdIsoScanner implements IsoScanner
     }
 
     /** @param resource $stream */
-    private function converse(string $command, $stream): string
+    private function converse(string $command, $stream, ?int $timeout = null): string
     {
         if ($this->transport !== null) {
-            return ($this->transport)($command, $stream);
+            return ($this->transport)($command, $stream, $timeout ?? max(1, (int) config('onhost.custom_iso.scan_timeout_seconds', 900)));
         }
-        $timeout = max(1, (int) config('onhost.custom_iso.scan_timeout_seconds', 900));
+        $timeout ??= max(1, (int) config('onhost.custom_iso.scan_timeout_seconds', 900));
         $socket = @stream_socket_client('tcp://'.config('onhost.storage.clamav.host').':'.(int) config('onhost.storage.clamav.port', 3310), $errno, $error, 5);
         if ($socket === false) {
             throw new RuntimeException('clamd unreachable: '.$error);

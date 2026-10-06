@@ -77,6 +77,7 @@ use Onhost\Domain\Provisioning\QueueScaler;
 use Onhost\Domain\Provisioning\Reconciler;
 use Onhost\Domain\Provisioning\Scheduling\NodeRebalancer;
 use Onhost\Domain\Services\Access\ServiceAccessService;
+use Onhost\Domain\Services\CustomIso\ClamdIsoScanner;
 use Onhost\Domain\Services\CustomIso\CustomIsoLibrary;
 use Onhost\Domain\Services\CustomIso\IsoScanner;
 use Onhost\Domain\Services\DelegatedAccessReview;
@@ -833,7 +834,10 @@ Artisan::command('onhost:isos:sweep {--hours= : staged uploads older than this m
 })->purpose('Remove custom ISO uploads that never finished (staging rows and incoming files)');
 
 // TASK-0110 review M1: uploads are refused (503) while this fails — EICAR must be found and a file beyond clamd's limits reported.
-Artisan::command('onhost:isos:scanner-check', function (IsoScanner $scanner) {
+Artisan::command('onhost:isos:scanner-check {--fresh : forget the cached answer and test again}', function (IsoScanner $scanner) {
+    if ($this->option('fresh')) {
+        Cache::forget(ClamdIsoScanner::SELF_TEST_KEY); // the answer is kept for minutes (a failed one for one)
+    }
     $check = $scanner->selfTest();
     $check['ok'] ? $this->info('custom ISO virus scan: OK — '.$check['detail']) : $this->error('custom ISO virus scan: FAILED — '.$check['detail'].' (uploads are refused)');
 
