@@ -9,6 +9,7 @@
 2. Odstoupení oznamte v zákaznickém panelu u dané služby (záložka Provoz a NOC, řádek „Odstoupení od smlouvy“) nebo e-mailem na {{entity_email}} či dopisem na adresu uvedenou níže; můžete použít vzorový formulář. Lhůta je zachována, odešlete-li oznámení před jejím uplynutím.
 3. Přijaté platby vrátíme do 14 dnů od doručení odstoupení stejným způsobem, jakým byly uhrazeny, nedohodneme-li se jinak. Při odstoupení v zákaznickém panelu můžete výslovně souhlasit s vrácením nevyužité zaplacené části dobropisem na kredit svého účtu; bez tohoto souhlasu vrátíme platbu původním způsobem na základě vaší žádosti podpoře.
 4. Registrace domény je dokončena jejím zápisem do registru; od provedené registrace domény proto odstoupit nelze. Tuto skutečnost uvádíme i v objednávce před jejím odesláním.
+5. Od dobití kreditu nelze odstoupit: kredit je zálohou na služby, které si teprve vyberete (čl. 2 bod 4 VOP). Odstoupit můžete od každé služby, kterou z kreditu zaplatíte; její nevyužitá část se vrátí na kredit.
 
 ## 2. Žádost o zahájení plnění před uplynutím lhůty
 
@@ -16,7 +17,7 @@ Potvrzením objednávky výslovně žádáte, aby poskytovatel začal poskytovat
 
 * odstoupíte-li od smlouvy během lhůty, uhradíte poměrnou část ceny odpovídající plnění poskytnutému do okamžiku odstoupení;
 * u služeb, které jsou v této lhůtě zcela poskytnuty (například registrace domény, která je dokončena okamžikem zápisu do registru), právo na odstoupení uplynutím plnění zaniká;
-* platby za smlouvu, od níž spotřebitel odstoupil, vracíme podle čl. 8 VOP a zákona (viz bod 1.3 výše); kredit se v hotovosti nevyplácí (čl. 2 bod 3 VOP).
+* platby za smlouvu, od níž spotřebitel odstoupil, vracíme podle čl. 8 VOP a zákona (viz bod 1.3 výše); kredit se v hotovosti nevyplácí (čl. 2 bod 3 VOP) a smazáním zákaznického účtu propadá (čl. 2 bod 5 VOP).
 
 ## 3. Vzorový formulář pro odstoupení
 

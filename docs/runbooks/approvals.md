@@ -103,6 +103,24 @@ orders and platform (system) orders are never held. Before switching on: `php ar
 (read-only) — who will need an approval, organizations without anybody who may approve, orders waiting now; consider
 telling those customers first. The rule itself: `docs/runbooks/security-boundaries.md` §22.
 
+## A risky action through an API token (owner decision H-R1, 2026-10-06)
+
+A token can never take a step-up, so a HIGH or CRITICAL action through a personal token or a service account used to be refused
+outright. Now it opens a request that **the organization's owner** decides — not staff, and not this page:
+
+1. the token's request is answered `403 approval_required` with `approval_id` (and `help: /v1/token-approvals`); nothing ran;
+2. the owner, signed in to the portal with a fresh step-up, lists `GET /v1/token-approvals` and decides
+   `POST /v1/token-approvals/{id}/decision {decision: approved|rejected, note?}` (`iam.token_approval.decide`);
+3. the token repeats the very same request with `approval_ids: [id]`; it runs once (the audit row carries the approval id).
+
+The approval is bound to the action, the hash of its payload, the principal (the person or the service account) **and the token**;
+it is single use and expires like any approval; a token has at most 20 undecided requests. It is never decided by the token, by
+the person whose personal token asked (`approval_own_request` — they act in the portal or use a service account), by an
+administrator who is not the owner, by another organization (404) or by staff (`token_approval_owner_only` on
+`/v1/staff/approvals/{id}/decision`). A token approval is never a four-eyes approval of the portal, and a four-eyes approval
+is never spent by a token (`TokenApprovals`, `IdentityCommandAuthorizer`). The owner hears of it in the panel
+(`iam.token_approval.requested`, security, warn).
+
 ## One operator alone
 
 Four eyes need two heads. With fewer than two people who may decide approvals the page says so, `onhost:doctor`

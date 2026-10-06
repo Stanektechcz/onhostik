@@ -96,7 +96,7 @@ Smí (pouze datové seamy, žádný vzhled):
 
 1. `onhost-store.js` → nahrazeno `onhost-store.api.js` (stejné API, data z `/v1`);
 2. `onhost-shell.js` → session z `window.ONHOST.user`, přepínač rolí jen v `ONHOST.demo`;
-3. `onhost-integrations.js`, `onhost-domains.js` → API-backed varianty se stejným rozhraním;
+3. `onhost-integrations.js`, `onhost-domains.js` → API-backed varianty se stejným rozhraním; (`onhost-domains.js` nikdo nenačítá — 2026-10-06 archivován beze změny do `apps/surfaces/_archive/`, rozhodnutí H-R6; produkt používá `api/onhost-domains.api.js`)
 4. `onhost-data.js` → generováno serverem z katalogu (`/surfaces/onhost-data.js`);
 5. `Onhost-app.dc.html`: jediný zásah — `SVC_DATA().services` a `state.servers` čtou `window.ONHOST_PANEL`, `liveSimulation` default `false`;
 6. injektovaný `<script>` s `window.ONHOST = { apiBase, csrf, user, surface, demo }` před `onhost-shell.js`;

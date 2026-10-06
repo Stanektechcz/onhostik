@@ -514,6 +514,76 @@ final class WalletService
         return $applied;
     }
 
+    // ── H0 (owner decision H-R5, 2026-10-06): the credit of an erased account is forfeited ──
+    /**
+     * What the account still holds, per currency: the purchased credit and the promotional credit that would be forfeited if
+     * the account were erased now (posted minus what active holds reserve). Read only — the erasure preview shows it.
+     *
+     * @return list<array{currency:string, purchased_minor:int, promo_minor:int}>
+     */
+    public function forfeitable(string $organizationId): array
+    {
+        $rows = [];
+        foreach (Wallet::query()->where('organization_id', $organizationId)->orderBy('currency')->get() as $wallet) {
+            $currency = (string) $wallet->currency;
+            $posted = $this->ledger->balance(LedgerService::walletAccount($wallet->organization_id, $currency, $wallet->kind === 'promo' ? 'promo' : 'wallet'), $currency)->minor;
+            $amount = max(0, $posted - (int) WalletHold::query()->where('wallet_id', $wallet->id)->where('state', 'active')->sum('amount_minor'));
+            $rows[$currency] ??= ['currency' => $currency, 'purchased_minor' => 0, 'promo_minor' => 0];
+            $rows[$currency][$wallet->kind === 'promo' ? 'promo_minor' : 'purchased_minor'] += $amount;
+        }
+
+        return array_values(array_filter($rows, fn (array $r) => $r['purchased_minor'] > 0 || $r['promo_minor'] > 0));
+    }
+
+    /**
+     * Books the forfeit of everything an erased account still holds (H-R5): credit is never paid out in money (G-R4), and an
+     * account that is erased has nobody left to spend it. Purchased credit leaves the customer's liability as other income
+     * (DR liability:wallet / CR revenue:forfeited_credit), promotional credit goes back where it came from (DR liability:promo /
+     * CR expense:promo). Once per erasure (`$reference`) and bucket: running the erasure again books nothing twice. A reserved
+     * amount (an active hold) is left alone — it is released or captured by its own order.
+     *
+     * @return list<array{currency:string, purchased_minor:int, promo_minor:int}>
+     */
+    public function forfeitAll(string $organizationId, string $reference, CommandContext $context): array
+    {
+        $rows = [];
+        foreach (Wallet::query()->where('organization_id', $organizationId)->orderBy('currency')->get() as $wallet) {
+            $currency = (string) $wallet->currency;
+            $promo = $wallet->kind === 'promo';
+            $amount = $this->forfeitWallet($wallet->id, $promo ? 'promo' : 'wallet', $reference, $context);
+            $rows[$currency] ??= ['currency' => $currency, 'purchased_minor' => 0, 'promo_minor' => 0];
+            $rows[$currency][$promo ? 'promo_minor' : 'purchased_minor'] += $amount;
+        }
+
+        return array_values(array_filter($rows, fn (array $r) => $r['purchased_minor'] > 0 || $r['promo_minor'] > 0));
+    }
+
+    private function forfeitWallet(string $walletId, string $bucket, string $reference, CommandContext $context): int
+    {
+        return DB::transaction(function () use ($walletId, $bucket, $reference, $context): int {
+            $wallet = Wallet::query()->lockForUpdate()->findOrFail($walletId);
+            $currency = (string) $wallet->currency;
+            $key = 'ledger:forfeit:'.$reference.':'.$bucket.':'.$currency;
+            if (LedgerTransaction::query()->where('idempotency_key', $key)->exists()) {
+                return 0;
+            }
+            $this->refreshCaches($wallet);
+            $amount = (int) $wallet->posted_balance_minor - (int) $wallet->reserved_balance_minor;
+            if ($amount <= 0) {
+                return 0;
+            }
+            $counter = $bucket === 'promo' ? LedgerService::expenseAccount('promo', $currency) : LedgerService::revenueAccount('forfeited_credit', $currency);
+            $this->ledger->post('credit_forfeit', $currency, [
+                ['account' => LedgerService::walletAccount($wallet->organization_id, $currency, $bucket), 'debit' => $amount],
+                ['account' => $counter, 'credit' => $amount],
+            ], $key, $wallet->organization_id, 'data_request', $reference, $bucket === 'promo' ? 'Promotional credit forfeited with the erased account' : 'Credit forfeited with the erased account (H-R5)', $this->actor($context));
+            $this->refreshCaches($wallet);
+
+            return $amount;
+        }, 3);
+    }
+
+    // ── end H0 ──
     private function lockWallet(string $organizationId, Currency|string $currency, string $kind = 'main'): Wallet
     {
         $wallet = $this->wallet($organizationId, $currency, $kind);

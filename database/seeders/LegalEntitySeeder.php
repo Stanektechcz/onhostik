@@ -33,9 +33,12 @@ final class LegalEntitySeeder extends Seeder
         ]);
         // G2: the declared VAT mode (ONHOST_VAT_PAYER) only for a legal entity created now; an existing one keeps its mode — it is
         // switched by finance with a step-up and a second person (POST /v1/staff/tax/vat-payer-mode), never by a seeder run
+        // H0: whether the row was created by THIS run is read before the row is fetched again — the fresh copy never was "recently
+        // created", so the declared mode was never written and a new legal entity kept the column default (payer)
+        $created = $entity->wasRecentlyCreated;
         $entity = LegalEntity::query()->findOrFail('onhost-cz');
-        if ($entity->wasRecentlyCreated || $entity->getAttribute('vat_payer') === null) {
-            $entity->forceFill(['vat_payer' => (bool) config('vat.payer', true)])->save();
+        if ($created || $entity->getAttribute('vat_payer') === null) {
+            $entity->forceFill(['vat_payer' => (bool) config('vat.payer', false)])->save(); // H-R0: not a VAT payer unless declared
         }
 
         foreach ([

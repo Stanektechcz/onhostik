@@ -6,6 +6,7 @@ namespace Onhost\Domain\Billing\Commands;
 
 use Carbon\CarbonImmutable;
 use Onhost\Domain\Billing\Models\Withdrawal;
+use Onhost\Domain\Billing\WithdrawalPolicy;
 use Onhost\Domain\Billing\WithdrawalService;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Services\Models\Service;
@@ -22,6 +23,9 @@ final class WithdrawalCommandHandler implements CommandHandler
     {
         if ($context->actorType === 'ai') {
             throw new DomainError('ai_action_forbidden', 'An assistant may not withdraw from a contract.', 403);
+        }
+        if (($command instanceof WithdrawalCommand || $command instanceof WithdrawalStaffCommand) && ($command->get('topup_id') !== null || ($command instanceof WithdrawalCommand && $command->op() === 'topup'))) {
+            WithdrawalPolicy::refuseTopUp(); // H0 (H-R5): no withdrawal from a credit top-up, whoever records it
         }
         if ($command instanceof WithdrawalCommand) { // the consumer, in the panel: the notice is sent now
             $by = $context->actorType === 'user' ? $context->actorId : null;

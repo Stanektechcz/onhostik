@@ -34,6 +34,7 @@ use Onhost\Domain\Domains\Commands\DomainsCommandHandler;
 use Onhost\Domain\Domains\Commands\RegistrarConnectionCommand;
 use Onhost\Domain\Domains\Commands\RegistrarConnectionsCommandHandler;
 use Onhost\Domain\Identity\Authorization\ApprovalService;
+use Onhost\Domain\Identity\Authorization\TokenApprovals;
 use Onhost\Domain\Identity\Commands\ApiTokenCommand;
 use Onhost\Domain\Identity\Commands\ApprovalDecisionCommand;
 use Onhost\Domain\Identity\Commands\ApprovalDecisionCommandHandler;
@@ -224,6 +225,14 @@ final class DomainServiceProvider extends ServiceProvider
             }
             // four eyes: whoever is refused for want of a second person has the request opened for them, and the refusal names it
             $bus->onApprovalRequired(function (Command $command, CommandContext $context): array {
+                // H0 (owner decision H-R1): a token's risky action waits for the organization's owner, never for staff's four eyes
+                if (TokenApprovals::tokenIdOf($context->sessionId) !== null && in_array($context->actorType, ['user', 'service_account'], true) && $context->actorId !== null) {
+                    $request = $this->app->make(TokenApprovals::class)->request($command, $context);
+
+                    return $request === null
+                        ? ['approval_state' => 'not_opened', 'help' => 'This token has '.TokenApprovals::MAX_PENDING_PER_TOKEN.' undecided requests; the owner decides them first (GET /v1/token-approvals).']
+                        : ['approval_id' => $request->id, 'approval_state' => $request->state, 'approval_expires_at' => $request->expires_at?->toIso8601String(), 'help' => '/v1/token-approvals'];
+                }
                 if ($context->actorType !== 'user' || $context->actorId === null) {
                     return [];
                 }

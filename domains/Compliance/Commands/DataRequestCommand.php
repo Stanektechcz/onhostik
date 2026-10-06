@@ -10,7 +10,8 @@ use Onhost\Platform\Commands\OrganizationCommand;
 
 /**
  * The customer's GDPR / Data Act requests, dispatched by `op`:
- *  request{kind: export|deletion|switching, reason?} · cancel{data_request_id}
+ *  request{kind: export|deletion|switching, reason?, credit_forfeit_acknowledged?} · cancel{data_request_id}
+ *  (H0, H-R5: an erasure of an account that still holds credit is asked for only once its forfeit is acknowledged)
  *
  * Erasing the account is the one request that cannot be taken back, and it went straight to the service with the
  * permission to edit the organization's profile — any administrator could have the owner locked out of their own

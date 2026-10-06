@@ -1584,6 +1584,9 @@ HTML;
         if ($relative === '' || str_contains($relative, '..') || str_starts_with($relative, '/')) {
             return null;
         }
+        if (str_starts_with($relative, '_archive/')) {
+            return null; // H0 (H-R6): an archived prototype is kept for reference, never served
+        }
         $full = $this->root.'/'.$relative;
         $real = realpath($full);
         $rootReal = realpath($this->root);

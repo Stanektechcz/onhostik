@@ -55,6 +55,7 @@ use App\Http\Controllers\Api\V1\Staff\VatPayerModeController;
 use App\Http\Controllers\Api\V1\Staff\WithdrawalController as StaffWithdrawalController;
 use App\Http\Controllers\Api\V1\StatusController;
 use App\Http\Controllers\Api\V1\SupportController;
+use App\Http\Controllers\Api\V1\TokenApprovalController;
 use App\Http\Controllers\Api\V1\WalletController;
 use App\Http\Controllers\Api\V1\WebhookController;
 use App\Http\Controllers\Api\V1\WebSessionController;
@@ -137,6 +138,7 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
     Route::get('abuse-cases', [ComplianceController::class, 'abuseCases']);
     Route::post('abuse-cases/{case}/appeal', [ComplianceController::class, 'appeal']);
     Route::get('data-requests', [ComplianceController::class, 'dataRequests']);
+    Route::get('data-requests/deletion-preview', [ComplianceController::class, 'deletionPreview']); // H0 (H-R5): what an erasure does, the forfeited credit included
     Route::post('data-requests', [ComplianceController::class, 'requestData']);
     Route::post('data-requests/{dataRequest}/cancel', [ComplianceController::class, 'cancel']); // stops a scheduled erasure during its grace period
     Route::get('data-requests/{dataRequest}/download', [ComplianceController::class, 'download']);
@@ -197,6 +199,9 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
     Route::delete('service-accounts/{account}', [ServiceAccountController::class, 'destroy']);
     Route::post('service-accounts/{account}/tokens', [ServiceAccountController::class, 'issueToken']);
     Route::delete('service-accounts/{account}/tokens/{token}', [ServiceAccountController::class, 'revokeToken']);
+    // H0 (owner decision H-R1): a risky action through an API token waits for the organization's owner (no token reaches these)
+    Route::get('token-approvals', [TokenApprovalController::class, 'index']);
+    Route::post('token-approvals/{approval}/decision', [TokenApprovalController::class, 'decide']);
     // ── end TASK-0079 ──
     // TASK-0070: the browser's own — open web sessions (list, end one, end every other) and the organization it works in
     Route::get('me/sessions', [WebSessionController::class, 'index']);

@@ -28,8 +28,8 @@ final class VatPayerMode
     private const MEMO = 'onhost.tax.vat_payer_mode';
 
     /**
-     * The legal entity's mode (a platform without its legal entity yet — a fresh install, a narrow test — counts as payer, as
-     * before). Read once per request or queue job (the tax engine asks for every line it decides): the memo is a scoped
+     * The legal entity's mode (a platform without its legal entity yet — a fresh install, a narrow test — counts as what
+     * ONHOST_VAT_PAYER declares: H0, owner decision H-R0 — it used to count as a payer whatever the declaration said). Read once per request or queue job (the tax engine asks for every line it decides): the memo is a scoped
      * instance, so the next request and the next job read the row again, and a change of the legal entity drops it at once
      * (LegalEntity's saved event, the mode switch).
      */
@@ -44,7 +44,7 @@ final class VatPayerMode
         $key = (string) config('onhost.billing.legal_entity', 'onhost-cz');
         if (! $memo->offsetExists($key)) {
             $entity = self::legalEntity();
-            $memo[$key] = $entity === null || (bool) $entity->vat_payer;
+            $memo[$key] = $entity === null ? (bool) config('vat.payer', false) : (bool) $entity->vat_payer;
         }
 
         return (bool) $memo[$key];
@@ -72,7 +72,7 @@ final class VatPayerMode
     public function report(): array
     {
         $entity = self::legalEntity();
-        $declared = (bool) config('vat.payer', true);
+        $declared = (bool) config('vat.payer', false);
         $rules = $this->rulesSayPayer();
         $inForce = $this->isPayer();
         $remedy = '';

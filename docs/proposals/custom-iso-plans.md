@@ -1,6 +1,9 @@
 # Proposal: which plans include a custom ISO (owner decision G-R5, TASK-0110)
 
-**Status:** proposal — prepared, **not applied**. The owner decides; nothing in the catalogue changes until the revision is applied.
+**Status:** **approved** by the owner on 2026-10-06 (decision H-R4, `docs/audit/2026-10-full-readiness/ROZHODNUTI.md`) — **not applied yet**.
+The revision `2026-10-custom-iso` is approved for apply as a server step of the operator (go-live checklist, step G-8: `php artisan
+onhost:catalog:revise 2026-10-custom-iso`, then `--apply` with four eyes) **after** the server steps G-4 … G-7; nothing in the catalogue
+changes until then. (Before 2026-10-06 this was a proposal, prepared and not applied.)
 
 The code is in place: a plan that sells `custom_iso: true` (with `custom_iso_max_mb`) lets its servers upload, attach, detach and delete
 their own installation images ([runbook](../runbooks/custom-iso.md)). No plan in the catalogue sells it today, so today nobody has it.

@@ -100,6 +100,16 @@ final class IdentityCommandAuthorizer implements CommandAuthorizer
             $needsStepUp = $needsStepUp || $command->requiresStepUp();
             $needsApproval = $needsApproval || $command->requiresApproval();
         }
+        // ── H0 (owner decision H-R1, permission program S1-05) ──
+        // a token can never take a step-up, so a HIGH or CRITICAL action through one (a personal token or a service account) was
+        // refused outright. It now waits for the organization's owner: an approval bound to this command, its payload, this
+        // principal AND this token, decided in the portal with a step-up (TokenApprovals), spent once by the repeat
+        if (($needsStepUp || $needsApproval) && self::byToken($context)) {
+            $spent = TokenApprovals::spend($command, $context, $context->approvalIds);
+
+            return $spent === null ? AuthorizationDecision::deny(TokenApprovals::REFUSAL, 'approval') : AuthorizationDecision::allow(null, [$spent]);
+        }
+        // ── end H0 ──
         // TASK-0037 (program IF-10, D8): one operator runs the platform alone (ONHOST_FOUR_EYES=false on the server). The waiver
         // used to cover EVERY actor — anybody holding a critical permission acted alone. It covers only the one person who could
         // be the second person (the sole holder of iam.approval.decide); everybody else asks them. And their own critical action
@@ -136,7 +146,7 @@ final class IdentityCommandAuthorizer implements CommandAuthorizer
             $approval = null;
             foreach ($context->approvalIds as $id) {
                 $candidate = Approval::query()->find($id);
-                if ($candidate !== null && $candidate->isUsableFor($command->name(), $hash, (string) $context->actorId)) {
+                if ($candidate !== null && TokenApprovals::tokenOf($candidate) === null && $candidate->isUsableFor($command->name(), $hash, (string) $context->actorId)) { // H0: a token's approval is the token's alone
                     $approval = $candidate;
                     break;
                 }
@@ -145,7 +155,7 @@ final class IdentityCommandAuthorizer implements CommandAuthorizer
             // does not have to carry the id (the approval is bound to the requester, the command and the hash of its payload either way)
             $approval ??= Approval::query()->where('action', $command->name())->where('payload_hash', $hash)->where('requested_by', (string) $context->actorId)
                 ->where('state', 'approved')->whereNull('consumed_at')->where('expires_at', '>', now())->get()
-                ->first(fn (Approval $candidate) => $candidate->isUsableFor($command->name(), $hash, (string) $context->actorId));
+                ->first(fn (Approval $candidate) => TokenApprovals::tokenOf($candidate) === null && $candidate->isUsableFor($command->name(), $hash, (string) $context->actorId));
             if ($approval === null) {
                 return AuthorizationDecision::deny('This action takes a second person: a request for approval was opened. Repeat it with approval_ids once somebody else has approved it.', 'approval');
             }

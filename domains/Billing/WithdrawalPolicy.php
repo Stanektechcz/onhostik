@@ -43,6 +43,17 @@ final class WithdrawalPolicy
         return $this->ledger->enabled(self::RULE);
     }
 
+    /**
+     * H0, owner decision H-R5 (2026-10-06): a credit top-up is not withdrawn from. It is an advance on services the customer has
+     * not chosen yet, and credit is never paid out in money (G-R4) — the withdrawal belongs to each service bought with it
+     * (forService), whose unused part comes back to the credit. Told the same way to the panel, to staff recording a notice and
+     * to the bus.
+     */
+    public static function refuseTopUp(): never
+    {
+        throw new DomainError('withdrawal_not_applicable', 'Od dobití kreditu nelze odstoupit: kredit je záloha na služby, které si teprve vyberete, a v penězích se nevrací (obchodní podmínky). Odstoupit můžete od každé služby, kterou z kreditu zaplatíte.', 422, ['why' => 'credit_topup', 'terms_url' => self::TERMS_URL]);
+    }
+
     public static function days(): int
     {
         return max(14, (int) config('onhost.withdrawal.days', 14)); // statutory: never shorter

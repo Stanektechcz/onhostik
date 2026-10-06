@@ -28,12 +28,14 @@ use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\Services\SuspensionHold;
 use Onhost\Domain\Support\Models\Ticket;
 use Onhost\Domain\Support\TicketService;
+use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditEvent;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Files\FileStore;
+use Onhost\Platform\Money\Money;
 use Onhost\Platform\Outbox\OutboxPublisher;
 
 /**
@@ -50,6 +52,7 @@ final class ComplianceService
         private readonly IncidentService $incidents,
         private readonly TicketService $tickets,
         private readonly ServiceService $services,
+        private readonly WalletService $wallets, // H0 (H-R5): the credit of an erased account is forfeited
     ) {}
 
     // ── cyber incidents & regulatory timers ──────────────────────────────────
@@ -439,7 +442,7 @@ final class ComplianceService
 
     // ── GDPR / Data Act requests ─────────────────────────────────────────────
 
-    public function requestData(Organization $organization, string $kind, CommandContext $context, ?string $reason = null): DataRequest
+    public function requestData(Organization $organization, string $kind, CommandContext $context, ?string $reason = null, bool $creditForfeitAcknowledged = false): DataRequest
     {
         if (! in_array($kind, DataRequest::KINDS, true)) {
             throw new DomainError('data_request_kind_invalid', 'Kind must be export, deletion or switching.', 422, ['field' => 'kind']);
@@ -453,6 +456,13 @@ final class ComplianceService
             // it cannot be taken back, so it does not happen at once: a grace period in which anybody who manages the
             // organization can stop it stands in for a second person, whom an organization of one does not have
             $meta['execute_after'] = now()->addDays(self::deletionGraceDays())->toIso8601String();
+            // H0 (owner decision H-R5): the credit left in the account is forfeited by the erasure — said before, and acknowledged
+            $credit = $this->wallets->forfeitable($organization->id);
+            if ($credit !== [] && ! $creditForfeitAcknowledged) {
+                throw new DomainError('credit_forfeit_unacknowledged', self::forfeitWarning($credit).' Potvrďte to (credit_forfeit_acknowledged: true), nebo kredit nejdřív vyčerpejte.', 422, ['field' => 'credit_forfeit_acknowledged', 'credit' => $credit]);
+            }
+            $meta['credit_at_request'] = $credit;
+            $meta['credit_forfeit_acknowledged'] = $credit !== [];
         }
         $request = DataRequest::query()->create(['organization_id' => $organization->id, 'kind' => $kind, 'state' => 'requested', 'requested_by' => $context->actorId, 'reason' => $reason, 'meta' => $meta]);
         if ($kind === 'switching') {
@@ -476,6 +486,34 @@ final class ComplianceService
         $this->audit->record($context->withScope($request->organization_id), 'compliance.data_request.deletion_cancelled', 'succeeded', ['request' => $request->id], 'data_request', $request->id);
 
         return $request;
+    }
+
+    /**
+     * H0 (owner decision H-R5): what an erasure would do now, before the owner asks for it — whether it may be asked for (and what
+     * blocks it), the grace period, and the credit that would be forfeited with the account (credit is never paid out in money).
+     *
+     * @return array{deletable:bool, blocks:list<string>, grace_days:int, credit:array{forfeited:bool, amounts:list<array{currency:string, purchased_minor:int, promo_minor:int}>, warning:?string}}
+     */
+    public function deletionPreview(Organization $organization): array
+    {
+        $blocks = [];
+        try {
+            $this->assertDeletable($organization);
+        } catch (DomainError $e) {
+            $blocks = array_values(array_map('strval', (array) ($e->extra['blocks'] ?? [$e->error])));
+        }
+        $credit = $this->wallets->forfeitable($organization->id);
+
+        return ['deletable' => $blocks === [], 'blocks' => $blocks, 'grace_days' => self::deletionGraceDays(),
+            'credit' => ['forfeited' => $credit !== [], 'amounts' => $credit, 'warning' => $credit === [] ? null : self::forfeitWarning($credit)]];
+    }
+
+    /** @param list<array{currency:string, purchased_minor:int, promo_minor:int}> $credit */
+    private static function forfeitWarning(array $credit): string
+    {
+        $amounts = implode(', ', array_map(fn (array $r) => Money::minor($r['purchased_minor'] + $r['promo_minor'], $r['currency'])->format('cs'), $credit));
+
+        return "Smazáním účtu propadne zbývající kredit {$amounts}: kredit se v penězích nevrací (obchodní podmínky).";
     }
 
     public static function deletionGraceDays(): int
@@ -669,7 +707,10 @@ final class ComplianceService
 
             return;
         }
-        DB::transaction(function () use ($organization, $now): void {
+        $forfeited = [];
+        DB::transaction(function () use ($organization, $now, $request, &$forfeited): void {
+            // H0 (owner decision H-R5): what the account still holds is forfeited with it, booked in the ledger (once per erasure)
+            $forfeited = $this->wallets->forfeitAll($organization->id, (string) $request->id, CommandContext::system('gdpr.deletion')->withScope($organization->id));
             $members = OrganizationMembership::query()->where('organization_id', $organization->id)->pluck('user_id');
             foreach (User::query()->whereIn('id', $members)->get() as $user) {
                 if (OrganizationMembership::query()->where('user_id', $user->id)->where('organization_id', '!=', $organization->id)->exists() || $user->is_staff) {
@@ -683,9 +724,9 @@ final class ComplianceService
         $archives = $this->eraseArchives($organization, $now); // §5ab: the archives of cancelled services hold the customer's files and databases — an erasure covers them too
         $request->forceFill(['state' => 'completed', 'completed_at' => $now, 'meta' => [
             'anonymised' => ['organization', 'users'], 'retained' => ['invoices', 'ledger', 'audit'],
-            'archives_erased' => $archives['sets'], 'archive_bytes_erased' => $archives['bytes'],
+            'archives_erased' => $archives['sets'], 'archive_bytes_erased' => $archives['bytes'], 'credit_forfeited' => $forfeited,
         ]])->save();
-        $this->audit->record(CommandContext::system('gdpr.deletion')->withScope($organization->id), 'compliance.data_request.deleted', 'succeeded', ['request' => $request->id, 'archives_erased' => $archives['sets']], 'organization', $organization->id);
+        $this->audit->record(CommandContext::system('gdpr.deletion')->withScope($organization->id), 'compliance.data_request.deleted', 'succeeded', ['request' => $request->id, 'archives_erased' => $archives['sets'], 'credit_forfeited' => $forfeited], 'organization', $organization->id);
         $stats['deleted']++;
     }
 

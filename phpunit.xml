@@ -53,5 +53,6 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <env name="ONHOST_VAT_PAYER" value="true"/><!-- H0 (H-R0): production defaults to non-payer; the suite's VAT tests describe the payer, the non-payer is tested where it is switched (G2VatPayerTest, OwnerDecisionsH0) -->
     </php>
 </phpunit>
