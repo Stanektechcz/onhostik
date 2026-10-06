@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\Schema;
  *
  * Per organization: 3 loyalty rows, 1-2 services, 3 invoices, and a refund for every tenth one. Rows are bulk inserts
  * with every NOT NULL column without a default filled from its type, so a new column does not break the seeder.
- * Refuses to run in production.
+ * Throws in production and staging, and without an explicit ONHOST_BENCH_ORGS.
  */
 final class DoctorBenchmarkSeeder extends Seeder
 {
@@ -23,12 +23,14 @@ final class DoctorBenchmarkSeeder extends Seeder
 
     public function run(): void
     {
-        if (app()->environment('production')) {
-            $this->command?->error('The benchmark seeder never runs in production.');
-
-            return;
+        if (app()->environment('production', 'staging')) {
+            throw new \RuntimeException('DoctorBenchmarkSeeder inserts thousands of fake rows and never runs in production or staging.');
         }
-        $orgs = max(1, (int) (getenv('ONHOST_BENCH_ORGS') ?: 10000));
+        $requested = getenv('ONHOST_BENCH_ORGS');
+        if ($requested === false || ! ctype_digit($requested) || (int) $requested < 1) {
+            throw new \RuntimeException('Set ONHOST_BENCH_ORGS to the number of organizations to seed (explicit opt-in, e.g. 10000).');
+        }
+        $orgs = (int) $requested;
         $now = now()->toDateTimeString();
         $old = now()->subMonths(30)->toDateTimeString();
         $buffers = [];

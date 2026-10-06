@@ -26,12 +26,29 @@ it('asks the catalogue for custom ISO in two queries however many plans there ar
     DB::flushQueryLog();
     DB::enableQueryLog();
     $method->invoke(new GoLiveChecks);
-    $catalogueQueries = collect(DB::getQueryLog())->filter(fn (array $q) => preg_match('/from "(plans|plan_versions)"/', $q['query']) === 1)->count();
+    $catalogueQueries = collect(DB::getQueryLog())->filter(fn (array $q) => preg_match('/\bfrom\s+[`"\[]?(plans|plan_versions)[`"\]]?(\s|$)/i', $q['query']) === 1)->count();
     DB::disableQueryLog();
 
     expect(Plan::query()->count())->toBeGreaterThan(2)
-        ->and($catalogueQueries)->toBeLessThanOrEqual(2);
+        ->and($catalogueQueries)->toBe(2);
 });
+
+it('never seeds benchmark rows in production or staging, nor without an explicit opt-in', function (string $environment, ?string $organizations) {
+    app()->detectEnvironment(fn () => $environment);
+    putenv($organizations === null ? 'ONHOST_BENCH_ORGS' : "ONHOST_BENCH_ORGS={$organizations}");
+    try {
+        expect(fn () => (new DoctorBenchmarkSeeder)->run())->toThrow(RuntimeException::class);
+    } finally {
+        putenv('ONHOST_BENCH_ORGS');
+    }
+
+    expect(DB::table('organizations')->where('id', 'like', 'org_bench%')->count())->toBe(0)
+        ->and(DB::table('loyalty_points')->where('organization_id', 'like', 'org_bench%')->count())->toBe(0);
+})->with([
+    'production' => ['production', '50'],
+    'staging' => ['staging', '50'],
+    'local without opt-in' => ['local', null],
+]);
 
 it('has the indexes the loyalty aggregates and the refund credit-note lookup use', function () {
     expect(Schema::hasIndex('loyalty_points', ['organization_id', 'created_at']))->toBeTrue()
