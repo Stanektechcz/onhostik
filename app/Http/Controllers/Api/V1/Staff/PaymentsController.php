@@ -13,6 +13,7 @@ use Onhost\Domain\Payments\Commands\PaymentRefundCommand;
 use Onhost\Domain\Payments\Models\PaymentIntent;
 use Onhost\Domain\Payments\Models\PaymentRefund;
 use Onhost\Domain\Payments\PaymentService;
+use Onhost\Domain\Payments\RefundsNotPaidOut;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Money\Money;
 
@@ -58,6 +59,14 @@ final class PaymentsController extends ApiController
 
         return $this->ok(['rows' => $payments->refunds($state, (int) min(200, max(1, (int) $request->query('limit', 100)))),
             'pending' => PaymentRefund::query()->where('state', 'pending')->count(), 'can_refund' => $this->api->can($request, 'billing.refund.execute', CommandScope::global())]);
+    }
+
+    /** H3 (TASK-0121): refunds whose bank payout was cancelled and that no later payout carries — money still owed from the refund payable. */
+    public function refundsNotPaidOut(Request $request, RefundsNotPaidOut $report): JsonResponse
+    {
+        $this->api->authorize($request, 'staff.billing.read', CommandScope::global());
+
+        return $this->ok($report->report((int) min(500, max(1, (int) $request->query('limit', 500)))));
     }
 
     /** G6: the payment of an order back to its source on a consumer's withdrawal, with a credit note of the order's document. */

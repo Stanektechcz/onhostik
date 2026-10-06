@@ -37,6 +37,11 @@ use Throwable;
  */
 final class CustomIsoDrive
 {
+    /** Why an image left the drive (audit `reason`); the event says only whether a person did it or a delete (H1: no notice of its own then). */
+    public const REASON_CUSTOMER = 'the customer detached it';
+
+    public const REASON_DELETING = 'the image is being deleted';
+
     public function __construct(
         private readonly ProviderRegistry $providers,
         private readonly CustomIsoLibrary $library,
@@ -121,7 +126,7 @@ final class CustomIsoDrive
         $iso->forceFill(['attached_service_id' => $service->id, 'attached_at' => now(), 'previous_boot' => ['iso' => $previous['iso'] ?? null, 'boot' => (string) ($previous['boot'] ?? '')]])->save();
         app(ServiceFeatures::class)->forget($service);
         $this->audit->record($actor->withScope($service->organization_id), 'service.iso.attach', 'succeeded', ['iso_id' => $iso->id, 'boot_first' => $bootFirst, 'reboot' => $reboot, 'previous_boot' => $previous['boot'] ?? null], 'service', $service->id);
-        $this->outbox->publish(GenericEvent::of('service.iso.attached', 'service', $service->id, ['iso_id' => $iso->id, 'name' => $iso->name, 'boot_first' => $bootFirst], $service->organization_id));
+        $this->outbox->publish(GenericEvent::of('service.iso.attached', 'service', $service->id, ['iso_id' => $iso->id, 'name' => $iso->name, 'boot_first' => $bootFirst, 'label' => self::label($service)], $service->organization_id));
 
         return ['iso_id' => $iso->id, 'boot' => $boot, 'rebooted' => $reboot];
     }
@@ -131,7 +136,7 @@ final class CustomIsoDrive
      *
      * @return array{detached:bool, boot:string|null, rebooted:bool}
      */
-    public function detach(Service $service, bool $reboot, CommandContext $actor, string $reason = 'the customer detached it'): array
+    public function detach(Service $service, bool $reboot, CommandContext $actor, string $reason = self::REASON_CUSTOMER): array
     {
         $iso = CustomIsoPolicy::attachedTo($service);
         if ($iso === null) {
@@ -148,7 +153,7 @@ final class CustomIsoDrive
         $iso->forceFill(['attached_service_id' => null, 'attached_at' => null, 'previous_boot' => null])->save();
         app(ServiceFeatures::class)->forget($service);
         $this->audit->record($actor->withScope($service->organization_id), 'service.iso.detach', 'succeeded', ['iso_id' => $iso->id, 'reason' => $reason, 'boot' => $boot, 'reboot' => $reboot], 'service', $service->id);
-        $this->outbox->publish(GenericEvent::of('service.iso.detached', 'service', $service->id, ['iso_id' => $iso->id, 'reason' => $reason], $service->organization_id));
+        $this->outbox->publish(GenericEvent::of('service.iso.detached', 'service', $service->id, ['iso_id' => $iso->id, 'reason' => $reason, 'name' => $iso->name, 'label' => self::label($service), 'cause' => $reason === self::REASON_DELETING ? 'delete' : 'customer'], $service->organization_id));
 
         return ['detached' => true, 'boot' => $boot, 'rebooted' => $reboot];
     }
@@ -221,6 +226,12 @@ final class CustomIsoDrive
         }
         $copies[] = ['instance' => $instanceId, 'node' => $node, 'volume' => $volume];
         $iso->forceFill(['node_copies' => $copies])->save();
+    }
+
+    /** The server as the customer names it in a notice (H1). */
+    private static function label(Service $service): string
+    {
+        return (string) ($service->label ?: ($service->name ?: $service->hostname));
     }
 
     /** @return array{0:ComputeProvider&CustomIsoCapable, 1:ResourceRef, 2:ProviderInstance} */

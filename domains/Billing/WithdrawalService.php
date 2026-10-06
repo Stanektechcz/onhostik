@@ -79,7 +79,8 @@ final class WithdrawalService
         $lines = array_values($lines);
         $split = self::split($lines);
 
-        return ['currency' => $currency, 'refund' => Money::minor((int) array_sum(array_column($lines, 'refund_minor')), $currency),
+        // H3 (TASK-0121): net of the loyalty points' share each line takes back with it — what was paid, never the list price
+        return ['currency' => $currency, 'refund' => Money::minor(ChargebackService::net($lines, 'refund_minor', 'redemption_minor'), $currency),
             'to_credit' => Money::minor($split['to_credit'], $currency), 'off_documents' => Money::minor($split['off_documents'], $currency), 'lines' => $lines];
     }
 
@@ -94,7 +95,7 @@ final class WithdrawalService
     {
         $byDocument = [];
         foreach ($lines as $row) {
-            $byDocument[(string) $row['invoice_id']] = ($byDocument[(string) $row['invoice_id']] ?? 0) + (int) $row['refund_minor'];
+            $byDocument[(string) $row['invoice_id']] = ($byDocument[(string) $row['invoice_id']] ?? 0) + (int) $row['refund_minor'] - (int) ($row['redemption_minor'] ?? 0); // H3: what the credit note returns
         }
         $toCredit = 0;
         $offDocuments = 0;

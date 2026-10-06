@@ -241,19 +241,54 @@ final class Presenters
      * G6: the lines of a quote as the customer sees them — without the executor (the vendor panel behind the product, an
      * implementation detail customers never learn; orderItem() strips it the same way). The stored quote keeps it for its order.
      *
+     * H3 (TASK-0121): of a line's `config` only the keys `onhost.quote.customer_line_config` allows — an allow-list, so a key a later
+     * change writes into a line does not reach the customer until somebody decides it should. `executor` and `entitlements` never do.
+     *
      * @param  array<int|string, mixed>  $lines
      * @return list<mixed>
      */
     public static function quoteLines(array $lines): array
     {
-        return array_values(array_map(function (mixed $line): mixed {
+        $allowed = array_flip(array_diff(array_map('strval', (array) config('onhost.quote.customer_line_config', [])), self::QUOTE_CONFIG_NEVER));
+        $nested = (array) config('onhost.quote.customer_line_config_nested', []);
+
+        return array_values(array_map(function (mixed $line) use ($allowed, $nested): mixed {
             if (is_array($line) && is_array($line['config'] ?? null)) {
-                unset($line['config']['executor']);
+                $line['config'] = self::nestedAllowed(array_intersect_key($line['config'], $allowed), $nested);
             }
 
             return $line;
         }, $lines));
     }
+
+    /**
+     * Inside a structured value of a line's config only its allowed keys (review L of PR #116); a list keeps the allowed keys of each
+     * item. A waiver is shown only as given (`true`), never who approved it.
+     *
+     * @param  array<string,mixed>  $config
+     * @param  array<string,mixed>  $nested
+     * @return array<string,mixed>
+     */
+    private static function nestedAllowed(array $config, array $nested): array
+    {
+        foreach ($nested as $key => $keys) {
+            if (! is_array($config[$key] ?? null)) {
+                continue;
+            }
+            $keep = array_flip(array_map('strval', (array) $keys));
+            $config[$key] = array_is_list($config[$key])
+                ? array_map(fn (mixed $item) => is_array($item) ? array_intersect_key($item, $keep) : $item, $config[$key])
+                : array_intersect_key($config[$key], $keep);
+        }
+        if (is_array($config['limit_raise'] ?? null) && array_key_exists('waived', $config['limit_raise'])) {
+            $config['limit_raise']['waived'] = ! empty($config['limit_raise']['waived']);
+        }
+
+        return $config;
+    }
+
+    /** Keys of a quote line's config no configuration may show to a customer (H3). */
+    private const QUOTE_CONFIG_NEVER = ['executor', 'entitlements'];
 
     public static function orderItem(OrderItem $item): array
     {

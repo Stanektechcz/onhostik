@@ -253,6 +253,15 @@ final class Lexicon
         'Konzole služby odebrána: ' => 'Service console removed: ', ' · přístup zůstává (' => ' · access remains (', '), SSH klíče a herní sub-uživatelé této osoby se odebírají' => '), this person\'s SSH keys and game sub-users are being removed',
         'Podpora ONhost se přihlásila do panelu služby ' => 'ONhost support signed in to the panel of the service ', 'Podpora ONhost' => 'ONhost support', ' · k tiketu ' => ' · for ticket ', '. Pokud o tom nevíte, odpovězte prosím v tiketu.' => '. If you do not know about it, please reply in the ticket.',
         'nezměřeno' => 'not measured', ' (alespoň; část zatím neměříme)' => ' (at least; part is not measured yet)',
+        // H1 (TASK-0121): the organization's own installation images
+        'Vlastní ISO nahráno: ' => 'Custom ISO uploaded: ', 'Obraz prošel antivirovou kontrolou a je v knihovně organizace (' => 'The image passed the virus scan and is in the organization\'s library (',
+        ' MB). K serveru ho připojíte v panelu.' => ' MB). Attach it to a server in the panel.',
+        'Vlastní ISO připojeno k serveru ' => 'Custom ISO attached to the server ', 'Server nabootuje z obrazu ' => 'The server boots from the image ',
+        ' při příštím startu. Po instalaci ISO odpojte; server pak zase startuje ze svého disku.' => ' at its next start. Detach the ISO after the installation; the server then starts from its own disk again.',
+        'Ve virtuální mechanice je obraz ' => 'The virtual drive holds the image ', '; server dál startuje ze svého disku.' => '; the server keeps starting from its own disk.',
+        'Vlastní ISO odpojeno od serveru ' => 'Custom ISO detached from the server ', 'Z mechaniky jsme odebrali obraz ' => 'We took the image ',
+        '; mechanika a pořadí bootování jsou zpět, jak byly před připojením.' => ' out of the drive; the drive and the boot order are back as they were before it was attached.',
+        'Vlastní ISO smazáno: ' => 'Custom ISO deleted: ', 'Obraz i jeho kopie na serverech jsou pryč a místo v kvótě organizace je volné.' => 'The image and its copies on the servers are gone, and its room in the organization\'s quota is free.',
         'Služba dnes zabírá víc, než tarif nabízí. Do data účinnosti uvolněte místo (staré zálohy, logy, nepoužívané databáze nebo schránky), nebo přejděte na vyšší tarif — jinak po tomto datu nepůjde přidávat další obsah.' => 'The service takes more today than the plan offers. Free up space before the effective date (old backups, logs, unused databases or mailboxes) or move to a higher plan; after that date no more content can be added.',
     ];
 
