@@ -182,6 +182,8 @@ curl -s -X POST "$ONHOST_API/tickets" -H "Authorization: Bearer $ONHOST_TOKEN_RE
 curl -s "$ONHOST_API/invoices" -H "Authorization: Bearer $ONHOST_TOKEN" -H "Accept: application/json"
 ```
 
+**Rozsah klíče platí i na sběrnici příkazů (G7).** Zápis přes klíč jde stejnou cestou jako z panelu, takže se ptá i oprávnění osoby, ale navíc musí klíč mít rozsah, který příkaz vyžaduje (`TokenScopes`, `services:console` pro shell a root, `tickets:write` pro tikety a předání chatu člověku). Příkaz, který žádné oprávnění nežádá, je jen z panelu a klíč ho nedostane. Zrušený klíč je na sběrnici neověřený (401). Platí i pro příkazy, které si handler zřetězí (nasazení specifikace): běží, jen když rozsah klíče pokrývá i je. Automaticky: `tests/Feature/Security/TokenCommandScopeTest.php`.
+
 Správa klíčů, servisních účtů a webhooků je jen z panelu; klíč na ně dostane `403` bez ohledu na rozsahy:
 
 ```bash
@@ -583,13 +585,22 @@ Až příjemce opravíte, zapněte odběr (čítač neúspěchů se vynuluje):
 curl -s -X POST "$ONHOST_API/webhooks/$ENDPOINT_ID/enable" -b "$JAR" -c "$JAR" -H "Referer: $ONHOST_BASE" -H "X-XSRF-TOKEN: $XSRF" -H "Accept: application/json" -H "Idempotency-Key: $(uuidgen)"
 ```
 
-Nové tajemství od téhle chvíle podepisuje každý pokus, i opakování starších doručení. Staré tajemství přestane platit hned:
+Nové tajemství od téhle chvíle podepisuje hlavičku `X-ONhost-Signature`, i u opakování starších doručení. **Staré tajemství podepisuje dál po dobu překryvu** (`ONHOST_WEBHOOK_SECRET_OVERLAP_MINUTES`, výchozí 60 minut, 0 = bez překryvu, nejvýš 1440) v hlavičce **`X-ONhost-Signature-Previous`**, takže příjemce, který ještě drží staré tajemství, nepřijde o doručení. Příjemce přijme doručení, když sedí **některý** z obou podpisů (`WebhookSigner::verifyAny`). Odpověď říká, dokdy překryv trvá (`previous_secret_valid_until`); staré tajemství se už nikdy neukáže:
 
 ```bash
 # expect: 200
 # scope: none
 # save: ONHOST_WEBHOOK_SECRET=data.secret
 curl -s -X POST "$ONHOST_API/webhooks/$ENDPOINT_ID/rotate-secret" -b "$JAR" -c "$JAR" -H "Referer: $ONHOST_BASE" -H "X-XSRF-TOKEN: $XSRF" -H "Accept: application/json" -H "Idempotency-Key: $(uuidgen)"
+```
+
+Při podezření, že tajemství uniklo, otočte ho **bez překryvu**: nahrazené tajemství přestane podepisovat okamžitě a hlavička `X-ONhost-Signature-Previous` se u dalších doručení neposílá (překryv by uniklé tajemství nechal platit po celé okno). Druhé otočení v okně si ponechá jen tajemství, které nahradilo:
+
+```bash
+# expect: 200
+# scope: none
+# save: ONHOST_WEBHOOK_SECRET=data.secret
+curl -s -X POST "$ONHOST_API/webhooks/$ENDPOINT_ID/rotate-secret" -b "$JAR" -c "$JAR" -H "Referer: $ONHOST_BASE" -H "X-XSRF-TOKEN: $XSRF" -H "Accept: application/json" -H "Content-Type: application/json" -H "Idempotency-Key: $(uuidgen)" -d '{"overlap":false}'
 ```
 
 Odstranění odběru je nevratné:
@@ -840,5 +851,7 @@ odpoví `409 loyalty_points_unavailable` a košík je třeba obnovit.
 - [ ] 7: `X-RateLimit-*` na odpovědích, `429 rate_limited` s `Retry-After`
 - [ ] 8: chyba má `error`, `message`, `status` a `help`
 - [ ] 9: webhook jen na `https` 443/8443, podpis `v1=HMAC` sedí, duplicita podle `X-ONhost-Delivery`, po 20 neúspěších `suspended`
+- [ ] 9b: po otočení tajemství podepisuje starý klíč dál v `X-ONhost-Signature-Previous` po dobu překryvu (`previous_secret_valid_until`), s `{"overlap":false}` hned přestane
+- [ ] 3b: rozsah klíče platí i na sběrnici: bez `tickets:write` ani předání chatu, bez `services:console` žádný shell, zrušený klíč je 401
 - [ ] 10: servisní účet jen vlastník, `/me` s ním řekne `type: service_account` s rolí a rozsahy, po zrušení klíče `401`
 - [ ] 12: body jen z panelu, nejméně 100, ne víc než volných; nabídka má řádek `loyalty-redeem` a strop 20 % (`max_points`)

@@ -54,9 +54,11 @@ jako směr**. Jejich provedení na živých systémech dál potřebuje výslovn�
 
 | # | Rozhodnutí | Provedeno | Poznámka |
 |---|---|---|---|
+| G-R1 | **Jediným daňovým dokladem je faktura.** Platforma běží buď jako plátce DPH, nebo jako neplátce; režim je konfigurace (`ONHOST_VAT_PAYER`) zapisovaná financemi se step-upem a druhou osobou. | TASK-0111 (G1), TASK-0113 (G2) | Karta: příjemka + vyúčtování. Převod plátce: zálohová faktura → doklad k přijaté platbě → konečná faktura. Neplátce nevydává daňový doklad. Pravidla níže (G-R1: režim DPH). |
 | G-R2 | **Věrnostní body lze uplatnit jako slevu** — jen výslovnou akcí zákazníka (`loyalty.redeem` přes bus, riziko NORMAL, bez step-upu) a vždy jako **samostatný řádek** objednávky a dokladu, nikdy skrytě v ceně. | TASK-0114 (G3) | Pravidla níže (výchozí doporučené hodnoty), v `config/loyalty.php`. Hlídá `G3RedeemTest` a `LoyaltyRedeemFlowTest`. |
 | G-R3 | Čerpání kreditu zůstává: **nejdřív zakoupený kredit**, potom vrácený, bonusový a kredit od personálu; co nepokryje ani jeden, je dluh, který další kredit zaplatí jako první. | TASK-0112 (G4) | `RefundableCredit::replay` se nemění (potvrzuje E-R2). `RefundableCredit::of` už není strop výplaty, jen měřítko nevyčerpaného zakoupeného kreditu; pořadí hlídá `RefundableBalanceTest`. |
 | G-R4 | **Kredit nelze vrátit v hotovosti** (na účet ani na kartu) v žádné vrstvě. | TASK-0112 (G4) | `WalletService::refund` a `refundableBalance` jsou odstraněné, webhook `wallet.refund.requested` zmizel z katalogu, žádná cesta API, staff ani příkaz kredit nevyplácí (`G4NoCashRefundTest`). VOP čl. 2 bod 3 a článek znalostní báze „Firemní faktury, DPH a kredit“ to říkají výslovně. Tabulka `wallet_refunds` zůstává kvůli historii. |
+| G-R5 | **Vlastní ISO jen v tarifu, který ho obsahuje** (`custom_iso`, `custom_iso_max_mb`); jinak je funkce skrytá s důvodem `plan` a odmítnutá 403. | TASK-0110 (G5) | Skenuje ClamAV, kvóta organizace 20 GB / 5 obrazů. Návrh tarifů `docs/proposals/custom-iso-plans.md` je jen návrh, katalog se nemění, dokud vlastník nerozhodne. |
 
 ### G-R2: pravidla uplatnění věrnostních bodů (TASK-0114, G3)
 
@@ -141,3 +143,15 @@ spotřebitel výslovně souhlasí a nevzniknou mu tím náklady. Proto platí:
    `apps/surfaces/onhost-content.js:244` (článek znalostní báze v demo režimu), `apps/surfaces/Onhost-admin.dc.html:1460`,
    `:2864`, `:2957`, `:2961` a `:4565` (vyprávěná data administrace). Produkční režim čte článek z databáze (opraveno);
    prototypové texty se opraví přes seam v G8.
+
+
+### G-R1: režim DPH, zálohové faktury a konečná faktura (TASK-0111, TASK-0113)
+
+1. **Neplátce DPH** neúčtuje DPH (daňový motor vrací `E`), nevydává daňový doklad (platba dostane potvrzení o přijetí platby, objednávka vyúčtování z kreditu) a jeho faktura v eurech nemá přepočet DPH v Kč.
+2. **Plátce DPH**: platba převodem prochází zálohovou fakturou `PF` (není daňový doklad), po přijetí platby dokladem k přijaté platbě `PP` (po sazbách DPH, DUZP = den připsání v bance) a po zaplacení objednávky konečnou fakturou `FV`, která zálohu odečítá (zůstává uhradit 0). Záloha se opravuje dobropisem dokladu. Platba kartou zůstává příjemka + vyúčtování.
+3. Přepnutí režimu nemění vydaný doklad (každý zmrazil svého prodejce); stav ukazuje `onhost:doctor` (řádek „VAT payer mode“).
+4. Podklady pro účetní: `onhost:vat:export kh|sh` (jen čtení, CSV nebo XML). Runbooky `docs/runbooks/vat-payer-mode.md` a `docs/runbooks/billing-dunning.md`.
+
+### G-R5: vlastní ISO (TASK-0110)
+
+Zákazník nahraje, připojí (CD-ROM, boot jako první), odpojí (přesné původní pořadí bootu) a smaže vlastní instalační obraz jen na serveru, jehož tarif prodává `custom_iso`. Nahrání prochází ClamAV; limit obrazu je v tarifu (výchozí 4096 MB, nikdy víc, než clamd skenuje celé), kvóta organizace 20 GB a 5 obrazů. Katalog zatím nikdo s `custom_iso` neprodává; revizi `2026-10-custom-iso` spouští vlastník (`onhost:catalog:revise 2026-10-custom-iso --apply`) až po serverových krocích v `docs/runbooks/custom-iso.md`.
