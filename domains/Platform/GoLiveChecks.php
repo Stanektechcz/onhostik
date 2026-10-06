@@ -11,6 +11,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Onhost\Domain\Catalog\CatalogRevisions;
 use Onhost\Domain\Catalog\Models\Plan;
+use Onhost\Domain\Catalog\Models\PlanVersion;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Loyalty\LoyaltyExpiry;
 use Onhost\Domain\Loyalty\LoyaltyService;
@@ -215,9 +216,16 @@ final class GoLiveChecks
         if (CustomIso::query()->where('state', '!=', CustomIso::DELETED)->exists()) {
             return true;
         }
-        foreach (Plan::query()->get() as $plan) {
-            $entitlements = (array) ($plan->currentVersion()->entitlements ?? []);
-            if (filter_var($entitlements[CustomIsoPolicy::FEATURE] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+        // H5: two queries however many plans exist (the version of each plan used to be fetched one by one); H1: only products on sale count
+        $plans = Plan::query()->whereHas('product', fn ($q) => $q->where('state', 'active'))->pluck('current_version', 'id');
+        if ($plans->isEmpty()) {
+            return false;
+        }
+        foreach (PlanVersion::query()->whereIn('plan_id', $plans->keys())->get(['plan_id', 'version', 'entitlements']) as $version) {
+            if ((int) $plans->get($version->plan_id) !== (int) $version->version) {
+                continue;
+            }
+            if (filter_var(((array) $version->entitlements)[CustomIsoPolicy::FEATURE] ?? false, FILTER_VALIDATE_BOOLEAN)) {
                 return true;
             }
         }
