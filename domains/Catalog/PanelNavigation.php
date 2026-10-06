@@ -54,7 +54,7 @@ final class PanelNavigation
     public static function categoryFor(string $family, ?string $productKey = null, ?string $executor = null): ?string
     {
         return match ($family) {
-            'web', 'managed', 'apps' => 'web',
+            'web', 'managed', 'apps', 'penpot' => 'web', // TASK-0123: Penpot is sold to web hosting customers and lives with their sites
             'game' => 'game',
             'cloud' => 'vps',
             'data' => $productKey === 'object-storage' ? 'bucket' : 'vps',

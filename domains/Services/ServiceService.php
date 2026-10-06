@@ -39,6 +39,7 @@ use Onhost\Domain\Provisioning\Workflows\ImportWorkflow;
 use Onhost\Domain\Provisioning\Workflows\ProvisionAppWorkflow;
 use Onhost\Domain\Provisioning\Workflows\ProvisionGameServerWorkflow;
 use Onhost\Domain\Provisioning\Workflows\ProvisionMailDomainWorkflow;
+use Onhost\Domain\Provisioning\Workflows\ProvisionPenpotWorkflow;
 use Onhost\Domain\Provisioning\Workflows\ProvisionVpsWorkflow;
 use Onhost\Domain\Provisioning\Workflows\ProvisionWebsiteWorkflow;
 use Onhost\Domain\Provisioning\Workflows\ServiceActionWorkflow;
@@ -54,6 +55,7 @@ use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\DatabaseInstance;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Services\Penpot\PenpotInstances;
 use Onhost\Domain\Services\Web\CommandRunner;
 use Onhost\Domain\Services\Web\CronCommand;
 use Onhost\Domain\Services\Web\CustomDirectives;
@@ -212,6 +214,7 @@ final class ServiceService
             $executor === 'ispconfig', $executor === 'aapanel' => ProvisionWebsiteWorkflow::class,
             $executor === 'pterodactyl' => ProvisionGameServerWorkflow::class,
             $executor === 'kubernetes' && $service->family === 'apps' => ProvisionAppWorkflow::class,
+            $executor === 'penpot' && $service->family === 'penpot' => ProvisionPenpotWorkflow::class, // TASK-0123
             default => throw new DomainError('product_not_provisionable', "No provisioning workflow for executor '{$executor}' / family '{$service->family}'.", 422),
         };
     }
@@ -638,7 +641,7 @@ final class ServiceService
     private static function assertCoreActionOffered(Service $service, string $action): void
     {
         $families = match ($action) {
-            'backup', 'restore' => ['web', 'managed', 'cloud', 'data', 'game'],
+            'backup', 'restore' => ['web', 'managed', 'cloud', 'data', 'game', 'penpot'], // penpot: its database dump + assets on its node (TASK-0123)
             'restore.test' => ['web', 'managed'], // a set of database dumps is what can be restored into a copy and compared
             'snapshot', 'rollback_snapshot' => ['cloud', 'data'],
             'power' => ['cloud', 'data', 'game'],
@@ -1627,6 +1630,8 @@ final class ServiceService
 
                 return ['egg' => $egg, 'environment' => array_merge((array) ($config['environment'] ?? []), ! empty($config['version']) ? [(string) config("onhost.game.eggs.{$egg}.version_env", 'MINECRAFT_VERSION') => (string) $config['version']] : []), 'port' => $config['port'] ?? null]; // §5o: the version the customer or staff chose
             })(),
+            // TASK-0123: one Penpot per service on a Penpot node; the name is the platform's (`<8 chars>.penpot.onhost.cz`)
+            'penpot' => ['hostname' => PenpotInstances::hostnameFor((string) $service->id)],
             'apps' => ['app' => array_merge(['name' => Str::slug((string) ($config['app']['name'] ?? $config['label'] ?? "app-{$shortId}")), 'runtime' => $meta['runtimes'][0] ?? 'node-22', 'port' => 8080, 'git_branch' => 'main', 'healthcheck_path' => '/'], (array) ($config['app'] ?? []))],
             default => [],
         };

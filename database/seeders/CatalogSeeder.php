@@ -192,9 +192,9 @@ final class CatalogSeeder extends Seeder
      */
     private function definedProducts(): void
     {
-        foreach (array_keys(CatalogRevisions::PRODUCTS) as $key) {
+        foreach (CatalogRevisions::seededProducts() as $key) { // a proposal's product (TASK-0123 Penpot) waits for the owner's --apply
             if (! Product::query()->where('key', $key)->exists()) {
-                Product::query()->create(CatalogRevisions::productAttributes($key));
+                CatalogRevisions::createDefined($key);
             }
         }
     }

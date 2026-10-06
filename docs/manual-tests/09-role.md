@@ -1292,6 +1292,7 @@ Povolené akce (musí uspět):
 - [ ] Zobrazit tikety organizace (`GET /v1/tickets`, `support.ticket.read`): úspěch.
 - [ ] Otevřít tiket a odpovídat (`POST /v1/tickets`, `support.ticket.write`): úspěch.
 - [ ] Použít AI asistenta nebo živý chat (`POST /v1/assistant/chat`, `support.chat.use`): úspěch.
+- [ ] Zobrazit kartu Penpotu (adresa, přihlašovací e-mail, limity) (`GET /v1/services/{service}/penpot`, `service.read`): úspěch.
 
 Odmítnuté akce (musí skončit chybou):
 

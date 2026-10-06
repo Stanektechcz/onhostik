@@ -57,6 +57,7 @@ use Onhost\Domain\Services\Models\BackupPolicy;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\Models\SshKeyGrant;
+use Onhost\Domain\Services\Penpot\PenpotHealth;
 use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\Services\Web\BackupOperationsCheck;
@@ -112,6 +113,9 @@ final class Doctor extends Command
             $this->add($check['area'], $check['check'], $check['ok'], $check['detail'], $check['blocking']);
         }
         foreach (app(ReinstatementHealth::class)->checks() as $check) { // G6: pay and restore waits for the owner — the consequence and the way to switch it on
+            $this->addChecked($check);
+        }
+        foreach (app(PenpotHealth::class)->checks() as $check) { // TASK-0123: Penpot sold only with a node and a price; every instance answers
             $this->addChecked($check);
         }
         // ── TASK-0031: VIES on and configured, customers waiting for an answer, the last answer, lapsing reverse charge (no HTTP) ──

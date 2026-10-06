@@ -27,6 +27,7 @@ use App\Http\Controllers\Api\V1\OrganizationController;
 use App\Http\Controllers\Api\V1\OrganizationStatusController;
 use App\Http\Controllers\Api\V1\PartnerController;
 use App\Http\Controllers\Api\V1\PaymentController;
+use App\Http\Controllers\Api\V1\PenpotController;
 use App\Http\Controllers\Api\V1\ProjectController;
 use App\Http\Controllers\Api\V1\RegistrarConnectionController;
 use App\Http\Controllers\Api\V1\RewardsController;
@@ -359,6 +360,8 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
     Route::get('services/{service}/backups', [ServiceController::class, 'backups']);
     Route::get('services/{service}/features', [ServiceController::class, 'features']);
     Route::get('services/{service}/health', [ServiceController::class, 'health']); // one-pass check from the platform's records (ServiceHealthCheck)
+    Route::get('services/{service}/penpot', [PenpotController::class, 'show']); // TASK-0123: the Penpot card (address, login, limits, backups)
+    Route::post('services/{service}/penpot/owner-password', [PenpotController::class, 'ownerPassword']); // TASK-0123: HIGH + step-up
     Route::get('services/{service}/resources/{kind}', [ServiceController::class, 'resources'])->where('kind', '[a-z_]+');
     Route::get('services/{service}/logs', [ServiceController::class, 'logs']);
     Route::get('services/{service}/files/download', [ServiceController::class, 'fileDownload']);

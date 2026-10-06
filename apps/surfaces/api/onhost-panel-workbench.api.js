@@ -18,7 +18,7 @@
   function cs(cmp) { return !cmp || !cmp.state || cmp.state.lang !== 'en'; }
   function T(cmp) { var c = cs(cmp); return function (a, b) { return c ? a : b; }; }
   function real(sel) { return !!(window.ONHOST_PANEL && sel && sel.apiState); }
-  function family(sel) { return { web: 'web', vps: 'cloud', mc: 'game', cs2: 'game', mail: 'mail', domain: 'domain' }[sel.type] || null; }
+  function family(sel) { if (sel && sel.product === 'penpot') return 'penpot'; return { web: 'web', vps: 'cloud', mc: 'game', cs2: 'game', mail: 'mail', domain: 'domain' }[sel.type] || null; } // TASK-0123: a Penpot row is listed with the web services
   function rerender(cmp) { try { cmp.setState({ wbTick: ++state.tick }); } catch (e) { /* not mounted */ } }
   function flash(cmp, t, b) { if (cmp && typeof cmp.flash === 'function') cmp.flash(t, b); }
   function since(cmp, iso) { if (!iso) return ''; var d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString(cs(cmp) ? 'cs-CZ' : 'en-GB', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }); }
@@ -233,7 +233,8 @@
     cloud: [['console', 'console'], ['tasks', 'operations'], ['snap', 'snapshots'], ['disks', 'disks'], ['net', 'firewall'], ['bkp', 'backups'], ['mon', 'usage'], ['noc', 'operations']],
     game: [['console', 'console'], ['startup', 'startup'], ['sched', 'schedules'], ['settings', 'game_settings'], ['files', 'game_files'], ['world', 'backups'], ['bkp', 'backups'], ['dbs', 'game_databases'], ['net', 'network'], ['users', 'subusers'], ['plan', 'resize'], ['mon', 'usage'], ['noc', 'operations']],
     mail: [['boxes', 'mailboxes'], ['alias', 'aliases'], ['auth', 'dkim'], ['noc', 'operations']],
-    domain: [['dns', 'zone'], ['soa', 'nameservers'], ['reg', 'registration'], ['sec', 'dnssec'], ['noc', 'operations']]
+    domain: [['dns', 'zone'], ['soa', 'nameservers'], ['reg', 'registration'], ['sec', 'dnssec'], ['noc', 'operations']],
+    penpot: [['cfg', 'penpot'], ['bkp', 'backups'], ['noc', 'operations']] // TASK-0123: the card, its backups, its operations
   };
   function tabs(cmp, sel, SV) {
     if (!real(sel)) return null;
@@ -243,6 +244,11 @@
       var wantD = ['reg', 'soa', 'sec', 'noc', 'dns'];
       var outD = all.filter(function (t) { return wantD.indexOf(t.id) >= 0; });
       return outD.length ? outD : all.slice(0, 1);
+    }
+    if (fam === 'penpot') { // TASK-0123: a Penpot has no panel features; its three tabs are always there
+      var wantP = TABS.penpot.map(function (p) { return p[0]; });
+      var outP = all.filter(function (t) { return wantP.indexOf(t.id) >= 0; });
+      return outP.length ? outP : all.slice(0, 1);
     }
     var f = features(cmp, sel);
     var wanted = TABS[fam].filter(function (pair) { return pair[1] === 'operations' || (f ? !!(f.features[pair[1]] && f.features[pair[1]].enabled) : pair[0] === 'cfg' || pair[0] === 'console' || pair[0] === 'boxes'); }).map(function (p) { return p[0]; });
@@ -262,7 +268,7 @@
   /* ── panels ──────────────────────────────────────────────────────────── */
   function buildCore(cmp, sel, tab, _) {
     if (!real(sel)) return null;
-    var H = cmp.WB_H(sel), fam = family(sel), f = fam === 'domain' ? { features: {} } : features(cmp, sel);
+    var H = cmp.WB_H(sel), fam = family(sel), f = fam === 'domain' || fam === 'penpot' ? { features: {} } : features(cmp, sel);
     var cell = H.cell, A = H.act, F = H.F, s = H.s;
     var loading = { title: sel.name, note: _('načítám nastavení služby…', 'loading the service…'), state: '', head: [], rows: [] };
     if (!f) return loading;
@@ -287,6 +293,7 @@
     var genExtra = function (k) { return { label: _('Vygenerovat heslo', 'Generate password'), on: function () { var p = password(20); var next = Object.assign({}, s.wbF); next[k] = p; cmp.setState({ wbF: next }); flash(cmp, _('Heslo vygenerováno', 'Password generated'), _('Uložte si ho teď — po odeslání ho už nikde nezobrazíme: ', 'Save it now — it is never shown again after submitting: ') + p); } }; };
 
     if (fam === 'domain') return domainBuild(cmp, sel, tab, _, { H: H, infoPanel: infoPanel, unavailable: unavailable, loading: loading });
+    if (fam === 'penpot' && tab !== 'noc' && tab !== 'tasks') return penpotBuild(cmp, sel, tab, _, { H: H, infoPanel: infoPanel, loading: loading, passwordField: passwordField, genExtra: genExtra });
 
     /* operations (all families) */
     if (tab === 'noc' || tab === 'tasks') {
@@ -1109,6 +1116,49 @@
     }).catch(function (e) { flash(cmp, _('Akce neproběhla', 'Action failed'), errText(cmp, e)); throw e; });
   }
   var DOMAIN_OPS = { 'domain-create': ['Registrace', 'Registration'], 'domain-renew': ['Prodloužení', 'Renewal'], 'domain-update-ns': ['Změna jmenných serverů', 'Nameserver change'], 'domain-transfer': ['Transfer k nám', 'Transfer in'], 'domain-send-auth-info': ['AUTH-ID', 'AUTH-ID'], 'domain-update-keyset': ['DNSSEC u registru', 'DNSSEC at the registry'], 'contact-create': ['Kontakt držitele', 'Registrant contact'], 'nsset-create': ['Sada jmenných serverů', 'Nameserver set'] };
+  /* ── Penpot (TASK-0123) ──────────────────────────────────────────────────
+   * GET /v1/services/{id}/penpot: the address to open, the sign-in e-mail, the plan's limits, the last check of the node. The
+   * owner's password is set here (POST …/penpot/owner-password, HIGH: the API asks for a fresh step-up) and shown nowhere. */
+  function penpotInfo(cmp, sel, fresh) {
+    state.penpot = state.penpot || {};
+    var r = state.penpot[sel.id];
+    if (r === undefined || fresh) { if (r === undefined) state.penpot[sel.id] = null; load('pp:' + sel.id, '/services/' + sel.id + '/penpot', cmp, function (d) { state.penpot[sel.id] = d && d.data ? d.data : d; }); }
+    return state.penpot[sel.id];
+  }
+  function penpotBuild(cmp, sel, tab, _, X) {
+    if (tab === 'bkp') return backupsPanel(cmp, sel, _, true);
+    var p = penpotInfo(cmp, sel);
+    if (p === null) return X.loading;
+    if (!p || p.__error) return { title: 'Penpot · ' + sel.name, note: _('Údaje o instanci se nepodařilo načíst.', 'The instance details could not be loaded.'), state: 'error', head: [], rows: [] };
+    var s = X.H.s, lim = p.limits || {}, hl = p.health || {}, pen = (p.usage && p.usage.metrics) || {};
+    var health = (sel.apiState !== 'ACTIVE' && sel.apiState !== 'DEGRADED') ? _('služba neběží', 'the service is not running') : (hl.status === 'down' ? _('neodpovídá', 'not responding') : (hl.status === 'up' ? _('odpovídá', 'responding') : _('zatím neověřeno', 'not checked yet')));
+    var panel = X.infoPanel('Penpot · ' + sel.name, _('vlastní instance Penpotu na serveru ONhost; přihlašujete se účtem Penpotu (registrace je vypnutá, tým pozvete v Penpotu)', 'your own Penpot instance on an ONhost server; you sign in with a Penpot account (registration is off, invite your team inside Penpot)'), [
+      [_('Adresa', 'Address'), p.url || '—'],
+      [_('Přihlašovací e-mail', 'Sign-in e-mail'), p.owner_email || '—', _('účet vlastníka organizace', 'the organization owner\'s account')],
+      [_('Heslo účtu', 'Account password'), p.owner_password_set ? _('nastaveno', 'set') : _('zatím nenastaveno — nastavte ho níže', 'not set yet — set it below')],
+      [_('Paměť / CPU', 'Memory / CPU'), (lim.ram_mb ? Math.round(lim.ram_mb / 1024) + ' GB' : '—') + ' / ' + (lim.cpus || '—') + ' vCPU'],
+      [_('Úložiště', 'Storage'), (lim.storage_gb || '—') + ' GB' + (pen.disk && pen.disk.pct != null ? ' · ' + _('využito ', 'used ') + pen.disk.pct + ' %' : '')],
+      [_('Dostupnost', 'Availability'), health + (hl.checked_at ? ' · ' + since(cmp, hl.checked_at) : '')],
+      [_('Verze Penpotu', 'Penpot version'), p.version || '—']
+    ], [
+      { label: _('Otevřít Penpot', 'Open Penpot'), on: function () { if (p.open_url) window.open(p.open_url, '_blank', 'noopener'); else flash(cmp, _('Instance teď neběží', 'The instance is not running'), ''); } },
+      X.genExtra('a'),
+      { label: _('Zálohovat teď', 'Back up now'), on: function () { act(cmp, sel, 'backup', { kind: 'manual' }, ['backups'], _('Záloha spuštěna', 'Backup started'), _('Databáze a soubory instance se zálohují; hotovou zálohu uvidíte v záložce Zálohy.', 'The database and files are being backed up; the finished backup appears under Backups.')); } },
+      { label: _('Obnovit údaje', 'Refresh'), on: function () { penpotInfo(cmp, sel, true); } }
+    ]);
+    panel.key = 'real:penpot';
+    panel.form = { title: _('Heslo účtu vlastníka v Penpotu (min. 12 znaků)', 'Password of the owner account in Penpot (min. 12 characters)'), fields: [X.passwordField('a')], submit: _('Nastavit heslo', 'Set password'), on: function () {
+      var pass = String(s.wbF.a || '');
+      if (pass.length < 12) { flash(cmp, _('Heslo musí mít aspoň 12 znaků', 'The password needs at least 12 characters'), ''); return; }
+      API.post('/services/' + sel.id + '/penpot/owner-password', { password: pass }, API.key()).then(function () {
+        cmp.setState({ wbF: { a: '', b: '', c: '' } });
+        flash(cmp, _('Heslo se nastavuje', 'Setting the password'), _('Za chvíli se jím přihlásíte do Penpotu; nikde ho neukládáme.', 'You can sign in to Penpot with it in a moment; we store it nowhere.'));
+        [2500, 8000].forEach(function (ms) { setTimeout(function () { penpotInfo(cmp, sel, true); forget(sel, []); rerender(cmp); }, ms); });
+      }).catch(function (e) { flash(cmp, _('Heslo se nepodařilo nastavit', 'The password could not be set'), (e && e.message) || ''); });
+    } };
+    return panel;
+  }
+
   function domainBuild(cmp, sel, tab, _, X) {
     var panel = domainBuildCore(cmp, sel, tab, _, X), D = window.OnhostPanelDomains;
     if (!D) { loadDomainsModule(cmp); return panel; }

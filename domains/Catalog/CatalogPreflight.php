@@ -8,6 +8,8 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Onhost\Domain\Catalog\Commands\CatalogCommand;
 use Onhost\Domain\Catalog\Models\Plan;
+use Onhost\Domain\Catalog\Models\PlanVersion;
+use Onhost\Domain\Catalog\Models\Price;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Catalog\Models\ProductOption;
 use Onhost\Domain\Catalog\Models\PromoCode;
@@ -198,7 +200,36 @@ final class CatalogPreflight
             throw new DomainError('state_invalid', 'State must be active or draft.', 422, ['field' => 'state']);
         }
 
-        return array_map(fn ($key) => self::product((string) $key), array_values($keys));
+        $products = array_map(fn ($key) => self::product((string) $key), array_values($keys));
+        if ($state === 'active') {
+            array_map(fn (Product $product) => self::assertPriced($product), $products);
+        }
+
+        return $products;
+    }
+
+    /**
+     * A product whose price staff set (`meta.admin_priced`, CatalogRevisions::PRODUCTS — TASK-0123 Penpot) goes on sale only when
+     * every active price of every plan's current version is above zero: it is created with zero prices on purpose.
+     */
+    public static function assertPriced(Product $product): void
+    {
+        if (! (bool) data_get($product->meta, 'admin_priced', false)) {
+            return;
+        }
+        $plans = Plan::query()->where('product_id', $product->id)->where('state', 'active')->get();
+        $unpriced = [];
+        foreach ($plans as $plan) {
+            $version = PlanVersion::query()->where('plan_id', $plan->id)->where('version', (int) ($plan->current_version ?: 1))->first();
+            $zero = $version === null ? 1 : Price::query()->where('plan_version_id', $version->id)->where('state', 'active')->where('amount_minor', '<=', 0)->count();
+            $any = $version === null ? 0 : Price::query()->where('plan_version_id', $version->id)->where('state', 'active')->count();
+            if ($zero > 0 || $any === 0) {
+                $unpriced[] = $plan->key;
+            }
+        }
+        if ($plans->isEmpty() || $unpriced !== []) {
+            throw new DomainError('price_unset', "Product {$product->key} is priced by staff and still has a zero price: set the prices first (plan editor).", 409, ['field' => 'state', 'plans' => $unpriced]);
+        }
     }
 
     /** @param array<int,mixed> $in @return list<array{key:string,label:mixed,units:float}> */

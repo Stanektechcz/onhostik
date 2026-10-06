@@ -104,6 +104,10 @@ use Onhost\Domain\Services\Listeners\CloseServiceAccessGrants;
 use Onhost\Domain\Services\Listeners\RevokeDelegatedAccess;
 use Onhost\Domain\Services\Metering\AnnounceDiskTotalCommand;
 use Onhost\Domain\Services\Metering\AnnounceDiskTotalHandler;
+use Onhost\Domain\Services\Penpot\ForgetPenpotSecrets;
+use Onhost\Domain\Services\Penpot\PenpotAccessCommand;
+use Onhost\Domain\Services\Penpot\PenpotAccessCommandHandler;
+use Onhost\Domain\Services\Penpot\PenpotNotifications;
 use Onhost\Domain\Support\Commands\WorkOfferCommandHandler;
 use Onhost\Domain\Support\Commands\WorkOfferDecisionCommand;
 use Onhost\Domain\Support\Commands\WorkOfferStaffCommand;
@@ -176,6 +180,7 @@ final class DomainServiceProvider extends ServiceProvider
         ComplianceCommand::class => ComplianceCommandHandler::class,
         DataRequestCommand::class => DataRequestCommandHandler::class,
         ServiceAccessCommand::class => ServiceAccessCommandHandler::class,
+        PenpotAccessCommand::class => PenpotAccessCommandHandler::class, // TASK-0123: the owner's Penpot password
         ApprovalDecisionCommand::class => ApprovalDecisionCommandHandler::class,
         PartnerCommand::class => PartnersCommandHandler::class,
         PartnerPortalCommand::class => PartnersCommandHandler::class,
@@ -212,6 +217,8 @@ final class DomainServiceProvider extends ServiceProvider
         }
         Event::listen('onhost.organization.member.removed', CloseServiceAccessGrants::class); // whoever left has nothing shared any more
         Event::listen(OutboxEventDispatched::class, RevokeDelegatedAccess::class); // a removed member loses the panel accounts that were theirs (H333)
+        Event::listen(OutboxEventDispatched::class, PenpotNotifications::class); // TASK-0123: Penpot ready / unreachable / owner password, in the organization's language
+        Event::listen(OutboxEventDispatched::class, ForgetPenpotSecrets::class); // TASK-0123: a purged Penpot's keys leave the vault
         Event::listen(OutboxEventDispatched::class, LoyaltyRouter::class); // points for what customers do
         // ── TASK-0035 ──
         foreach (['onhost.organization.member.removed', 'onhost.organization.member.role_changed'] as $memberEvent) { // IF-15: no Discord link or action hook outlives the membership or the role that made it
