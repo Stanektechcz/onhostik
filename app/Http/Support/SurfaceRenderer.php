@@ -149,6 +149,9 @@ final class SurfaceRenderer
         $path = $this->root.'/'.$file;
         $key = 'surface:'.$surface.':'.($demo ? 'demo' : 'api').':'.filemtime($path).':'.filesize($path).':'.$this->assetVersion();
         $template = Cache::remember($key, 3600, fn () => $this->transform((string) file_get_contents($path), $surface, $demo));
+        if (! $demo && in_array($surface, ['admin', 'panel'], true)) { // promises of credit back in cash, a top-up bonus and a 30-day archive: corrected in the template, never in the boot JSON below (G8 item 9, H2)
+            $template = CreditClaimsSeam::apply($template, [$surface]);
+        }
         $json = json_encode($boot, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
         // API-seam scripts are versioned by file mtime so browsers never keep a stale copy after a deploy.
         $v = fn (string $file) => '/surfaces/api/'.$file.'?v='.(@filemtime($this->root.'/api/'.$file) ?: '0');

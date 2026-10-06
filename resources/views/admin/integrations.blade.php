@@ -295,6 +295,7 @@
   </form>
 </dialog>
 
+@include('partials.dialog-bridge')
 <script>
 (function () {
   'use strict';
@@ -511,10 +512,12 @@
   $('instances').addEventListener('change', function (ev) {
     var s = ev.target; if (!s.matches('select[data-act=state]') || !s.value) return;
     var k = s.closest('tr').getAttribute('data-key'); var v = s.value;
-    var reason = window.prompt('Důvod změny stavu instance ' + k + ' na ' + v + ':', '') ; if (reason === null) { s.value = ''; return; }
-    guarded(function () { return api('POST', '/staff/integrations/' + encodeURIComponent(k) + '/state', { state: v, reason: reason || undefined }); })
-      .then(function (r) { say('Stav instance ' + k + ': ' + v, true); log('Stav', r); return loadInstances(); })
-      .catch(function (e) { say(e.message, false); log('Chyba', e.payload || e.message); s.value = ''; });
+    window.OnhostDialog.prompt('Důvod změny stavu instance ' + k + ' na ' + v + ':', '', { title: 'Změnit stav instance' }).then(function (reason) {
+      if (reason === null) { s.value = ''; return; }
+      guarded(function () { return api('POST', '/staff/integrations/' + encodeURIComponent(k) + '/state', { state: v, reason: reason || undefined }); })
+        .then(function (r) { say('Stav instance ' + k + ': ' + v, true); log('Stav', r); return loadInstances(); })
+        .catch(function (e) { say(e.message, false); log('Chyba', e.payload || e.message); s.value = ''; });
+    });
   });
 
   /* ── plan placements ─────────────────────────────────────────────────── */
@@ -604,11 +607,16 @@
   $('connections-table').addEventListener('click', function (ev) {
     var b = ev.target.closest('button[data-conn]');
     if (!b) return;
-    var id = b.getAttribute('data-conn'), op = b.getAttribute('data-op'), body = null;
-    if (op === 'disable') { var reason = window.prompt('Důvod pozastavení (zákazník ho uvidí v historii):'); if (!reason) return; body = { reason: reason }; }
-    api('POST', '/staff/registrar-connections/' + encodeURIComponent(id) + '/' + op, body)
-      .then(function (r) { say('Připojení registrátora: ' + (op === 'sync' ? 'synchronizováno' : op === 'disable' ? 'pozastaveno' : 'obnoveno') + '.', true); log('Připojení registrátora', r); return loadConnections(); })
-      .catch(function (e) { say('Chyba: ' + ((e && e.message) || e), false); log('Připojení registrátora', String(e)); });
+    var id = b.getAttribute('data-conn'), op = b.getAttribute('data-op');
+    var asked = op === 'disable'
+      ? window.OnhostDialog.prompt('Důvod pozastavení (zákazník ho uvidí v historii):', '', { title: 'Pozastavit připojení' }).then(function (reason) { return reason ? { reason: reason } : undefined; })
+      : Promise.resolve(null);
+    asked.then(function (body) {
+      if (body === undefined) return;
+      return api('POST', '/staff/registrar-connections/' + encodeURIComponent(id) + '/' + op, body)
+        .then(function (r) { say('Připojení registrátora: ' + (op === 'sync' ? 'synchronizováno' : op === 'disable' ? 'pozastaveno' : 'obnoveno') + '.', true); log('Připojení registrátora', r); return loadConnections(); })
+        .catch(function (e) { say('Chyba: ' + ((e && e.message) || e), false); log('Připojení registrátora', String(e)); });
+    });
   });
   loadConnections();
 

@@ -85,6 +85,7 @@
   </form>
 </dialog>
 
+@include('partials.dialog-bridge')
 <script>
 (function () {
   var API = '/v1';
@@ -156,12 +157,16 @@
   document.addEventListener('click', function (e) {
     var t = e.target.closest ? e.target.closest('button[data-approve],button[data-reject]') : null;
     if (!t) return;
-    var approve = t.hasAttribute('data-approve'), id = approve ? t.dataset.approve : t.dataset.reject, note = null;
-    if (approve) { if (!window.confirm('Schválit tuto akci? Žadatel ji potom smí jednou provést.')) return; }
-    else { note = window.prompt('Proč žádost zamítáte?', ''); if (!note) return; }
-    guarded(function () { return api('POST', '/staff/approvals/' + encodeURIComponent(id) + '/decision', { decision: approve ? 'approved' : 'rejected', note: note }); })
-      .then(function () { say(approve ? 'Schváleno. Žadatel teď akci zopakuje.' : 'Zamítnuto.', true); load(); })
-      .catch(function (err) { say('Rozhodnutí neprošlo: ' + err.message); load(); });
+    var approve = t.hasAttribute('data-approve'), id = approve ? t.dataset.approve : t.dataset.reject;
+    var asked = approve
+      ? window.OnhostDialog.confirm('Schválit tuto akci?', 'Žadatel ji potom smí jednou provést.', { confirm: 'Schválit' }).then(function (ok) { return ok ? '' : null; })
+      : window.OnhostDialog.prompt('Proč žádost zamítáte?', '', { title: 'Zamítnout žádost', confirm: 'Zamítnout' });
+    asked.then(function (note) {
+      if (note === null || (!approve && !note)) return;
+      guarded(function () { return api('POST', '/staff/approvals/' + encodeURIComponent(id) + '/decision', { decision: approve ? 'approved' : 'rejected', note: approve ? null : note }); })
+        .then(function () { say(approve ? 'Schváleno. Žadatel teď akci zopakuje.' : 'Zamítnuto.', true); load(); })
+        .catch(function (err) { say('Rozhodnutí neprošlo: ' + err.message); load(); });
+    });
   });
 
   load();

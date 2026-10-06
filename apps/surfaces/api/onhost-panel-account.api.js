@@ -548,18 +548,22 @@
     if (!browser && !os) return s ? s.slice(0, 48) : _('neznámé zařízení', 'unknown device');
     return (browser ? browser.replace('Edg/', 'Edge ').replace('OPR/', 'Opera ').replace('/', ' ') : _('prohlížeč', 'browser')) + (os ? ' · ' + os : '');
   }
+  /* Ending a session also renews the one "remember me" token of the account (every remembered browser shares it), so a device that was
+     only kept signed in by that token has to sign in again as well — said before the click, not discovered later. */
+  var REMEMBER_CS = 'Zařízení, která drží jen volba „Zapamatovat“, se po vypršení relace přihlásí znovu.';
+  var REMEMBER_EN = 'Devices kept signed in only by the "remember me" choice will have to sign in again once their session ends.';
   function sessionsView(cmp, _, H) {
     load(cmp, 'tokens', '/tokens');
     load(cmp, 'sessions', '/me/sessions');
     var cs = isCs(cmp), tokens = (S.tokens || []).filter(function (t) { return !t.revoked_at; });
     var sessions = Array.isArray(S.sessions) ? S.sessions : [], others = sessions.filter(function (x) { return !x.current; });
     var endOne = function (x) {
-      if (!window.confirm(_('Odhlásit zařízení ' + device(x.user_agent, _) + '? Při dalším použití se bude muset přihlásit znovu.', 'Sign out ' + device(x.user_agent, _) + '? It will have to sign in again on its next use.'))) return;
+      if (!window.confirm(_('Odhlásit zařízení ' + device(x.user_agent, _) + '? Při dalším použití se bude muset přihlásit znovu. ' + REMEMBER_CS, 'Sign out ' + device(x.user_agent, _) + '? It will have to sign in again on its next use. ' + REMEMBER_EN))) return;
       A().del('/me/sessions/' + encodeURIComponent(x.id)).then(function () { flash(cmp, _('Zařízení odhlášeno', 'Device signed out'), device(x.user_agent, _)); reload(cmp, 'sessions'); }).catch(function (e) { fail(cmp, _, e); });
     };
     var endOthers = function () {
       if (!others.length) { flash(cmp, _('Žádná jiná relace', 'No other session'), _('Přihlášeni jste jen v tomto prohlížeči.', 'You are signed in in this browser only.')); return; }
-      if (!window.confirm(_('Odhlásit všechna ostatní zařízení (' + others.length + ')? Tento prohlížeč zůstane přihlášený.', 'Sign out every other device (' + others.length + ')? This browser stays signed in.'))) return;
+      if (!window.confirm(_('Odhlásit všechna ostatní zařízení (' + others.length + ')? Tento prohlížeč zůstane přihlášený. ' + REMEMBER_CS, 'Sign out every other device (' + others.length + ')? This browser stays signed in. ' + REMEMBER_EN))) return;
       A().post('/me/sessions/end-others', {}, A().key()).then(function (r) {
         var n = Number((r && (r.ended != null ? r.ended : (r.data && r.data.ended))) || 0);
         flash(cmp, _('Ostatní zařízení odhlášena', 'Other devices signed out'), n + ' ' + plural(n, ['relace', 'relace', 'relací'], ['session', 'sessions'], cmp));
@@ -586,7 +590,7 @@
     return {
       crumb: _('Nastavení', 'Settings'), title: _('Relace a zařízení', 'Sessions and devices'),
       stats: [H.stat(_('Aktivní relace', 'Active sessions'), String(count), count === 1 ? _('jen tato', 'this one only') : _('včetně této', 'including this one'), 5, Math.min(100, count * 25), 12, count > 3 ? 'warn' : 'ok'), H.stat(_('API klíče', 'API keys'), String(tokens.length), '', 13, Math.min(100, tokens.length * 20), 10, 'ok'), H.stat(_('Dvoufázové ověření', 'Two-factor'), mfaOn() ? _('zapnuto', 'on') : _('vypnuto', 'off'), '', 21, mfaOn() ? 100 : 30, 8, mfaOn() ? 'ok' : 'warn'), H.stat(_('Ochrana', 'Protection'), _('8 pokusů → 15 min', '8 attempts → 15 min'), _('zámek přihlášení', 'sign-in lock'), 29, 60, 6, 'ok')],
-      tableTitle: _('Aktivní relace a klíče', 'Active sessions and keys'), tableNote: _('odhlášené zařízení skončí při svém dalším požadavku · změna hesla odhlásí ostatní zařízení', 'a signed-out device ends on its next request · a password change signs the others out'),
+      tableTitle: _('Aktivní relace a klíče', 'Active sessions and keys'), tableNote: _('odhlášené zařízení skončí při svém dalším požadavku · volba „Zapamatovat“ se obnoví, zapamatované prohlížeče se přihlásí znovu · změna hesla odhlásí ostatní zařízení', 'a signed-out device ends on its next request · "remember me" is renewed too, so remembered browsers sign in again · a password change signs the others out'),
       cols: [_('Zařízení', 'Device'), _('Adresa / rozsah', 'Address / scope'), _('Stav', 'State'), _('Aktivita', 'Activity'), ''],
       rows: rows, filters: [], readOnly: true,
       side: { title: _('Doporučení', 'Recommendation'), rows: [{ title: _('Neznámé zařízení? Odhlaste ho a změňte heslo', 'An unknown device? Sign it out and change the password'), meta: _('Nastavení → Zabezpečení a 2FA', 'Settings → Security and 2FA'), value: '', kind: others.length ? 'warn' : 'ok' }, { title: _('Zapnuté 2FA', 'Two-factor on'), meta: mfaOn() ? _('chrání každé nové přihlášení', 'protects every new sign-in') : _('doporučujeme zapnout', 'we recommend turning it on'), value: mfaOn() ? '✓' : '—', kind: mfaOn() ? 'ok' : 'warn' }] },
