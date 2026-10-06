@@ -11,6 +11,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Onhost\Domain\Catalog\CatalogRevisions;
 use Onhost\Domain\Catalog\Models\Plan;
+use Onhost\Domain\Catalog\Models\PlanVersion;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Loyalty\LoyaltyExpiry;
 use Onhost\Domain\Loyalty\LoyaltyService;
@@ -215,10 +216,16 @@ final class GoLiveChecks
         if (CustomIso::query()->where('state', '!=', CustomIso::DELETED)->exists()) {
             return true;
         }
-        // H1 (TASK-0121): a plan of a product on sale — the custom ISO add-on is seeded as a draft and sells nothing until it is published
-        foreach (Plan::query()->whereHas('product', fn ($q) => $q->where('state', 'active'))->get() as $plan) {
-            $entitlements = (array) ($plan->currentVersion()->entitlements ?? []);
-            if (filter_var($entitlements[CustomIsoPolicy::FEATURE] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+        // H5: two queries however many plans exist; H1 (TASK-0121): only a plan of a product on sale counts (the custom ISO add-on is seeded as a draft)
+        $plans = Plan::query()->whereHas('product', fn ($q) => $q->where('state', 'active'))->pluck('current_version', 'id');
+        if ($plans->isEmpty()) {
+            return false;
+        }
+        foreach (PlanVersion::query()->whereIn('plan_id', $plans->keys())->get(['plan_id', 'version', 'entitlements']) as $version) {
+            if ((int) $plans->get($version->plan_id) !== (int) $version->version) {
+                continue;
+            }
+            if (filter_var(((array) $version->entitlements)[CustomIsoPolicy::FEATURE] ?? false, FILTER_VALIDATE_BOOLEAN)) {
                 return true;
             }
         }
