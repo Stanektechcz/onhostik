@@ -6,6 +6,7 @@ namespace Onhost\Domain\Catalog\Commands;
 
 use Illuminate\Support\Facades\Cache;
 use Onhost\Domain\Catalog\CatalogPreflight;
+use Onhost\Domain\Catalog\CatalogRevisions;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Catalog\Models\ProductOption;
 use Onhost\Domain\Catalog\Models\PromoCode;
@@ -64,7 +65,7 @@ final class CatalogCommandHandler implements CommandHandler
             })(),
             // a product the code defines (CatalogRevisions::PRODUCTS), created once; it is not a way to invent a product (TASK-0022)
             'product.create' => (function () use ($command) {
-                $product = Product::query()->create(CatalogPreflight::newProduct((string) $command->get('product_key')));
+                $product = CatalogRevisions::createDefined((string) $command->get('product_key')); // with the plans of its definition (TASK-0123)
 
                 return ['product_key' => $product->key, 'family' => $product->family, 'state' => $product->state];
             })(),
@@ -122,6 +123,9 @@ final class CatalogCommandHandler implements CommandHandler
         $out = [];
         foreach ($keys as $key) {
             $product = $this->product((string) $key);
+            if ($state === 'active') {
+                CatalogPreflight::assertPriced($product); // TASK-0123: an admin-priced product is never on sale for nothing
+            }
             $product->forceFill(['state' => $state])->save();
             $out[$product->key] = $state;
         }

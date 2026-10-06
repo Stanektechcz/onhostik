@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Catalog;
 
+use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Catalog\Commands\CatalogCommand;
 use Onhost\Domain\Catalog\Models\Plan;
@@ -75,6 +76,18 @@ final class CatalogRevisions
             ],
             'wording' => '/ISO/u',
         ],
+        // TASK-0123 (owner decision 7 of 2026-10-06): Penpot for web hosting customers — a proposal, prepared and not applied.
+        // `php artisan onhost:catalog:revise 2026-10-penpot --apply` creates the product (draft) with its plan and zero prices;
+        // staff then set the prices (plan editor, `plan.publish`) and put it on sale (`product.state`), which is refused while a
+        // price is still zero. Needs a Penpot node first (docs/runbooks/penpot.md).
+        '2026-10-penpot' => [
+            'proposal' => true,
+            'reason' => 'Rozhodnutí vlastníka 7 (2026-10-06): Penpot pro zákazníky webhostingu — vlastní instance pro tým na uzlu Penpot, HTTPS a denní zálohy; produkt vzniká jako koncept, cenu nastaví administrace (TASK-0123).',
+            'plans' => [],
+            'rewrite' => [],
+            'products' => [],
+            'create' => ['penpot'],
+        ],
         '2026-09-honest-promises' => [
             'reason' => 'Rozhodnutí vlastníka 2/4/6/18 (2026-09-25): PITR, počet spojení, dedikovaná odchozí IP a dedikovaná databáze se neposkytují a interval záloh „1h“ se opravuje na „hourly“ — nové verze bez nich, ceny beze změny, stávající smlouvy beze změny.',
             'plans' => [
@@ -132,6 +145,24 @@ final class CatalogRevisions
             'description' => ['cs' => 'Víc schránek, databází nebo prostoru pro jednu službu za cenu volby jejího tarifu, účtováno s každým obdobím.', 'en' => 'More mailboxes, databases or space for one service at the price of its plan\'s option, billed every period.'],
             // never on the price list and never a cart upsell: it is ordered for one running service (LimitRaiseLine)
             'meta' => ['listed' => false, 'limit_raise' => true],
+        ],
+        // TASK-0123: one Penpot per service on a dedicated Penpot node (executor `penpot`). Created as a draft with zero prices
+        // (`admin_priced`): staff price it and put it on sale; `product.state active` is refused while any price is zero.
+        'penpot' => [
+            'family' => 'penpot', 'executor' => 'penpot', 'billing_model' => 'subscription', 'sort' => 25, 'state' => 'draft',
+            'name' => ['cs' => 'Penpot', 'en' => 'Penpot'],
+            'description' => ['cs' => 'Vlastní Penpot pro váš tým — open-source nástroj pro design a prototypy na vlastní adrese s HTTPS a denními zálohami, provozuje ONhost.', 'en' => 'Your own Penpot for your team — the open-source design and prototyping tool on its own address with HTTPS and daily backups, run by ONhost.'],
+            'meta' => ['persona' => 'web', 'admin_priced' => true, 'chips' => ['Open source', 'HTTPS', 'Denní zálohy']],
+            'plans' => [
+                'penpot-team' => [
+                    'name' => ['cs' => 'Penpot Team', 'en' => 'Penpot Team'], 'sla_class' => 'standard', 'highlighted' => true,
+                    'description' => ['cs' => 'Jedna instance Penpotu pro tým.', 'en' => 'One Penpot instance for a team.'],
+                    // read by the Penpot node (PenpotDockerProvider::limits) and the backup sweep (onhost:penpot:sweep)
+                    'entitlements' => ['ram_mb' => 4096, 'cpus' => 2, 'storage_gb' => 20, 'backup_days' => 14],
+                    'features' => ['cs' => ['Vlastní instance Penpotu', '4 GB RAM, 2 vCPU', '20 GB pro soubory a databázi', 'HTTPS na vlastní adrese', 'Denní zálohy 14 dní'], 'en' => ['Your own Penpot instance', '4 GB RAM, 2 vCPU', '20 GB for files and the database', 'HTTPS on its own address', 'Daily backups kept 14 days']],
+                    'periods' => ['month', 'year'],
+                ],
+            ],
         ],
     ];
 
@@ -471,7 +502,57 @@ final class CatalogRevisions
     {
         $definition = self::PRODUCTS[$key] ?? throw new DomainError('product_undefined', "Product {$key} is not defined in code (CatalogRevisions::PRODUCTS); a new product comes with the code that delivers it.", 422, ['field' => 'product_key']);
 
-        return ['key' => $key] + $definition;
+        return ['key' => $key] + array_diff_key($definition, ['plans' => true]);
+    }
+
+    /**
+     * A product of `PRODUCTS` with the plans its definition carries (TASK-0123): version 1 of each plan, with zero prices for the
+     * periods it is sold in — what it costs is staff's (`plan.publish`), and an `admin_priced` product cannot go on sale while a
+     * price is zero (CatalogPreflight::assertPriced). Refused when the product exists (a defined product is created once).
+     */
+    public static function createDefined(string $key): Product
+    {
+        $attributes = CatalogPreflight::newProduct($key);
+        $plans = self::definedPlans($key);
+
+        return DB::transaction(function () use ($attributes, $plans): Product {
+            $product = Product::query()->create($attributes);
+            $sort = 0;
+            foreach ($plans as $planKey => $definition) {
+                $plan = Plan::query()->create([
+                    'product_id' => $product->id, 'key' => (string) $planKey, 'name' => $definition['name'], 'description' => $definition['description'] ?? null,
+                    'sla_class' => (string) ($definition['sla_class'] ?? 'standard'), 'highlighted' => (bool) ($definition['highlighted'] ?? false), 'state' => 'active', 'sort' => ++$sort * 10,
+                ]);
+                $version = PlanVersion::query()->create([
+                    'plan_id' => $plan->id, 'version' => 1, 'entitlements' => (array) ($definition['entitlements'] ?? []), 'limits' => (array) ($definition['limits'] ?? []),
+                    'features' => (array) ($definition['features'] ?? []), 'effective_from' => now()->subMinute(),
+                ]);
+                foreach (['CZK', 'EUR'] as $currency) {
+                    foreach ((array) ($definition['periods'] ?? ['month']) as $period) {
+                        Price::query()->create(['plan_version_id' => $version->id, 'currency' => $currency, 'period' => (string) $period, 'amount_minor' => 0, 'renewal_amount_minor' => 0, 'setup_minor' => 0, 'effective_from' => now()->subMinute(), 'state' => 'active']);
+                    }
+                }
+            }
+
+            return $product;
+        });
+    }
+
+    /** @return array<string, array<string, mixed>> plan key => definition (name, description, sla_class, highlighted, entitlements, limits, features, periods) */
+    private static function definedPlans(string $key): array
+    {
+        return self::PRODUCTS[$key]['plans'] ?? [];
+    }
+
+    /** The defined products a fresh install creates (CatalogSeeder): those of revisions that are not proposals. @return list<string> */
+    public static function seededProducts(): array
+    {
+        $keys = [];
+        foreach (self::ids() as $id) {
+            array_push($keys, ...array_map('strval', (array) (self::definition($id)['create'] ?? [])));
+        }
+
+        return array_values(array_unique(array_intersect($keys, array_keys(self::PRODUCTS))));
     }
 
     /** @return array<string, array{cs: string, en: string}> */

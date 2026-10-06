@@ -338,7 +338,7 @@ it('withdraws what the web plans sell and their server cannot deliver: e-shop ma
 
 it('prepares the custom ISO plans as a proposal: never applied by "every revision", previewed and published only by its id (TASK-0110)', function () {
     // G-R5: the owner decides which plans sell a custom ISO. Until then the doctor and a plain run neither ask for it nor apply it
-    expect(CatalogRevisions::proposals())->toBe(['2026-10-custom-iso'])->and(CatalogRevisions::ids())->not->toContain('2026-10-custom-iso')
+    expect(CatalogRevisions::proposals())->toContain('2026-10-custom-iso') // TASK-0123 added the Penpot proposal beside it->and(CatalogRevisions::ids())->not->toContain('2026-10-custom-iso')
         ->and(app(CatalogRevisions::class)->pending())->not->toHaveKey('2026-10-custom-iso');
     $this->artisan('onhost:catalog:revise', ['--apply' => true, '--yes' => true])->assertSuccessful();
     expect(catalogRevisionPlan('vps', 'compute-4')->currentVersion()->entitlements)->not->toHaveKey('custom_iso');

@@ -254,6 +254,12 @@ final class Lexicon
         'Podpora ONhost se přihlásila do panelu služby ' => 'ONhost support signed in to the panel of the service ', 'Podpora ONhost' => 'ONhost support', ' · k tiketu ' => ' · for ticket ', '. Pokud o tom nevíte, odpovězte prosím v tiketu.' => '. If you do not know about it, please reply in the ticket.',
         'nezměřeno' => 'not measured', ' (alespoň; část zatím neměříme)' => ' (at least; part is not measured yet)',
         'Služba dnes zabírá víc, než tarif nabízí. Do data účinnosti uvolněte místo (staré zálohy, logy, nepoužívané databáze nebo schránky), nebo přejděte na vyšší tarif — jinak po tomto datu nepůjde přidávat další obsah.' => 'The service takes more today than the plan offers. Free up space before the effective date (old backups, logs, unused databases or mailboxes) or move to a higher plan; after that date no more content can be added.',
+        // TASK-0123: Penpot for web hosting (PenpotNotifications)
+        'Penpot je připraven' => 'Penpot is ready', 'Adresa: ' => 'Address: ', '. Přihlašovací e-mail: ' => '. Sign-in e-mail: ', '. Heslo k účtu si nastavíte v panelu u služby.' => '. Set the account password in the panel, with the service.',
+        'Penpot neodpovídá' => 'Penpot is not responding', ' teď neodpovídá. Technici o tom vědí a řeší to.' => ' is not responding right now. Our engineers know and are on it.',
+        'Penpot opět běží' => 'Penpot is running again', ' znovu odpovídá.' => ' responds again.',
+        'Heslo k Penpotu bylo změněno' => 'The Penpot password was changed', 'Heslo účtu ' => 'The password of the account ', ' v instanci ' => ' in the instance ',
+        ' bylo změněno. Pokud jste to nebyli vy, změňte ho znovu a napište podpoře.' => ' was changed. If it was not you, change it again and contact support.',
     ];
 
     public static function translate(?string $text, string $locale): ?string
