@@ -117,6 +117,9 @@ final class PaymentService
             ]);
         } catch (Throwable $e) {
             $intent->forceFill(['state' => S::FAILED, 'failure_reason' => mb_substr($this->redactor->redactString($e->getMessage()), 0, 250)])->save();
+            if ($e instanceof DomainError && $e->error === 'payment_return_url_invalid') {
+                throw $e; // H3 (TASK-0121): the caller's own return address was refused before the gateway was called — a 422, not a gateway failure
+            }
             throw new DomainError('payment_provider_error', 'The payment provider could not create the payment. Try again or choose another method.', 502);
         }
         $state = $this->normalizeState($result['state'], S::PENDING_CUSTOMER);

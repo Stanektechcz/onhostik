@@ -75,7 +75,7 @@ final class GenerateOpenApi extends Command
             'errors' => ['403' => ['custom_iso_not_in_plan'], '409' => ['service_not_active', 'idempotency_key_reused'], '422' => ['iso_too_large', 'iso_too_large_for_scan', 'iso_not_iso9660', 'iso_quota_exceeded', 'upload_infected', 'iso_scan_incomplete', 'iso_upload_unknown'], '429' => ['iso_upload_in_progress'], '503' => ['iso_scan_unavailable', 'iso_scanner_untrusted', 'custom_iso_storage_unsafe']],
         ],
         'POST /cart/quote' => ['errors' => ['422' => ['domain_action_invalid']]],
-        'POST /orders' => ['errors' => ['422' => ['domain_action_invalid'], '409' => ['loyalty_points_unavailable', 'quote_already_used']]],
+        'POST /orders' => ['errors' => ['422' => ['domain_action_invalid', 'payment_return_url_invalid'], '409' => ['loyalty_points_unavailable', 'quote_already_used']]], // H3: return_urls only to the portal's own origin
         // G3 (owner decision G-R2): loyalty points redeemed on the signed-in customer's cart (command `loyalty.redeem`)
         'POST /cart/loyalty' => [
             'description' => 'Redeem loyalty points on the cart of the signed-in customer (`loyalty.redeem`, NORMAL, the permission to place orders). `points: 0` removes the choice. '
@@ -97,6 +97,18 @@ final class GenerateOpenApi extends Command
                 'ticket_id' => ['type' => 'string', 'maxLength' => 40, 'description' => 'The ticket of this customer that holds the withdrawal notice.'],
             ]],
             'errors' => ['403' => ['withdrawal_consumers_only', 'approval_required'], '409' => ['refund_exceeds_payment', 'refund_exceeds_document', 'refund_document_booked', 'refund_document_missing', 'refund_service_still_running', 'refund_approval_required', 'withdrawal_period_over', 'payment_not_refundable', 'idempotency_key_reused'], '422' => ['topup_not_refundable', 'refund_payment_not_order', 'refund_evidence_mismatch', 'withdrawal_sent_before_order', 'withdrawal_sent_in_future']],
+        ],
+        // H3 (TASK-0121): money still owed — a bank payout finance cancelled that no later payout carries
+        'GET /staff/payments/refunds/not-paid-out' => [
+            'description' => 'Refunds to the source of payment whose bank payout was cancelled (returned by the bank, a wrong account) and that no pending or paid refund carries since: the credit note, order, payment, organization, amount, when the payout was cancelled and how many days it waits (`rows`), the sum per currency (`total`) and the balance of every `liability:refund_payable:<provider>:<currency>` account that holds something (`payable`, the payouts on their way included). Read-only (`staff.billing.read`); paying out again is `POST /staff/payments/{payment}/refund` with the same amount, which reuses the credit note. Also `php artisan onhost:billing:refunds-not-paid-out`.',
+            'response' => ['type' => 'object', 'required' => ['rows', 'total', 'payable'], 'properties' => [
+                'rows' => ['type' => 'array', 'items' => ['type' => 'object', 'properties' => [
+                    'refund_id' => ['type' => 'string'], 'payment_id' => ['type' => 'string'], 'organization_id' => ['type' => ['string', 'null']], 'provider' => ['type' => ['string', 'null']], 'order' => ['type' => ['string', 'null']],
+                    'credit_note' => ['type' => ['string', 'null']], 'amount' => ['type' => 'object'], 'cancelled_at' => ['type' => ['string', 'null'], 'format' => 'date-time'], 'days' => ['type' => ['integer', 'null']],
+                ]]],
+                'total' => ['type' => 'object', 'additionalProperties' => ['type' => 'integer']],
+                'payable' => ['type' => 'object', 'additionalProperties' => ['type' => 'integer']],
+            ]],
         ],
         'POST /staff/payments/refunds/{refund}/confirm' => [
             'description' => 'Finance confirms that the bank payout of a pending refund was sent (`reference`: the bank\'s payment reference). The refund becomes `succeeded`, the payment `REFUNDED`/`PARTIALLY_REFUNDED`, and the customer is told (`payment.refunded`). HIGH: a fresh step-up; another person than who asked for the refund, unless one operator runs the platform (ONHOST_FOUR_EYES=false).',

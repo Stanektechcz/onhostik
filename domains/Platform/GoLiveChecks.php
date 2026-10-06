@@ -216,7 +216,7 @@ final class GoLiveChecks
         if (CustomIso::query()->where('state', '!=', CustomIso::DELETED)->exists()) {
             return true;
         }
-        // H5: two queries however many plans exist (the version of each plan used to be fetched one by one); H1: only products on sale count
+        // H5: two queries however many plans exist; H1 (TASK-0121): only a plan of a product on sale counts (the custom ISO add-on is seeded as a draft)
         $plans = Plan::query()->whereHas('product', fn ($q) => $q->where('state', 'active'))->pluck('current_version', 'id');
         if ($plans->isEmpty()) {
             return false;

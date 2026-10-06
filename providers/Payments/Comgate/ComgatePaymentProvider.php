@@ -13,6 +13,7 @@ use Onhost\Platform\Secrets\SecretRef;
 use Onhost\Platform\Secrets\SecretStore;
 use Onhost\Providers\Contracts\PaymentProvider;
 use Onhost\Providers\Contracts\StoredMethodCharging;
+use Onhost\Providers\Payments\ReturnUrls;
 
 /**
  * Comgate Payments API v2.0 (REST/JSON, HTTP Basic merchant:secret).
@@ -63,6 +64,10 @@ final class ComgatePaymentProvider implements PaymentProvider, StoredMethodCharg
             default => 'ALL',
         };
         $save = ! empty($input['save_method']);
+        $returns = [];
+        foreach (['url_paid' => 'return_url', 'url_cancelled' => 'cancel_url', 'url_pending' => 'pending_url'] as $param => $key) {
+            $returns[$param] = ReturnUrls::allowed($input[$key] ?? null, $key); // H3: refused before anything reaches the gateway
+        }
         $locale = (string) ($input['locale'] ?? 'cs'); // G6: optional — a missing or unsupported language is Czech, never an undefined key
         $response = $this->send('POST', '/payment', 'payment.create', array_filter([
             'price' => $amount->minor,
@@ -77,9 +82,9 @@ final class ComgatePaymentProvider implements PaymentProvider, StoredMethodCharg
             'lang' => in_array($locale, ['cs', 'sk', 'en', 'pl'], true) ? $locale : 'cs',
             'country' => strtoupper((string) ($input['country'] ?? 'CZ')),
             'expirationTime' => '2h',
-            'url_paid' => $input['return_url'] ?? null, // G6: absent = the URLs set at the merchant (array_filter drops it)
-            'url_cancelled' => $input['cancel_url'] ?? null,
-            'url_pending' => $input['pending_url'] ?? null,
+            'url_paid' => $returns['url_paid'], // G6: absent = the URLs set at the merchant (array_filter drops it)
+            'url_cancelled' => $returns['url_cancelled'],
+            'url_pending' => $returns['url_pending'],
         ], fn ($v) => $v !== null), $input['idempotency_key'] ?? null);
         $this->assertOk($response, 'payment.create');
 

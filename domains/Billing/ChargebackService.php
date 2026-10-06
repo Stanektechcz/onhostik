@@ -15,6 +15,7 @@ use Onhost\Domain\Invoicing\AccountingClock;
 use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Invoicing\Models\InvoiceLine;
+use Onhost\Domain\Loyalty\RedemptionShare;
 use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
@@ -77,7 +78,12 @@ final class ChargebackService
      * unused days of what the line has left (after earlier credit notes), times the share. Amounts are gross — what the
      * customer paid. Today counts as used.
      *
-     * @return array{currency:string, period_end:?string, unused_minor:int, percent:int, refund_minor:int, subscription_id:?string, lines:list<array{line_id:string, invoice_id:string, number:?string, paid:bool, period_from:string, period_to:string, days:int, days_left:int, left_minor:int, unused_minor:int, refund_minor:int}>}
+     * H3 (TASK-0121): a line's `refund_minor` / `unused_minor` are what the credit note credits ON that line (its list total, prorated);
+     * the redeemed loyalty points are a line of their own (G3), and the credit note takes their share back with it (RedemptionShare).
+     * `redemption_minor` / `unused_redemption_minor` are that share, and the totals are net of it: what really reaches the customer —
+     * never the list price.
+     *
+     * @return array{currency:string, period_end:?string, unused_minor:int, percent:int, refund_minor:int, subscription_id:?string, lines:list<array{line_id:string, invoice_id:string, number:?string, paid:bool, period_from:string, period_to:string, days:int, days_left:int, left_minor:int, unused_minor:int, refund_minor:int, redemption_minor:int, unused_redemption_minor:int}>}
      */
     public function estimate(Service $service, ?int $percent = null, ?CarbonImmutable $asOf = null): array
     {
@@ -118,8 +124,59 @@ final class ChargebackService
             }
         }
 
-        return ['currency' => $currency, 'period_end' => $subscription?->current_period_end?->toIso8601String(), 'unused_minor' => (int) array_sum(array_column($rows, 'unused_minor')), 'percent' => $percent,
-            'refund_minor' => (int) array_sum(array_column($rows, 'refund_minor')), 'subscription_id' => $subscription?->id, 'lines' => $rows];
+        $rows = $this->withRedemptionShare($rows, $documents->all());
+
+        return ['currency' => $currency, 'period_end' => $subscription?->current_period_end?->toIso8601String(), 'unused_minor' => self::net($rows, 'unused_minor', 'unused_redemption_minor'), 'percent' => $percent,
+            'refund_minor' => self::net($rows, 'refund_minor', 'redemption_minor'), 'subscription_id' => $subscription?->id, 'lines' => $rows];
+    }
+
+    /**
+     * What the rows of `$field` add up to after the points' share that goes back with them (H3).
+     *
+     * @param  list<array<string,mixed>>  $rows
+     */
+    public static function net(array $rows, string $field, string $share): int
+    {
+        return max(0, (int) array_sum(array_map(fn (array $row) => (int) ($row[$field] ?? 0) - (int) ($row[$share] ?? 0), $rows))); // review L: never less than nothing
+    }
+
+    /**
+     * H3: the share of a loyalty-points line each row takes back with it — computed for the rows of one document together, exactly
+     * as the credit note of those rows will (RedemptionShare::companion with what earlier credit notes took), then divided among them
+     * by their amounts (the last one takes the rest to the haler).
+     *
+     * @param  list<array<string,mixed>>  $rows
+     * @param  array<string, Invoice>  $documents
+     * @return list<array<string,mixed>>
+     */
+    private function withRedemptionShare(array $rows, array $documents): array
+    {
+        $byDocument = [];
+        foreach ($rows as $i => $row) {
+            $rows[$i] += ['redemption_minor' => 0, 'unused_redemption_minor' => 0];
+            $byDocument[(string) $row['invoice_id']][] = $i;
+        }
+        foreach ($byDocument as $invoiceId => $indexes) {
+            $document = $documents[$invoiceId] ?? null;
+            if (! $document instanceof Invoice) {
+                continue;
+            }
+            $lines = $document->lines()->get();
+            $before = $this->invoices->creditedByLine($document);
+            foreach (['refund_minor' => 'redemption_minor', 'unused_minor' => 'unused_redemption_minor'] as $field => $into) {
+                $credit = array_map(fn (int $i) => ['corrects_line_id' => (string) $rows[$i]['line_id'], 'total' => -(int) $rows[$i][$field]], $indexes);
+                $share = (int) (RedemptionShare::companion($lines, $credit, $before)['total'] ?? 0);
+                $whole = (int) array_sum(array_map(fn (int $i) => (int) $rows[$i][$field], $indexes));
+                $left = $share;
+                foreach ($indexes as $n => $i) {
+                    $part = $n === array_key_last($indexes) || $whole <= 0 ? $left : intdiv($share * (int) $rows[$i][$field], $whole);
+                    $rows[$i][$into] = $part;
+                    $left -= $part;
+                }
+            }
+        }
+
+        return $rows;
     }
 
     public function open(Service $service): ?ChargebackRequest
