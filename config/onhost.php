@@ -90,6 +90,7 @@ return [
         'scan_timeout_seconds' => (int) env('ONHOST_CUSTOM_ISO_SCAN_TIMEOUT', 900),
         'org_max_inflight' => (int) env('ONHOST_CUSTOM_ISO_ORG_MAX_INFLIGHT', 2),   // uploads of one organization at the same time (review H1)
         'uploads_per_hour' => (int) env('ONHOST_CUSTOM_ISO_UPLOADS_PER_HOUR', 10),  // POST …/isos per person (rate limiter custom-iso-upload)
+        'quarantine_days' => (int) env('ONHOST_CUSTOM_ISO_QUARANTINE_DAYS', 14),  // H1 review M1: an orphaned image file waits in quarantine/ this long before onhost:isos:sweep deletes it
         'staging_hours' => (int) env('ONHOST_CUSTOM_ISO_STAGING_HOURS', 6),         // a staged upload older than this is dead: onhost:isos:sweep removes it
         'delete_wait_seconds' => (int) env('ONHOST_CUSTOM_ISO_DELETE_WAIT', 120),   // how long a delete waits for the hypervisor's task before the step fails (review M2)
     ],
@@ -207,6 +208,9 @@ return [
 
     'payments' => [
         'default' => env('PAYMENT_GATEWAY', 'comgate'),
+        // H3 (TASK-0121): hosts besides the portal's and the application's own that a gateway (Comgate, GoPay, Stripe) may send a payer
+        // back to (https only); any other return address is refused before the gateway is called (Onhost\Providers\Payments\ReturnUrls)
+        'return_hosts' => array_values(array_filter(array_map('trim', explode(',', (string) env('PAYMENT_RETURN_HOSTS', ''))))),
         'comgate' => [
             'merchant' => env('COMGATE_MERCHANT'),
             'secret_ref' => env('COMGATE_SECRET_REF', 'env://COMGATE'),
@@ -808,4 +812,22 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
         'secret_overlap_minutes' => max(0, min(1440, (int) env('ONHOST_WEBHOOK_SECRET_OVERLAP_MINUTES', 60))),
     ],
     // ── end G7 ──
+    // ── H3 (TASK-0121): what of a quote line's config the customer reads (Presenters::quoteLines) — an allow-list; the stored quote
+    // keeps everything. `executor` and `entitlements` are never shown, whatever this list says (vendor neutrality, the plan's internals) ──
+    'quote' => [
+        'customer_line_config' => [
+            'line_id', 'parent_line_id', 'parent_service_id', 'label', 'hostname', 'fqdn', 'domain', 'aliases', 'tld', 'period_years', 'action', 'discount_label',
+            'region', 'region_code', 'image', 'egg', 'version', 'options', 'options_priced', 'periods_billed', 'price_region', 'price_region_pct', 'loyalty_pct',
+            'sla_class', 'upgrade_of', 'plan_change', 'limit_raise', 'loyalty',
+        ],
+        // review L of PR #116: inside these values only these keys (a list such as options_priced: per item) — prices the customer pays,
+        // never a cost, a margin or who on the staff approved something (`limit_raise.waived` is shown only as true)
+        'customer_line_config_nested' => [
+            'options_priced' => ['key', 'label', 'qty', 'unit_net', 'net'],
+            'plan_change' => ['from_plan', 'to_plan', 'fraction', 'old_net_minor', 'new_net_minor', 'period', 'from_period', 'period_change', 'unused_credit_minor', 'service_id'],
+            'limit_raise' => ['service_id', 'metric', 'units', 'delta', 'option_key', 'label', 'unit_price_minor', 'months', 'list_net_minor', 'waived'],
+            'loyalty' => ['points', 'value_minor', 'eligible_lines', 'rate_micro', 'rate_amount', 'rate_valid_on'],
+        ],
+    ],
+    // ── end H3 ──
 ];

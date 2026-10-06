@@ -25,8 +25,13 @@ image — not built); only then may a plan sell more, and the revision's number 
 
 **Quota per organization:** 20 GB and 5 images (`ONHOST_CUSTOM_ISO_ORG_QUOTA_MB=20480`, `ONHOST_CUSTOM_ISO_ORG_MAX_IMAGES=5`).
 
-**Price:** none proposed — the feature is part of the plan. An add-on that grants it per server (an `Addons` patch of `custom_iso`) is
-possible later; it is not built.
+**Price:** none proposed for the plans — the feature is part of the plan.
+
+**Add-on (H1, TASK-0121) — built, not on sale:** product `custom-iso`, plan `iso-4g` („Vlastní ISO do 4 GB“), for a VPS/VDS whose plan
+does not include it. It is seeded as a **draft** with a proposed price of **99 Kč / 990 Kč a year** (EUR 3,99 / 39,90) before VAT. The owner
+decides the price and whether to sell it at all; publishing it (state `active` in the plan editor) offers it under `vps` and `vds` in the
+cart. Buying it patches `custom_iso` / `custom_iso_max_mb` on that one server; cancelling it takes them back (runbook, `Addons::CUSTOM_ISO`).
+On a running catalogue (the seeder is not part of a deployment) the product is created in the plan editor with the same key and values.
 
 ## How it is applied (after the owner's yes)
 

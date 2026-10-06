@@ -61,6 +61,7 @@ final class GenerateRoleMatrix extends Command
         ['Vrátit platbu objednávky na kartu nebo účet při odstoupení (G6)', 'POST /v1/staff/payments/{payment}/refund', 'billing.refund.execute'],
         ['Potvrdit odeslání bankovní vratky (G6)', 'POST /v1/staff/payments/refunds/{refund}/confirm', 'billing.refund.execute'],
         ['Zrušit čekající bankovní vratku (G6)', 'POST /v1/staff/payments/refunds/{refund}/cancel', 'billing.refund.execute'],
+        ['Zobrazit vratky, které nikdo znovu nevyplatil (H3)', 'GET /v1/staff/payments/refunds/not-paid-out', 'staff.billing.read'],
         ['Přečíst reporty (MRR, churn)', 'GET /v1/staff/reports/mrr', 'report.read'],
         ['Zobrazit ceník a verze tarifů', 'GET /v1/staff/pricing', 'catalog.manage'],
         ['Upravit šablony zpráv', 'GET /v1/staff/templates', 'notification.template.manage'],

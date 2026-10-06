@@ -7986,7 +7986,7 @@ paths:
                   -
                     $ref: '#/components/schemas/List'
         '422':
-          description: 'Validation or domain rule violation — error: `domain_action_invalid`'
+          description: 'Validation or domain rule violation — error: `domain_action_invalid`, `payment_return_url_invalid`'
           content:
             application/json:
               schema:
@@ -7995,7 +7995,7 @@ paths:
                     $ref: '#/components/schemas/Problem'
                   -
                     properties:
-                      error: { enum: [domain_action_invalid] }
+                      error: { enum: [domain_action_invalid, payment_return_url_invalid] }
         '429':
           description: 'Rate limited'
           content:
@@ -26878,6 +26878,72 @@ paths:
         -
           session: []
       x-token-scope: null
+  /staff/payments/refunds/not-paid-out:
+    get:
+      operationId: getStaffPaymentsRefundsNotPaidOut
+      tags:
+        - staff-payments
+      summary: 'GET /staff/payments/refunds/not-paid-out'
+      parameters:
+        -
+          $ref: '#/components/parameters/LimitOnly'
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    type: object
+                    required:
+                      - rows
+                      - total
+                      - payable
+                    properties:
+                      rows: { type: array, items: { type: object, properties: { refund_id: { type: string }, payment_id: { type: string }, organization_id: { type: [string, 'null'] }, provider: { type: [string, 'null'] }, order: { type: [string, 'null'] }, credit_note: { type: [string, 'null'] }, amount: { type: object }, cancelled_at: { type: [string, 'null'], format: date-time }, days: { type: [integer, 'null'] } } } }
+                      total: { type: object, additionalProperties: { type: integer } }
+                      payable: { type: object, additionalProperties: { type: integer } }
+        '422':
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+      x-token-scope: null
+      description: 'Refunds to the source of payment whose bank payout was cancelled (returned by the bank, a wrong account) and that no pending or paid refund carries since: the credit note, order, payment, organization, amount, when the payout was cancelled and how many days it waits (`rows`), the sum per currency (`total`) and the balance of every `liability:refund_payable:<provider>:<currency>` account that holds something (`payable`, the payouts on their way included). Read-only (`staff.billing.read`); paying out again is `POST /staff/payments/{payment}/refund` with the same amount, which reuses the credit note. Also `php artisan onhost:billing:refunds-not-paid-out`.'
   '/staff/payments/refunds/{refund}/cancel':
     post:
       operationId: postStaffPaymentsRefundsByRefundCancel

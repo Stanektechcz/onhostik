@@ -423,6 +423,62 @@ oznámení „Nový doklad …“ v `/panel/fakturace`. Pro srovnání faktura n
 
 ---
 
+## F7-15 Vratky, které nikdo znovu nevyplatil (H3)
+
+**Předem:** vratka platby objednávky bankou při odstoupení (G6), kterou finance **zrušila** (`POST /v1/staff/payments/refunds/{refund}/cancel`,
+např. banka platbu vrátila).
+
+**Kroky**
+
+1. Jako finance (role `billing_finance_admin` nebo `billing_operator`): `GET /v1/staff/payments/refunds/not-paid-out`.
+2. Na serveru: `php artisan onhost:billing:refunds-not-paid-out` (s `--json` strojově).
+3. Vratku vyplatit znovu (stejná částka, `POST /v1/staff/payments/{payment}/refund`) a report spustit znovu.
+
+**Očekávaný výsledek**
+
+- Report uvádí dobropis, objednávku, platbu, organizaci, částku, kdy byla výplata zrušena a kolik dní čeká; součet podle měny a zůstatek
+  účtu `liability:refund_payable:<poskytovatel>:<měna>` (ten obsahuje i výplaty, které jsou na cestě).
+- Příkaz skončí s kódem 1, dokud nějaká vratka čeká („owed in CZK: …“); bez čekajících vratek kód 0 a „no cancelled refund waits“.
+- Po nové výplatě (čekající nebo vyplacené) dobropis z reportu zmizí; nový dobropis nevznikne (použije se ten původní).
+- Podpora (`support_l1`) dostane 403, zákazník k trase nemá přístup. Čtení se zapíše do auditu (StaffReadAudit).
+
+**Automaticky:** `RefundsNotPaidOutTest` (H3).
+
+---
+
+## F7-16 Odhad vratky podle toho, co zákazník skutečně zaplatil (H3)
+
+**Kroky:** objednat roční webhosting s uplatněnými věrnostními body (F7-08b) a zaplatit z kreditu. V `/panel/sluzby` → detail →
+řádek „Vrácení kreditu (chargeback)“ a „Odstoupení od smlouvy (14 dní)“ si přečíst odhad; pak odstoupit (nebo projít chargeback) a
+porovnat odhad s dobropisem.
+
+**Očekávaný výsledek**
+
+- Odhad („nyní by se vrátilo …“, „vrátí se odhadem …“) je nižší o podíl bodů, který se s řádkem vrací — tedy z ceny, kterou zákazník
+  zaplatil, ne z ceníkové ceny řádku. Řádky odhadu nesou `redemption_minor` (podíl bodů).
+- Dobropis vrátí na kredit přesně tolik, kolik odhad slíbil (u částečně uplynulého období podle dnů); body se vrátí ve stejném podílu.
+- Služba koupená bez bodů: odhad se nemění (`redemption_minor` 0).
+
+**Automaticky:** `RefundEstimateTest` (H3).
+
+---
+
+## F7-17 Návratové adresy platební brány (H3)
+
+**Kroky:** zaplatit objednávku kartou přes Comgate a v požadavku poslat `payment.return_urls` (`POST /v1/orders`) jednou s adresou
+portálu, jednou s cizí doménou (`https://example.com/…`).
+
+**Očekávaný výsledek**
+
+- Adresa portálu (`ONHOST_PORTAL_URL`) nebo aplikace (`APP_URL`) projde, brána po zaplacení vrátí zákazníka zpět do portálu.
+- Cizí doména, relativní adresa, `//host`, `javascript:`, adresa se jménem a heslem nebo jiný port: **422** `payment_return_url_invalid`
+  ještě před voláním brány. Další hosty (jen https) povoluje `PAYMENT_RETURN_HOSTS` (platí pro Comgate, GoPay i Stripe).
+- Bez `return_urls` platí adresy nastavené u obchodníka v Comgate.
+
+**Automaticky:** `ComgateReturnUrlTest` (H3); nabídka v košíku ukazuje z konfigurace řádku jen povolené klíče (`QuoteLinesAllowListTest`).
+
+---
+
 ## Pokrytí E2E testem
 
 | Případ | Test v `BillingDunningFlowTest` |
@@ -435,3 +491,4 @@ oznámení „Nový doklad …“ v `/panel/fakturace`. Pro srovnání faktura n
 | F7-08, F7-09 | mimo E2E; viz `LoyaltyClawbackTest`, `G4NoCashRefundTest`, `RefundableBalanceTest` |
 | F7-08b | `LoyaltyRedeemFlowTest`: „redeems points in the cart, spends them with the card payment, shows them on the document and gives them back with a credit note“ |
 | F7-13, F7-14 | mimo E2E; viz `PaidInvoiceWordingTest`, `ReinstateDoctorTest` (G6) |
+| F7-15, F7-16, F7-17 | mimo E2E; viz `RefundsNotPaidOutTest`, `RefundEstimateTest`, `ComgateReturnUrlTest`, `QuoteLinesAllowListTest` (H3) |
