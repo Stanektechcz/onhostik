@@ -90,12 +90,12 @@ final class GenerateOpenApi extends Command
         // G6 (owner decisions G-R1, G-R4): an order payment back to its source on a consumer's withdrawal; bank payouts confirmed
         'POST /staff/payments/{payment}/refund' => [
             'description' => 'Finance gives the payment of an ORDER back to its source (card, or a bank payout) when a consumer withdrew within fourteen days and did not agree to credit. Needs the ticket holding the consumer\'s notice; every service of the refunded lines must have ended. Writes a credit note of the order\'s document first; never more than is left of the payment or of the document. HIGH: a fresh step-up; from `onhost.billing.refund_approval_threshold` on CRITICAL with a second person (`approval_ids`). A card refund is announced (`payment.refunded`); a bank refund stays `pending` until confirmed.',
-            'body' => ['required' => ['amount', 'sent_at', 'reason'], 'properties' => [
+            'body' => ['required' => ['amount', 'sent_at', 'reason', 'ticket_id'], 'properties' => [
                 'amount' => ['type' => 'number', 'minimum' => 0.01, 'description' => 'In the currency of the payment, major units.'],
                 'sent_at' => ['type' => 'string', 'format' => 'date-time', 'description' => 'When the consumer sent the withdrawal: decides the fourteen days.'],
                 'reason' => ['type' => 'string', 'minLength' => 5, 'maxLength' => 250],
                 'ticket_id' => ['type' => 'string', 'maxLength' => 40, 'description' => 'The ticket of this customer that holds the withdrawal notice.'],
-            ], 'required' => ['amount', 'sent_at', 'reason', 'ticket_id']],
+            ]],
             'errors' => ['403' => ['withdrawal_consumers_only', 'approval_required'], '409' => ['refund_exceeds_payment', 'refund_exceeds_document', 'refund_document_booked', 'refund_document_missing', 'refund_service_still_running', 'refund_approval_required', 'withdrawal_period_over', 'payment_not_refundable', 'idempotency_key_reused'], '422' => ['topup_not_refundable', 'refund_payment_not_order', 'refund_evidence_mismatch', 'withdrawal_sent_before_order', 'withdrawal_sent_in_future']],
         ],
         'POST /staff/payments/refunds/{refund}/confirm' => [
