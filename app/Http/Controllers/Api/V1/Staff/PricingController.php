@@ -14,9 +14,11 @@ use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Catalog\Models\ProductOption;
 use Onhost\Domain\Catalog\Models\PromoCode;
 use Onhost\Domain\Catalog\PanelNavigation;
+use Onhost\Domain\Catalog\PenpotOffer;
 use Onhost\Domain\Catalog\PlanVersioning;
 use Onhost\Domain\Catalog\PricingRules;
 use Onhost\Domain\Services\DeletionPolicy;
+use Onhost\Domain\Services\Penpot\PenpotParents;
 use Onhost\Platform\Commands\CommandScope;
 
 /**
@@ -133,6 +135,34 @@ final class PricingController extends ApiController
         $data = $request->validate(['product_key' => ['required', 'string', 'max:60'], 'addon_products' => ['present', 'array', 'max:20'], 'addon_products.*' => ['string', 'max:60']]);
 
         return $this->catalog($request, 'catalog.addon_products:'.$data['product_key'], ['op' => 'pricing.addon_products.set', 'product_key' => $data['product_key'], 'addon_products' => $data['addon_products']]);
+    }
+
+    /**
+     * Penpot next to the web hosting tariffs (owner decision H-R7): per tariff included or a monthly price, the rule a tariff
+     * without its own follows, the add-on price other services pay (the plan editor of penpot/penpot-team changes it) and
+     * whether a qualified node can run a Penpot now.
+     */
+    public function penpot(Request $request, PenpotOffer $offer): JsonResponse
+    {
+        $this->api->authorize($request, 'catalog.manage', CommandScope::global());
+
+        return $this->ok($offer->overview() + ['deliverable' => PenpotParents::deliverable(null)]);
+    }
+
+    /** The whole set of Penpot rules, replaced at once: a price, so a step-up and a second person, bound to the rules it replaces. */
+    public function setPenpot(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'web_default' => ['nullable', 'array'], 'web_default.included' => ['nullable', 'boolean'], 'web_default.price_minor' => ['nullable', 'array'], 'web_default.price_minor.*' => ['integer', 'min:0', 'max:10000000'],
+            'plans' => ['present', 'array', 'max:200'], 'plans.*' => ['array'], 'plans.*.included' => ['nullable', 'boolean'], 'plans.*.price_minor' => ['nullable', 'array'], 'plans.*.price_minor.*' => ['integer', 'min:0', 'max:10000000'],
+            'reason' => self::REASON,
+        ]);
+        $config = ['plans' => (array) $data['plans']];
+        if (isset($data['web_default'])) {
+            $config['web_default'] = (array) $data['web_default'];
+        }
+
+        return $this->catalog($request, 'catalog.penpot', ['op' => 'pricing.penpot.set', 'config' => $config], $data['reason'] ?? null);
     }
 
     /** Every version of a plan with its prices and who is on it (H01): the impact of a change before it is made. */

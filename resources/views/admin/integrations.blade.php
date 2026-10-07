@@ -223,6 +223,21 @@
     </form>
   </section>
 
+  <section class="panel" id="penpot">
+    <h2>Penpot k tarifům webhostingu</h2>
+    <p class="lead">Penpot se objednává ke službě (rozhodnutí vlastníka H-R7). U každého tarifu webhostingu určíte, zda je Penpot v ceně, nebo za kolik měsíčně (bez DPH, v haléřích / centech; rok = 12 měsíců, žádná sleva se nepřidává). Cena <strong>0</strong> znamená „v ceně“. K ostatním službám se Penpot prodává za cenu doplňku z ceníku tarifu <code>penpot / penpot-team</code> (mění se v editoru tarifů). Změna je cena: chce druhé ověření a schválení druhou osobou. Bez kvalifikovaného uzlu Penpot košík objednávku odmítne.</p>
+    <p class="hint" id="pp-state">Načítám…</p>
+    <table id="pp-tariffs">
+      <thead><tr><th>Tarif</th><th>Rodina</th><th>V ceně</th><th>Cena CZK / měsíc (haléře)</th><th>Cena EUR / měsíc (centy)</th><th>Pravidlo</th></tr></thead>
+      <tbody><tr><td colspan="6" class="muted">Načítám…</td></tr></tbody>
+    </table>
+    <div class="grid" style="margin-top:12px">
+      <div class="field span2"><label><input id="pp-default-included" type="checkbox" checked> tarif bez vlastního pravidla (i nově přidaný) má Penpot v ceně</label></div>
+      <div class="field span2"><label for="pp-reason">Důvod změny (čte ho schvalovatel)</label><input id="pp-reason" maxlength="250" placeholder="Penpot u tarifu Start za příplatek"></div>
+      <div class="actions span2"><button class="btn primary" type="button" id="pp-save">Uložit Penpot u tarifů</button></div>
+    </div>
+  </section>
+
   <section class="panel" id="bank">
     <h2>Bankovní platby</h2>
     <p class="lead">Převody nemají webhook: příchozí platby se párují podle variabilního symbolu a částky na čekající zálohové faktury a dobití kreditu. S tokenem Fio API (<code>ONHOST_BANK_FIO_TOKEN</code>) se výpis stahuje automaticky každých 5 minut; platbu z výpisu jiné banky zaznamenejte ručně níže. Spárování zaplatí zálohovou fakturu a spustí zřízení služeb (u dobití připíše kredit) a vystaví doklad o přijetí platby. Stejný řádek výpisu se nikdy nezaúčtuje dvakrát.</p>
@@ -758,6 +773,37 @@
       .catch(function (e) { say(e.message, false); log('Chyba', e.payload || e.message); });
   });
 
+  /* ── Penpot per web hosting tariff (owner decision H-R7): included or a monthly price; a price change takes four eyes ── */
+  var penpot = { data: null };
+  function renderPenpot() {
+    var d = penpot.data; if (!d) return;
+    var addon = (d.addon && d.addon.prices || []).filter(function (p) { return p.period === 'month'; }).map(function (p) { return (p.amount_minor / 100).toFixed(2) + ' ' + p.currency; }).join(' / ');
+    $('pp-state').textContent = 'Produkt Penpot: ' + ((d.addon && d.addon.state) || 'chybí') + '; doplněk k ostatním službám: ' + (addon || '—') + ' měsíčně; uzel Penpot: ' + (d.deliverable ? 'připraven' : 'žádný kvalifikovaný — objednávky se odmítají') + (d.configured ? '' : '; pravidla zatím nejsou uložená (platí výchozí: v ceně)') + '.';
+    $('pp-default-included').checked = !(d.web_default && d.web_default.included === false);
+    $('pp-tariffs').querySelector('tbody').innerHTML = (d.tariffs || []).length ? d.tariffs.map(function (t) {
+      var prices = t.price_minor || {};
+      return '<tr data-pp="' + esc(t.target) + '"><td>' + esc(t.product + ' ' + t.plan) + '<br><small class="muted mono">' + esc(t.target) + '</small></td><td>' + esc(t.family) + '</td>'
+        + '<td><input type="checkbox" data-pp-included' + (t.included ? ' checked' : '') + '></td>'
+        + '<td><input type="number" min="0" step="1" data-pp-cur="CZK" value="' + esc(prices.CZK != null ? prices.CZK : '') + '" placeholder="0" style="width:110px"></td>'
+        + '<td><input type="number" min="0" step="1" data-pp-cur="EUR" value="' + esc(prices.EUR != null ? prices.EUR : '') + '" placeholder="0" style="width:110px"></td>'
+        + '<td class="muted">' + (t.explicit ? 'vlastní' : 'výchozí') + '</td></tr>';
+    }).join('') : '<tr><td colspan="6" class="muted">Žádný tarif webhostingu v katalogu.</td></tr>';
+  }
+  function loadPenpot() { return api('GET', '/staff/pricing/penpot').then(function (r) { penpot.data = r.data || r; renderPenpot(); }); }
+  $('pp-save').addEventListener('click', function () {
+    var plans = {};
+    $('pp-tariffs').querySelectorAll('tr[data-pp]').forEach(function (row) {
+      var entry = { included: row.querySelector('input[data-pp-included]').checked, price_minor: {} };
+      row.querySelectorAll('input[data-pp-cur]').forEach(function (i) { if (i.value !== '') entry.price_minor[i.getAttribute('data-pp-cur')] = parseInt(i.value, 10); });
+      if (entry.included) entry.price_minor = {};
+      plans[row.getAttribute('data-pp')] = entry;
+    });
+    var body = { plans: plans, web_default: { included: $('pp-default-included').checked }, reason: $('pp-reason').value.trim() || undefined };
+    guarded(function () { return api('PUT', '/staff/pricing/penpot', body); })
+      .then(function (r) { say('Penpot u tarifů uložen', true); log('Penpot u tarifů', r); return loadPenpot(); })
+      .catch(function (e) { say(e.message, false); log('Chyba', e.payload || e.message); });
+  });
+
   /* ── Bankovní platby: čekající převody, ruční záznam řádku výpisu, Fio sync ───────────────────── */
   var bank = { data: null };
   function mny(a) { if (a == null) return '—'; if (typeof a === 'number') return a.toFixed(2); if (typeof a === 'string') return a; if (a.decimal != null) return String(a.decimal); if (a.amount != null) return String(a.amount); if (a.minor != null) return (a.minor / 100).toFixed(2); return JSON.stringify(a); }
@@ -843,7 +889,7 @@
       .catch(function (e) { say(e.message, false); log('Chyba', e.payload || e.message); });
   });
 
-  loadSchema().then(loadInstances).then(loadPlacements).then(loadRegistrars).then(loadPricing).then(loadBank).then(loadNav).catch(function (e) { say('Nelze načíst nastavení: ' + e.message, false); });
+  loadSchema().then(loadInstances).then(loadPlacements).then(loadRegistrars).then(loadPricing).then(loadPenpot).then(loadBank).then(loadNav).catch(function (e) { say('Nelze načíst nastavení: ' + e.message, false); });
 })();
 </script>
 </body>

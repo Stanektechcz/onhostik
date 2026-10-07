@@ -9,6 +9,7 @@ use Onhost\Domain\Catalog\CatalogService;
 use Onhost\Domain\Catalog\Models\PlanVersion;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Catalog\Models\PromoCode;
+use Onhost\Domain\Catalog\PenpotOffer;
 use Onhost\Domain\Catalog\PricingRules;
 use Onhost\Domain\Loyalty\LoyaltyRedemptions;
 use Onhost\Domain\Orders\Models\ConsentDocument;
@@ -54,6 +55,7 @@ final class QuoteService
         private readonly TaxEngine $tax,
         private readonly PricingRules $rules,
         private readonly LimitRaiseLine $limitRaise,
+        private readonly PenpotLine $penpot,
     ) {}
 
     /**
@@ -176,8 +178,11 @@ final class QuoteService
         $renewalTotal = Money::zero($currency);
 
         $raised = []; // limit raises of this cart per service and number (LimitRaiseLine)
+        $penpots = []; // services and cart lines this cart already gives a Penpot (PenpotLine, H-R7)
+        $cartLines = []; // line id → cart line: the parent a Penpot line is priced by
         $parentProducts = []; // cart lines that may carry add-ons (line id → product key)
         foreach ($items as $index => $item) {
+            $cartLines[(string) ($item['line_id'] ?? ('l'.($index + 1)))] = $item;
             if (($item['product_key'] ?? '') !== 'domain' && empty($item['config']['parent_line_id'])) {
                 $parentProducts[(string) ($item['line_id'] ?? ('l'.($index + 1)))] = (string) ($item['product_key'] ?? '');
             }
@@ -235,6 +240,16 @@ final class QuoteService
                 $lines[] = $line;
                 $subtotal = $subtotal->add($line['unit_net']);
                 $discount = $discount->add($line['discount']);
+                $renewalTotal = $renewalTotal->add($line['renewal_net']);
+
+                continue;
+            }
+            if ($productKey === PenpotOffer::PRODUCT) { // one Penpot for one service, priced by that service's tariff (owner decision H-R7)
+                $line = $this->penpot->build($organization, $item, $cartLines, $currency, $lineId, $commitMonths >= 12 ? 'year' : 'month', $penpots, $locale);
+                $versions['plans'][] = $line['plan_version_id'];
+                $versions['prices'][] = $line['price_id'];
+                $lines[] = $line;
+                $subtotal = $subtotal->add($line['unit_net']);
                 $renewalTotal = $renewalTotal->add($line['renewal_net']);
 
                 continue;

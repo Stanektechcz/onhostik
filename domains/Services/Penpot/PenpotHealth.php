@@ -7,6 +7,7 @@ namespace Onhost\Domain\Services\Penpot;
 use Carbon\Carbon;
 use Onhost\Domain\Catalog\CatalogPreflight;
 use Onhost\Domain\Catalog\Models\Product;
+use Onhost\Domain\Catalog\PenpotOffer;
 use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\Scheduling\NodeScheduler;
@@ -30,15 +31,24 @@ final class PenpotHealth
         $product = Product::query()->where('key', PenpotInstances::PRODUCT)->first();
         $onSale = $product !== null && $product->state === 'active';
         $nodes = $this->usableNodes();
+        // H-R7 (TASK-0128): Penpot is on sale before its node exists; the cart and the delivery refuse a Penpot no node can run
+        // (penpot_unavailable, nothing charged / the line refunded), so a missing node is a finding to act on, not a deploy blocker
         $rows = [[
-            'area' => 'penpot', 'check' => 'Penpot is sold only with a Penpot node to run it', 'ok' => ! $onSale || $nodes > 0, 'blocking' => $onSale,
+            'area' => 'penpot', 'check' => 'Penpot is sold only with a Penpot node to run it', 'ok' => ! $onSale || $nodes > 0, 'blocking' => false,
             'detail' => match (true) {
-                $product === null => 'not in the catalogue: the proposal 2026-10-penpot waits for the owner (php artisan onhost:catalog:revise 2026-10-penpot)',
+                $product === null => 'not in the catalogue: php artisan onhost:catalog:revise 2026-10-penpot-on-sale (dry run), then --apply',
                 ! $onSale => "not on sale (draft); usable Penpot nodes: {$nodes}",
+                $nodes === 0 => 'on sale, but no qualified Penpot node: the cart refuses every Penpot order (penpot_unavailable) and nothing is charged',
                 default => "on sale; usable Penpot nodes: {$nodes}",
             },
-            'remedy' => $onSale && $nodes === 0 ? 'take Penpot off sale, or register a Penpot node (docs/runbooks/penpot.md: server prerequisites, provider instance `penpot`, node role `penpot`)' : '',
+            'remedy' => $onSale && $nodes === 0 ? 'register and qualify a Penpot node (docs/runbooks/penpot.md: server prerequisites, provider instance `penpot`, node role `penpot`), or take Penpot off sale' : '',
         ]];
+        $offer = app(PenpotOffer::class);
+        $tariffs = $offer->overview()['tariffs'];
+        $included = count(array_filter($tariffs, fn (array $t) => $t['included']));
+        $rows[] = ['area' => 'penpot', 'check' => 'Penpot has a rule for every web hosting tariff', 'ok' => $offer->configured() || $product === null, 'blocking' => false,
+            'detail' => ($offer->configured() ? '' : 'not written yet, the owner\'s defaults apply; ').count($tariffs).' web hosting tariff(s): '.$included.' include Penpot, '.(count($tariffs) - $included).' price it; any other service: the catalogue price of penpot/penpot-team',
+            'remedy' => $offer->configured() || $product === null ? '' : 'php artisan onhost:catalog:revise 2026-10-penpot-on-sale --apply (or save the Penpot editor in /sprava/nastaveni/integrace)'];
         $priced = true;
         $priceDetail = $product === null ? 'no product yet' : 'every price of the plan is set';
         if ($product !== null) {
@@ -58,6 +68,18 @@ final class PenpotHealth
         $rows[] = ['area' => 'penpot', 'check' => 'every Penpot instance answers', 'ok' => $down === [] && $unprobed === 0, 'blocking' => false,
             'detail' => $running->isEmpty() ? 'no Penpot instance runs' : count($running).' running, '.count($down).' not answering'.($down === [] ? '' : ' ('.implode(', ', array_slice($down, 0, 5)).')').", {$unprobed} without a recent probe",
             'remedy' => $down === [] && $unprobed === 0 ? '' : 'php artisan onhost:penpot:sweep; on the node: docker compose -p <stack> ps / logs (docs/runbooks/penpot.md)'];
+
+        // H-R7: a Penpot belongs to a service; one whose service failed or ended (and was not ended with it) is served for nothing
+        $orphans = Service::query()->where('family', PenpotInstances::FAMILY)->whereIn('state', [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED, ServiceStateMachine::SUSPENDED])->whereNull('terminate_at')->get(['id', 'organization_id', 'hostname', 'tags'])
+            ->filter(function (Service $penpot): bool {
+                $parentId = (string) data_get($penpot->tags, 'parent_service_id', '');
+                $parent = $parentId === '' ? null : Service::query()->where('organization_id', $penpot->organization_id)->find($parentId, ['id', 'state', 'terminate_at']);
+
+                return $parentId !== '' && ($parent === null || $parent->terminate_at !== null || in_array($parent->state, [ServiceStateMachine::FAILED, ServiceStateMachine::TERMINATING, ServiceStateMachine::TERMINATED], true));
+            })->map(fn (Service $s) => (string) ($s->hostname ?: $s->id))->values()->all();
+        $rows[] = ['area' => 'penpot', 'check' => 'no Penpot outlives the service it was ordered for', 'ok' => $orphans === [], 'blocking' => false,
+            'detail' => $orphans === [] ? 'every Penpot belongs to a running service' : 'its service failed or ended: '.implode(', ', array_slice($orphans, 0, 10)),
+            'remedy' => $orphans === [] ? '' : 'cancel the Penpot (staff console, terminate) or move it to another service of the customer; a failed parent order line was refunded'];
 
         // TASK-0123 security review of PR #119: the nodes themselves (M4, M2) and the images (L)
         $nodes = ProviderInstance::query()->platform()->where('provider', 'penpot')->where('state', '!=', 'disabled')->orderBy('key')->get();

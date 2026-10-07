@@ -120,6 +120,7 @@ final class StaffReadAudit
         'v1/staff/oncall/shifts.ics' => 'staff on-call shifts (calendar)',
         'v1/staff/placements' => 'plan placement rules',
         'v1/staff/pricing' => 'the price list',
+        'v1/staff/pricing/penpot' => 'Penpot rules per web hosting tariff (H-R7): catalogue data, no customer',
         'v1/staff/pricing/plans/{product}/{plan}/versions' => 'versions of a plan',
         'v1/staff/probes' => 'platform probes',
         'v1/staff/provisioning/load' => 'node load',

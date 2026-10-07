@@ -77,7 +77,18 @@ final class CatalogRevise extends Command
         $this->line("Revision {$revision}: ".(string) CatalogRevisions::REVISIONS[$revision]['reason']);
         foreach ($rows as $row) {
             if ($row['kind'] === 'create') { // a product the code defines and this catalogue does not have yet
-                $this->line("  create product {$row['target']} ({$row['definition']['family']}, {$row['definition']['name']['cs']}): no plan and no price of its own; four eyes in the console, the system actor here");
+                $priced = array_filter((array) ($row['definition']['plans'] ?? []), fn ($plan) => ! empty($plan['prices']));
+                $this->line("  create product {$row['target']} ({$row['definition']['family']}, {$row['definition']['name']['cs']}): ".($priced === [] ? 'no plan and no price of its own' : 'with its plan(s) at the defined monthly prices ('.implode('; ', array_map(fn (string $plan, array $definition) => $plan.' '.json_encode($definition['prices']), array_keys($priced), $priced)).', a year = 12 months), state '.($row['definition']['state'] ?? 'draft')).'; four eyes in the console, the system actor here');
+
+                continue;
+            }
+            if ($row['kind'] === 'priced') { // the untouched draft of an older proposal (H-R7)
+                $this->line("  price product {$row['target']} (still a draft at zero prices): new plan version(s) at ".json_encode($row['prices']).' a month, then on sale');
+
+                continue;
+            }
+            if ($row['kind'] === 'offer') {
+                $this->line('  write the Penpot rules per web hosting tariff ('.count((array) ($row['rules']['plans'] ?? [])).' tariff(s), every one includes Penpot; a tariff added later follows the same default)');
 
                 continue;
             }
@@ -128,6 +139,8 @@ final class CatalogRevise extends Command
                 'plan' => "  published {$row['target']} v{$row['from']} → v{$row['to']}",
                 'create' => "  created product {$row['target']}",
                 'option' => "  withdrew option {$row['target']}",
+                'priced' => "  priced and put on sale {$row['target']}",
+                'offer' => "  wrote {$row['target']}",
                 default => "  described product {$row['target']}",
             });
         }

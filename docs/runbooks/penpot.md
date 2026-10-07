@@ -6,6 +6,32 @@ and what the operator does day to day. Code: `providers/Penpot/*`, `domains/Serv
 `domains/Provisioning/Workflows/ProvisionPenpotWorkflow.php`, `config/penpot.php`. Tests: `tests/Feature/Penpot/*`,
 `tests/Feature/E2E/PenpotFlowTest.php`. Manual test: `docs/manual-tests/11-penpot.md`.
 
+## Sale and price (owner decision H-R7, 2026-10-07, TASK-0128)
+
+Penpot is **on sale** (revision `2026-10-penpot-on-sale`, replaces the proposal `2026-10-penpot`). It is always ordered **for one
+service** of the customer — never from the price list (`meta.listed = false`) and never on its own:
+
+| Ordered next to | Price | Where it is set |
+| --- | --- | --- |
+| a web hosting tariff (product family `web` or `managed`) | **included (0 Kč)** by default, or the tariff's own monthly price | Nastavení → Integrace → *Penpot k tarifům webhostingu* / `PUT /v1/staff/pricing/penpot` (`CatalogCommand pricing.penpot.set`: step-up + second person, audited). Setting `pricing.penpot`, class `PenpotOffer`. A tariff without its own rule follows `web_default` (included). Price `0` = included. |
+| any other service (VPS, game server, mail …) | the add-on price = catalogue price of `penpot/penpot-team`: **29 Kč / month** (EUR 1.19), a year = 12 months | the plan editor (`plan.publish`, four eyes) |
+
+Rules the code keeps (`PenpotLine`, `PenpotParents`): the cart line is `{product_key: penpot, plan_key: penpot-team, config:
+{parent_line_id | parent_service_id}}`; **one Penpot per service** (a second one, or two in one cart → `409 penpot_exists`); only for a
+running service of the same organization (`penpot_parent_inactive`, foreign id → 404); no commitment, promo, loyalty or regional
+discount (the configured price is the price; an included Penpot is shown "v ceně tarifu", not as a discount); the subscription renews
+at the price it was sold at (0 for an included one). The customer reads the offer for a service at `GET /v1/services/{id}/penpot-offer`.
+A Penpot ends with its service (terminate chain `endPenpotStep`, the cancellation preview says so).
+
+**No node, no sale.** The cart (`409 penpot_unavailable`, nothing ordered or charged), the checkout (a quote is valid 2 h) and the
+delivery (the paid line fails and the order settlement refunds it) each ask `NodeScheduler::canHost(role penpot, provider penpot)`.
+The doctor row *Penpot is sold only with a Penpot node to run it* is a non-blocking FAIL while Penpot is on sale without a qualified
+node. Until the node below exists, Penpot is on the books but every order is refused honestly.
+
+Known gaps: a suspension of the parent does not suspend its Penpot (it ends with the parent's cancellation); undoing the parent's
+cancellation does not undo the Penpot's own cancellation (the customer undoes it on the Penpot service). No order button in the
+panel yet: the cart API above is the way in (the panel seam is a follow-up).
+
 ## Delivery model (and why)
 
 **One Penpot per customer service, run by the platform as its own Docker Compose project on a dedicated Penpot node.**
@@ -20,11 +46,10 @@ and what the operator does day to day. Code: `providers/Penpot/*`, `domains/Serv
 
 How it is wired:
 
-* Product `penpot` (family `penpot`, executor `penpot`), plan `penpot-team` (4 GB RAM, 2 vCPU, 20 GB, backups 14 days). It comes
-  from the catalogue revision **`2026-10-penpot`, a proposal that is prepared and not applied**: `php artisan onhost:catalog:revise
-  2026-10-penpot` previews it, `--apply` creates the product as a **draft** with **zero prices** (`meta.admin_priced`). Staff set
-  the prices in the plan editor (`/sprava/nastaveni/tarify`, `plan.publish`), then `php artisan onhost:catalog:state active penpot`.
-  Putting it on sale is refused (`price_unset`) while any price is zero.
+* Product `penpot` (family `penpot`, executor `penpot`), plan `penpot-team` (4 GB RAM, 2 vCPU, 20 GB, backups 14 days). Since H-R7 it
+  comes from the revision **`2026-10-penpot-on-sale`** (on sale, priced; see *Sale and price* above; the old proposal
+  `2026-10-penpot` is gone — an installation that applied it gets its draft priced and put on sale by the new revision). Putting an
+  `admin_priced` product on sale stays refused (`price_unset`) while any price is zero.
 * Provider instance `provider: penpot` (adapter `PenpotDockerProvider`, SSH as the platform's user), node(s) with role `penpot`.
 * Saga `provision.penpot`: node → secrets in the vault → the stack (`docker compose up -d` + proxy site) → DNS in the platform zone
   → the owner's Penpot profile → the address answers → ACTIVE.

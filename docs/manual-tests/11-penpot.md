@@ -11,30 +11,31 @@ Provozní postup a požadavky na server: `docs/runbooks/penpot.md`.
 | Co | Poznámka |
 | --- | --- |
 | Uzel Penpot | **Zatím žádný neexistuje.** Ruční test jde spustit až po krocích runbooku (server, Docker, Caddy, registrace instance `penpot` a uzlu s rolí `penpot`). Nikdy ne na sdíleném webovém uzlu a nikdy v produkci bez souhlasu vlastníka. |
-| Produkt | Revize katalogu `2026-10-penpot` je **návrh**: `php artisan onhost:catalog:revise 2026-10-penpot --apply` vytvoří koncept s nulovou cenou; administrace nastaví cenu v editoru tarifů a teprve pak `php artisan onhost:catalog:state active penpot`. |
+| Produkt | Od H-R7 (2026-10-07) je Penpot v prodeji: revize `2026-10-penpot-on-sale` (`php artisan onhost:catalog:revise 2026-10-penpot-on-sale`, pak `--apply`) ho vytvoří s cenou 29 Kč/měs. a zapíše pravidla „v ceně“ pro tarify webhostingu. Objednává se vždy ke službě. |
 | Zákazník | Ověřený e-mail; e-mail vlastníka organizace je přihlašovací e-mail do Penpotu. |
 | Druhý zákazník | Jiná organizace — zkoušky „cizí organizace“. |
 | Step-up | Nastavení hesla k Penpotu je vysoké riziko: panel otevře „Potvrďte heslem“, v API `POST /v1/auth/step-up` těsně před akcí. |
 
 ---
 
-## H8-01 Produkt se neprodává, dokud nemá cenu a uzel
+## H8-01 Penpot v prodeji, ale bez uzlu se nic neprodá (H-R7)
 
 **Kroky**
 
-1. Bez aplikované revize: veřejný web ani košík Penpot nenabízí.
-2. `php artisan onhost:catalog:revise 2026-10-penpot` (náhled) — vypíše vytvoření produktu `penpot`; nic nezapíše.
-3. `--apply` — produkt je `draft`, tarif `penpot-team` má ceny 0 (CZK/EUR, měsíc/rok).
-4. `php artisan onhost:catalog:state active penpot` — **musí selhat** s `price_unset`.
-5. `php artisan onhost:doctor` — řádky *Penpot has a price before it is on sale* a *Penpot is sold only with a Penpot node to run it*.
+1. `php artisan onhost:catalog:revise 2026-10-penpot-on-sale` (náhled) — vypíše vytvoření produktu `penpot` s cenou a zápis pravidel u tarifů; nic nezapíše. `--apply` provede.
+2. Bez uzlu Penpot: `GET /v1/services/{webhosting}/penpot-offer` → `orderable: false`, `reason: penpot_unavailable`, `included: true`.
+3. Košík s `{product_key: penpot, plan_key: penpot-team, config: {parent_service_id: <webhosting>}}` → `POST /v1/cart/quote` vrátí **409 `penpot_unavailable`**; nic se neobjednalo ani nestrhlo.
+4. Košík s Penpotem bez rodiče → **422 `penpot_parent_required`**.
+5. `php artisan onhost:doctor` — *Penpot is sold only with a Penpot node to run it* = FAIL (neblokuje), *Penpot has a rule for every web hosting tariff* = OK.
+6. Administrace: Nastavení → Integrace → *Penpot k tarifům webhostingu* — u tarifu Start zrušit „V ceně“, cena 1900 haléřů; uložení chce step-up a schválení druhou osobou; po schválení a opakování je Penpot u Startu za 19 Kč.
 
-**Očekávaný výsledek:** na prodej jde až s cenou a se zaregistrovaným uzlem; doktor jinak hlásí blokující chybu.
+**Očekávaný výsledek:** Penpot je v katalogu, u webhostingu v ceně, k jiné službě za 29 Kč; bez uzlu ho nikdo nezaplatí.
 
 ## H8-02 Objednávka a zřízení
 
 **Kroky**
 
-1. Košík: `PUT /v1/cart` s `items: [{product_key: penpot, plan_key: penpot-team, config: {label: Návrhy}}]`, pak
+1. Košík: `PUT /v1/cart` s `items: [{product_key: penpot, plan_key: penpot-team, config: {label: Návrhy, parent_service_id: <služba zákazníka>}}]`, pak
    `POST /v1/cart/quote` a `POST /v1/orders` (karta, testovací režim brány).
 2. **Před zaplacením:** žádná služba (`GET /v1/services` prázdné), na uzlu žádný adresář v `/srv/onhost-penpot`.
 3. Zaplatit; brána zavolá `POST /v1/webhooks/payments/comgate`.

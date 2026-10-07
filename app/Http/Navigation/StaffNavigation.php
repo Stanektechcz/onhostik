@@ -227,7 +227,7 @@ final class StaffNavigation
             ], all: ['iam.mfa.reset']),
             // ── product ──
             new N('pricing', 'product', 10, 'tag', ['cs' => 'Ceník, slevy a doplňky', 'en' => 'Pricing, discounts and add-ons'], N::SCREEN_PAGE, '/sprava/nastaveni/integrace', [
-                N::get('staff/pricing', 'catalog.manage'),
+                N::get('staff/pricing', 'catalog.manage'), N::get('staff/pricing/penpot', 'catalog.manage'), // H-R7: Penpot per web hosting tariff
             ], all: ['catalog.manage']),
             new N('plans', 'product', 20, 'versions', ['cs' => 'Tarify a verze', 'en' => 'Plans and versions'], N::SCREEN_PAGE, '/sprava/nastaveni/tarify', [
                 N::get('staff/pricing', 'catalog.manage'), N::get('staff/pricing/plans/{product}/{plan}/versions', 'catalog.manage'),

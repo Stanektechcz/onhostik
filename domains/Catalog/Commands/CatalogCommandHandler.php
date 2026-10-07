@@ -11,6 +11,7 @@ use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Catalog\Models\ProductOption;
 use Onhost\Domain\Catalog\Models\PromoCode;
 use Onhost\Domain\Catalog\PanelNavigation;
+use Onhost\Domain\Catalog\PenpotOffer;
 use Onhost\Domain\Catalog\PlanVersioning;
 use Onhost\Domain\Catalog\PricingRules;
 use Onhost\Domain\Services\DeletionPolicy;
@@ -40,6 +41,8 @@ final class CatalogCommandHandler implements CommandHandler
                 return ['deleted' => true];
             })(),
             'pricing.regions.set' => ['regions' => $this->rules->setRegions((array) $command->get('regions', []), $by)],
+            // Penpot next to a web hosting tariff: included or the tariff's price (owner decision H-R7)
+            'pricing.penpot.set' => ['penpot' => app(PenpotOffer::class)->set((array) $command->get('config', []), $by)],
             'pricing.addon_products.set' => ['product_key' => (string) $command->get('product_key'), 'addon_products' => $this->rules->setAddonProducts((string) $command->get('product_key'), (array) $command->get('addon_products', []), $by)],
             'promo.upsert' => ['promo' => $this->upsertPromo((array) $command->get('promo', []))],
             'promo.delete' => (function () use ($command) {

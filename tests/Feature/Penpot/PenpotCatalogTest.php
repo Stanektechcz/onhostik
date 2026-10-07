@@ -18,8 +18,9 @@ use Onhost\Platform\Errors\DomainError;
 use Onhost\Providers\Penpot\PenpotCompose;
 
 /*
- * TASK-0123 — the Penpot product is a proposal the owner applies (revision 2026-10-penpot): created as a draft with its plan and
- * zero prices, priced by staff, and never put on sale while a price is still zero or no Penpot node can run it.
+ * TASK-0123 — the Penpot product. Since owner decision H-R7 (TASK-0128) it is created priced and on sale by the revision
+ * 2026-10-penpot-on-sale (tests/Feature/Penpot/PenpotOfferTest.php); what stays from TASK-0123: a product priced by staff is never
+ * put on sale while a price is still zero, a defined product is created once, and the doctor says when it is sold for nothing.
  */
 
 beforeEach(function () {
@@ -27,38 +28,31 @@ beforeEach(function () {
     $this->seed(CatalogSeeder::class);
 });
 
-it('prepares Penpot as a proposal: a fresh install and a plain revision run do not create it', function () {
-    expect(CatalogRevisions::proposals())->toContain('2026-10-penpot')->and(CatalogRevisions::ids())->not->toContain('2026-10-penpot')
-        ->and(CatalogRevisions::seededProducts())->toBe(['limit-raise']);
-    expect(Product::query()->where('key', 'penpot')->exists())->toBeFalse(); // CatalogSeeder ran: still nothing
-
-    $this->artisan('onhost:catalog:revise', ['--apply' => true, '--yes' => true])->assertSuccessful();
-    expect(Product::query()->where('key', 'penpot')->exists())->toBeFalse();
-
-    $this->artisan('onhost:catalog:revise', ['revision' => '2026-10-penpot'])->assertSuccessful()->expectsOutputToContain('penpot');
-    expect(Product::query()->where('key', 'penpot')->exists())->toBeFalse(); // a preview writes nothing
-});
-
-it('creates the draft product with its plan and zero prices when the owner applies it', function () {
-    $this->artisan('onhost:catalog:revise', ['revision' => '2026-10-penpot', '--apply' => true, '--yes' => true])->assertSuccessful();
-
+/** Penpot as the old proposal left it: a draft at zero prices. */
+function penpotCatalogZeroDraft(): Product
+{
     $product = Product::query()->where('key', 'penpot')->firstOrFail();
-    expect($product->state)->toBe('draft')->and($product->family)->toBe('penpot')->and($product->executor)->toBe('penpot')->and($product->isSellable())->toBeFalse()
-        ->and(data_get($product->meta, 'admin_priced'))->toBeTrue();
+    Price::query()->whereIn('plan_version_id', PlanVersion::query()->whereHas('plan', fn ($q) => $q->where('product_id', $product->id))->pluck('id'))->update(['amount_minor' => 0, 'renewal_amount_minor' => 0]);
+    $product->forceFill(['state' => 'draft'])->save();
+
+    return $product->fresh();
+}
+
+it('creates the product once, with its plan and the defined prices, and never rewrites it', function () {
+    $product = Product::query()->where('key', 'penpot')->firstOrFail();
+    expect($product->family)->toBe('penpot')->and($product->executor)->toBe('penpot')->and(data_get($product->meta, 'admin_priced'))->toBeTrue();
     $plan = Plan::query()->where('product_id', $product->id)->where('key', 'penpot-team')->firstOrFail();
     $version = PlanVersion::query()->where('plan_id', $plan->id)->where('version', 1)->firstOrFail();
     expect($version->entitlements)->toMatchArray(['ram_mb' => 4096, 'cpus' => 2, 'storage_gb' => 20, 'backup_days' => 14]);
     $prices = Price::query()->where('plan_version_id', $version->id)->get();
-    expect($prices)->toHaveCount(4)->and($prices->pluck('amount_minor')->unique()->all())->toBe([0])
-        ->and($prices->map(fn (Price $p) => $p->currency.'/'.$p->period)->sort()->values()->all())->toBe(['CZK/month', 'CZK/year', 'EUR/month', 'EUR/year']);
+    expect($prices)->toHaveCount(4)->and($prices->every(fn (Price $p) => $p->amount_minor > 0))->toBeTrue();
 
-    // a second run finds nothing to create; the product is never rewritten
-    expect(app(CatalogRevisions::class)->pending('2026-10-penpot'))->toBe([]);
+    expect(app(CatalogRevisions::class)->pending('2026-10-penpot-on-sale'))->toBe([]);
     expect(fn () => CatalogRevisions::createDefined('penpot'))->toThrow(DomainError::class);
 });
 
 it('refuses to put Penpot on sale while a price is zero, and the doctor says so', function () {
-    $this->artisan('onhost:catalog:revise', ['revision' => '2026-10-penpot', '--apply' => true, '--yes' => true])->assertSuccessful();
+    penpotCatalogZeroDraft();
     // the operator's switch (system actor, straight to the handler) and the staff pre-flight both refuse it
     $this->artisan('onhost:catalog:state', ['state' => 'active', 'products' => ['penpot']])->assertFailed()->expectsOutputToContain('price_unset');
     try {
@@ -76,7 +70,7 @@ it('refuses to put Penpot on sale while a price is zero, and the doctor says so'
         ->and($rows['Penpot has a price before it is on sale']['detail'])->toContain('zero price on plan(s): penpot-team')
         ->and($rows['Penpot is sold only with a Penpot node to run it']['ok'])->toBeTrue();
 
-    // …put on sale behind the guard's back (a hand edit), it is a blocking finding — and so is selling without a node
+    // …put on sale behind the guard's back (a hand edit), it is a blocking finding; selling without a node is a finding too
     Product::query()->where('key', 'penpot')->update(['state' => 'active']);
     $rows = collect(app(PenpotHealth::class)->checks())->keyBy('check');
     expect($rows['Penpot has a price before it is on sale']['ok'])->toBeFalse()->and($rows['Penpot has a price before it is on sale']['blocking'])->toBeTrue()
