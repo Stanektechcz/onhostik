@@ -82,11 +82,12 @@ final class TicketService
         $targets = $policy?->targetsFor($priority) ?? ['ack' => 60, 'first' => 240, 'next' => 480, 'resolve' => 4320];
         $queue = SupportQueue::query()->where('key', Triage::queueFor($topic))->first() ?? SupportQueue::query()->where('key', 'l1')->first();
 
+        $opened = now(); // TASK-0133: one instant for the ticket and its SLA clocks (a second boundary in between cut the window short)
         $ticket = $this->withNumber(fn (string $number) => Ticket::query()->create([
-            'number' => $number, 'organization_id' => $organization?->id, 'user_id' => $user?->id, 'email' => $email, 'name' => $input['name'] ?? $user?->name ?? $organization?->name, 'subject' => mb_substr($subject, 0, 250),
+            'number' => $number, 'created_at' => $opened, 'updated_at' => $opened, 'organization_id' => $organization?->id, 'user_id' => $user?->id, 'email' => $email, 'name' => $input['name'] ?? $user?->name ?? $organization?->name, 'subject' => mb_substr($subject, 0, 250),
             'category' => $topic, 'priority' => $priority, 'state' => TicketStateMachine::TRIAGED, 'channel' => (string) ($input['channel'] ?? 'portal'), 'queue_id' => $queue?->id, 'service_id' => $service?->id, 'domain_id' => $input['domain_id'] ?? null, 'incident_id' => $input['incident_id'] ?? null,
             'required_skills' => Triage::skillsFor($topic), 'tags' => array_values((array) ($input['tags'] ?? [])), 'sla_policy_id' => $policy?->id,
-            'first_response_due_at' => SlaClock::due(now(), $targets['first'], $policy), 'resolution_due_at' => SlaClock::due(now(), $targets['resolve'], $policy), 'last_customer_message_at' => now(),
+            'first_response_due_at' => SlaClock::due($opened, $targets['first'], $policy), 'resolution_due_at' => SlaClock::due($opened, $targets['resolve'], $policy), 'last_customer_message_at' => $opened,
             'meta' => ['triage' => $triage, 'requested_priority' => $input['priority'] ?? null, 'targets' => $targets],
         ]));
         TicketMessage::query()->create(['ticket_id' => $ticket->id, 'author_type' => $staff ? 'staff' : 'customer', 'author_id' => $user?->id, 'author_name' => $ticket->name, 'visibility' => 'public', 'body' => $body, 'attachments' => $attachments]);
