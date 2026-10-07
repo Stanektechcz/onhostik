@@ -46,6 +46,7 @@ use Onhost\Domain\Services\AvailabilityWatch;
 use Onhost\Domain\Services\ControlPlaneStatus;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Services\Penpot\PenpotBadges;
 use Onhost\Domain\Services\ServiceFreshness;
 use Onhost\Domain\Services\SuspensionHold;
 use Onhost\Domain\Services\UsageWatch;
@@ -704,6 +705,7 @@ final class SurfaceDataController extends Controller
         }
 
         $controlPlane = []; // per provider instance: can the service be managed right now (H324)
+        $penpot = PenpotBadges::for($services, $cs); // TASK-0131: "Penpot v ceně" on a web hosting row, the parent on a Penpot row
         foreach ($services as $s) {
             $spec = (array) ($s->desired_spec ?? []);
             $sub = $subs->get($s->id);
@@ -758,11 +760,11 @@ final class SurfaceDataController extends Controller
             };
             $groups[$category][] = [
                 'id' => $s->id, 'type' => $type, 'name' => $s->label ?: ($s->hostname ?: $s->name), 'spec' => $sizes ?? ($s->name.($spec['php_version'] ?? null ? ' · PHP '.$spec['php_version'] : '')),
-                'meta' => trim(($s->hostname ? $s->hostname.' · ' : '').strtoupper((string) $s->region_code).($s->sla_class !== 'standard' ? ' · SLA '.$s->sla_class : '').($planName ? ' · '.$planName : '').($billing !== '' ? ' · '.$billing : '').$usageNote.$downNote.$deletionNote.$staleNote.$controlNote), 'value' => $s->activated_at?->toDateString() ?? '',
+                'meta' => trim(($s->hostname ? $s->hostname.' · ' : '').strtoupper((string) $s->region_code).($s->sla_class !== 'standard' ? ' · SLA '.$s->sla_class : '').($planName ? ' · '.$planName : '').($billing !== '' ? ' · '.$billing : '').$usageNote.$downNote.$deletionNote.$staleNote.$controlNote.($penpot[$s->id]['note'] ?? '')), 'value' => $s->activated_at?->toDateString() ?? '',
                 'state' => $stateLabel, 'kind' => $kind, 'product' => $s->product_key, 'apiState' => $s->state, 'usage' => $usageTop !== null ? ['level' => $usage['level'] ?? 'ok', 'pct' => $usageTop['pct'], 'metric' => $usageTop['key']] : null,
                 'plan' => $planName, 'period' => $sub?->period, 'renews_at' => $renewsAt?->toIso8601String(), 'monthly' => $monthly, 'renewal' => $renewalAmount !== '' ? $renewalAmount : null,
                 'deletion' => $graceLeft === null ? null : ['grace_until' => $s->terminate_at?->toIso8601String(), 'days_left' => max(0, $graceLeft), 'archive_backup_id' => $deletion['archive_backup_id'] ?? null],
-                'freshness' => $freshness, 'control_plane' => $control, 'suspension' => SuspensionHold::of($s), 'availability' => $availability,
+                'freshness' => $freshness, 'control_plane' => $control, 'suspension' => SuspensionHold::of($s), 'availability' => $availability, 'penpot' => $penpot[$s->id]['penpot'] ?? null,
             ];
             if (in_array($s->family, ['cloud', 'game'], true)) {
                 $health = (array) ($s->health ?? []);

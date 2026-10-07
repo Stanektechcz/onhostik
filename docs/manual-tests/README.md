@@ -19,7 +19,7 @@ brány, skutečné doručení pošty a chování vnějších systémů.
 | F8 | [08-zruseni-konec-uctu.md](08-zruseni-konec-uctu.md) | Zrušení služby a konec účtu | `tests/Feature/E2E/CancellationFlowTest.php` |
 | F9 | [09-role.md](09-role.md) | Role a oprávnění (generováno z kódu) | `tests/Feature/E2E/SharingFlowTest.php` |
 | F10 | [10-api.md](10-api.md) | Veřejné API: klíče, rozsahy, webhooky, ukázky curl | `tests/Feature/E2E/ApiAutomationFlowTest.php` |
-| H8 | [11-penpot.md](11-penpot.md) | Penpot pro zákazníky webhostingu: produkt jen s cenou a uzlem, objednávka, karta, heslo vlastníka (step-up), zálohy, výpadek, zrušení | `tests/Feature/E2E/PenpotFlowTest.php` |
+| H8 | [11-penpot.md](11-penpot.md) | Penpot pro zákazníky webhostingu: produkt jen s cenou a uzlem, objednávka, karta, heslo vlastníka (step-up), zálohy, výpadek, zrušení, objednávka z panelu, štítek „Penpot v ceně“, oznámení o odmítnuté položce | `tests/Feature/E2E/PenpotFlowTest.php` |
 
 F1 až F4 píše skupina „objednávka, web, doména, e-mail“, F5 až F8 jiný pracovník; soubory F5 až F8 mohou přijít
 samostatným slučováním.

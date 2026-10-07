@@ -1,4 +1,4 @@
-# H8 — Penpot pro zákazníky webhostingu: objednávka, karta v panelu, heslo, zálohy, výpadek, zrušení
+# H8 — Penpot pro zákazníky webhostingu: objednávka, karta v panelu, heslo, zálohy, výpadek, zrušení, objednávka z panelu
 
 Ruční test pro vlastníka a QA. Penpot je open-source nástroj pro design a prototypy; ONhost ho zákazníkovi webhostingu
 provozuje jako **vlastní instanci** na samostatném uzlu Penpot (Docker Compose, Caddy, HTTPS). Stejné kroky bez prohlížeče
@@ -82,8 +82,45 @@ běží“ (událost `penpot.instance.recovered`).
 ## H8-06 Pozastavení, zrušení, odstranění
 
 1. Pozastavení (neplacení nebo podpora) → kontejnery stojí, adresa neodpovídá; obnovení je spustí znovu.
+   **S rodičem (H-R7a):** pozastavení webhostingu, ke kterému Penpot patří, pozastaví i Penpot (operace `suspend` u obou);
+   obnovení webhostingu po zaplacení ho spustí znovu. Penpot, který zákazník zastavil sám, obnova rodiče nespouští.
+   Zrušení webhostingu zruší i Penpot; vzetí zrušení zpět ho vrátí.
 2. Zrušení → závěrečný archiv (výpis databáze + soubory) se stáhne z uzlu do úložiště platformy, instance se zastaví.
 3. Po uplynutí ochranné lhůty odstranění → stack, jeho svazky, zálohy na uzlu, web v proxy, DNS záznam i klíče v trezoru zmizí.
+
+## H8-07 Objednávka z panelu a štítek „Penpot v ceně“ (H-R7a, TASK-0130/0131)
+
+Lokálně jen v **sandbox organizaci** a jen čtení + košík; dokud uzel Penpot neexistuje, objednávka skončí poctivým odmítnutím.
+
+**Kroky**
+
+1. Přehled služeb v panelu: řádek webhostingu, jehož tarif Penpot zahrnuje, nese v popisu „Penpot v ceně“ (anglicky
+   „Penpot included“); má-li služba už Penpot, „Penpot v ceně (aktivní)“. Řádek Penpotu v sekci webů říká „ke službě
+   <název webhostingu> · v ceně tarifu“.
+2. Tarif, u kterého staff Penpot zpoplatnil (H8-01 krok 6): řádek bez Penpotu žádný štítek nemá; Penpot vyřazený z prodeje
+   (stav produktu `draft`) → štítek zmizí, řádek s existujícím Penpotem ho dál jmenuje.
+3. Detail webhostingu → záložka Provoz a NOC → řádek „Penpot (návrhy a prototypy)“: stav podle
+   `GET /v1/services/{id}/penpot-offer` (v ceně / cena / proč ne).
+4. Bez uzlu: tlačítko objednávky se nezobrazí, stav říká „teď nedodáme: server pro Penpot není připravený — nic se neobjedná
+   ani nezaplatí“.
+5. S uzlem (jen testovací uzel, se souhlasem vlastníka): „Aktivovat Penpot (v ceně)“ → potvrzení → košík → nabídka →
+   objednávka; panel ohlásí „Penpot objednán …“ a instance se objeví mezi webovými službami.
+
+**Očekávaný výsledek:** štítek odpovídá pravidlům v Nastavení → Integrace → *Penpot k tarifům webhostingu*; cizí organizace
+se v seznamu neobjeví; prototypy `apps/surfaces/*.dc.html` se nemění (štítek je v datech panelu, tlačítko v seamu).
+
+## H8-08 Zaplacená položka bez uzlu: zákazník se to dozví (TASK-0131)
+
+**Kroky**
+
+1. Objednat Penpot (zpoplatněný tarif) a zaplatit z kreditu, pak — ještě před doručením — vyřadit uzel Penpot (stav
+   `maintenance`; jen na testovacím uzlu).
+2. Nechat doběhnout doručení objednávky (fronta outboxu).
+
+**Očekávaný výsledek:** položka selže, žádná služba Penpot nevznikne; zákazník dostane oznámení „Penpot jsme nemohli
+zřídit“ (událost `order.fulfilment_failed` s důvodem `penpot_unavailable`) s textem, že částku za Penpot vracíme (na kredit, nebo odečtením z faktury), a zvlášť
+oznámení o vrácení s částkou (událost `order.refunded`). U Penpotu v ceně tarifu oznámení říká, že se nic neúčtovalo.
+Anglická organizace dostane obojí anglicky. Technici mají interní řádek „problém při zřizování“.
 
 ## Kde hledat při selhání
 
@@ -101,3 +138,5 @@ běží“ (událost `penpot.instance.recovered`).
 | H8-01 | `tests/Feature/Penpot/PenpotCatalogTest.php` |
 | H8-02, H8-03 | `tests/Feature/E2E/PenpotFlowTest.php` |
 | H8-02 negativní, H8-04, H8-05, H8-06 | `tests/Feature/Penpot/PenpotLifecycleTest.php` |
+| H8-06 s rodičem, H8-07 tlačítko | `tests/Feature/Penpot/PenpotWithParentTest.php` |
+| H8-07 štítek, H8-08 | `tests/Feature/Penpot/PenpotLeftoversTest.php` |
