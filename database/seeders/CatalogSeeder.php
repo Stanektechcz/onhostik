@@ -15,6 +15,7 @@ use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Catalog\Models\ProductOption;
 use Onhost\Domain\Catalog\Models\PromoCode;
 use Onhost\Domain\Catalog\Models\TldPolicy;
+use Onhost\Domain\Catalog\PenpotOffer;
 use Onhost\Domain\Domains\Models\RegistrarTldCost;
 use Onhost\Domain\Services\Models\Service;
 
@@ -192,10 +193,14 @@ final class CatalogSeeder extends Seeder
      */
     private function definedProducts(): void
     {
-        foreach (CatalogRevisions::seededProducts() as $key) { // a proposal's product (TASK-0123 Penpot) waits for the owner's --apply
+        foreach (CatalogRevisions::seededProducts() as $key) { // a proposal's product waits for the owner's --apply (Penpot is on sale since H-R7)
             if (! Product::query()->where('key', $key)->exists()) {
                 CatalogRevisions::createDefined($key);
             }
+        }
+        $offer = app(PenpotOffer::class);
+        if (! $offer->configured()) { // H-R7: a fresh install starts with the owner's defaults (every web hosting tariff includes Penpot)
+            $offer->set($offer->defaults());
         }
     }
 

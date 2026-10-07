@@ -196,7 +196,7 @@ workers after every change of configuration).
 
 ## Phase 2 — Catalogue revisions
 
-`onhost:catalog:revise` without an id acts on **every** pending revision; the proposals (`2026-10-custom-iso`, `2026-10-penpot`) are
+`onhost:catalog:revise` without an id acts on **every** pending revision; the proposal `2026-10-custom-iso` is (since H-R7 the Penpot revision `2026-10-penpot-on-sale` is an ordinary revision, see R9/R20) — proposals are
 only acted on by their id. **Always pass the id.** Four eyes apply to `--apply` unless `ONHOST_FOUR_EYES=false` (staging-launch.md O6:
 a recorded solo-owner choice; the system actor applies it from the command line). A revision publishes **new plan versions** and
 never edits old ones: customers keep what they hold.
@@ -243,14 +243,16 @@ never edits old ones: customers keep what they hold.
 * **Rollback:** none (read only).
 * Owner approval: ☐ yes
 
-### R9. Revision `2026-10-penpot`, dry run (prepared, applied only later)
+### R9. Revision `2026-10-penpot-on-sale`, dry run (H-R7: an ordinary revision since 2026-10-07)
 
-* **Purpose:** read what creating the Penpot product does. It is a **proposal prepared and not applied** (TASK-0123, owner decision 7
-  of 2026-10-06): `--apply` creates the product as a **draft** with one plan and **zero prices**.
+* **Purpose:** read what putting Penpot on sale does (owner decision H-R7 of 2026-10-07, TASK-0128): the product `penpot` priced at
+  29 Kč a month (a year = 12 months) and the per-tariff rules "included" for every web hosting tariff. A plain
+  `art onhost:catalog:revise` lists it with the other pending revisions.
 * **Precondition:** none; read only.
-* **Command:** `art onhost:catalog:revise 2026-10-penpot`
-* **Expected:** `create product penpot (…)` with "no plan and no price of its own"; nothing written.
-* **Verify:** the owner reads it; the apply is **R20**, after the Penpot node exists.
+* **Command:** `art onhost:catalog:revise 2026-10-penpot-on-sale`
+* **Expected:** `create product penpot (…) with its plan(s) at the defined monthly prices …, state active` (or `price product penpot`
+  on a catalogue that applied the old proposal) and `write the Penpot rules per web hosting tariff`; nothing written.
+* **Verify:** the owner reads it; the apply is **R20**.
 * **Rollback:** none (read only).
 * Owner approval: ☐ yes
 
@@ -459,21 +461,21 @@ the disk** while no plan sells custom ISO; steps R15–R17 are therefore verifie
 
 ## Phase 5 — Penpot, webhooks, dead letters
 
-### R20. Revision `2026-10-penpot`, apply (creates a **draft**, still not on sale)
+### R20. Revision `2026-10-penpot-on-sale`, apply (on sale; every order refused while no Penpot node is qualified)
 
-* **Purpose:** the Penpot product exists as a draft with zero prices; the owner prices and publishes it in the plan editor only when
-  the Penpot node exists ([penpot.md](penpot.md) *Server prerequisites*, steps 1–10, **not part of this rehearsal**).
-* **Precondition:** R9 read; the owner decided to create the product now.
+* **Purpose:** Penpot on sale (H-R7). Without a qualified Penpot node ([penpot.md](penpot.md) *Server prerequisites*, steps 1–10,
+  **not part of this rehearsal**) the cart refuses every Penpot order (`409 penpot_unavailable`), so nothing is charged.
+* **Precondition:** R9 read.
 * **Command:**
   ```bash
-  art onhost:catalog:revise 2026-10-penpot --apply
+  art onhost:catalog:revise 2026-10-penpot-on-sale --apply
   row "Penpot is sold only with a Penpot node to run it"
   row "Penpot has a price before it is on sale"
   ```
-* **Expected:** the product is created as a draft with its plan and zero prices; both Penpot rows are OK **because nothing is on
-  sale** (they turn blocking the moment the product is published without a node or a price).
-* **Verify:** the rows; the plan editor shows the product in state draft. Do **not** publish it in this rehearsal.
-* **Rollback:** leave it as a draft (nobody can order it); retire the draft in the plan editor if it was a mistake.
+* **Expected:** the product is created on sale with its prices; *Penpot has a price before it is on sale* is OK; *Penpot is sold only
+  with a Penpot node to run it* is a **non-blocking FAIL** until the node exists (orders are refused, not taken).
+* **Verify:** the rows; Nastavení → Integrace → *Penpot k tarifům webhostingu* lists every web hosting tariff as included.
+* **Rollback:** `art onhost:catalog:state draft penpot` (one person, step-up in the console) takes it off sale.
 * Owner approval: ☐ yes
 
 ### R21. Webhook queue lane (G-11) and the secret overlap (G-12)
@@ -600,7 +602,7 @@ Every command was looked up in the repository on the commit this page is based o
 | Command | Found in | State |
 | --- | --- | --- |
 | `onhost:doctor [--json]` | `app/Console/Commands/Doctor.php` | exists |
-| `onhost:catalog:revise [id] [--apply] [--yes]` | `app/Console/Commands/CatalogRevise.php` | exists; revisions `2026-10-deliverable-web-plans`, `2026-10-custom-iso`, `2026-10-penpot` are in `domains/Catalog/CatalogRevisions.php` (the last two are proposals applied only by id) |
+| `onhost:catalog:revise [id] [--apply] [--yes]` | `app/Console/Commands/CatalogRevise.php` | exists; revisions `2026-10-deliverable-web-plans`, `2026-10-custom-iso`, `2026-10-penpot-on-sale` are in `domains/Catalog/CatalogRevisions.php` (`2026-10-custom-iso` is a proposal applied only by id) |
 | `onhost:staff:totp <email> [--code=] [--reset]` | `app/Console/Commands/StaffTotp.php` | exists |
 | `onhost:fx:sync` | `routes/console.php` (scheduled) | exists |
 | `operator:tokens:unbound [--dry-run] [--past-cap] [--days=]` | `app/Console/Commands/TokensUnbound.php` | exists |

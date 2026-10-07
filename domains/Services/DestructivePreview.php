@@ -9,6 +9,7 @@ use Onhost\Domain\Dns\Models\DnsZone;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Services\Penpot\PenpotParents;
 use Onhost\Domain\Services\Web\StagingService;
 use Onhost\Platform\Errors\DomainError;
 use Throwable;
@@ -211,6 +212,10 @@ final class DestructivePreview
             }
         } catch (Throwable) {
             // no staging link is not a reason to refuse a preview
+        }
+        $penpots = PenpotParents::of($service)->filter(fn (Service $child) => $child->terminate_at === null)->map(fn (Service $child) => (string) ($child->hostname ?: $child->name))->values()->all();
+        if ($penpots !== []) { // H-R7: the Penpot ordered for the service ends with it, archived first like the service itself
+            $out[] = self::t('Zruší se i Penpot služby: ', 'The Penpot of the service is cancelled too: ').implode(', ', $penpots).'.';
         }
         $zones = DnsZone::query()->where('organization_id', $service->organization_id)->where('name', (string) $service->hostname)->count();
         if ($zones > 0) {

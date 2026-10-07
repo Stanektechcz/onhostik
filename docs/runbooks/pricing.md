@@ -34,6 +34,7 @@ stored in `system_settings` / the catalogue tables and read by the quote (`Quote
 | `PUT /v1/staff/pricing/domain-discounts` `{tld, register, renew, transfer, valid_from?, valid_to?, label?}` / `DELETE …/{tld}` | TLD discounts |
 | `PUT /v1/staff/pricing/promo-codes` `{code, kind, value, currency?, valid_from?, valid_to?, max_uses?, applies_to[], first_period_only, state}` / `DELETE …/{code}` | promo codes |
 | `PUT /v1/staff/pricing/addon-products` `{product_key, addon_products[]}` | which add-on products a product may carry |
+| `GET /v1/staff/pricing/penpot` / `PUT …` `{plans: {product/plan: {included, price_minor{CZK,EUR}}}, web_default?, reason?}` | Penpot per web hosting tariff (H-R7): included (price 0) or a monthly price; other services pay the catalogue price of `penpot/penpot-team`. Four eyes. See `docs/runbooks/penpot.md` *Sale and price*. |
 | `PUT /v1/staff/pricing/options` `{product_key, key, kind, label{cs,en}, desc?, unit?, min?, max?, step?, default?, price_czk, price_eur?, choices?, entitlement?}` / `DELETE …/{product}/{key}` | priced options (per-item add-ons, configurator parameters) |
 
 Every change goes through `CatalogCommand` (audited) and drops the generated data script, so the web follows on the

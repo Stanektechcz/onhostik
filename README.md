@@ -10,6 +10,11 @@ public content — all behind one authorization model (RBAC + step-up + four-eye
 Blueprint: `ONhost_Cloud_Platform_v4_Fable5_Execution_Blueprint_2026-08-24.md`. UI: the five prototype
 surfaces in `apps/surfaces`, served verbatim with data seams (ADR-0005).
 
+## Stav
+
+- 2026-10-07 (H-R7, TASK-0128): Penpot je v prodeji — v ceně tarifů webhostingu, k ostatním službám doplněk 29 Kč/měs.; administrace
+  nastavuje Penpot u každého tarifu (čtyři oči). Bez kvalifikovaného uzlu Penpot košík objednávku odmítne (`docs/runbooks/penpot.md`).
+
 ## Layout
 
 | Path | Contents |

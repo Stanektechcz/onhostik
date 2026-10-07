@@ -77,6 +77,7 @@ final class CheckoutService
             throw new DomainError('payment_mode_invalid', 'Unsupported payment mode.');
         }
         LimitRaisePolicy::assertOrderable($quote, $source, $context); // customers order a raise once the switch is on; a free raise is staff's (TASK-0022)
+        PenpotLine::assertStillOrderable($quote, $organization); // a quote lives two hours: the node and the parent are asked again (H-R7)
         if ($mode === 'postpaid' && $this->wallets->approvedCreditLine($organization->id, $quote->currency)->isZero()) {
             throw new DomainError('postpaid_not_approved', 'Postpaid billing requires an approved credit line.', 403);
         }

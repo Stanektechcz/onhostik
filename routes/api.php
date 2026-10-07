@@ -362,6 +362,7 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
     Route::get('services/{service}/health', [ServiceController::class, 'health']); // one-pass check from the platform's records (ServiceHealthCheck)
     Route::get('services/{service}/penpot', [PenpotController::class, 'show']); // TASK-0123: the Penpot card (address, login, limits, backups)
     Route::post('services/{service}/penpot/owner-password', [PenpotController::class, 'ownerPassword']); // TASK-0123: HIGH + step-up
+    Route::get('services/{service}/penpot-offer', [PenpotController::class, 'offer']); // H-R7: what a Penpot costs next to this service
     Route::get('services/{service}/resources/{kind}', [ServiceController::class, 'resources'])->where('kind', '[a-z_]+');
     Route::get('services/{service}/logs', [ServiceController::class, 'logs']);
     Route::get('services/{service}/files/download', [ServiceController::class, 'fileDownload']);
@@ -550,6 +551,8 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
         Route::put('pricing/options', [PricingController::class, 'upsertOption']);
         Route::delete('pricing/options/{product}/{key}', [PricingController::class, 'deleteOption']);
         Route::put('pricing/addon-products', [PricingController::class, 'setAddonProducts']);
+        Route::get('pricing/penpot', [PricingController::class, 'penpot']); // H-R7: Penpot per web hosting tariff
+        Route::put('pricing/penpot', [PricingController::class, 'setPenpot']);
         Route::get('pricing/plans/{product}/{plan}/versions', [PricingController::class, 'planVersions']); // a plan is never edited: a change is a new version (H01)
         Route::post('pricing/plans/{product}/{plan}/versions', [PricingController::class, 'publishPlanVersion']);
         Route::post('pricing/plans/{product}/{plan}/versions/{version}/activate', [PricingController::class, 'activatePlanVersion'])->whereNumber('version');
