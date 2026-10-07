@@ -41,7 +41,8 @@ final class PenpotBadges
                 continue; // nothing to say: no Penpot, and none included that could be ordered now
             }
             $label = $free ? ($cs ? 'Penpot v ceně' : 'Penpot included') : 'Penpot';
-            $out[$s->id] = ['note' => ' · '.$label.($instance !== null ? ($cs ? ' (aktivní)' : ' (active)') : ''),
+            $running = $instance !== null && in_array($instance->state, PenpotParents::PARENT_STATES, true); // suspended or still being built: no "active"
+            $out[$s->id] = ['note' => ' · '.$label.($running ? ($cs ? ' (aktivní)' : ' (active)') : ''),
                 'penpot' => ['included' => $free, 'instance_id' => $instance?->id]];
         }
         foreach ($instances as $p) {

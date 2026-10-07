@@ -127,6 +127,11 @@ it('labels a web hosting whose tariff includes Penpot and names the service on i
         ->and($rows[$included->id]['meta'])->toContain(' · Penpot (aktivní)')->not->toContain('v ceně')
         ->and($rows[$penpot->id]['meta'])->toContain('ke službě Firemní web')->not->toContain('v ceně tarifu');
 
+    // a suspended Penpot is not called active
+    $penpot->forceFill(['state' => ServiceStateMachine::SUSPENDED])->save();
+    expect(i1Rows($this, $owner, $org)[$included->id]['meta'])->toContain(' · Penpot')->not->toContain('aktivní');
+    $penpot->forceFill(['state' => ServiceStateMachine::ACTIVE])->save();
+
     // Penpot withdrawn from sale: the label promises nothing that cannot be ordered
     app(PenpotOffer::class)->set(['plans' => []]);
     Product::query()->where('key', 'penpot')->update(['state' => 'draft']);
