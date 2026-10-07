@@ -27,6 +27,10 @@ A Penpot ends with its service (terminate chain `endPenpotStep`, the cancellatio
 delivery (the paid line fails and the order settlement refunds it) each ask `NodeScheduler::canHost(role penpot, provider penpot)`.
 The doctor row *Penpot is sold only with a Penpot node to run it* is a non-blocking FAIL while Penpot is on sale without a qualified
 node. Until the node below exists, Penpot is on the books but every order is refused honestly.
+A paid line refused at delivery is told to the customer (TASK-0131): `order.fulfilment_failed` now carries the refusal slug
+(`error`), and `PenpotNotifications` answers `penpot_unavailable` with *Penpot jsme nemohli zřídit* (amount returned, or nothing
+charged when included; CZ/EN through the Lexicon). The panel service list says *Penpot v ceně* on a web hosting whose tariff includes
+it while Penpot is on sale, and names the service on a Penpot row (`PenpotBadges`, panel data seam).
 
 **With its service (TASK-0130).** The Penpot is carried by its service like the included sites (`IncludedServices::carried`): a
 suspension of the service suspends it (`included.held_by`), the resumption resumes exactly what was held, a cancellation cancels it

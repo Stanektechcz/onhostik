@@ -269,6 +269,11 @@ final class Lexicon
         'Penpot opět běží' => 'Penpot is running again', ' znovu odpovídá.' => ' responds again.',
         'Heslo k Penpotu bylo změněno' => 'The Penpot password was changed', 'Heslo účtu ' => 'The password of the account ', ' v instanci ' => ' in the instance ',
         ' bylo změněno. Pokud jste to nebyli vy, změňte ho znovu a napište podpoře.' => ' was changed. If it was not you, change it again and contact support.',
+        // TASK-0131 (I1): a paid Penpot line refused at delivery because no Penpot node can run it (PenpotNotifications::refused)
+        'Penpot jsme nemohli zřídit' => 'We could not set up Penpot', 'Server pro Penpot teď není připravený, proto jsme Penpot nezřídili.' => 'The Penpot server is not ready right now, so we did not set up Penpot.',
+        ' Částku za Penpot vracíme (na kredit, nebo odečtením z faktury); podrobnosti jsou ve zprávě o vrácení.' => ' The Penpot amount is returned (to your credit, or deducted from the invoice); the details are in the refund message.',
+        ' Penpot je v ceně tarifu, nic se neúčtovalo.' => ' Penpot is included in your plan; nothing was charged.',
+        ' Objednat ho můžete znovu v detailu služby, až bude server připravený. Objednávka č. ' => ' You can order it again in the service detail once the server is ready. Order no. ',
     ];
 
     public static function translate(?string $text, string $locale): ?string
