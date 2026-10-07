@@ -14,6 +14,7 @@ surfaces in `apps/surfaces`, served verbatim with data seams (ADR-0005).
 
 - 2026-10-07 (H-R7, TASK-0128): Penpot je v prodeji — v ceně tarifů webhostingu, k ostatním službám doplněk 29 Kč/měs.; administrace
   nastavuje Penpot u každého tarifu (čtyři oči). Bez kvalifikovaného uzlu Penpot košík objednávku odmítne (`docs/runbooks/penpot.md`).
+  TASK-0130: tlačítko v detailu služby v panelu, Penpot se pozastaví/obnoví/zruší/vrátí se svou službou, jeden na službu i při souběhu.
 - 2026-10-07 (H-R8, TASK-0129): Comgate bez testovacího účtu — v administraci je test brány (stav údajů bez hodnot, ověření spojení,
   testovací platba 1 Kč, přepínač testovacího režimu se čtyřma očima). Naživo neověřeno (`docs/runbooks/comgate.md`).
 

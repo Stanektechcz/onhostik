@@ -33,7 +33,6 @@ use Onhost\Domain\Services\Models\MailDomain;
 use Onhost\Domain\Services\Models\RestoreJob;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
-use Onhost\Domain\Services\Penpot\PenpotParents;
 use Onhost\Domain\Services\RescueMode;
 use Onhost\Domain\Services\ServiceBackups;
 use Onhost\Domain\Services\ServiceFeatures;
@@ -165,7 +164,7 @@ final class ServiceActionWorkflow implements Workflow
             // a paid plan change of a mail plan brings its mailboxes to the new backup_days, after the plan is saved (TASK-0024)
             'resize' => [$this->resizeStep(), $this->finishResizeStep(), ...MailboxBackupRetentionStep::afterResize($operation)],
             'mailbox.backup_retention' => [new MailboxBackupRetentionStep], // operator only: onhost:mail:backup-retention --apply
-            'terminate' => [$this->identityStep(), $this->finalArchiveStep(), $this->deactivateStep(), $this->pauseExtrasStep(), $this->cancelAddonsStep(), $this->endIncludedServicesStep(), $this->endPenpotStep(), $this->revokeDelegationsStep(), $this->scheduleRemovalStep()],
+            'terminate' => [$this->identityStep(), $this->finalArchiveStep(), $this->deactivateStep(), $this->pauseExtrasStep(), $this->cancelAddonsStep(), $this->endIncludedServicesStep(), $this->revokeDelegationsStep(), $this->scheduleRemovalStep()],
             'purge' => [$this->identityStep(), $this->finalArchiveStep(anyOperation: true), $this->endIncludedServicesStep(), $this->removeMailDomainStep(), $this->terminateStep(), $this->platformDnsStep(), $this->releaseStep()],
             'backup' => [$this->backupStep()],
             'restore' => [$this->safetyCopyStep('pre_restore'), $this->restoreStep()],
@@ -1379,7 +1378,7 @@ final class ServiceActionWorkflow implements Workflow
             public function run(StepContext $context): StepResult
             {
                 $service = $this->service($context);
-                $included = IncludedServices::of($service)->filter(fn (Service $child) => $child->terminate_at === null);
+                $included = IncludedServices::carried($service)->filter(fn (Service $child) => $child->terminate_at === null); // with its Penpot (H-R7)
                 if ($included->isEmpty()) {
                     return StepResult::skip();
                 }
@@ -1422,52 +1421,6 @@ final class ServiceActionWorkflow implements Workflow
     }
 
     /**
-     * The Penpot a service carries ends with it (owner decision H-R7): an included one was paid for by the tariff, and an add-on
-     * belongs to the service it was ordered for. Each goes through its own cancellation (its own final archive and grace period);
-     * one whose cancellation is already running is left alone.
-     */
-    private function endPenpotStep(): ServiceStep
-    {
-        return new class extends ServiceStep
-        {
-            public function label(): string
-            {
-                return 'Ukončení Penpotu služby';
-            }
-
-            public function run(StepContext $context): StepResult
-            {
-                $service = $this->service($context);
-                $penpots = PenpotParents::of($service)->filter(fn (Service $child) => $child->terminate_at === null);
-                if ($penpots->isEmpty()) {
-                    return StepResult::skip();
-                }
-                $services = $context->container->make(ServiceService::class);
-                $ended = [];
-                $errors = [];
-                foreach ($penpots as $child) {
-                    try {
-                        if ($child->primaryBinding() === null) { // never reached the node: nothing to archive or remove
-                            $child->forceFill(['state' => ServiceStateMachine::TERMINATED, 'terminated_at' => now()])->save();
-                            Subscription::query()->where('service_id', $child->id)->whereNotIn('state', [Subscription::CANCELLED])->update(['state' => Subscription::CANCELLED, 'auto_renew' => false]);
-                        } else {
-                            $services->requestAction($child, 'terminate', CommandContext::system('cancelled with '.$service->id), "penpot:terminate:{$context->operation->id}:{$child->id}", ['reason' => 'zrušena služba, ke které Penpot patřil']);
-                        }
-                        $ended[] = (string) ($child->hostname ?: $child->id);
-                    } catch (Throwable $e) {
-                        $errors[] = ($child->hostname ?: $child->id).': '.$e->getMessage();
-                    }
-                }
-                if ($errors !== [] && (int) $context->operation->attempts < 4) {
-                    return StepResult::fail('the Penpot of the service could not be cancelled: '.implode('; ', $errors), true, [], 60);
-                }
-
-                return StepResult::done(['penpot_ended' => $ended, 'penpot_errors' => $errors]);
-            }
-        };
-    }
-
-    /**
      * Suspension reaches the sites the service carries too: an unpaid web hosting must not keep serving from its test
      * copy. Only the sites this step switched off are switched back on, so one the customer had suspended themselves
      * stays suspended (the same rule `SuspensionDepth` follows for cron jobs and FTP accounts).
@@ -1489,7 +1442,7 @@ final class ServiceActionWorkflow implements Workflow
                 $services = $context->container->make(ServiceService::class);
                 $touched = [];
                 $errors = [];
-                foreach (IncludedServices::of($service) as $child) {
+                foreach (IncludedServices::carried($service) as $child) { // the Penpot follows its service too (H-R7, TASK-0130)
                     $heldBy = (string) data_get($child->tags, 'included.held_by', '');
                     // A cancellation the customer takes back has to reach the sites the service carried. They were
                     // ended with it, so they hold `terminate_at` of their own and no `held_by` — both halves of the

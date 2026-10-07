@@ -117,6 +117,7 @@ final class CheckoutService
                 throw new DomainError('quote_already_used', 'Tato nabídka už byla objednána; obnovte košík.', 409, ['field' => 'quote_id']);
             }
             $quote->forceFill(['state' => 'accepted', 'organization_id' => $organization->id])->save();
+            PenpotLine::claimParents($quote, $organization); // one Penpot per service: decided under the parent's row lock (TASK-0130)
             // a promo code is used when an order is placed with it — counted here, under a lock, so "the first hundred" is a
             // hundred even when two checkouts race. The counter existed and nothing ever wrote to it: every limited code was unlimited.
             $promoCode = (string) ($quote->versions['promo'] ?? '');

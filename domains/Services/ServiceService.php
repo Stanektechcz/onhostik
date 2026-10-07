@@ -143,19 +143,28 @@ final class ServiceService
         $region = (string) ($config['region'] ?? config('onhost.provisioning.default_region', 'cz1'));
         // a service lands in a project of its own organization or in none: somebody else's project id is not a place
         $projectId = isset($config['project_id']) && Project::query()->where('organization_id', $organization->id)->whereKey((string) $config['project_id'])->exists() ? (string) $config['project_id'] : null;
-        $service = DB::transaction(function () use ($organization, $product, $version, $config, $item, $name, $entitlements, $limits, $region, $projectId) {
-            $service = Service::query()->create([
-                'organization_id' => $organization->id, 'project_id' => $projectId, 'product_key' => $product->key, 'plan_version_id' => $version?->id, 'family' => $product->family,
-                'name' => $name ?: ($product->localizedName('cs').($version ? ' '.$version->plan?->localizedName('cs') : '')), 'label' => $config['label'] ?? null,
-                'state' => ServiceStateMachine::PAID, 'region_code' => $region, 'entitlements' => $entitlements, 'sla_class' => (string) ($version?->plan?->sla_class ?? 'standard'),
-                'order_item_id' => $item?->id, 'tags' => array_filter(['parent_service_id' => $config['parent_service_id'] ?? null]), 'desired_spec' => [],
-            ]);
-            $desired = $this->desiredSpec($service, $product, $version, $config, $organization, $limits);
-            $service->forceFill(['desired_spec' => $desired, 'hostname' => $desired['hostname'] ?? $desired['domain'] ?? null])->save();
-            $item?->forceFill(['service_id' => $service->id, 'state' => 'provisioning'])->save();
+        try {
+            $service = DB::transaction(function () use ($organization, $product, $version, $config, $item, $name, $entitlements, $limits, $region, $projectId) {
+                $service = Service::query()->create([
+                    'organization_id' => $organization->id, 'project_id' => $projectId, 'product_key' => $product->key, 'plan_version_id' => $version?->id, 'family' => $product->family,
+                    'name' => $name ?: ($product->localizedName('cs').($version ? ' '.$version->plan?->localizedName('cs') : '')), 'label' => $config['label'] ?? null,
+                    'state' => ServiceStateMachine::PAID, 'region_code' => $region, 'entitlements' => $entitlements, 'sla_class' => (string) ($version?->plan?->sla_class ?? 'standard'),
+                    'order_item_id' => $item?->id, 'tags' => array_filter(['parent_service_id' => $config['parent_service_id'] ?? null]), 'desired_spec' => [],
+                    // H-R7 (TASK-0130): one Penpot per service, kept by a partial unique index (migration 001110)
+                    'penpot_parent_id' => $product->family === PenpotInstances::FAMILY && ! empty($config['parent_service_id']) ? (string) $config['parent_service_id'] : null,
+                ]);
+                $desired = $this->desiredSpec($service, $product, $version, $config, $organization, $limits);
+                $service->forceFill(['desired_spec' => $desired, 'hostname' => $desired['hostname'] ?? $desired['domain'] ?? null])->save();
+                $item?->forceFill(['service_id' => $service->id, 'state' => 'provisioning'])->save();
 
-            return $service;
-        });
+                return $service;
+            });
+        } catch (UniqueConstraintViolationException $e) {
+            if ($product->family !== PenpotInstances::FAMILY || ! str_contains($e->getMessage(), 'penpot')) {
+                throw $e;
+            }
+            throw new DomainError('penpot_exists', 'The service already has its Penpot.', 409); // two deliveries at the same instant: the database decided
+        }
         $this->audit->record($context->withScope($organization->id), 'service.create', 'succeeded', ['product' => $product->key, 'plan_version_id' => $version?->id, 'region' => $region], 'service', $service->id);
         $this->outbox->publish(GenericEvent::of('service.created', 'service', $service->id, ['product_key' => $product->key, 'family' => $product->family, 'order_item_id' => $item?->id], $organization->id));
         $this->startProvisioning($service, $context);

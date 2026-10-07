@@ -28,9 +28,19 @@ delivery (the paid line fails and the order settlement refunds it) each ask `Nod
 The doctor row *Penpot is sold only with a Penpot node to run it* is a non-blocking FAIL while Penpot is on sale without a qualified
 node. Until the node below exists, Penpot is on the books but every order is refused honestly.
 
-Known gaps: a suspension of the parent does not suspend its Penpot (it ends with the parent's cancellation); undoing the parent's
-cancellation does not undo the Penpot's own cancellation (the customer undoes it on the Penpot service). No order button in the
-panel yet: the cart API above is the way in (the panel seam is a follow-up).
+**With its service (TASK-0130).** The Penpot is carried by its service like the included sites (`IncludedServices::carried`): a
+suspension of the service suspends it (`included.held_by`), the resumption resumes exactly what was held, a cancellation cancels it
+(own final archive, `included.ended_by`) and taking the cancellation back — or the reinstatement after payment, which is a resume —
+undoes the Penpot's deletion and resumes it. A Penpot the customer stopped or cancelled on its own stays as it is.
+
+**One per service, under concurrency.** The checkout locks the parent service row and asks again inside its transaction
+(`PenpotLine::claimParents`); the partial unique index `services_one_penpot_per_parent` (migration 001110, column
+`penpot_parent_id`) refuses a second Penpot row that is not TERMINATED/FAILED, and the delivery turns that into `409 penpot_exists`.
+
+**In the panel.** The service detail (tab *Provoz a NOC* of a web hosting, server, game or mail service) has a *Penpot* row from
+`GET /v1/services/{id}/penpot-offer`: included / price / why not (`penpot_unavailable`: the node is not ready, nothing is charged), and
+an order button (`OnhostPanelOrder.penpot`: `PUT /v1/cart` → quote → `POST /v1/orders`, paid from credit or by proforma). Seam files
+only (`apps/surfaces/api/onhost-panel-workbench.api.js`, `onhost-panel-order.api.js`); the prototypes are untouched.
 
 ## Delivery model (and why)
 
