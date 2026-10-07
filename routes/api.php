@@ -36,6 +36,7 @@ use App\Http\Controllers\Api\V1\ServiceAccountController;
 use App\Http\Controllers\Api\V1\ServiceController;
 use App\Http\Controllers\Api\V1\Staff\ApprovalController;
 use App\Http\Controllers\Api\V1\Staff\ChargebackController;
+use App\Http\Controllers\Api\V1\Staff\ComgateController;
 use App\Http\Controllers\Api\V1\Staff\ComplianceController as StaffComplianceController;
 use App\Http\Controllers\Api\V1\Staff\ConsoleController;
 use App\Http\Controllers\Api\V1\Staff\ContentController as StaffContentController;
@@ -525,6 +526,9 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
         Route::get('payments/bank', [PaymentsController::class, 'bank']);
         Route::post('payments/bank/lines', [PaymentsController::class, 'recordBankLine']);
         Route::post('payments/bank/sync', [PaymentsController::class, 'syncBank']);
+        Route::get('payments/comgate', [ComgateController::class, 'show']); // H-R8: credentials present?, mode, last check — never a secret
+        Route::post('payments/comgate/check', [ComgateController::class, 'check']); // connection | 1 Kč test payment (step-up)
+        Route::put('payments/comgate/test-mode', [ComgateController::class, 'setTestMode']); // four eyes
         // ── G6: an order payment refunded to its source on a consumer's withdrawal; bank payouts confirmed by finance ──
         Route::get('payments/refunds', [PaymentsController::class, 'refunds']);
         Route::post('payments/refunds/{refund}/confirm', [PaymentsController::class, 'confirmRefund']);

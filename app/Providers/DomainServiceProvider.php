@@ -82,6 +82,8 @@ use Onhost\Domain\Partners\Commands\PartnersCommandHandler;
 use Onhost\Domain\Partners\Listeners\AccruePartnerCommission;
 use Onhost\Domain\Payments\Commands\BankCommand;
 use Onhost\Domain\Payments\Commands\BankCommandHandler;
+use Onhost\Domain\Payments\Commands\ComgateCheckCommand;
+use Onhost\Domain\Payments\Commands\ComgateCheckCommandHandler;
 use Onhost\Domain\Payments\Commands\PaymentRefundCommand;
 use Onhost\Domain\Payments\Commands\PaymentRefundCommandHandler;
 use Onhost\Domain\Payments\Events\PaymentSucceeded;
@@ -157,6 +159,7 @@ final class DomainServiceProvider extends ServiceProvider
         BudgetCommand::class => WalletCommandHandler::class,
         RemovePaymentMethodCommand::class => WalletCommandHandler::class,
         BankCommand::class => BankCommandHandler::class,
+        ComgateCheckCommand::class => ComgateCheckCommandHandler::class, // H-R8: the administration's Comgate check
         PaymentRefundCommand::class => PaymentRefundCommandHandler::class, // G6: an order payment refunded to its source on a withdrawal, a bank payout confirmed
         ServiceActionCommand::class => ServicesCommandHandler::class,
         ServiceArchiveCommand::class => ServiceArchiveCommandHandler::class,

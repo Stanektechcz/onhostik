@@ -32,6 +32,7 @@ use Onhost\Domain\Invoicing\Models\LegalEntity;
 use Onhost\Domain\Notifications\MailHealth;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\OrderStateMachine;
+use Onhost\Domain\Payments\ComgateCheck;
 use Onhost\Domain\Platform\GoLiveChecks;
 use Onhost\Domain\Platform\IsolationChecks;
 use Onhost\Domain\Platform\QueueLaneHeartbeat;
@@ -70,6 +71,8 @@ use Onhost\Domain\Tax\VatPayerMode;
 use Onhost\Domain\WalletLedger\AutoTopup;
 use Onhost\Platform\Files\VirusScanner;
 use Onhost\Platform\Ops\PlatformBackup;
+use Onhost\Platform\Settings\SettingsStore;
+use Onhost\Providers\Payments\Comgate\ComgateMode;
 
 /**
  * Production readiness self-check (docs/runbooks/go-live-checklist.md). Every row is a fact the control plane can
@@ -556,7 +559,14 @@ final class Doctor extends Command
         $gateway = (string) config('onhost.payments.default');
         $merchant = (string) config("onhost.payments.{$gateway}.merchant", '');
         $this->add('payments', "card gateway ({$gateway}) configured", $merchant !== '', $merchant !== '' ? "merchant {$merchant}" : 'merchant id missing — card payments fail with payment_provider_error');
-        $this->add('payments', 'card gateway live mode', ! (bool) config("onhost.payments.{$gateway}.test", true), (bool) config("onhost.payments.{$gateway}.test", true) ? 'test flag on' : 'live');
+        // H-R8: the administration may override COMGATE_TEST (four eyes); the row reads the mode payments are really created in
+        $testMode = $gateway === 'comgate' ? ComgateMode::test() : (bool) config("onhost.payments.{$gateway}.test", true);
+        $this->add('payments', 'card gateway live mode', ! $testMode, $testMode ? 'test flag on'.($gateway === 'comgate' ? ' (set by '.ComgateMode::source().')' : '') : 'live');
+        if ($gateway === 'comgate') { // the last check staff ran in the administration (connection or 1 Kč test payment)
+            $last = (array) (app(SettingsStore::class)->get(ComgateCheck::LAST_CHECK) ?? []);
+            $this->add('payments', 'Comgate answered the last administration check', ($last['ok'] ?? false) === true,
+                $last === [] ? 'never checked — Nastavení → Integrace → Platební brána Comgate, "Ověřit spojení"' : ($last['kind'] ?? '?').' at '.($last['at'] ?? '?').': '.mb_substr((string) ($last['message'] ?? ''), 0, 160), false);
+        }
         $this->add('payments', 'stored cards for automatic top-ups', app(AutoTopup::class)->supported(), app(AutoTopup::class)->supported() ? 'a gateway charges stored methods (recurring)' : 'no gateway charges stored methods — automatic top-ups only notify (COMGATE_MERCHANT + COMGATE_RECURRING)', false);
         $bank = (array) config('onhost.payments.bank');
         $this->add('payments', 'bank account for transfers', ($bank['iban'] ?? '') !== '' && ($bank['account_number'] ?? '') !== '', 'ONHOST_BANK_IBAN / ONHOST_BANK_ACCOUNT printed on proformas and top-up instructions');

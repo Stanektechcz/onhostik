@@ -53,7 +53,6 @@ final class StaffNavigation
         'provisioning.operation.retry' => 'bus: retry from the fleet and game queues',
         'provisioning.operation.cancel' => 'bus: cancel from the fleet board',
         'provisioning.drift.resolve' => 'bus: resolving a drift from the drifts overview',
-        'provider.instance.manage' => 'bus: instance, node and egg writes on the integrations page and game views',
         'provider.secret.view' => 'dormant: provider secrets are never revealed through the platform (PermissionCatalog::DORMANT)',
         'capacity.manage' => 'bus: deciding capacity requests and the budget',
         'node.manage' => 'bus: node state, evacuation and migration writes',
@@ -198,6 +197,10 @@ final class StaffNavigation
             new N('bank', 'finance', 10, 'bank', ['cs' => 'Bankovní platby', 'en' => 'Bank payments'], N::SCREEN_PAGE, '/sprava/nastaveni/integrace', [
                 N::get('staff/payments/bank', 'billing.reconcile'),
             ], all: ['billing.reconcile']),
+            // H-R8: the Comgate gateway check (credentials present?, mode, connection, 1 Kč test payment) in the settings page
+            new N('comgate', 'finance', 15, 'bank', ['cs' => 'Platební brána Comgate', 'en' => 'Comgate gateway'], N::SCREEN_PAGE, '/sprava/nastaveni/integrace', [
+                N::get('staff/payments/comgate', 'provider.instance.read'), N::write('post', 'staff/payments/comgate/check', 'provider.instance.manage'), N::write('put', 'staff/payments/comgate/test-mode', 'provider.instance.manage'),
+            ], all: ['provider.instance.read']),
             new N('dunning', 'finance', 20, 'receipt', ['cs' => 'Upomínky a pohledávky', 'en' => 'Dunning and receivables'], N::SCREEN_VIEW, 'invoices', [
                 N::get('staff/dunning', 'billing.dunning.manage'), N::write('post', 'staff/dunning/run', 'billing.dunning.manage'),
             ], all: ['billing.dunning.manage']),

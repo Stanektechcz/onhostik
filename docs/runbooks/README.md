@@ -29,6 +29,7 @@ recorded in the hash-chained audit log. Never edit rows in the database during a
 | [console-relay.md](console-relay.md) | VNC / game console access path and the relay service |
 | [release-and-rollback.md](release-and-rollback.md) | deploying the control plane, migrations, rollback, error-budget freeze |
 | [staging-aapanel.md](staging-aapanel.md) | `infra/aapanel/staging.sh` on an aaPanel host: the usranalyse drop-ins and how to verify them, `public/build` and file modes, the setup commit, a parked release and how to go back |
+| [comgate.md](comgate.md) | Comgate gateway (H-R8): where the credentials live, the administration's check (connection, 1 Kč test payment), the four-eyes test-mode switch, what is not verified live |
 | [penpot.md](penpot.md) | Penpot for web hosting (H8): the delivery model (one compose stack per service on a dedicated Penpot node), the server prerequisites before the first sale, secrets, backups, outages, upgrades |
 | [staging-rehearsal-2026-10.md](staging-rehearsal-2026-10.md) | The go-live rehearsal on staging (H6): numbered steps R0–R24 with precondition, command, expected result, doctor rows, rollback and the owner's yes per step, plus the protocol table to fill in — prepared, not executed |
 

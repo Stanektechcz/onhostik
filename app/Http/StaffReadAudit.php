@@ -119,6 +119,7 @@ final class StaffReadAudit
         'v1/staff/oncall/shifts' => 'staff on-call shifts',
         'v1/staff/oncall/shifts.ics' => 'staff on-call shifts (calendar)',
         'v1/staff/placements' => 'plan placement rules',
+        'v1/staff/payments/comgate' => 'the Comgate gateway mode and its last check (H-R8): no customer, no secret',
         'v1/staff/pricing' => 'the price list',
         'v1/staff/pricing/penpot' => 'Penpot rules per web hosting tariff (H-R7): catalogue data, no customer',
         'v1/staff/pricing/plans/{product}/{plan}/versions' => 'versions of a plan',

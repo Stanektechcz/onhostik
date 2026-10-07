@@ -9,6 +9,7 @@ use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Money\Money;
 use Onhost\Platform\ProviderHttp\ProviderHttpClient;
 use Onhost\Platform\ProviderHttp\ProviderRequest;
+use Onhost\Platform\ProviderHttp\ProviderResponse;
 use Onhost\Platform\Secrets\SecretRef;
 use Onhost\Platform\Secrets\SecretStore;
 use Onhost\Providers\Contracts\PaymentProvider;
@@ -78,7 +79,7 @@ final class ComgatePaymentProvider implements PaymentProvider, StoredMethodCharg
             'email' => (string) ($input['email'] ?? ''),
             'prepareOnly' => true,
             'initRecurring' => $save ?: null,
-            'test' => (bool) config('onhost.payments.comgate.test', true),
+            'test' => ComgateMode::test(),
             'lang' => in_array($locale, ['cs', 'sk', 'en', 'pl'], true) ? $locale : 'cs',
             'country' => strtoupper((string) ($input['country'] ?? 'CZ')),
             'expirationTime' => '2h',
@@ -114,7 +115,7 @@ final class ComgatePaymentProvider implements PaymentProvider, StoredMethodCharg
             'email' => (string) ($options['email'] ?? ''),
             'prepareOnly' => true,
             'initRecurringId' => $methodId,
-            'test' => (bool) config('onhost.payments.comgate.test', true),
+            'test' => ComgateMode::test(),
         ], $options['idempotency_key'] ?? null);
         $this->assertOk($response, 'payment.recurring');
 
@@ -166,7 +167,7 @@ final class ComgatePaymentProvider implements PaymentProvider, StoredMethodCharg
     public function refund(string $providerId, Money $amount, string $idempotencyKey, ?string $reason = null): array
     {
         $response = $this->send('POST', '/payment/transId/'.rawurlencode($providerId).'/refund', 'payment.refund', [
-            'amount' => $amount->minor, 'curr' => $amount->currency->value, 'refId' => mb_substr($idempotencyKey, 0, 40), 'test' => (bool) config('onhost.payments.comgate.test', true),
+            'amount' => $amount->minor, 'curr' => $amount->currency->value, 'refId' => mb_substr($idempotencyKey, 0, 40), 'test' => ComgateMode::test(),
         ], $idempotencyKey);
         $this->assertOk($response, 'payment.refund');
 
@@ -227,6 +228,72 @@ final class ComgatePaymentProvider implements PaymentProvider, StoredMethodCharg
         }
 
         return $items;
+    }
+
+    /**
+     * Which credentials the vault (or the deployment) holds — never the values (H-R8, the administration's gateway check).
+     *
+     * @return array{merchant: bool, secret: bool, error: ?string}
+     */
+    public function credentialState(): array
+    {
+        try {
+            $creds = $this->credentials();
+        } catch (\Throwable $e) {
+            $this->credentials = null;
+
+            return ['merchant' => false, 'secret' => false, 'error' => 'the secret store could not be read ('.class_basename($e).')'];
+        }
+
+        return ['merchant' => $creds['merchant'] !== '', 'secret' => $creds['secret'] !== '', 'error' => null];
+    }
+
+    /**
+     * An authenticated call with no side effect: the payment methods the merchant may offer (`GET /method.json`, Comgate REST
+     * API v2.0). It proves the merchant id, the secret and the address; it moves no money and creates nothing.
+     *
+     * @return array{ok: bool, http: int, code: ?int, message: string, methods: int}
+     */
+    public function probe(): array
+    {
+        $response = $this->raw('GET', '/method.json', 'check.methods', null, ['lang' => 'cs', 'curr' => 'CZK', 'country' => 'CZ']);
+        $json = $response->json();
+        $methods = is_array($json) ? (array) ($json['methods'] ?? []) : [];
+        $code = is_array($json) && isset($json['code']) ? (int) $json['code'] : null;
+        $ok = $response->status === 200 && ($code === null || $code === 0) && is_array($json) && array_key_exists('methods', $json);
+
+        return ['ok' => $ok, 'http' => $response->status, 'code' => $code, 'message' => is_array($json) ? mb_substr((string) ($json['message'] ?? ''), 0, 200) : '', 'methods' => count($methods)];
+    }
+
+    /**
+     * A test payment of 1 Kč, always in test mode whatever the gateway's mode is, created and read back: the whole path of a
+     * real payment (create → status) without money. It is not a payment of the platform: nothing is written to the ledger.
+     *
+     * @return array{trans_id: string, status: string, redirect_url: string}
+     */
+    public function testPayment(string $reference): array
+    {
+        $created = $this->send('POST', '/payment', 'check.payment', [
+            'price' => 100, 'curr' => 'CZK', 'label' => 'ONhost test', 'refId' => mb_substr($reference, 0, 40), 'method' => 'ALL',
+            'prepareOnly' => true, 'test' => true, 'lang' => 'cs', 'country' => 'CZ', 'expirationTime' => '30m',
+        ], $reference);
+        $this->assertOk($created, 'check.payment');
+        $transId = (string) ($created['transId'] ?? '');
+        $status = $this->getPaymentStatus($transId);
+
+        return ['trans_id' => $transId, 'status' => (string) $status['state'], 'redirect_url' => (string) ($created['redirect'] ?? '')];
+    }
+
+    /** @param array<string,mixed>|null $body @param array<string,mixed> $query */
+    private function raw(string $method, string $path, string $action, ?array $body = null, array $query = []): ProviderResponse
+    {
+        $creds = $this->credentials();
+
+        return $this->http->send(new ProviderRequest(
+            provider: 'comgate', instanceKey: 'comgate', method: $method, url: rtrim((string) config('onhost.payments.comgate.base_url'), '/').$path,
+            action: $action, headers: ['Authorization' => 'Basic '.base64_encode($creds['merchant'].':'.$creds['secret'])], body: $body, bodyType: 'json', query: $query,
+            timeoutSeconds: 15, critical: false, idempotent: $method === 'GET', judgedByCaller: true,
+        ));
     }
 
     /** @return array<string,mixed> */
