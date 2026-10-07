@@ -299,10 +299,10 @@ it('ends the Penpot of a service with it, and says so in the cancellation previe
     expect(app(DestructivePreview::class)->of($web, 'terminate')['depends'])->toContain('Zruší se i Penpot služby: ab12cd34.penpot.onhost.cz.');
 
     // the step of the terminate chain, on its own (the chain's panel steps are covered by the web hosting tests)
-    $step = (new ReflectionMethod(ServiceActionWorkflow::class, 'endPenpotStep'))->invoke(app(ServiceActionWorkflow::class));
+    $step = (new ReflectionMethod(ServiceActionWorkflow::class, 'endIncludedServicesStep'))->invoke(app(ServiceActionWorkflow::class));
     $operation = (new Operation)->forceFill(['id' => (string) Str::ulid(), 'service_id' => $web->id, 'attempts' => 1, 'desired' => ['action' => 'terminate'], 'context' => []]);
     $result = $step->run(new StepContext($operation, $web, app(ProviderRegistry::class), app(), CommandContext::system('pest')));
-    expect($result->context['penpot_ended'] ?? null)->toBe(['ab12cd34.penpot.onhost.cz'])
+    expect($result->context['included_ended'] ?? null)->toBe(['ab12cd34.penpot.onhost.cz'])
         ->and($penpot->fresh()->state)->toBe(ServiceStateMachine::TERMINATED) // never reached a node: nothing to archive or remove
         ->and($foreign->fresh()->state)->toBe(ServiceStateMachine::ACTIVE);
 

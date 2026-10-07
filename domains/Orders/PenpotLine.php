@@ -12,6 +12,7 @@ use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Catalog\PenpotOffer;
 use Onhost\Domain\Orders\Models\Quote;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Penpot\PenpotParents;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Money\Currency;
@@ -102,6 +103,29 @@ final class PenpotLine
             ],
             'entitlements' => $resolved['version']->entitlements,
         ];
+    }
+
+    /**
+     * Inside the checkout's transaction (TASK-0130): every running service a Penpot line names is locked, then asked again whether
+     * it already has a Penpot — running, or on an order not finished. Two checkouts for one service at the same instant queue on
+     * the lock; the second one sees the first one's order line and is refused. (The delivery is guarded once more by the partial
+     * unique index `services_one_penpot_per_parent`.)
+     */
+    public static function claimParents(Quote $quote, Organization $organization): void
+    {
+        foreach ((array) $quote->lines as $line) {
+            $serviceId = is_array($line) && ($line['product_key'] ?? null) === PenpotOffer::PRODUCT ? (string) data_get($line, 'config.parent_service_id', '') : '';
+            if ($serviceId === '') {
+                continue;
+            }
+            $parent = Service::query()->where('organization_id', $organization->id)->whereKey($serviceId)->lockForUpdate()->first();
+            if ($parent === null) {
+                throw DomainError::notFound('service');
+            }
+            if (PenpotParents::taken($parent)) {
+                throw new DomainError('penpot_exists', 'Tato služba už Penpot má (nebo je objednaný). Jedna služba má jeden Penpot.', 409, ['field' => 'items', 'service_id' => $serviceId]);
+            }
+        }
     }
 
     /**

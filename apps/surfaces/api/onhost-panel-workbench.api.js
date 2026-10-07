@@ -336,6 +336,17 @@
         })];
         rows.push({ cells: [cell(_('Odstoupení od smlouvy (14 dní)', 'Withdrawal from the contract (14 days)'), '1 1 220px'), cell(wdState, '0 0 260px'), cell(w ? (w.credit_notes || []).join(', ') || '—' : _('vrátí se odhadem ', 'about ') + fmtW(estW.to_credit) + _(' na kredit', ' back to the credit') + offW(estW.off_documents, ' · doklady se sníží o ', ' · documents reduced by '), '1 1 220px', 1)], note: w && w.error ? _('Krok čeká: ', 'A step is waiting: ') + w.error : _('Jen pro spotřebitele; registraci domény vrátit nelze.', 'Consumers only; a domain registration cannot be withdrawn.'), actions: wdActs });
       }
+      var pp = fam !== 'penpot' && fam !== 'domain' ? penpotOffer(cmp, sel) : null; // H-R7 (TASK-0130): Penpot for this service — included, its price, or why not
+      if (pp && !pp.__error && Array.isArray(rows)) {
+        var fmtP = function (m) { return m && m.minor != null ? (m.minor === 0 ? _('v ceně tarifu', 'included in the plan') : (Math.round(m.minor) / 100).toLocaleString('cs-CZ') + ' ' + (m.currency || '') + (pp.period === 'year' ? _(' / rok', ' / year') : _(' / měsíc', ' / month'))) : '—'; };
+        var ppWhy = { penpot_unavailable: _('teď nedodáme: server pro Penpot není připravený — nic se neobjedná ani nezaplatí', 'not deliverable now: the Penpot server is not ready — nothing is ordered or charged'), penpot_exists: _('služba už Penpot má (nebo je objednaný)', 'the service already has its Penpot (or it is ordered)'), penpot_parent_inactive: _('jen ke službě, která běží a není zrušená', 'only for a running service that is not cancelled'), penpot_parent_invalid: _('k této službě se Penpot neobjednává', 'Penpot is not ordered for this service'), penpot_unpriced: _('v této měně nemá cenu', 'no price in this currency'), product_not_sellable: _('Penpot se teď neprodává', 'Penpot is not on sale now') };
+        var ppState = pp.orderable ? (pp.included ? _('v ceně tarifu · lze aktivovat', 'included in the plan · can be activated') : _('doplněk ', 'add-on ') + fmtP(pp.price)) : (ppWhy[pp.reason] || pp.message || pp.reason || '—');
+        var ppActs = pp.orderable && window.OnhostPanelOrder && window.OnhostPanelOrder.penpot ? [A(pp.included ? _('Aktivovat Penpot (v ceně)', 'Activate Penpot (included)') : _('Objednat Penpot za ', 'Order Penpot for ') + fmtP(pp.price), function () {
+          if (!window.confirm(pp.included ? _('Aktivovat Penpot k této službě? Je v ceně tarifu, nic se neplatí.', 'Activate Penpot for this service? It is included in the plan; nothing is charged.') : _('Objednat Penpot k této službě za ' + fmtP(pp.price) + '? Platí se se službou každé období.', 'Order Penpot for this service for ' + fmtP(pp.price) + '? It is billed every period.'))) return;
+          window.OnhostPanelOrder.penpot(cmp, sel.id, pp).then(function () { penpotOffer(cmp, sel, true); operations(cmp, sel, true); });
+        })] : [];
+        rows.push({ cells: [cell(_('Penpot (návrhy a prototypy)', 'Penpot (design and prototyping)'), '1 1 220px'), cell(ppState, '0 0 260px'), cell(pp.existing && pp.existing.length ? _('Penpot služby je v seznamu webových služeb', 'the service\'s Penpot is listed with the web services') : (pp.included ? _('vlastní instance pro tým, HTTPS, denní zálohy', 'your own instance for the team, HTTPS, daily backups') : fmtP(pp.price)), '1 1 220px', 1)], note: '', actions: ppActs });
+      }
       var held = sel.suspension && sel.suspension.customer_can_resume === false ? sel.suspension : null; // a suspension we imposed is not the customer's to lift (H17)
       if (held) {
         rows.unshift({ cells: [cell(_('Pozastavená služba', 'Suspended service'), '1 1 220px'), cell(held.hold === 'payment' ? _('čeká na úhradu', 'waiting for payment') : (held.hold === 'abuse' ? _('pozastaveno kvůli porušení podmínek', 'suspended for a breach of terms') : (held.hold === 'withdrawal' ? _('ukončeno odstoupením od smlouvy', 'ended by withdrawal from the contract') : _('pozastavil ji náš tým', 'suspended by our team'))), '1 1 300px'), cell(held.hold === 'withdrawal' ? _('nevyužitá část je na kreditu', 'the unused part is on the credit') : _('obnoví ji ONhost', 'ONhost brings it back'), '0 0 170px', 1)],
@@ -1119,6 +1130,13 @@
   /* ── Penpot (TASK-0123) ──────────────────────────────────────────────────
    * GET /v1/services/{id}/penpot: the address to open, the sign-in e-mail, the plan's limits, the last check of the node. The
    * owner's password is set here (POST …/penpot/owner-password, HIGH: the API asks for a fresh step-up) and shown nowhere. */
+  /* What a Penpot costs next to this service and whether it can be ordered now (GET /v1/services/{id}/penpot-offer, H-R7). */
+  function penpotOffer(cmp, sel, fresh) {
+    state.penpotOffer = state.penpotOffer || {};
+    var r = state.penpotOffer[sel.id];
+    if (r === undefined || fresh) { if (r === undefined) state.penpotOffer[sel.id] = null; load('ppo:' + sel.id, '/services/' + sel.id + '/penpot-offer', cmp, function (d) { state.penpotOffer[sel.id] = d; }); }
+    return state.penpotOffer[sel.id];
+  }
   function penpotInfo(cmp, sel, fresh) {
     state.penpot = state.penpot || {};
     var r = state.penpot[sel.id];
