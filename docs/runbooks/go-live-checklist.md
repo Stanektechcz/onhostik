@@ -85,7 +85,7 @@ and the other rows marked blocking in the doctor); the rest are standing WARNs t
 
 | Item | Verify | Status |
 | --- | --- | --- |
-| Comgate merchant + secret (`env://COMGATE` or the secret store), `COMGATE_TEST=false`, callback IPs | a 1 CZK card top-up settles and appears in the wallet | open |
+| Comgate merchant + secret (`env://COMGATE` or the secret store), `COMGATE_TEST=false` (or the administration's mode switch, H-R8), callback IPs | *Ověřit spojení* and *Testovací platba 1 Kč* in Nastavení → Integrace pass ([comgate.md](comgate.md)); a 1 CZK card top-up settles and appears in the wallet | open |
 | Bank account (`ONHOST_BANK_IBAN`, `ONHOST_BANK_BIC`, `ONHOST_BANK_ACCOUNT`) printed on proformas and top-up instructions | a proforma PDF shows the account and QR code | open |
 | Bank statement import matches by variable symbol | a test transfer settles the proforma and starts fulfilment | open (`ONHOST_BANK_FIO_TOKEN`) |
 | Legal entity, VAT registration, document series (`FV`, `PF`, `DK`, `PP`, `TU`), `ONHOST_LEGAL_ENTITY` | `php artisan db:seed --class=LegalEntitySeeder` on the production values | open (placeholder values today) |

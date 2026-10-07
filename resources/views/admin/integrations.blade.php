@@ -238,6 +238,22 @@
     </div>
   </section>
 
+  <section class="panel" id="comgate">
+    <h2>Platební brána Comgate — test</h2>
+    <p class="lead">Ověření brány před první skutečnou platbou (rozhodnutí vlastníka H-R8). Platforma ukazuje jen to, <strong>zda</strong> má přihlašovací údaje (ID obchodníka a heslo z úložiště <code>COMGATE_SECRET_REF</code>), nikdy jejich hodnoty. „Ověřit spojení“ pošle jeden autorizovaný dotaz bez účinku (seznam platebních metod), „Testovací platba“ vytvoří a přečte zpět platbu 1 Kč <strong>vždy v testovacím režimu</strong> — do účetnictví se nic nezapíše. Obojí chce druhé ověření. Přepnutí testovacího režimu je změna peněz: druhé ověření a schválení druhou osobou.</p>
+    <p class="hint" id="cg-state">Načítám…</p>
+    <div class="actions" style="margin:6px 0 12px;align-items:center">
+      <button class="btn" type="button" id="cg-connection">Ověřit spojení</button>
+      <button class="btn" type="button" id="cg-payment">Testovací platba 1 Kč</button>
+      <span class="hint" id="cg-last"></span>
+    </div>
+    <div class="grid">
+      <div class="field"><label for="cg-mode">Režim brány</label><select id="cg-mode"><option value="env">podle nasazení (COMGATE_TEST)</option><option value="on">testovací</option><option value="off">ostrý (skutečné peníze)</option></select></div>
+      <div class="field"><label for="cg-reason">Důvod změny (čte ho schvalovatel)</label><input id="cg-reason" maxlength="250" placeholder="Zkouška brány před spuštěním"></div>
+      <div class="actions span2"><button class="btn primary" type="button" id="cg-mode-save">Uložit režim brány</button></div>
+    </div>
+  </section>
+
   <section class="panel" id="bank">
     <h2>Bankovní platby</h2>
     <p class="lead">Převody nemají webhook: příchozí platby se párují podle variabilního symbolu a částky na čekající zálohové faktury a dobití kreditu. S tokenem Fio API (<code>ONHOST_BANK_FIO_TOKEN</code>) se výpis stahuje automaticky každých 5 minut; platbu z výpisu jiné banky zaznamenejte ručně níže. Spárování zaplatí zálohovou fakturu a spustí zřízení služeb (u dobití připíše kredit) a vystaví doklad o přijetí platby. Stejný řádek výpisu se nikdy nezaúčtuje dvakrát.</p>
@@ -804,6 +820,33 @@
       .catch(function (e) { say(e.message, false); log('Chyba', e.payload || e.message); });
   });
 
+  /* ── Comgate check (owner decision H-R8): credentials present?, mode, connection check, 1 Kč test payment ── */
+  var comgate = { data: null };
+  function renderComgate() {
+    var d = comgate.data; if (!d) return;
+    var c = d.credentials || {};
+    $('cg-state').textContent = 'Přihlašovací údaje: ' + (d.configured ? 'v úložišti (' + (c.store || '?') + ')' : 'CHYBÍ ' + [c.merchant ? '' : 'ID obchodníka', c.secret ? '' : 'heslo'].filter(Boolean).join(' a ') + (c.error ? ' — ' + c.error : '')) + '; režim: ' + (d.test_mode ? 'testovací' : 'ostrý') + ' (nastavilo: ' + (d.test_mode_source === 'env' ? 'nasazení' : 'administrace') + '); brána ' + (d.gateway_host || '?') + (d.default_gateway ? '' : ' (není výchozí brána)') + '.';
+    $('cg-mode').value = d.test_mode_source === 'env' ? 'env' : (d.test_mode ? 'on' : 'off');
+    var l = d.last_check;
+    $('cg-last').textContent = l ? ('Poslední kontrola ' + when(l.at) + ': ' + (l.ok ? 'OK' : 'CHYBA') + ' — ' + (l.message || '')) : 'Zatím nekontrolováno.';
+  }
+  function loadComgate() { return api('GET', '/staff/payments/comgate').then(function (r) { comgate.data = r.data || r; renderComgate(); }); }
+  function runComgate(kind) {
+    guarded(function () { return api('POST', '/staff/payments/comgate/check', { kind: kind }); })
+      .then(function (r) { var x = r.data || r; say((x.ok ? 'Comgate OK: ' : 'Comgate: ') + (x.message || ''), !!x.ok); log('Comgate — ' + kind, x); return loadComgate(); })
+      .catch(function (e) { say(e.message, false); log('Chyba', e.payload || e.message); });
+  }
+  $('cg-connection').addEventListener('click', function () { runComgate('connection'); });
+  $('cg-payment').addEventListener('click', function () { runComgate('payment'); });
+  $('cg-mode-save').addEventListener('click', function () {
+    var v = $('cg-mode').value;
+    if (v === 'off' && !window.confirm('Ostrý režim: platby budou skutečné. Pokračovat?')) return;
+    var body = { enabled: v === 'env' ? null : v === 'on', reason: $('cg-reason').value.trim() };
+    guarded(function () { return api('PUT', '/staff/payments/comgate/test-mode', body); })
+      .then(function (r) { say('Režim brány uložen', true); log('Režim brány Comgate', r); return loadComgate(); })
+      .catch(function (e) { say(e.message, false); log('Chyba', e.payload || e.message); });
+  });
+
   /* ── Bankovní platby: čekající převody, ruční záznam řádku výpisu, Fio sync ───────────────────── */
   var bank = { data: null };
   function mny(a) { if (a == null) return '—'; if (typeof a === 'number') return a.toFixed(2); if (typeof a === 'string') return a; if (a.decimal != null) return String(a.decimal); if (a.amount != null) return String(a.amount); if (a.minor != null) return (a.minor / 100).toFixed(2); return JSON.stringify(a); }
@@ -889,7 +932,7 @@
       .catch(function (e) { say(e.message, false); log('Chyba', e.payload || e.message); });
   });
 
-  loadSchema().then(loadInstances).then(loadPlacements).then(loadRegistrars).then(loadPricing).then(loadPenpot).then(loadBank).then(loadNav).catch(function (e) { say('Nelze načíst nastavení: ' + e.message, false); });
+  loadSchema().then(loadInstances).then(loadPlacements).then(loadRegistrars).then(loadPricing).then(loadPenpot).then(loadBank).then(loadComgate).then(loadNav).catch(function (e) { say('Nelze načíst nastavení: ' + e.message, false); });
 })();
 </script>
 </body>
