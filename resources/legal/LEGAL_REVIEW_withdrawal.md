@@ -31,6 +31,11 @@ Vlastník předává tento soubor právníkovi spolu s `terms.md` a `withdrawal_
 spustit s dnešními texty verze `2026-09` (vědomě přijaté riziko); verze dokumentů se do odpovědi nemění. Po odpovědi vznikne nová
 verze přes `consent_documents` a seam pro texty v prototypech (balík I5).
 
+**TASK-0142 (2026-10-08):** nová verze `2026-10` je připravená předem jako **draft** (`resources/legal/2026-10/`, nezveřejněná,
+nic ji nenabízí) včetně nového reklamačního řádu a zásad přijatelného užívání; úplná kontrola a seznam zjištění jsou v
+`docs/legal/LEGAL_REVIEW_2026-10.md`. Po odpovědi advokáta se texty upraví a vlastník je zveřejní příkazem
+`php artisan onhost:legal:publish 2026-10` (postup tamtéž, kap. 5). Texty `2026-09` v této složce se už nemění (hlídá test).
+
 ## Otázky pro právníka
 
 1. Stačí výslovný souhlas zaškrtnutím v panelu k vrácení na (nevyplatitelný) kredit místo původního platebního
