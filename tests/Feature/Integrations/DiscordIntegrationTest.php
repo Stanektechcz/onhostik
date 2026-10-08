@@ -132,6 +132,7 @@ it('runs one predefined action through a signed action-hook URL and rejects bad 
     expect($this->getJson('/v1/hooks/actions?service='.$service->id)->assertOk()->json('data.hooks.0.name'))->toBe('Záloha z Discordu');
 
     $this->post('/v1/hooks/run/ahk_'.str_repeat('x', 40))->assertNotFound();
+    $this->travelTo(now()->startOfMinute()); // frozen at the start of a window: the burst below cannot straddle a boundary by chance
     $run = $this->post('/v1/hooks/run/'.$created['token'])->assertAccepted()->json();
     expect($run['accepted'])->toBeTrue()->and($run['operation_id'])->toStartWith('op');
     expect(ActionHook::query()->where('id', $created['hook']['id'])->value('uses'))->toBe(1);
@@ -142,6 +143,29 @@ it('runs one predefined action through a signed action-hook URL and rejects bad 
     expect($this->post('/v1/hooks/run/'.$created['token'])->assertOk()->json('reason'))->toBe('hook_disabled');
     $this->deleteJson('/v1/hooks/actions/'.$created['hook']['id'])->assertOk();
     $this->post('/v1/hooks/run/'.$created['token'])->assertNotFound();
+});
+
+it('measures the action-hook burst window from the first run, not from a fixed ten-second bucket', function () {
+    [$user, $org] = $this->customerWithOrganization();
+    $service = featureWebService($org, 'aapanel');
+    Http::fake(fn ($request) => str_contains((string) parse_url($request->url(), PHP_URL_QUERY), 'table=backup') ? Http::response(['data' => []]) : Http::response(['status' => true, 'msg' => 'ok']));
+    $this->actingAs($user, 'sanctum');
+    $created = $this->postJson('/v1/hooks/actions', ['service_id' => $service->id, 'name' => 'Okno', 'action' => 'backup', 'params' => ['kind' => 'manual']])->assertCreated()->json();
+    $url = '/v1/hooks/run/'.$created['token'];
+
+    // 0.6 s before a wall-clock ten-second boundary and 0.6 s after it is one burst, however the clock is cut up
+    $this->travelTo(now()->startOfMinute()->addSeconds(9)->addMilliseconds(900));
+    $first = $this->post($url)->assertAccepted()->json();
+    $this->travelTo(now()->startOfMinute()->addSeconds(10)->addMilliseconds(500));
+    $across = $this->post($url)->json();
+    expect($across['accepted'])->toBeTrue()->and($across['operation_id'])->toBe($first['operation_id']);
+
+    // the window ends ten seconds after the FIRST run (09.9 s -> 19.9 s): a run after that is a new operation
+    $this->travelTo(now()->startOfMinute()->addSeconds(19)->addMilliseconds(850));
+    expect($this->post($url)->json('operation_id'))->toBe($first['operation_id']);
+    $this->travelTo(now()->startOfMinute()->addSeconds(19)->addMilliseconds(950));
+    $later = $this->post($url)->assertAccepted()->json();
+    expect($later['operation_id'])->not->toBe($first['operation_id']);
 });
 
 it('delivers platform events to a Discord channel webhook as embeds', function () {

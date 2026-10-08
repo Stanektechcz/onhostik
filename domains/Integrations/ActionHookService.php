@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Integrations;
 
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Models\User;
@@ -28,6 +29,9 @@ use Onhost\Platform\Errors\DomainError;
 final class ActionHookService
 {
     /** Never an action that needs a fresh step-up (staging.push since TASK-0029): a URL called by a bot cannot give one. */
+    /** Triggers within this many seconds of the first run are one operation. */
+    private const BURST_SECONDS = 10;
+
     public const ALLOWED = ['backup', 'power', 'deploy.run', 'staging.refresh', 'wp.update', 'wp.cache', 'cdn.purge', 'cron.run', 'ssl.issue', 'https.force', 'php.set', 'redirect.set', 'monitoring.set'];
 
     public function __construct(private readonly ServiceService $services, private readonly ServiceFeatures $features, private readonly Authorizer $authorizer, private readonly AuditRecorder $audit) {}
@@ -137,7 +141,7 @@ final class ActionHookService
         }
         $context = new CommandContext('user', $user->id, $service->organization_id, null, $ip, 'action-hook', 'hook:'.$hook->id, 'action hook '.$hook->name);
         try {
-            $operation = $this->services->requestAction($service, $action, $context, 'hook:'.$hook->id.':'.intdiv(time(), 10), $params, authorizedPermission: $permission); // the run re-checks the same permission (H315)
+            $operation = $this->services->requestAction($service, $action, $context, $this->burstKey($hook), $params, authorizedPermission: $permission); // the run re-checks the same permission (H315)
         } catch (DomainError $e) {
             $hook->forceFill(['uses' => $hook->uses + 1, 'last_used_at' => now(), 'last_result' => mb_substr($e->error, 0, 40)])->save();
             $this->audit->record($context, 'integration.hook.trigger', 'failed', ['action' => $hook->action, 'error' => $e->error], 'action_hook', $hook->id);
@@ -148,6 +152,22 @@ final class ActionHookService
         $this->audit->record($context, 'integration.hook.trigger', 'succeeded', ['action' => $hook->action, 'operation_id' => $operation->id], 'action_hook', $hook->id);
 
         return ['accepted' => true, 'reason' => null, 'operation_id' => $operation->id, 'state' => $operation->state, 'hook' => $hook->name];
+    }
+
+    /**
+     * The idempotency key of a run: every trigger within BURST_SECONDS of the FIRST one shares it, so a burst is one operation.
+     * A sliding window opened by Cache::add (atomic: one request wins the window, the others read its token); a fixed
+     * clock bucket (intdiv(time(), 10)) split two requests a few milliseconds apart whenever a boundary fell between them.
+     */
+    private function burstKey(ActionHook $hook): string
+    {
+        $cacheKey = 'action-hook:burst:'.$hook->id;
+        $token = Str::random(16);
+        if (Cache::add($cacheKey, $token, self::BURST_SECONDS)) {
+            return 'hook:'.$hook->id.':'.$token;
+        }
+
+        return 'hook:'.$hook->id.':'.(string) (Cache::get($cacheKey) ?? $token); // expired between add and get: this run opens the window
     }
 
     /**
