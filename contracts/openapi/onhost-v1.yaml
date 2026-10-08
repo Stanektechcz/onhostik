@@ -27705,6 +27705,81 @@ paths:
                   maxLength: 40
                   description: 'The ticket of this customer that holds the withdrawal notice.'
       description: "Finance gives the payment of an ORDER back to its source (card, or a bank payout) when a consumer withdrew within fourteen days and did not agree to credit. Needs the ticket holding the consumer's notice; every service of the refunded lines must have ended. Writes a credit note of the order's document first; never more than is left of the payment or of the document. HIGH: a fresh step-up; from `onhost.billing.refund_approval_threshold` on CRITICAL with a second person (`approval_ids`). A card refund is announced (`payment.refunded`); a bank refund stays `pending` until confirmed."
+  '/staff/payments/{payment}/refund-statutory':
+    post:
+      operationId: postStaffPaymentsByPaymentRefundStatutory
+      tags:
+        - staff-payments
+      summary: 'POST /staff/payments/{payment}/refund-statutory'
+      parameters:
+        -
+          name: payment
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        '422':
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '200':
+          description: 'Success (idempotent replay or synchronous result)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+      x-token-scope: null
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
   /staff/placements:
     get:
       operationId: getStaffPlacements
@@ -34509,6 +34584,81 @@ paths:
         - staff-withdrawals
       summary: 'POST /staff/withdrawals'
       parameters:
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        '422':
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '200':
+          description: 'Success (idempotent replay or synchronous result)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+      x-token-scope: null
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  '/staff/withdrawals/{withdrawal}/payout':
+    post:
+      operationId: postStaffWithdrawalsByWithdrawalPayout
+      tags:
+        - staff-withdrawals
+      summary: 'POST /staff/withdrawals/{withdrawal}/payout'
+      parameters:
+        -
+          name: withdrawal
+          in: path
+          required: true
+          schema:
+            type: string
         -
           $ref: '#/components/parameters/IdempotencyKey'
         -

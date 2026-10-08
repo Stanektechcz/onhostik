@@ -7,11 +7,13 @@ namespace App\Http\Controllers\Api\V1\Staff;
 use App\Http\Controllers\Api\V1\ApiController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Onhost\Domain\Payments\BankStatementImporter;
 use Onhost\Domain\Payments\Commands\BankCommand;
 use Onhost\Domain\Payments\Commands\PaymentRefundCommand;
 use Onhost\Domain\Payments\Models\PaymentIntent;
 use Onhost\Domain\Payments\Models\PaymentRefund;
+use Onhost\Domain\Payments\OrderPaymentRefunds;
 use Onhost\Domain\Payments\PaymentService;
 use Onhost\Domain\Payments\RefundsNotPaidOut;
 use Onhost\Platform\Commands\CommandScope;
@@ -81,6 +83,23 @@ final class PaymentsController extends ApiController
             'op' => 'refund.withdrawal', 'payment_id' => $intent->id, 'organization_id' => $intent->organization_id, 'amount_minor' => $amount->minor, 'currency' => $amount->currency->value, 'payment_refunded_minor' => (int) $intent->refunded_minor,
             'sent_at' => (string) $data['sent_at'], 'reason' => $data['reason'], 'ticket_id' => $data['ticket_id'],
         ]), $this->api->context($request, null, $data['reason']));
+    }
+
+    /**
+     * L-09: a consumer's statutory money (a defect, the provider's termination, an undeliverable order) back to the payment of the
+     * order — from the order's document, or (`credit_note_id`) from what that credit note already put on the credit.
+     */
+    public function refundStatutory(Request $request, string $payment): JsonResponse
+    {
+        $data = $request->validate(['amount' => ['required', 'numeric', 'min:0.01', 'max:100000000'], 'basis' => ['required', 'string', Rule::in(OrderPaymentRefunds::STATUTORY_BASES)],
+            'reason' => ['required', 'string', 'min:5', 'max:250'], 'ticket_id' => ['required', 'string', 'max:40'], 'credit_note_id' => ['nullable', 'string', 'max:40']]);
+        $intent = PaymentIntent::query()->findOrFail($payment);
+        $amount = Money::decimal((string) $data['amount'], (string) $intent->currency);
+
+        return $this->dispatch(new PaymentRefundCommand($this->idempotencyKey($request, 'payments.refund.statutory:'.$intent->id), array_filter([
+            'op' => 'refund.statutory', 'payment_id' => $intent->id, 'organization_id' => $intent->organization_id, 'amount_minor' => $amount->minor, 'currency' => $amount->currency->value, 'payment_refunded_minor' => (int) $intent->refunded_minor,
+            'basis' => $data['basis'], 'reason' => $data['reason'], 'ticket_id' => $data['ticket_id'], 'credit_note_id' => $data['credit_note_id'] ?? null,
+        ], fn ($v) => $v !== null)), $this->api->context($request, null, $data['reason']));
     }
 
     /** G6: finance sent the bank payout of a pending refund (`reference`: the bank's payment reference); the customer is told. */

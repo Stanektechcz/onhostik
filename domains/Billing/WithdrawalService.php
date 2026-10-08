@@ -17,6 +17,7 @@ use Onhost\Domain\Orders\Models\Consent;
 use Onhost\Domain\Orders\Models\ConsentDocument;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\OrderStateMachine;
+use Onhost\Domain\Payments\OrderPaymentRefunds;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
@@ -24,6 +25,7 @@ use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\Services\SuspensionHold;
 use Onhost\Domain\WalletLedger\Models\WalletHold;
 use Onhost\Domain\WalletLedger\Models\WalletTopup;
+use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
@@ -54,6 +56,7 @@ final class WithdrawalService
         private readonly CheckoutService $checkout,
         private readonly AuditRecorder $audit,
         private readonly OutboxPublisher $outbox,
+        private readonly WalletService $wallets,
     ) {}
 
     /**
@@ -113,21 +116,26 @@ final class WithdrawalService
         return ['to_credit' => $toCredit, 'off_documents' => $offDocuments];
     }
 
-    public function withdrawService(Service $service, CommandContext $context, string $channel, CarbonImmutable $sentAt, ?string $statement, ?string $requestedBy): Withdrawal
+    /**
+     * `$refundMethod` (L-06): `credit` only when the consumer expressly agreed to take the money as credit (the agreement is
+     * recorded as a consent); otherwise `source` — the statutory default, money back the way it was paid (§ 1831 OZ).
+     */
+    public function withdrawService(Service $service, CommandContext $context, string $channel, CarbonImmutable $sentAt, ?string $statement, ?string $requestedBy, string $refundMethod = Withdrawal::METHOD_SOURCE): Withdrawal
     {
-        $withdrawal = DB::transaction(function () use ($service, $context, $channel, $sentAt, $statement, $requestedBy) {
+        $refundMethod = self::method($refundMethod);
+        $withdrawal = DB::transaction(function () use ($service, $context, $channel, $sentAt, $statement, $requestedBy, $refundMethod) {
             $service = Service::query()->lockForUpdate()->find($service->id) ?? throw DomainError::notFound('service');
             $terms = $this->policy->forService($service, $sentAt);
             $estimate = $this->estimate($service, $sentAt);
-            $consent = $this->recordConsent($terms['order'], $context, $channel, $requestedBy);
+            $consent = $refundMethod === Withdrawal::METHOD_CREDIT ? $this->recordConsent($terms['order'], $context, $channel, $requestedBy) : null;
             $withdrawal = Withdrawal::query()->create([
                 'organization_id' => $service->organization_id, 'order_id' => $terms['order']->id, 'order_item_id' => $terms['item']->id, 'service_id' => $service->id, 'subject_key' => 'item:'.$terms['item']->id,
                 'channel' => $channel, 'requested_by' => $requestedBy, 'sent_at' => $sentAt, 'contract_start_at' => $terms['contract_start'], 'deadline_at' => $terms['deadline'], 'customer_class_at_order' => $terms['customer_class'],
-                'refund_consent_id' => $consent->id, 'statement' => $statement !== null ? mb_substr($statement, 0, 2000) : null, 'state' => Withdrawal::SUSPENDING, 'currency' => $estimate['currency'],
+                'refund_consent_id' => $consent?->id, 'refund_method' => $refundMethod, 'statement' => $statement !== null ? mb_substr($statement, 0, 2000) : null, 'state' => Withdrawal::SUSPENDING, 'currency' => $estimate['currency'],
                 'refund_minor' => $estimate['refund']->minor, 'basis' => ['as_of' => AccountingClock::date($sentAt), 'lines' => $estimate['lines'],
                     'estimate' => ['to_credit_minor' => $estimate['to_credit']->minor, 'off_document_minor' => $estimate['off_documents']->minor]],
             ]);
-            $consent->forceFill(['evidence' => array_merge((array) $consent->evidence, ['withdrawal_id' => $withdrawal->id])])->save();
+            $consent?->forceFill(['evidence' => array_merge((array) $consent->evidence, ['withdrawal_id' => $withdrawal->id])])->save();
             // nothing renews while the contract is unwound, and a request to leave early with a share back is superseded by the right to leave with all of it
             $parts = Service::query()->where('family', 'addon')->where('tags->parent_service_id', $service->id)->pluck('id')->push($service->id)->all();
             Subscription::query()->whereIn('service_id', $parts)->whereNotIn('state', [Subscription::CANCELLED])->update(['auto_renew' => false]);
@@ -143,15 +151,17 @@ final class WithdrawalService
     }
 
     /** A paid order nothing of which was delivered: cancelling it credits every line (CheckoutService::transition) and frees the credit. */
-    public function withdrawOrder(Order $order, CommandContext $context, string $channel, CarbonImmutable $sentAt, ?string $statement, ?string $requestedBy): Withdrawal
+    public function withdrawOrder(Order $order, CommandContext $context, string $channel, CarbonImmutable $sentAt, ?string $statement, ?string $requestedBy, string $refundMethod = Withdrawal::METHOD_SOURCE): Withdrawal
     {
-        return DB::transaction(function () use ($order, $context, $channel, $sentAt, $statement, $requestedBy) {
+        $refundMethod = self::method($refundMethod);
+
+        return DB::transaction(function () use ($order, $context, $channel, $sentAt, $statement, $requestedBy, $refundMethod) {
             $order = Order::query()->lockForUpdate()->find($order->id) ?? throw DomainError::notFound('order');
             $terms = $this->policy->forOrder($order, $sentAt);
-            $consent = $this->recordConsent($order, $context, $channel, $requestedBy);
+            $consent = $refundMethod === Withdrawal::METHOD_CREDIT ? $this->recordConsent($order, $context, $channel, $requestedBy) : null;
             $withdrawal = Withdrawal::query()->create([
                 'organization_id' => $order->organization_id, 'order_id' => $order->id, 'subject_key' => 'order:'.$order->id, 'channel' => $channel, 'requested_by' => $requestedBy, 'sent_at' => $sentAt,
-                'contract_start_at' => $terms['contract_start'], 'deadline_at' => $terms['deadline'], 'customer_class_at_order' => $terms['customer_class'], 'refund_consent_id' => $consent->id,
+                'contract_start_at' => $terms['contract_start'], 'deadline_at' => $terms['deadline'], 'customer_class_at_order' => $terms['customer_class'], 'refund_consent_id' => $consent?->id, 'refund_method' => $refundMethod,
                 'statement' => $statement !== null ? mb_substr($statement, 0, 2000) : null, 'state' => Withdrawal::SUSPENDING, 'currency' => $order->currency, 'refund_minor' => 0, 'basis' => ['order' => $order->number],
             ]);
             $ctx = CommandContext::system('withdrawal '.$withdrawal->id)->withScope($order->organization_id);
@@ -171,13 +181,14 @@ final class WithdrawalService
                 $basis['already_returned'] = ['by' => 'order settlement', 'returned_minor' => (int) data_get($order->meta, 'settlement.returned_minor', 0)];
             }
             $withdrawal->forceFill(['state' => Withdrawal::REFUNDED, 'refunded_at' => now(), 'refund_minor' => $toCredit + $offDocuments, 'to_credit_minor' => $toCredit, 'off_document_minor' => $offDocuments, 'basis' => $basis])->save();
+            $this->dueBack($withdrawal, $ctx, $toCredit); // L-06: what the order's payment brought goes back to it
             // the confirmation of receipt names what really moved (it is known now), never the order total
             $this->accepted($withdrawal, $context, 'objednávka '.$order->number, Money::minor($toCredit, $order->currency), Money::minor($offDocuments, $order->currency), false);
             if ($toCredit + $offDocuments > 0) {
                 $this->refunded($withdrawal, $ctx, 'objednávka '.$order->number);
             }
 
-            return $this->complete($withdrawal, $ctx, 'objednávka '.$order->number);
+            return $this->completeOrPayout($withdrawal, $ctx, 'objednávka '.$order->number);
         }, 3);
     }
 
@@ -189,8 +200,8 @@ final class WithdrawalService
     {
         return DB::transaction(function () use ($withdrawal, $dryRun) {
             $w = Withdrawal::query()->lockForUpdate()->find($withdrawal->id);
-            if ($w === null || $w->state === Withdrawal::COMPLETED || $w->service_id === null) {
-                return $w ?? $withdrawal;
+            if ($w === null || in_array($w->state, [Withdrawal::COMPLETED, Withdrawal::PAYOUT_DUE], true) || $w->service_id === null) {
+                return $w ?? $withdrawal; // a payout due is finance's step (OrderPaymentRefunds::payoutWithdrawal), never automatic
             }
             $service = Service::query()->withTrashed()->find($w->service_id);
             $ctx = CommandContext::system('withdrawal '.$w->id)->withScope($w->organization_id);
@@ -232,7 +243,7 @@ final class WithdrawalService
                 $this->holdBack($w, $service, $ctx); // second guard: whatever the saga wrote, no free resume
             }
 
-            return $this->complete($w, $ctx, $label);
+            return $this->completeOrPayout($w, $ctx, $label);
         }, 3);
     }
 
@@ -288,6 +299,9 @@ final class WithdrawalService
             'channel' => $w->channel, 'sent_at' => $w->sent_at->toIso8601String(), 'contract_start_at' => $w->contract_start_at->toIso8601String(), 'deadline_at' => $w->deadline_at->toIso8601String(), 'customer_class_at_order' => $w->customer_class_at_order,
             'refund' => Money::minor((int) $w->refund_minor, $w->currency), 'to_credit' => Money::minor((int) $w->to_credit_minor, $w->currency), 'off_documents' => Money::minor((int) $w->off_document_minor, $w->currency),
             'credit_notes' => array_values((array) data_get($w->basis, 'credit_notes', [])), 'suspend_operation_id' => $w->suspend_operation_id, 'terminate_operation_id' => $w->terminate_operation_id, 'error' => $w->error,
+            // L-06: how the money goes back; what an order payment gets back, what was paid out of it, and by when
+            'refund_method' => (string) ($w->refund_method ?: Withdrawal::METHOD_CREDIT), 'payout' => Money::minor((int) $w->payout_minor, $w->currency), 'paid_out' => Money::minor((int) $w->paid_out_minor, $w->currency),
+            'payout_payment_id' => $w->payout_payment_id, 'payout_due_by' => (int) $w->payout_minor > 0 ? self::payoutDueBy($w)->toIso8601String() : null,
             'created_at' => $w->created_at?->toIso8601String(), 'refunded_at' => $w->refunded_at?->toIso8601String(), 'completed_at' => $w->completed_at?->toIso8601String(),
         ];
     }
@@ -353,6 +367,9 @@ final class WithdrawalService
         }
         unset($basis['refund_failed']);
         $w->forceFill(['state' => Withdrawal::REFUNDED, 'refunded_at' => now(), 'refund_minor' => $toCredit + $offDocuments, 'to_credit_minor' => $toCredit, 'off_document_minor' => $offDocuments, 'error' => null, 'basis' => $basis])->save();
+        // L-06: only the documents of the withdrawn order were paid by its payment; a renewal paid from the credit stays credit
+        $orderDocuments = Invoice::query()->whereIn('id', array_keys($done))->where('order_id', $w->order_id)->pluck('id')->map(fn ($id) => (string) $id)->all();
+        $this->dueBack($w, $ctx, (int) array_sum(array_map(fn (string $id) => (int) ($done[$id]['to_credit_minor'] ?? 0), $orderDocuments)));
         $this->refunded($w, $ctx, $label);
     }
 
@@ -452,7 +469,8 @@ final class WithdrawalService
         $this->outbox->publish(GenericEvent::of('withdrawal.accepted', 'withdrawal', $w->id, [
             'service_id' => $w->service_id, 'label' => $label, 'order_number' => Order::query()->whereKey($w->order_id)->value('number'), 'sent_at' => $w->sent_at->toIso8601String(),
             'refund' => Money::minor((int) $w->refund_minor, $w->currency), 'to_credit' => $toCredit, 'off_documents' => $offDocuments, 'estimate' => $estimate,
-            'already_returned' => data_get($w->basis, 'already_returned') !== null, 'channel' => $w->channel,
+            'already_returned' => data_get($w->basis, 'already_returned') !== null, 'channel' => $w->channel, 'refund_method' => (string) $w->refund_method,
+            'to_source' => $w->refund_method === Withdrawal::METHOD_SOURCE && OrderPaymentRefunds::orderPaymentOf((string) $w->organization_id, (string) $w->order_id, (string) $w->currency) !== null,
         ], $w->organization_id));
     }
 
@@ -462,7 +480,71 @@ final class WithdrawalService
         $this->outbox->publish(GenericEvent::of('withdrawal.refunded', 'withdrawal', $w->id, [
             'service_id' => $w->service_id, 'label' => $label, 'refund' => Money::minor((int) $w->refund_minor, $w->currency), 'to_credit' => Money::minor((int) $w->to_credit_minor, $w->currency),
             'off_documents' => Money::minor((int) $w->off_document_minor, $w->currency), 'credit_notes' => array_values((array) data_get($w->basis, 'credit_notes', [])),
+            'refund_method' => (string) $w->refund_method, 'payout' => Money::minor((int) $w->payout_minor, $w->currency), // L-06: what of it waits for the payout to the order's payment
         ], $w->organization_id));
+    }
+
+    /** The refund method a caller named; anything but an express agreement to the credit is the statutory default. */
+    private static function method(string $method): string
+    {
+        return $method === Withdrawal::METHOD_CREDIT ? Withdrawal::METHOD_CREDIT : Withdrawal::METHOD_SOURCE;
+    }
+
+    /**
+     * L-06: without the consumer's agreement to the credit, what the withdrawn order's own payment brought (a card, a transfer —
+     * purpose `order`) is due back to that payment. The credit notes already put it on the credit; it is held there (a wallet
+     * hold without expiry) so that no renewal or order spends it, and finance pays it out (OrderPaymentRefunds::payoutWithdrawal).
+     * What was paid from the credit stays credit — the credit was the means of payment. Never more than is left of the payment.
+     */
+    private function dueBack(Withdrawal $w, CommandContext $ctx, int $returnedFromOrder): void
+    {
+        if ($w->refund_method !== Withdrawal::METHOD_SOURCE || $returnedFromOrder <= 0 || $w->payout_payment_id !== null) {
+            return;
+        }
+        $intent = OrderPaymentRefunds::orderPaymentOf((string) $w->organization_id, (string) $w->order_id, (string) $w->currency);
+        $due = $intent === null ? 0 : min($returnedFromOrder, (int) $intent->amount_minor - (int) $intent->refunded_minor);
+        if ($intent === null || $due <= 0) {
+            return;
+        }
+        $available = $this->wallets->balances((string) $w->organization_id, (string) $w->currency)['available']->minor;
+        $hold = null;
+        if (min($due, $available) > 0) {
+            try {
+                $hold = $this->wallets->hold((string) $w->organization_id, Money::minor(min($due, $available), (string) $w->currency), 'withdrawal_payout', "withdrawal-payout:{$w->id}", $ctx->withScope($w->organization_id), 'withdrawal', $w->id, 'domain', null, false);
+            } catch (DomainError $e) {
+                report($e); // the payout itself checks the credit again; nothing is lost by a hold that could not be placed
+            }
+        }
+        $w->forceFill(['payout_minor' => $due, 'payout_payment_id' => $intent->id, 'basis' => array_merge((array) $w->basis, ['payout_hold_id' => $hold?->id])])->save();
+        $this->audit->record($ctx->withScope($w->organization_id), 'billing.withdrawal.payout_due', 'succeeded', ['withdrawal' => $w->id, 'payment' => $intent->id, 'payout_minor' => $due, 'held_minor' => (int) ($hold->amount_minor ?? 0)], 'withdrawal', $w->id);
+    }
+
+    /** Done — unless money is still due back to an order payment: then finance is asked to pay it out within the fourteen days. */
+    private function completeOrPayout(Withdrawal $w, CommandContext $ctx, string $label): Withdrawal
+    {
+        if ((int) $w->payout_minor <= (int) $w->paid_out_minor) {
+            return $this->complete($w, $ctx, $label);
+        }
+        $w->forceFill(['state' => Withdrawal::PAYOUT_DUE, 'error' => null])->save();
+        $this->outbox->publish(GenericEvent::of('withdrawal.payout_due', 'withdrawal', $w->id, ['service_id' => $w->service_id, 'label' => $label, 'payment_id' => $w->payout_payment_id,
+            'payout' => Money::minor((int) $w->payout_minor - (int) $w->paid_out_minor, $w->currency), 'due_by' => self::payoutDueBy($w)->toIso8601String()], $w->organization_id));
+
+        return $w;
+    }
+
+    /** § 1831 OZ: the money is returned within fourteen days of the notice. */
+    public static function payoutDueBy(Withdrawal $w): CarbonImmutable
+    {
+        return CarbonImmutable::make($w->sent_at)?->addDays(14) ?? CarbonImmutable::now();
+    }
+
+    /** Finance paid `$minor` of the payout back (OrderPaymentRefunds, under the withdrawal's lock); the last part completes it. */
+    public function paidOut(Withdrawal $w, int $minor, CommandContext $ctx): Withdrawal
+    {
+        $w->forceFill(['paid_out_minor' => (int) $w->paid_out_minor + $minor])->save();
+        $label = $w->service_id === null ? 'objednávka '.Order::query()->whereKey($w->order_id)->value('number') : (($s = Service::query()->withTrashed()->find($w->service_id)) !== null ? self::label($s) : (string) $w->service_id);
+
+        return (int) $w->paid_out_minor >= (int) $w->payout_minor ? $this->complete($w, $ctx, $label) : $w;
     }
 
     private function complete(Withdrawal $w, CommandContext $ctx, string $label): Withdrawal
