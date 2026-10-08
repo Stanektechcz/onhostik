@@ -54,7 +54,7 @@ final class LegalPublish extends Command
             $this->warn("  not ready: {$blocker}");
         }
         if (! $this->option('apply')) {
-            $this->info('Dry run: nothing was published. Customers must be told about the change before it takes effect (e-mail and panel); then run again with --apply.');
+            $this->info('Dry run: nothing was published. With --apply every customer who accepted a changed document is told at once (mandatory e-mail and panel notice), at least the notice period before it takes effect.');
 
             return $blockers === [] ? self::SUCCESS : self::FAILURE;
         }
@@ -68,9 +68,13 @@ final class LegalPublish extends Command
 
             return self::FAILURE;
         }
+        $told = 0;
         foreach ($legal->publish($version, $effective->utc(), (string) $this->option('approved-by'), CommandContext::system('cli:legal:publish')) as $row) {
             $this->info("  {$row['key']} {$row['version']} in force from {$row['effective_from']}".($row['closed'] === [] ? '' : ' (closes '.implode(', ', $row['closed']).')'));
+            $told = (int) ($row['told'] ?? 0);
         }
+        // L-24: the change notice (mail + panel) went to every customer who accepted a changed document
+        $this->info("  {$told} customers told about the change (legal.document.changed, mandatory mail and panel notice).");
 
         return self::SUCCESS;
     }
