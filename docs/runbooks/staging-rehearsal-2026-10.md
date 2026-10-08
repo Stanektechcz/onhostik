@@ -234,8 +234,9 @@ never edits old ones: customers keep what they hold.
 
 * **Purpose:** read which plans would sell a custom ISO. The **owner has to approve the revision (which plans, 4096 MB per image;
   [proposal](../proposals/custom-iso-plans.md)) before the dry run is meaningful**; it is run now only to read it.
-* **Precondition:** owner decision on the proposal recorded with the date. The ISO infrastructure (R13–R17) need **not** exist for a
-  dry run, but must for R9's apply (R18).
+* **Precondition:** owner decision on the proposal recorded with the date — done: H-R4 (2026-10-06), order I-R9 (2026-10-08). The ISO
+  infrastructure (R15–R17) need **not** exist for a dry run, but must for the apply (R18); the dry run lists what is missing as
+  `not ready (I-R9): …`.
 * **Command:** `art onhost:catalog:revise 2026-10-custom-iso`
 * **Expected:** every plan of the proposal listed with `custom_iso null → true; custom_iso_max_mb null → 4096` (`vps/compute-4/8/16`,
   `vds/vds-4/8/16`); nothing written.
@@ -423,7 +424,9 @@ the disk** while no plan sells custom ISO; steps R15–R17 are therefore verifie
 ### R18. Revision `2026-10-custom-iso`, apply (G-8, **only after R15–R17 are green**)
 
 * **Purpose:** custom ISO becomes sellable on the plans of the proposal.
-* **Precondition:** R8 read and the owner's decision recorded; R15, R16 and R17 verified by hand.
+* **Precondition:** R8 read and the owner's decision recorded; R15, R16 and R17 verified by hand. Since TASK-0135 the command checks
+  the same itself (I-R9): it refuses with `Not ready: 2026-10-custom-iso …` and publishes nothing while the virus scan fails its
+  self-test, the image root is unsafe or too small, or a usable Proxmox instance has no `custom_iso_storage`.
 * **Command:**
   ```bash
   art onhost:catalog:revise 2026-10-custom-iso --apply
@@ -553,6 +556,25 @@ the disk** while no plan sells custom ISO; steps R15–R17 are therefore verifie
   *Rollback*; migrations are additive for one release and are not undone; a database restore is never automatic).
 * Owner approval: ☐ yes
 
+### R25. Server and database backups: the plan, PBS and the switch on staging (owner decision I-R1, after R23)
+
+* **Purpose:** `backups.compute` (servers and managed databases sold with backups) is switched on only after the read-only plan and
+  one real backup on the PBS storage — on staging first ([backups.md](backups.md), *Going live with server backups*).
+* **Precondition:** R23 done; the PBS datastore is reachable from the staging Proxmox instance; its instance option `backup_storage`
+  is set (Nastavení systému → Integrace providerů; HIGH, step-up).
+* **Command:**
+  ```bash
+  art onhost:backups:compute-plan               # read only: who would be backed up, any `backup storage MISSING`
+  ```
+  then, in the staff console, back a staging test VM up through the platform and look at the backup on the PBS storage in Proxmox
+  (its notes carry `onhost backup:<id>`); then Automations → „Zálohy serverů a databází podle plánu“ → on (staging only).
+* **Expected:** no `MISSING` line; the test backup is on PBS with the note; the next day `row "every server sold backups has one from
+  the last 3 days"` OK and the `backups:` rows without a new FAIL.
+* **Verify:** the rows above; `art onhost:backups:compute-plan` again.
+* **Rollback:** switch the rule off in Automations (staging); backups already made stay where they are.
+* **Production:** the same steps only on the owner's separate word.
+* Owner approval: ☐ yes
+
 ---
 
 ## Protocol (fill in while running)
@@ -590,6 +612,7 @@ Rehearsal date: `____`  Staging commit: `____`  Operator: `____`  Owner present:
 | R22 dead letters | | | | | |
 | R23 final doctor, expected-nonok | | | | | |
 | R24 gated deploy | | | | | |
+| R25 compute backups (plan, PBS, rule on staging) | | | | | |
 
 After the last row: one paragraph (the doctor at R1 and R23, which rows moved, which steps were skipped and why, which rollback was
 used, what is left for production). Open items go into [go-live-checklist.md](go-live-checklist.md) with their owner.
@@ -615,6 +638,7 @@ Every command was looked up in the repository on the commit this page is based o
 | `onhost:integrations:secret <instance> [key] [--check] [--stdin] [--force]` | `app/Console/Commands/` | exists |
 | `onhost:outbox:dead-letters [--requeue] [--id=] [--name=] [--json]` | `app/Console/Commands/` | exists |
 | `onhost:staging:report [--check] [--path=]` | `routes/console.php` | exists |
+| `onhost:backups:compute-plan [--limit=]` | `routes/console.php` | exists (read only) |
 | `onhost:penpot:sweep` | `app/Console/Commands/PenpotSweep.php` | exists (not used above; named in [penpot.md](penpot.md)) |
 | `config:cache`, `cache:clear`, `tinker` | Laravel | exists |
 | `staging.sh check\|harden\|deploy\|status\|setup` (`/root/onhost-staging.sh`) | `infra/aapanel/staging.sh` | exists |

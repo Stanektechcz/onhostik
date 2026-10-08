@@ -62,6 +62,15 @@ haler per row). The count of marked rows is printed. Any other duplicate (a genu
 **before it changes anything**, naming the groups as `invoice/kind`: finance decides which row stands, then the migration is run
 again.
 
+**Owner decision I-R6 (2026-10-08), the rule in advance:** for every group the migration names, finance cancels the **newer** row
+by an ordinary correction (a new record; never an amount edited by hand), then the deploy is run again — no meeting in between.
+
+**Open (engineering, only if the migration ever stops):** the platform has no correction for one commission on its own today — a
+credit note reverses a commission only together with the customer's invoice, which would be wrong here — and the migration would
+not recognise a row that was cancelled. Before finance can apply I-R6, a small package is needed: a commission cancellation through
+the bus (finance, step-up and a second person; a negative `reversal` row linked to the cancelled one, carried by the next payouts)
+and the migration leaving such a cancelled row out of the unique index. While the migration finds nothing, nothing of this is needed.
+
 Rollback (`migrate:rollback --step=1`): drops the index, turns `pending` and `cancelled` rows back into `payable` (a cancelled
 commission and its cancelled reversal net to zero) and drops the columns.
 
