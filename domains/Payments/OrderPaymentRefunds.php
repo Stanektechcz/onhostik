@@ -6,7 +6,9 @@ namespace Onhost\Domain\Payments;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
+use Onhost\Domain\Billing\Models\Withdrawal;
 use Onhost\Domain\Billing\WithdrawalPolicy;
+use Onhost\Domain\Billing\WithdrawalService;
 use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Invoicing\Models\InvoiceLine;
@@ -17,6 +19,9 @@ use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Support\Models\Ticket;
 use Onhost\Domain\WalletLedger\LedgerService;
+use Onhost\Domain\WalletLedger\Models\Wallet;
+use Onhost\Domain\WalletLedger\Models\WalletHold;
+use Onhost\Domain\WalletLedger\Models\WalletTopup;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
@@ -46,6 +51,8 @@ final class OrderPaymentRefunds
         private readonly WithdrawalPolicy $policy,
         private readonly LedgerService $ledger,
         private readonly AuditRecorder $audit,
+        private readonly WalletService $wallets,
+        private readonly WithdrawalService $withdrawals,
     ) {}
 
     /**
@@ -106,6 +113,163 @@ final class OrderPaymentRefunds
 
             return ['refund' => $refund, 'credit_note' => $note];
         }, 3);
+    }
+
+    /** L-09: the statutory grounds on which a consumer's money goes back to its source although credit is otherwise never paid out. */
+    public const STATUTORY_BASES = [
+        'defect',               // a price reduction or a refund for a digital service not in conformity (§ 2389a ff. OZ, the complaints procedure)
+        'provider_termination', // the provider ended the contract without the customer's breach: the unused prepaid part
+        'undeliverable',        // a paid order that cannot be delivered (no Penpot node, a domain registration that failed)
+    ];
+
+    /** The succeeded payment that paid this order itself (purpose `order`) — the source an order's money goes back to — or null. */
+    public static function orderPaymentOf(string $organizationId, string $orderId, string $currency): ?PaymentIntent
+    {
+        if ($orderId === '') {
+            return null;
+        }
+
+        return PaymentIntent::query()->where('organization_id', $organizationId)->where('purpose', 'order')->where('reference_type', 'order')->where('reference_id', $orderId)
+            ->where('currency', strtoupper($currency))->whereIn('state', ['SUCCEEDED', 'PARTIALLY_REFUNDED'])->orderBy('created_at')->first();
+    }
+
+    /**
+     * L-06: finance pays out what a withdrawal without the agreement to the credit owes the order's payment (WithdrawalService
+     * held it on the credit when the credit notes returned it). The hold is released and the same amount leaves the credit for
+     * `liability:refund_payable:<provider>`, which the gateway's refund (or finance's confirmed bank payout) empties. Once per key;
+     * never more than is due, nor than is left of the payment; the withdrawal completes with its last part.
+     *
+     * @return array{refund:PaymentRefund, credit_note:?Invoice}
+     */
+    public function payoutWithdrawal(Withdrawal $withdrawal, string $idempotencyKey, CommandContext $context, bool $approved = false): array
+    {
+        return DB::transaction(function () use ($withdrawal, $idempotencyKey, $context, $approved) {
+            $w = Withdrawal::query()->lockForUpdate()->findOrFail($withdrawal->id);
+            $noteId = Invoice::query()->where('organization_id', $w->organization_id)->where('type', 'credit_note')->whereIn('number', array_values((array) data_get($w->basis, 'credit_notes', [])))->orderBy('created_at')->value('id');
+            $existing = PaymentRefund::query()->where('idempotency_key', $idempotencyKey)->first();
+            if ($existing !== null) {
+                return ['refund' => $existing, 'credit_note' => $existing->credit_note_id === null ? null : Invoice::query()->find($existing->credit_note_id)];
+            }
+            $due = (int) $w->payout_minor - (int) $w->paid_out_minor;
+            if ($w->refund_method !== Withdrawal::METHOD_SOURCE || $w->state !== Withdrawal::PAYOUT_DUE || $w->payout_payment_id === null || $due <= 0) {
+                throw new DomainError('withdrawal_payout_not_due', 'Nothing of this withdrawal is due back to a payment.', 409, ['state' => $w->state, 'refund_method' => $w->refund_method]);
+            }
+            $intent = PaymentIntent::query()->lockForUpdate()->findOrFail($w->payout_payment_id);
+            if ((string) $intent->organization_id !== (string) $w->organization_id || (string) $intent->reference_id !== (string) $w->order_id) {
+                throw new DomainError('withdrawal_payout_mismatch', 'The payment is not the payment of the withdrawn order.', 409);
+            }
+            $amount = Money::minor($due, $w->currency);
+            $this->assertRefundable($intent, $amount);
+            if (! $approved && self::reachesApprovalThreshold((int) $intent->refunded_minor + $amount->minor, $amount->currency->value)) {
+                throw new DomainError('refund_approval_required', 'With what this payment was refunded already, this refund needs a second person: send it again to ask for the approval.', 409, ['refunded' => Money::minor((int) $intent->refunded_minor, $amount->currency)]);
+            }
+            $hold = data_get($w->basis, 'payout_hold_id') === null ? null : WalletHold::query()->find((string) data_get($w->basis, 'payout_hold_id'));
+            if ($hold !== null && $hold->isActive()) {
+                $this->wallets->release($hold, 'withdrawal payout '.$w->id, $context->withScope($w->organization_id));
+            }
+            $this->creditToPayable($intent, $amount, "withdrawal-payout:{$w->id}:{$w->paid_out_minor}", $context, 'withdrawal', $w->id, "Odstoupení {$w->id}: vráceno na původní platební prostředek");
+            $refund = $this->payments->refund($intent, $amount, 'Odstoupení od smlouvy '.$w->id, $idempotencyKey, $context, $noteId === null ? null : (string) $noteId);
+            $this->withdrawals->paidOut($w, $amount->minor, CommandContext::system('withdrawal '.$w->id)->withScope($w->organization_id));
+            $this->audit->record($context->withScope($w->organization_id), 'payment.refund.withdrawal_payout', 'succeeded', ['withdrawal' => $w->id, 'payment' => $intent->id, 'amount' => $amount, 'state' => $refund->state, 'approved' => $approved], 'payment_intent', $intent->id);
+
+            return ['refund' => $refund, 'credit_note' => $noteId === null ? null : Invoice::query()->find($noteId)];
+        }, 3);
+    }
+
+    /**
+     * L-09: a consumer's statutory money back to the payment of the order (`STATUTORY_BASES`), with the claim on record (a ticket).
+     * Without `$creditNoteId` the order's document is corrected now — a credit note paid out to the source, as G6 does. With it,
+     * the money that credit note already put on the credit moves from the credit to the source: never more than it returned
+     * (less what moved before) nor than the credit has. Except for a price reduction (`defect`), every service of the refunded
+     * lines must have ended first — money back for a service that keeps running is no termination.
+     *
+     * @return array{refund:PaymentRefund, credit_note:Invoice}
+     */
+    public function refundStatutory(PaymentIntent $intent, Money $amount, string $basis, string $reason, string $idempotencyKey, CommandContext $context, bool $approved, string $ticketId, ?string $creditNoteId = null): array
+    {
+        return DB::transaction(function () use ($intent, $amount, $basis, $reason, $idempotencyKey, $context, $approved, $ticketId, $creditNoteId) {
+            $intent = PaymentIntent::query()->lockForUpdate()->findOrFail($intent->id);
+            $existing = PaymentRefund::query()->where('idempotency_key', $idempotencyKey)->first();
+            if ($existing !== null) {
+                $refund = $this->payments->refund($intent, $amount, $reason, $idempotencyKey, $context);
+
+                return ['refund' => $refund, 'credit_note' => Invoice::query()->findOrFail($refund->credit_note_id)];
+            }
+            if (! in_array($basis, self::STATUTORY_BASES, true)) {
+                throw new DomainError('statutory_refund_basis_unknown', 'Name the statutory ground of the refund.', 422, ['field' => 'basis', 'offered' => self::STATUTORY_BASES]);
+            }
+            $this->assertRefundable($intent, $amount);
+            $this->assertEvidence($intent, $ticketId);
+            if (! $approved && self::reachesApprovalThreshold((int) $intent->refunded_minor + $amount->minor, $amount->currency->value)) {
+                throw new DomainError('refund_approval_required', 'With what this payment was refunded already, this refund needs a second person: send it again to ask for the approval.', 409, ['refunded' => Money::minor((int) $intent->refunded_minor, $amount->currency)]);
+            }
+            $order = Order::query()->where('organization_id', $intent->organization_id)->find((string) $intent->reference_id)
+                ?? throw new DomainError('refund_order_missing', 'The order this payment paid is not there.', 409);
+            if ($this->policy->classAtOrder($order) !== 'b2c') {
+                throw new DomainError('statutory_refund_consumers_only', 'The statutory exception is the consumer\'s; the order was placed as a business.', 403);
+            }
+            $note = $creditNoteId === null ? $this->correctForStatutory($intent, $order, $amount, $basis, $reason, $context) : $this->returnedForStatutory($intent, $order, $amount, $basis, $creditNoteId, $idempotencyKey, $context);
+            $refund = $this->payments->refund($intent, $amount, $reason, $idempotencyKey, $context, $note->id);
+            $this->audit->record($context->withScope($intent->organization_id), 'payment.refund.statutory', 'succeeded', ['payment' => $intent->id, 'order' => $order->number, 'basis' => $basis, 'credit_note' => $note->number, 'from_credit' => $creditNoteId !== null, 'amount' => $amount, 'state' => $refund->state, 'ticket' => $ticketId, 'approved' => $approved], 'payment_intent', $intent->id);
+
+            return ['refund' => $refund, 'credit_note' => $note];
+        }, 3);
+    }
+
+    /** L-09, money not given back yet: a credit note of the order's document, its revenue and VAT moved to the payout. */
+    private function correctForStatutory(PaymentIntent $intent, Order $order, Money $amount, string $basis, string $reason, CommandContext $context): Invoice
+    {
+        $document = $this->documentOf($order);
+        $amounts = $this->amounts($document, $amount);
+        if ($basis !== 'defect') {
+            $this->assertServicesEnded(InvoiceLine::query()->whereIn('id', array_keys($amounts))->pluck('service_id')->filter()->all());
+        }
+        $note = $this->invoices->creditNote($document, $reason, $context->withScope($intent->organization_id), null, null, $amounts);
+        $this->recognisePayable($intent, $document, $note, $context);
+
+        return $note;
+    }
+
+    /** L-09, money a credit note of this order already returned to the credit: from the credit to the payout, within what it returned. */
+    private function returnedForStatutory(PaymentIntent $intent, Order $order, Money $amount, string $basis, string $creditNoteId, string $idempotencyKey, CommandContext $context): Invoice
+    {
+        $note = Invoice::query()->lockForUpdate()->where('organization_id', $intent->organization_id)->where('type', 'credit_note')->where('order_id', $order->id)->find($creditNoteId)
+            ?? throw new DomainError('refund_credit_note_mismatch', 'Name a credit note of this order that returned money to the credit.', 422, ['field' => 'credit_note_id']);
+        // the credit note of a withdrawal that pays its order back itself (L-06) is that payout's: never moved twice
+        $owned = Withdrawal::query()->where('organization_id', $intent->organization_id)->where('order_id', $order->id)->where('refund_method', Withdrawal::METHOD_SOURCE)->where('payout_minor', '>', 0)->get()
+            ->contains(fn (Withdrawal $w) => in_array((string) $note->number, array_map('strval', (array) data_get($w->basis, 'credit_notes', [])), true));
+        if ($owned) {
+            throw new DomainError('refund_credit_note_owned_by_withdrawal', 'This credit note belongs to a withdrawal that is paid out on its own (Odstoupení → Vyplatit).', 409);
+        }
+        if ($basis !== 'defect') {
+            $this->assertServicesEnded($note->lines()->pluck('service_id')->filter()->all());
+        }
+        $returned = (int) WalletTopup::query()->where('organization_id', $intent->organization_id)->whereIn('idempotency_key', ["credit-note-return:{$note->id}", "give-back:{$note->id}"])->sum('amount_minor');
+        $moved = (int) data_get($note->meta, 'paid_out_from_credit_minor', 0);
+        if ($amount->minor > $returned - $moved) {
+            throw new DomainError('refund_exceeds_returned', 'More than this credit note returned to the credit (and has not gone to the payment already).', 409, ['left' => Money::minor(max(0, $returned - $moved), $amount->currency)]);
+        }
+        $this->creditToPayable($intent, $amount, "statutory:{$idempotencyKey}", $context, 'invoice', $note->id, "Dobropis {$note->number}: zákonný nárok spotřebitele vrácen na původní platební prostředek");
+        $note->forceFill(['meta' => array_merge((array) $note->meta, ['paid_out_from_credit_minor' => $moved + $amount->minor])])->save();
+
+        return $note;
+    }
+
+    /**
+     * Money on the customer's credit that is owed back to a payment by law leaves the credit for the refund payable of the
+     * payment's provider: DR the wallet, CR `liability:refund_payable:<provider>`. Never more than the credit has available.
+     */
+    private function creditToPayable(PaymentIntent $intent, Money $amount, string $key, CommandContext $context, string $referenceType, string $referenceId, string $description): void
+    {
+        $wallet = Wallet::query()->lockForUpdate()->findOrFail($this->wallets->wallet((string) $intent->organization_id, $amount->currency)->id);
+        if ($this->wallets->balances((string) $intent->organization_id, $amount->currency)['available']->lessThan($amount)) {
+            throw new DomainError('refund_exceeds_credit', 'The credit no longer has this amount: what the customer spent of it went to services.', 409, ['available' => $this->wallets->balances((string) $intent->organization_id, $amount->currency)['available']]);
+        }
+        $this->ledger->post('refund_payable', $amount->currency, [
+            ['account' => LedgerService::walletAccount((string) $intent->organization_id, $amount->currency), 'debit' => $amount->minor],
+            ['account' => PaymentService::refundPayableAccount((string) $intent->provider, $amount->currency->value), 'credit' => $amount->minor],
+        ], "credit-to-source:{$key}", (string) $intent->organization_id, $referenceType, $referenceId, $description, $context->actorType.':'.($context->actorId ?? 'system'));
+        $this->wallets->refreshCaches($wallet);
     }
 
     /** The consumer's notice is on record: a ticket of the payment's own organization (security review M2). */

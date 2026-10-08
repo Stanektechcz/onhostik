@@ -480,6 +480,7 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
         // ── TASK-0025 consumer withdrawals: the list for finance and the record of a notice sent by e-mail or letter ──
         Route::get('withdrawals', [StaffWithdrawalController::class, 'index']);
         Route::post('withdrawals', [StaffWithdrawalController::class, 'store']);
+        Route::post('withdrawals/{withdrawal}/payout', [StaffWithdrawalController::class, 'payout']); // L-06: what an order payment gets back without the agreement to the credit
         // ── end TASK-0025 ──
         // loyalty programme: the level table and manual awards
         Route::get('loyalty/levels', [RewardsController::class, 'levels']);
@@ -534,6 +535,7 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
         Route::post('payments/refunds/{refund}/confirm', [PaymentsController::class, 'confirmRefund']);
         Route::post('payments/refunds/{refund}/cancel', [PaymentsController::class, 'cancelRefund']);
         Route::post('payments/{payment}/refund', [PaymentsController::class, 'refund']);
+        Route::post('payments/{payment}/refund-statutory', [PaymentsController::class, 'refundStatutory']); // L-09: a consumer's statutory money back to the order's payment
         // ── end G6 ──
         Route::get('payments/refunds/not-paid-out', [PaymentsController::class, 'refundsNotPaidOut']); // H3 (TASK-0121): cancelled payouts nobody sent again
         Route::get('registrars', [RegistrarController::class, 'index']);

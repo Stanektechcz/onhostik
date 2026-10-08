@@ -34,12 +34,15 @@ use Onhost\Domain\Orders\OrderStateMachine;
 use Onhost\Domain\Orders\QuoteService;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\OrganizationService;
+use Onhost\Domain\Payments\Models\PaymentIntent;
 use Onhost\Domain\Payments\Models\PaymentRefund;
+use Onhost\Domain\Payments\PaymentProviderRegistry;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\SuspensionHold;
+use Onhost\Domain\Support\Models\Ticket;
 use Onhost\Domain\WalletLedger\LedgerService;
 use Onhost\Domain\WalletLedger\Models\LedgerTransaction;
 use Onhost\Domain\WalletLedger\Models\WalletRefund;
@@ -52,6 +55,7 @@ use Onhost\Platform\Money\Currency;
 use Onhost\Platform\Money\Money;
 use Onhost\Platform\Outbox\OutboxMessage;
 use Onhost\Platform\Outbox\OutboxPublisher;
+use Onhost\Providers\Contracts\PaymentProvider;
 
 require_once __DIR__.'/../../Support/ClockSweep.php';
 
@@ -157,8 +161,9 @@ function withdrawalSwitchOffScenario(): Closure
         expect($info)->toMatchArray(['enabled' => true, 'eligible' => true, 'reason' => null, 'customer_class' => 'b2c'])
             ->and($info['estimate']['refund']['minor'])->toBe(30250)->and($info['deadline'])->toStartWith(AccountingClock::now()->subDays(4)->addDays(14)->toDateString()); // fourteen days in the seller's calendar: the UTC day is the day before from 22:00 UTC (TASK-0047)
 
-        // the express agreement to a refund to the credit is part of the notice; ending a contract is a fresh step-up
-        $this->withHeader('Idempotency-Key', 'wd-0')->postJson("/v1/services/{$service->id}/withdrawal", [])->assertStatus(422);
+        // the agreement to a refund to the credit is voluntary (L-06): a notice without it is a notice; ending a contract is a fresh step-up
+        $this->withHeader('Idempotency-Key', 'wd-0')->postJson("/v1/services/{$service->id}/withdrawal", ['confirm_refund_to_credit' => 'perhaps'])->assertStatus(422);
+        $this->withHeader('Idempotency-Key', 'wd-0b')->postJson("/v1/services/{$service->id}/withdrawal", [])->assertStatus(403)->assertJsonPath('error', 'step_up_required');
         $this->withHeader('Idempotency-Key', 'wd-1')->postJson("/v1/services/{$service->id}/withdrawal", ['confirm_refund_to_credit' => true])->assertStatus(403)->assertJsonPath('error', 'step_up_required');
         app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
         $accepted = $this->withHeader('Idempotency-Key', 'wd-2')->postJson("/v1/services/{$service->id}/withdrawal", ['confirm_refund_to_credit' => true, 'statement' => 'Služba nám nevyhovuje.'])->assertStatus(202)->json();
@@ -857,4 +862,208 @@ it('keeps the fourteen days of a letter recorded by staff at every hour of the d
     }, 60);
 
     expect($failures)->toBe([], clockSweepWindows($failures, 60));
+});
+
+/*
+ * L-06 (docs/legal/LEGAL_REVIEW_2026-10.md): the right to withdraw is not conditional on agreeing to a refund to the credit
+ * (§ 1831 OZ, art. 11a of directive 2011/83/EU as amended by 2023/2673). Without the agreement the money goes back the way it
+ * was paid: what an order payment brought (a card, a transfer) goes back there — finance pays it out within the fourteen days,
+ * and meanwhile the returned amount is held on the credit so that nothing spends it; what was paid from the credit comes back to
+ * the credit, which was the means of payment. The agreement to the credit stays possible and voluntary.
+ */
+
+/** A card gateway that confirms every refund at once and counts the calls — nothing leaves the test. */
+final class L06CardGateway implements PaymentProvider
+{
+    public static int $refunds = 0;
+
+    public static function providerKey(): string
+    {
+        return 'l06card';
+    }
+
+    public function supportedMethods(): array
+    {
+        return ['card'];
+    }
+
+    public function createPaymentIntent(Money $amount, array $input): array
+    {
+        throw new LogicException('not used');
+    }
+
+    public function getPaymentStatus(string $providerId): array
+    {
+        throw new LogicException('not used');
+    }
+
+    public function capture(string $providerId, ?Money $amount = null): array
+    {
+        throw new LogicException('not used');
+    }
+
+    public function cancel(string $providerId): array
+    {
+        throw new LogicException('not used');
+    }
+
+    public function refund(string $providerId, Money $amount, string $idempotencyKey, ?string $reason = null): array
+    {
+        self::$refunds++;
+
+        return ['provider_refund_id' => 'l06-rf-'.self::$refunds, 'state' => 'succeeded', 'raw' => []];
+    }
+
+    public function verifyWebhook(Illuminate\Http\Request $request): array
+    {
+        throw new LogicException('not used');
+    }
+
+    public function reconcile(string $periodStart, string $periodEnd): array
+    {
+        return [];
+    }
+}
+
+/** The order of a withdrawn service paid by card: the order payment (purpose `order`) the payout goes back to. */
+function l06CardPaid(Order $order): PaymentIntent
+{
+    L06CardGateway::$refunds = 0;
+    $registry = new PaymentProviderRegistry(app());
+    $registry->register('l06card', L06CardGateway::class);
+    app()->instance(PaymentProviderRegistry::class, $registry);
+
+    return PaymentIntent::query()->create(['organization_id' => $order->organization_id, 'provider' => 'l06card', 'provider_id' => 'l06-'.uniqid(), 'purpose' => 'order', 'reference_type' => 'order', 'reference_id' => $order->id,
+        'amount_minor' => (int) $order->total_minor, 'currency' => (string) $order->currency, 'state' => 'SUCCEEDED', 'idempotency_key' => 'l06-pi-'.uniqid(), 'paid_at' => $order->placed_at]);
+}
+
+/** The order line of a test service: the order a withdrawal of it belongs to. */
+function l06OrderOf(Service $service): Order
+{
+    return Order::query()->findOrFail(OrderItem::query()->where('service_id', $service->id)->value('order_id'));
+}
+
+it('L-06: takes a withdrawal without any agreement to the credit, and gives back what was paid from the credit to the credit', function () {
+    withdrawalSwitchOn();
+    withdrawalPteroFake();
+    [$owner, $org] = $this->customerWithOrganization([], ['type' => 'person', 'name' => 'Jana Nováková']);
+    $service = withdrawalConsumerService($org); // paid from the credit (payment_mode wallet, no order payment)
+    $this->actingAs($owner, 'sanctum');
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
+
+    $accepted = $this->withHeader('Idempotency-Key', 'l06-wd')->postJson("/v1/services/{$service->id}/withdrawal", ['statement' => 'Odstupuji.'])->assertStatus(202)->json();
+    $this->flushHeaders();
+    $withdrawal = Withdrawal::query()->findOrFail($accepted['id']);
+    expect($withdrawal->refund_method)->toBe(Withdrawal::METHOD_SOURCE)->and($withdrawal->refund_consent_id)->toBeNull()
+        ->and(Consent::query()->where('kind', 'withdrawal_refund_to_credit')->count())->toBe(0)->and($accepted['refund_method'])->toBe('source');
+
+    withdrawalSettle();
+
+    // the credit was the means of payment: it is where the money goes back, and nothing is due to a card
+    expect($withdrawal->refresh()->state)->toBe(Withdrawal::COMPLETED)->and($withdrawal->to_credit_minor)->toBe(30250)->and((int) $withdrawal->payout_minor)->toBe(0)
+        ->and(app(WalletService::class)->balances($org, 'CZK')['available']->minor)->toBe(30250)->and(PaymentRefund::query()->count())->toBe(0);
+    $notice = withdrawalAcceptedNotice();
+    expect($notice['payload']['refund_method'])->toBe('source')->and($notice['body'])->toContain('stejným způsobem, jakým jste platili');
+});
+
+it('L-06: pays a card-paid service back to the card — held on the credit until finance pays it out, never spendable meanwhile', function () {
+    withdrawalSwitchOn();
+    withdrawalPteroFake();
+    [$owner, $org] = $this->customerWithOrganization([], ['type' => 'person', 'name' => 'Jana Nováková']);
+    $service = withdrawalConsumerService($org);
+    $intent = l06CardPaid(l06OrderOf($service));
+    $this->actingAs($owner, 'sanctum');
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
+
+    $this->withHeader('Idempotency-Key', 'l06-card')->postJson("/v1/services/{$service->id}/withdrawal", [])->assertStatus(202);
+    $this->flushHeaders();
+    withdrawalSettle();
+
+    $withdrawal = Withdrawal::query()->sole();
+    $wallets = app(WalletService::class);
+    expect($withdrawal->state)->toBe(Withdrawal::PAYOUT_DUE)->and((int) $withdrawal->payout_minor)->toBe(30250)->and((int) $withdrawal->paid_out_minor)->toBe(0)
+        ->and($wallets->balances($org, 'CZK')['posted']->minor)->toBe(30250)->and($wallets->balances($org, 'CZK')['available']->minor)->toBe(0) // held for the payout
+        ->and(OutboxMessage::query()->where('name', 'withdrawal.payout_due')->count())->toBe(1)
+        ->and(Notification::query()->where('audience', 'internal')->where('title', 'like', 'Odstoupení: vrátit na původní platební prostředek%')->exists())->toBeTrue();
+    expect($this->getJson("/v1/services/{$service->id}/withdrawal")->assertOk()->json('data.withdrawal.payout.minor'))->toBe(30250);
+
+    // the customer cannot pay themselves out; finance does it behind a fresh step-up
+    $this->withHeader('Idempotency-Key', 'l06-self')->postJson("/v1/staff/withdrawals/{$withdrawal->id}/payout", ['reason' => 'Sám sobě.'])->assertForbidden();
+    $finance = $this->staff('billing_finance_admin');
+    $this->actingAs($finance, 'sanctum');
+    $this->withHeader('Idempotency-Key', 'l06-pay-0')->postJson("/v1/staff/withdrawals/{$withdrawal->id}/payout", ['reason' => 'Vrácení na kartu po odstoupení.'])->assertForbidden();
+    expect(L06CardGateway::$refunds)->toBe(0);
+    app(StepUpService::class)->grant($finance, 'totp', null, '127.0.0.1');
+    // the withdrawal's own credit note is its payout's: the statutory path does not move the same money a second time
+    $ticket = Ticket::query()->create(['number' => 'TK-2026-'.random_int(10000, 99999), 'organization_id' => $org->id, 'email' => 'owner@example.test', 'subject' => 'Odstoupení']);
+    $this->withHeader('Idempotency-Key', 'l06-twice')->postJson("/v1/staff/payments/{$intent->id}/refund-statutory", ['amount' => 302.5, 'basis' => 'provider_termination', 'reason' => 'Podruhé tytéž peníze.', 'ticket_id' => $ticket->id,
+        'credit_note_id' => Invoice::query()->where('type', 'credit_note')->sole()->id])->assertStatus(409)->assertJsonPath('error', 'refund_credit_note_owned_by_withdrawal');
+    $paid = $this->withHeader('Idempotency-Key', 'l06-pay-1')->postJson("/v1/staff/withdrawals/{$withdrawal->id}/payout", ['reason' => 'Vrácení na kartu po odstoupení.'])->assertOk()->json();
+    $this->flushHeaders();
+    app(OutboxPublisher::class)->relayPending();
+
+    $refund = PaymentRefund::query()->sole();
+    expect($paid['state'])->toBe('succeeded')->and((int) $refund->amount_minor)->toBe(30250)->and($refund->payment_intent_id)->toBe($intent->id)->and(L06CardGateway::$refunds)->toBe(1)
+        ->and($withdrawal->refresh()->state)->toBe(Withdrawal::COMPLETED)->and((int) $withdrawal->paid_out_minor)->toBe(30250)
+        ->and($wallets->balances($org, 'CZK')['posted']->minor)->toBe(0)->and($wallets->balances($org, 'CZK')['available']->minor)->toBe(0);
+    $ledger = app(LedgerService::class);
+    expect($ledger->balance('liability:refund_payable:l06card:CZK', 'CZK')->minor)->toBe(0)->and($ledger->verifyInvariant()['balanced'])->toBeTrue()
+        ->and(OutboxMessage::query()->where('name', 'payment.refunded')->where('aggregate_id', $intent->id)->count())->toBe(1);
+
+    // nothing is due any more: a second payout pays nothing
+    $this->withHeader('Idempotency-Key', 'l06-pay-2')->postJson("/v1/staff/withdrawals/{$withdrawal->id}/payout", ['reason' => 'Ještě jednou.'])->assertStatus(409)->assertJsonPath('error', 'withdrawal_payout_not_due');
+    expect(L06CardGateway::$refunds)->toBe(1);
+});
+
+it('L-06: honours a voluntary agreement to the credit — no payout, the consent is on record', function () {
+    withdrawalSwitchOn();
+    withdrawalPteroFake();
+    [$owner, $org] = $this->customerWithOrganization([], ['type' => 'person', 'name' => 'Jana Nováková']);
+    $service = withdrawalConsumerService($org);
+    l06CardPaid(l06OrderOf($service));
+    $this->actingAs($owner, 'sanctum');
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
+
+    $this->withHeader('Idempotency-Key', 'l06-credit')->postJson("/v1/services/{$service->id}/withdrawal", ['confirm_refund_to_credit' => true])->assertStatus(202);
+    $this->flushHeaders();
+    withdrawalSettle();
+
+    $withdrawal = Withdrawal::query()->sole();
+    expect($withdrawal->refund_method)->toBe(Withdrawal::METHOD_CREDIT)->and($withdrawal->state)->toBe(Withdrawal::COMPLETED)->and((int) $withdrawal->payout_minor)->toBe(0)
+        ->and(Consent::query()->whereKey($withdrawal->refund_consent_id)->value('kind'))->toBe('withdrawal_refund_to_credit')
+        ->and(app(WalletService::class)->balances($org, 'CZK')['available']->minor)->toBe(30250);
+    $finance = $this->staff('billing_finance_admin');
+    $this->actingAs($finance, 'sanctum');
+    app(StepUpService::class)->grant($finance, 'totp', null, '127.0.0.1');
+    $this->withHeader('Idempotency-Key', 'l06-credit-pay')->postJson("/v1/staff/withdrawals/{$withdrawal->id}/payout", ['reason' => 'Omylem.'])->assertStatus(409)->assertJsonPath('error', 'withdrawal_payout_not_due');
+    expect(L06CardGateway::$refunds)->toBe(0);
+});
+
+it('L-06: cancels a card-paid order nothing of which was delivered and makes its payment due back to the card', function () {
+    withdrawalSwitchOn();
+    [$owner, $org] = $this->customerWithOrganization(['email' => 'x@mailinator.com'], ['type' => 'person', 'name' => 'Jana Nováková', 'billing_email' => 'x@mailinator.com']);
+    $order = withdrawalHeldOrder($owner, $org, $this->contextFor($owner, $org), 'l06-order');
+    $order->forceFill(['meta' => array_replace_recursive((array) $order->meta, ['review' => ['state' => 'released']])])->save();
+    l06CardPaid($order);
+    $this->actingAs($owner, 'sanctum');
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
+
+    $done = $this->withHeader('Idempotency-Key', 'l06-ord')->postJson("/v1/orders/{$order->id}/withdrawal", [])->assertStatus(202)->json();
+    $this->flushHeaders();
+
+    expect($done['state'])->toBe(Withdrawal::PAYOUT_DUE)->and($done['refund_method'])->toBe('source')->and($done['payout']['minor'])->toBe((int) $order->total_minor)
+        ->and($order->refresh()->state)->toBe(OrderStateMachine::CANCELLED);
+});
+
+it('L-06: lets staff record a letter that does not agree to the credit', function () {
+    withdrawalSwitchOn();
+    [, $org] = $this->customerWithOrganization([], ['type' => 'person', 'name' => 'Jana Nováková']);
+    $service = withdrawalConsumerService($org);
+    $finance = $this->staff('billing_finance_admin');
+    $this->actingAs($finance, 'sanctum');
+    app(StepUpService::class)->grant($finance, 'totp', null, '127.0.0.1');
+
+    $body = ['organization_id' => $org->id, 'service_id' => $service->id, 'sent_at' => now()->subDay()->toIso8601String(), 'reason' => 'Dopis bez souhlasu s kreditem.'];
+    $this->postJson('/v1/staff/withdrawals', $body)->assertForbidden()->assertJsonPath('error', 'approval_required'); // four eyes, not a 422 for the missing agreement
+    $this->postJson('/v1/staff/withdrawals', $body + ['refund_to_credit_agreed' => 'maybe'])->assertStatus(422);
 });

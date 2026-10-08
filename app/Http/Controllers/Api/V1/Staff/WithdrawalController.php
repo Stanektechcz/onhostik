@@ -12,6 +12,8 @@ use Onhost\Domain\Billing\Models\Withdrawal;
 use Onhost\Domain\Billing\WithdrawalPolicy;
 use Onhost\Domain\Billing\WithdrawalService;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Payments\Commands\PaymentRefundCommand;
+use Onhost\Domain\Payments\Models\PaymentIntent;
 use Onhost\Platform\Commands\CommandScope;
 
 /**
@@ -46,10 +48,27 @@ final class WithdrawalController extends ApiController
         }
         $data = $request->validate([
             'organization_id' => ['required', 'string', 'max:40'], 'service_id' => ['required_without:order_id', 'nullable', 'string', 'max:40'], 'order_id' => ['required_without:service_id', 'nullable', 'string', 'max:40'],
-            'sent_at' => ['required', 'date'], 'refund_to_credit_agreed' => ['accepted'], 'reason' => ['required', 'string', 'min:5', 'max:1000'],
+            'sent_at' => ['required', 'date'], 'refund_to_credit_agreed' => ['nullable', 'boolean'], 'reason' => ['required', 'string', 'min:5', 'max:1000'],
         ]);
-        $payload = array_filter(['organization_id' => $data['organization_id'], 'service_id' => $data['service_id'] ?? null, 'order_id' => $data['order_id'] ?? null, 'sent_at' => (string) $data['sent_at'], 'reason' => $data['reason']], fn ($v) => $v !== null);
+        $payload = array_filter(['organization_id' => $data['organization_id'], 'service_id' => $data['service_id'] ?? null, 'order_id' => $data['order_id'] ?? null, 'sent_at' => (string) $data['sent_at'], 'reason' => $data['reason'],
+            'refund_method' => ! empty($data['refund_to_credit_agreed']) ? Withdrawal::METHOD_CREDIT : Withdrawal::METHOD_SOURCE], fn ($v) => $v !== null); // L-06: the letter's own choice
 
         return $this->dispatch(new WithdrawalStaffCommand($this->idempotencyKey($request, 'withdrawal.staff:'.($data['service_id'] ?? $data['order_id'] ?? '')), $payload), $this->api->context($request, null, $data['reason']), 202);
+    }
+
+    /**
+     * L-06: finance pays back to the order's payment what a withdrawal without the agreement to the credit owes it (state
+     * `payout_due`). The amount is the withdrawal's, never typed in: a fresh step-up, four eyes from the approval threshold.
+     */
+    public function payout(Request $request, string $withdrawal): JsonResponse
+    {
+        $data = $request->validate(['reason' => ['required', 'string', 'min:5', 'max:250']]);
+        $row = Withdrawal::query()->findOrFail($withdrawal);
+        $intent = $row->payout_payment_id === null ? null : PaymentIntent::query()->find($row->payout_payment_id);
+
+        return $this->dispatch(new PaymentRefundCommand($this->idempotencyKey($request, 'withdrawal.payout:'.$row->id.':'.(int) $row->paid_out_minor), [
+            'op' => 'refund.withdrawal_payout', 'withdrawal_id' => $row->id, 'organization_id' => $row->organization_id, 'amount_minor' => max(0, (int) $row->payout_minor - (int) $row->paid_out_minor), 'currency' => $row->currency,
+            'payment_refunded_minor' => (int) ($intent->refunded_minor ?? 0), 'reason' => $data['reason'],
+        ]), $this->api->context($request, null, $data['reason']));
     }
 }
