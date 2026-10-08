@@ -29,8 +29,9 @@ recorded in the hash-chained audit log. Never edit rows in the database during a
 | [console-relay.md](console-relay.md) | VNC / game console access path and the relay service |
 | [release-and-rollback.md](release-and-rollback.md) | deploying the control plane, migrations, rollback, error-budget freeze |
 | [staging-aapanel.md](staging-aapanel.md) | `infra/aapanel/staging.sh` on an aaPanel host: the usranalyse drop-ins and how to verify them, `public/build` and file modes, the setup commit, a parked release and how to go back |
+| [comgate-merchant-review.md](comgate-merchant-review.md) | What the public site must show for Comgate's manual merchant review (I-R10): checklist mapped to the repository, gaps, owner inputs |
 | [comgate.md](comgate.md) | Comgate gateway (H-R8): where the credentials live, the administration's check (connection, 1 Kč test payment), the four-eyes test-mode switch, what is not verified live |
-| [penpot.md](penpot.md) | Penpot for web hosting (H8): the delivery model (one compose stack per service on a dedicated Penpot node), the server prerequisites before the first sale, secrets, backups, outages, upgrades |
+| [penpot.md](penpot.md) | Penpot for web hosting (H8): the delivery model (one compose stack per service on a dedicated Penpot node), the server prerequisites before the first sale, the node build scripts (`infra/penpot/`) with run order, sizing and rollback, secrets, backups, outages, upgrades |
 | [staging-rehearsal-2026-10.md](staging-rehearsal-2026-10.md) | The go-live rehearsal on staging (H6): numbered steps R0–R24 with precondition, command, expected result, doctor rows, rollback and the owner's yes per step, plus the protocol table to fill in — prepared, not executed |
 | [staging-rehearsal-2026-10-07.md](staging-rehearsal-2026-10-07.md) | Protocol of the rehearsal (phase I, I6): header, step log R0–R24 with the owner's yes per step, the R1/R23 doctor rows, outputs only (no secrets) — skeleton, no step run yet |
 

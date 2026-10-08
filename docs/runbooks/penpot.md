@@ -112,7 +112,8 @@ Verified on 2026-10-06 against help.penpot.app/technical-guide (getting started 
 
 ## Server prerequisites (before the first sale) — LIVE STEPS, not done by this package
 
-Nothing below was done; there is no Penpot node yet. Every step is the operator's on a real server.
+Nothing below was done; there is no Penpot node yet. Every step is the operator's on a real server. Steps 1-5 are scripted
+(`infra/penpot/provision-node.sh`, checked by `infra/penpot/verify-node.sh`): follow *Building the node* below for the run order.
 
 1. **A dedicated Linux server** (Debian 12/13 or Ubuntu 24.04), not a shared web node. Budget per instance: the plan's 4 GB RAM and
    2 vCPU plus ~20 GB disk; the node's capacity in the platform (`nodes.capacity`) must reflect it (`NodeScheduler` places by it).
@@ -147,6 +148,103 @@ Nothing below was done; there is no Penpot node yet. Every step is the operator'
 
 11. **Port allocation**: each stack's port is chosen under `flock` on `<root>/.ports.lock` (the platform user needs `flock`, part of
     util-linux), so two provisionings on one node never share a port.
+
+## Building the node (scripts and run order, I-R7, TASK-0141)
+
+Steps 1-5 of *Server prerequisites* are done by `infra/penpot/provision-node.sh` (idempotent, re-runnable; `--dry-run` shows the changes
+and needs no root). `infra/penpot/verify-node.sh` proves the result read-only. Steps 6-10 stay the operator's, in the platform. Neither
+script holds, takes or prints a secret: the provision script reads a **public** key and refuses a file that holds a private one. Both are
+shellchecked in CI (`.github/workflows/tests.yml`), and `tests/Feature/Platform/PenpotNodeScriptsTest.php` keeps their paths and Docker
+major equal to `config/penpot.php` and the adapter. **Not yet run on a real server** — the first run is the first test (go-live B11).
+
+### Inputs the owner (or operator) must provide
+
+| Input | What it is | Used for |
+| --- | --- | --- |
+| Server | a VM or bare-metal host (not a container), Debian 12/13 or Ubuntu 24.04, root SSH for the build only, sized by the table below | steps 1-5 |
+| Host IP | the public IPv4 (and IPv6 if any) of the node | `ssh_host`, `base_url`, option `public_ipv4`, DNS |
+| SSH port | the port sshd listens on (22 unless the provider moved it); the script does not move sshd, it opens the firewall for that port | `--ssh-port`, option `ssh_port` |
+| Control-plane address(es) | the egress IP(s) of the ONhost application servers, plus your own admin IP | `--ssh-allow` (firewall **and** `from=` on the key) |
+| DNS name | the node's own name, e.g. `penpot-cz1.onhost.cz` (A/AAAA to the host IP); and a platform zone that holds `penpot.onhost.cz` (`ONHOST_PLATFORM_ZONES`) so the saga can publish `<label>.penpot.onhost.cz` | `base_url`, prerequisite 6 |
+| Region and failure domain | e.g. `cz1` and a rack or host name | the node row (qualification point *placement*) |
+| Number of instances N | how many Penpot instances the node must carry | sizing, node `capacity` |
+| Deploy key pair | made by the operator on a trusted machine: `ssh-keygen -t ed25519 -f onhost-penpot-cz1 -C onhost-penpot-cz1`. Only the `.pub` goes to the node; the private key goes to the vault in run-order step 4 | `--ssh-pubkey-file` |
+| Build access | root SSH (key) to the new server for the build, removed afterwards | running the scripts |
+| SMTP (optional) | host, port, user, from, reply-to, password (the password only into the vault) | prerequisite 7 |
+
+### Sizing for N instances
+
+Penpot's documentation states no hardware requirement; these are the platform's own numbers (plan: 4 GB, 2 vCPU, 20 GB) and the formula
+`verify-node.sh --instances N` checks. Memory limits are hard and add up. CPU limits are limits, not reservations (2:1 overcommit). Disk
+adds 50 % for the 14 node backups (an assumption: measure the first real instances) and the 15 % headroom `NodeQualification` demands.
+
+| N | RAM (>= 4 GB x N + 2 GB) | vCPU (>= N + 2; without overcommit 2N + 2) | Disk (>= (30 GB x N + 30 GB) / 0.85) | Recommended server |
+| --- | --- | --- | --- | --- |
+| 1 | 6 GB | 3 | 71 GB | 8 GB / 4 vCPU / 100 GB (test node) |
+| 5 | 22 GB | 7 | 212 GB | 24 GB / 8 vCPU / 250 GB |
+| 10 | 42 GB | 12 | 389 GB | 48 GB / 12 vCPU / 450 GB |
+| 20 | 82 GB | 22 | 742 GB | 96 GB / 24 vCPU / 800 GB |
+
+Put `/var/lib/docker` on its own **XFS** volume mounted with `prjquota` (see *Storage quota*) so the plan's 20 GB is enforced, and
+consider `/var/backups/onhost-penpot` on a second volume (verify warns when both share one filesystem). The node's `capacity` in the
+platform (`ram_mb`, `cpu_cores`, `disk_gb`) is what the scheduler places by: enter the real size of the server.
+
+### Run order (each step with the owner's yes; nothing here was done by this package)
+
+1. **Server and DNS.** Order the server, note IP and SSH port, point `penpot-cz1.onhost.cz` at it. Mount the XFS `prjquota` volume
+   *before* the first run when the quota is wanted (`--require-quota` makes the script fail without it).
+2. **Provision** (as root on the node; copy the two scripts and the `.pub` file there):
+   `./provision-node.sh --dry-run --ssh-pubkey-file onhost-penpot-cz1.pub --ssh-allow <control plane IP> --ssh-allow <your IP> --ssh-port 22`,
+   read the output, then run it again without `--dry-run`. It installs Docker (apt key fingerprint checked, major pinned to 29; the
+   adapter supports 27-29) and Caddy (the project's apt repository, or `--caddy-source distro`) with the
+   `import /etc/caddy/onhost-penpot/*.caddy` line; it creates the `onhost` user (password locked, key bound with `from=` and without
+   forwarding, docker group), `/srv/onhost-penpot`, `/var/backups/onhost-penpot`, `/etc/caddy/onhost-penpot`,
+   `/etc/sudoers.d/onhost-penpot` (exactly `systemctl reload caddy` and the quota helper), `/usr/local/sbin/onhost-penpot-quota`, the ufw
+   rules (80, 443, SSH only from the allowed addresses) and an sshd drop-in with `HostKeyAlgorithms ssh-ed25519`, so exactly one
+   fingerprint exists. A second run must report `0 change(s)`. It refuses to enable the firewall when your own SSH session is not
+   covered by `--ssh-allow`.
+3. **Verify:** `./verify-node.sh --instances N --dns-name penpot-cz1.onhost.cz --public-ip <IP>`. Every FAIL is fixed (re-run step 2 or
+   fix by hand) before going on. Every WARN is read and either fixed or accepted in writing (typical: no XFS quota, one shared disk).
+4. **Register in the platform** (staff console or API, step-up; the operator, not this package):
+   * vault: `php artisan onhost:integrations:secret penpot-cz1 ssh_private_key` (hidden prompt; the private key is never copied to the node
+     and never goes into chat), and `smtp_password` the same way if SMTP is used;
+   * provider instance `provider: penpot`, `key: penpot-cz1`, `region_code`, `base_url: https://penpot-cz1.onhost.cz`, options
+     `{ssh_host, ssh_port, ssh_user: onhost, ssh_fingerprint, public_ipv4, proxy_reload: "sudo -n systemctl reload caddy", quota_command: "sudo -n /usr/local/sbin/onhost-penpot-quota"}`
+     (`quota_command` only with the XFS quota). `ssh_fingerprint` is the ed25519 `SHA256:` value the script printed, re-read on a
+     trusted machine with `ssh-keyscan -t ed25519 <host> | ssh-keygen -lf -`;
+   * node row: `POST /v1/staff/integrations/{instance}/nodes` with `name`, `role: penpot`, `region_code`, `failure_domain`,
+     `capacity: {ram_mb, cpu_cores, disk_gb}` and `tags.public_ipv4`. A node is born **`qualifying`**; the scheduler does not see it.
+5. **Qualify** (`NodeQualification`, see *Node qualification* in `go-live-checklist.md`): `php artisan onhost:nodes:qualify` lists the
+   required points: *instance* (usable, last check not down), *seen* (the node was confirmed within 2 hours: register and qualify in
+   one sitting, or save the node row again), *capacity* (cores, memory and disk entered), *placement* (region, role, failure domain),
+   *headroom* (at least 15 % of the disk free). `php artisan onhost:nodes:qualify --accept=penpot-cz1` puts it in the offer and records who
+   and when. Clock, resolver, egress and management exposure are reported `not_checked` (no shell probe exists for a Penpot node):
+   `verify-node.sh` is the evidence, attach its output to the acceptance note (`--exception="..."` only for a gap knowingly accepted).
+6. **Doctor:** `php artisan onhost:doctor` — the rows *Penpot is sold only with a Penpot node to run it*, *every Penpot node pins its
+   SSH host key* and *Penpot images are pinned by digest* turn green; *every Penpot node limits the storage of a stack* only with the
+   quota helper. Restart the queue workers (lane `provider-penpot`).
+7. **Smoke test** on this node with a staff assisted order, then `docs/manual-tests/11-penpot.md`. Only then is Penpot truly on sale
+   (B11). Until the node is accepted every order is refused honestly (`409 penpot_unavailable`).
+
+**Unverified until the first run:** that the adapter's SSH client negotiates the `ssh-ed25519` host key and the pinned fingerprint
+matches (on a mismatch error re-read the fingerprint of that key type); that the sudo rule matches the reload command
+(`proxy_reload` above); the container hardening and the owner password over stdin (their sections).
+
+### Rollback
+
+* **Nothing registered yet (before step 4):** destroy the server, or undo selectively and keep your own SSH session open until the
+  end: `ufw disable`; remove `/etc/sudoers.d/onhost-penpot`, `/etc/ssh/sshd_config.d/50-onhost-penpot.conf` and
+  `/usr/local/sbin/onhost-penpot-quota`, then `systemctl reload ssh`; remove the `import` line from `/etc/caddy/Caddyfile` (the original
+  is `/etc/caddy/Caddyfile.pre-onhost`); `userdel -r onhost`; remove `/srv/onhost-penpot`, `/var/backups/onhost-penpot` and
+  `/etc/caddy/onhost-penpot`; purge `caddy docker-ce docker-ce-cli containerd.io docker-compose-plugin` and delete
+  `/etc/apt/preferences.d/onhost-docker`, `/etc/apt/sources.list.d/docker.list`, `/etc/apt/sources.list.d/caddy-stable.list`.
+* **Registered, not accepted:** a `qualifying` node is never placed on. Delete the node row, disable the provider instance in the
+  staff console and remove its vault credential (`ssh_private_key`).
+* **Accepted, no customer yet:** take it out of the offer first (`POST /v1/staff/integrations/{instance}/nodes/{node}/state` with
+  `disabled`); Penpot is then refused honestly again (`penpot_unavailable`). Then proceed as above.
+* **With customer stacks on it:** never destroy the node. Back up and terminate every stack through the ordinary service actions
+  (*Cancellation* below) or restore onto a new node from the backups in `/var/backups/onhost-penpot` and the platform's archives.
+  A Docker package rollback: `apt-get install docker-ce=<5:29.x version>`; the pin in `/etc/apt/preferences.d/onhost-docker` keeps the major.
 
 ## Day to day
 
