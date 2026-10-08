@@ -225,6 +225,8 @@ it('never changes a document issued before the mode was switched', function () {
 it('prints every particular of § 29 on a payer\'s invoice, in Czech and English, with the VAT recap per rate', function () {
     [, $org] = $this->customerWithOrganization([], ['name' => 'Odběratel s.r.o.']);
     $org = g2CzPayer($org);
+    // I-R11: the seeded seller is the real sole trader without a DIČ; § 29 needs a payer's particulars, so this invoice has a payer seller
+    LegalEntity::query()->where('key', 'onhost-cz')->update(['name' => 'ONhost s.r.o.', 'ico' => '00000000', 'dic' => 'CZ00000000']);
     $invoice = g2Invoice($org);
     $html = g2Html($invoice);
 

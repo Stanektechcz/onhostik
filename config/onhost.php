@@ -166,13 +166,25 @@ return [
         'deprecations' => [],
     ],
 
-    'legal_entity' => [ // the operator's own company for documents (LegalEntitySeeder / onhost:production:prepare --legal); config, not env(), so a cached configuration still carries it
-        'name' => env('ONHOST_LEGAL_NAME', ''), 'ico' => env('ONHOST_ICO', ''), 'dic' => env('ONHOST_DIC', ''), 'vat_id' => env('ONHOST_VAT_ID', ''),
-        'street' => env('ONHOST_STREET', ''), 'city' => env('ONHOST_CITY', ''), 'zip' => env('ONHOST_ZIP', ''),
+    // The operator's own company for documents (LegalEntitySeeder / onhost:production:prepare --legal); config, not env(), so a cached
+    // configuration still carries it. I-R11 (owner, 2026-10-08, "Vše potvrzuji"): the defaults are the operator's PUBLIC data as the
+    // register of economic subjects (ARES, https://ares.gov.cz/ekonomicke-subjekty-v-be/rest/ekonomicke-subjekty/08094616 and the
+    // trade licensing register part, read 2026-10-08) gives it: a natural person trading under a trade licence (legal form 101),
+    // seat Molákova 2145/5, Líšeň, 628 00 Brno, trade licence since 15. 4. 2019. ARES lists no DIČ and no VAT registration, which
+    // matches H-R0/I-R5 (not a VAT payer): no DIČ is invented and none is printed. `?:` instead of an env() default so an empty
+    // variable copied from an old .env.example does not blank the value. The bank details are NOT public data and stay unset
+    // until the owner gives them (the seeder then writes obvious placeholders and the doctor and `onhost:legal:publish` say so).
+    'legal_entity' => [
+        'name' => env('ONHOST_LEGAL_NAME') ?: 'Adrian Staněk', 'ico' => env('ONHOST_ICO') ?: '08094616', 'dic' => env('ONHOST_DIC', ''), 'vat_id' => env('ONHOST_VAT_ID', ''),
+        'street' => env('ONHOST_STREET') ?: 'Molákova 2145/5', 'city' => env('ONHOST_CITY') ?: 'Brno', 'zip' => env('ONHOST_ZIP') ?: '628 00',
         'iban' => env('ONHOST_BANK_IBAN', ''), 'bic' => env('ONHOST_BANK_BIC', ''), 'bank_account' => env('ONHOST_BANK_ACCOUNT', ''),
         // TASK-0142: what the legal documents name (§ 1820 OZ, § 435 OZ): a telephone number, the address customers write to
-        // (withdrawals, complaints — not a no-reply sender; empty = mail.from.address) and the commercial register entry
-        'phone' => env('ONHOST_LEGAL_PHONE', ''), 'email' => env('ONHOST_LEGAL_EMAIL', ''), 'registry' => env('ONHOST_LEGAL_REGISTRY', ''),
+        // (withdrawals, complaints — not a no-reply sender; empty = mail.from.address) and the register entry. I-R11: the phone and
+        // the complaints/withdrawal mailbox are the owner's; the register entry is the trade licensing register (a sole trader is not
+        // in the commercial register), in Czech for the documents and in English for the public footer.
+        'phone' => env('ONHOST_LEGAL_PHONE') ?: '+420 736 741 902', 'email' => env('ONHOST_LEGAL_EMAIL') ?: 'reklamace@onhost.cz',
+        'registry' => env('ONHOST_LEGAL_REGISTRY') ?: 'fyzická osoba podnikající na základě živnostenského oprávnění, zapsaná v živnostenském rejstříku (od 15. 4. 2019)',
+        'registry_en' => env('ONHOST_LEGAL_REGISTRY_EN') ?: 'natural person trading under a trade licence, entered in the Czech trade licensing register (since 15 April 2019)',
     ],
 
     'support' => [ // paid work on a ticket (H29): offered with a price, billed only after the customer approved it
@@ -682,6 +694,9 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
 
     'content' => [
         'changelog_year' => 2026,
+        // I-R11 (owner, 2026-10-08): customer quotes on the public pages — ONLY real ones, approved by the person quoted. None were provided
+        // (the prototype's are invented), so the sections stay hidden. Shape per locale: [['quote' => '…', 'who' => 'Name', 'role' => 'Role, Company'], …]
+        'references' => ['cs' => [], 'en' => []],
         'domain_page_tlds' => ['cz', 'com', 'eu'], // the TLDs the domain page leads with
         'game_product' => 'game',                 // the product the game configurator sells
         'plans_product' => 'web-hosting',

@@ -19,7 +19,7 @@ const LEGAL_DRAFT_KEYS = ['aup', 'auto_renew', 'complaints', 'dpa', 'privacy', '
 
 function legalReadyEntity(): void
 {
-    config(['onhost.legal_entity.phone' => '+420 000 000 000']);
+    config(['onhost.legal_entity.phone' => '+420 000 000 000', 'onhost.legal_entity.email' => 'reklamace@onhost.cz']);
     LegalEntity::query()->where('key', 'onhost-cz')->update(['ico' => '12345678']);
 }
 
@@ -103,9 +103,12 @@ it('publishes a version only on the owner\'s word, after the notice, and never r
     $this->seed([LegalEntitySeeder::class]);
     $soon = now('Europe/Prague')->addDays(5)->toDateString();
 
+    // I-R11: the shipped defaults are the operator's real data, so an unconfigured installation is simulated: placeholder IČO, no telephone, no-reply mailbox
+    config(['onhost.legal_entity.phone' => '', 'onhost.legal_entity.email' => '', 'mail.from.address' => 'noreply@example.test']);
+    LegalEntity::query()->where('key', 'onhost-cz')->update(['ico' => '00000000']);
     // dry run names every blocker: placeholder entity, no telephone, no attorney named, too little notice
     $this->artisan('onhost:legal:publish', ['version' => '2026-10', '--effective-from' => $soon])
-        ->expectsOutputToContain('placeholder identifiers')->expectsOutputToContain('ONHOST_LEGAL_PHONE')
+        ->expectsOutputToContain('placeholder identifiers')->expectsOutputToContain('ONHOST_LEGAL_PHONE')->expectsOutputToContain('ONHOST_LEGAL_EMAIL')
         ->expectsOutputToContain('--approved-by')->expectsOutputToContain('30 days ahead')->assertExitCode(1);
     $this->artisan('onhost:legal:publish', ['version' => '2026-10', '--effective-from' => $soon, '--approved-by' => 'Mgr. Test', '--apply' => true, '--yes' => true])->assertExitCode(1);
     expect(ConsentDocument::current('terms')->version)->toBe('2026-09');

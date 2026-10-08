@@ -50,6 +50,9 @@ require_once __DIR__.'/../../Support/E2E/E2EHelpers.php';
 const E10_VENDORS = ['ispconfig', 'wedos', 'subreg', 'powerdns', 'pdns', 'aapanel', 'proxmox', 'pterodactyl', 'comgate'];
 
 beforeEach(function () {
+    // the catalogue is seeded "a day ago" relative to the clock, so the fixed test day must be set BEFORE the seed: with the clock still real,
+    // the prices of a run later than 11:00 UTC the next day were not yet in force on 2026-10-07 and every quote failed (price_unavailable)
+    $this->travelTo(CarbonImmutable::parse('2026-10-07 11:00:00', 'UTC'));
     e2eSeedPlatform();
     e2eWebInfrastructure();
     e2eComgateEnvironment();
@@ -59,7 +62,6 @@ beforeEach(function () {
     Storage::fake('local'); // the final archive and the exports land here, not on the developer's disk
     e2eIspFileSeams();
     Http::preventStrayRequests();
-    $this->travelTo(CarbonImmutable::parse('2026-10-07 11:00:00', 'UTC'));
 });
 
 afterEach(function () {

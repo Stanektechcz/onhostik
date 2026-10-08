@@ -1,6 +1,6 @@
 # Všeobecné obchodní podmínky
 
-**Poskytovatel:** {{entity_name}}, IČO {{entity_ico}}, DIČ {{entity_dic}}, se sídlem {{entity_address}}, zapsaná v obchodním rejstříku vedeném {{entity_registry}} (dále „poskytovatel“ nebo „ONhost“).
+**Poskytovatel:** {{entity_name}}, IČO {{entity_ico}}, se sídlem {{entity_address}}, {{entity_registry}} (dále „poskytovatel“ nebo „ONhost“).
 **Kontakt:** e-mail {{entity_email}}, telefon {{entity_phone}}, zákaznický panel na {{portal}}.
 **Verze:** {{version}}, účinná od {{effective_from}}.
 

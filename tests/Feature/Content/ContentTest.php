@@ -12,11 +12,12 @@ beforeEach(fn () => $this->seed(ContentSeeder::class));
 
 it('serves the prototype content in the shapes onhost-data.js and onhost-content.js expect', function () {
     $posts = $this->getJson('/v1/posts')->assertOk();
-    expect($posts->json('data'))->toHaveCount(12)->and($posts->json('data.0'))->toHaveKeys(['slug', 'cat', 'title', 'excerpt', 'date', 'read', 'author', 'featured']);
+    expect($posts->json('data'))->toHaveCount(11)->and(collect($posts->json('data'))->pluck('slug')->all())->not->toContain('migrace-z-cloudu')->and($posts->json('data.0'))->toHaveKeys(['slug', 'cat', 'title', 'excerpt', 'date', 'read', 'author', 'featured']);
     $cs = $this->getJson('/v1/posts/pue-118')->assertOk();
     $en = $this->getJson('/v1/posts/pue-118?locale=en')->assertOk();
     expect($cs->json('data.title'))->toBe('Jak jsme dostali PUE v Praze na 1,18')->and($en->json('data.title'))->toBe('How we got Prague PUE down to 1.18')->and(count($cs->json('data.body')))->toBeGreaterThanOrEqual(4);
     $this->getJson('/v1/posts/neexistuje')->assertNotFound();
+    $this->getJson('/v1/posts/migrace-z-cloudu')->assertNotFound(); // I-R11: the invented customer case study is withheld
 
     $kb = $this->getJson('/v1/kb?q=ssh')->assertOk();
     expect($kb->json('data.0.slug'))->toBe('ssh-klic')->and($this->getJson('/v1/kb')->json('data'))->toHaveCount(12);
