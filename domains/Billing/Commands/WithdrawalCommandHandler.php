@@ -32,8 +32,8 @@ final class WithdrawalCommandHandler implements CommandHandler
             $statement = $command->get('statement') !== null ? (string) $command->get('statement') : null;
 
             return $this->withdrawals->present(match ($command->op()) {
-                'service' => $this->withdrawals->withdrawService($this->service($command->organizationId, (string) $command->get('service_id')), $context, Withdrawal::PANEL, CarbonImmutable::now(), $statement, $by),
-                'order' => $this->withdrawals->withdrawOrder($this->order($command->organizationId, (string) $command->get('order_id')), $context, Withdrawal::PANEL, CarbonImmutable::now(), $statement, $by),
+                'service' => $this->withdrawals->withdrawService($this->service($command->organizationId, (string) $command->get('service_id')), $context, Withdrawal::PANEL, CarbonImmutable::now(), $statement, $by, self::method($command)),
+                'order' => $this->withdrawals->withdrawOrder($this->order($command->organizationId, (string) $command->get('order_id')), $context, Withdrawal::PANEL, CarbonImmutable::now(), $statement, $by, self::method($command)),
                 default => throw new DomainError('op_unknown', 'Unknown withdrawal operation.', 422),
             });
         }
@@ -47,10 +47,16 @@ final class WithdrawalCommandHandler implements CommandHandler
             $scoped = $context->withScope($organizationId);
 
             return $this->withdrawals->present($command->get('service_id') !== null
-                ? $this->withdrawals->withdrawService($this->service($organizationId, (string) $command->get('service_id')), $scoped, Withdrawal::STAFF, $sentAt, $statement, $context->actorId)
-                : $this->withdrawals->withdrawOrder($this->order($organizationId, (string) $command->get('order_id')), $scoped, Withdrawal::STAFF, $sentAt, $statement, $context->actorId));
+                ? $this->withdrawals->withdrawService($this->service($organizationId, (string) $command->get('service_id')), $scoped, Withdrawal::STAFF, $sentAt, $statement, $context->actorId, self::method($command))
+                : $this->withdrawals->withdrawOrder($this->order($organizationId, (string) $command->get('order_id')), $scoped, Withdrawal::STAFF, $sentAt, $statement, $context->actorId, self::method($command)));
         }
         throw new \LogicException('Unsupported command '.get_class($command));
+    }
+
+    /** L-06: the credit only on the consumer's express agreement; anything else is the statutory default (back the way it was paid). */
+    private static function method(WithdrawalCommand|WithdrawalStaffCommand $command): string
+    {
+        return $command->get('refund_method') === Withdrawal::METHOD_CREDIT ? Withdrawal::METHOD_CREDIT : Withdrawal::METHOD_SOURCE;
     }
 
     private function service(string $organizationId, string $id): Service

@@ -409,8 +409,9 @@ it('lets a consumer withdraw within 14 days: the unused part goes back to the cr
     expect($info)->toMatchArray(['enabled' => true, 'eligible' => true, 'customer_class' => 'b2c'])->and($info['estimate']['refund']['minor'])->toBeGreaterThan(0)->and($info['deadline'])->not->toBeNull();
     e10AssertNoVendor($info);
 
-    // 2. the notice needs the express agreement to a refund to the credit, and a fresh step-up: ending a contract
-    $this->withHeaders(e2eHeaders('wd-none'))->postJson("/v1/services/{$service->id}/withdrawal", [])->assertStatus(422);
+    // 2. the agreement to a refund to the credit is voluntary (L-06) and must be a yes or a no; ending a contract needs a fresh step-up
+    $this->withHeaders(e2eHeaders('wd-none'))->postJson("/v1/services/{$service->id}/withdrawal", ['confirm_refund_to_credit' => 'perhaps'])->assertStatus(422);
+    $this->withHeaders(e2eHeaders('wd-nostep-0'))->postJson("/v1/services/{$service->id}/withdrawal", [])->assertStatus(403)->assertJsonPath('error', 'step_up_required');
     $this->withHeaders(e2eHeaders('wd-nostep'))->postJson("/v1/services/{$service->id}/withdrawal", ['confirm_refund_to_credit' => true])->assertStatus(403)->assertJsonPath('error', 'step_up_required');
     expect($service->fresh()->state)->toBe(ServiceStateMachine::ACTIVE);
     e2eStepUp($this, $password);

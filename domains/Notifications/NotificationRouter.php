@@ -425,8 +425,13 @@ final class NotificationRouter
                 $about = ! empty($p['estimate']) ? 'odhadem ' : '';
                 $toCredit = (int) data_get($p, 'to_credit.minor', 0) > 0;
                 $offDocuments = (int) data_get($p, 'off_documents.minor', 0) > 0;
+                // L-06: without the agreement to the credit the money goes back the way it was paid — an order payment to its card or
+                // account within fourteen days, what was paid from the credit to the credit
+                $back = ($p['refund_method'] ?? 'credit') !== 'source' ? 'na kredit vrátíme dobropisem '
+                    : (! empty($p['to_source']) ? 'peníze vrátíme stejným způsobem, jakým jste platili (na kartu nebo účet, z něhož byla objednávka zaplacena), do 14 dnů, '
+                        : 'peníze vrátíme stejným způsobem, jakým jste platili (z kreditu), tedy dobropisem na kredit ');
                 $what = implode(', ', array_filter([
-                    $toCredit ? 'na kredit vrátíme dobropisem '.$about.$money($p['to_credit']) : null,
+                    $toCredit ? $back.$about.$money($p['to_credit']) : null,
                     $offDocuments ? 'neuhrazené doklady snížíme o '.$about.$money($p['off_documents']) : null,
                     $toCredit || $offDocuments ? null : (! empty($p['already_returned']) ? 'na kredit se nic nevrací, vše už bylo vráceno dříve' : 'na kredit se nic nevrací'),
                 ]));
@@ -439,10 +444,17 @@ final class NotificationRouter
                 $this->internal($m, 'finance', 'Odstoupení spotřebitele: vráceno '.$money($p['refund'] ?? null), ($org->name ?? '').' · '.($p['label'] ?? '').' · na kredit '.$money($p['to_credit'] ?? null).' · z neuhrazených dokladů '.$money($p['off_documents'] ?? null).' · dobropisy '.implode(', ', (array) ($p['credit_notes'] ?? [])), '/sprava#/money', 'info');
                 $credited = (int) data_get($p, 'to_credit.minor', 0) > 0;
                 $reduced = (int) data_get($p, 'off_documents.minor', 0) > 0 ? 'neuhrazené doklady sníženy o '.$money($p['off_documents']) : null;
+                if ((int) data_get($p, 'payout.minor', 0) > 0) { // L-06: held on the credit for the payout to the card or account, not credit to spend
+                    $this->customer($m, 'wallet', 'Odstoupení: '.$money($p['payout']).' vrátíme na původní platební prostředek', ($p['label'] ?? '').' · částku do vrácení držíme na kreditu, nelze ji utratit · dobropis '.implode(', ', (array) ($p['credit_notes'] ?? [])), '/panel/fakturace', 'info');
+
+                    return;
+                }
                 $this->customer($m, 'wallet', $credited ? 'Vráceno na kredit po odstoupení: '.$money($p['to_credit']) : 'Odstoupení vyřízeno: '.($reduced ?? 'na kredit se nic nevrací'),
                     ($p['label'] ?? '').($credited && $reduced !== null ? ' · '.$reduced : '').' · dobropis '.implode(', ', (array) ($p['credit_notes'] ?? [])), '/panel/fakturace', 'info');
             })(),
             'withdrawal.completed' => $this->customer($m, 'service', 'Služba ukončena odstoupením: '.($p['label'] ?? ''), 'Smlouva je ukončena. Novou službu si můžete kdykoli objednat.', '/panel/sluzby', 'info'),
+            // L-06: a withdrawal without the agreement to the credit owes an order payment its money: finance pays it out within 14 days
+            'withdrawal.payout_due' => $this->internal($m, 'finance', 'Odstoupení: vrátit na původní platební prostředek '.$money($p['payout'] ?? null), ($org->name ?? '').' · '.($p['label'] ?? '').' · platba '.(string) ($p['payment_id'] ?? '').' · nejpozději '.substr((string) ($p['due_by'] ?? ''), 0, 10).' · Správa → Odstoupení → Vyplatit', '/sprava#/money', 'hot'),
             'withdrawal.stalled' => $this->internal($m, 'finance', 'Odstoupení se zastavilo: '.($p['label'] ?? ''), 'krok '.(string) ($p['step'] ?? '').' odmítnut: '.(string) ($p['error'] ?? '').' · vráceno: '.(! empty($p['refunded']) ? 'ano' : 'ne').' · onhost:withdrawals:finish to zkusí znovu', '/sprava#/money', 'hot'),
             // ── end TASK-0025 ──
             // ── TASK-0029 service-access-reduced: a share given again without the console takes the person's SSH keys and game sub-users on it (RevokeDelegatedAccess) ──

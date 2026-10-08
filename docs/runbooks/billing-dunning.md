@@ -433,14 +433,28 @@ on the server — until then the doctor row "consumer withdrawal reviewed by a l
 - **Until when:** 14 days from the order day (`orders.placed_at`, accounting day), to the end of the 14th day. The day the
   notice was **sent** decides. A registered domain is never withdrawn (`withdrawal_not_applicable`, `why=domain_registered`);
   the cart says so (`withdrawal_notice` in the quote). An add-on goes with its service; a carried site has no contract.
-- **Panel:** `GET /v1/services/{id}/withdrawal` (eligibility, deadline, estimate); `POST` with
-  `confirm_refund_to_credit: true` (the consumer's express agreement to a refund to the credit, recorded as a consent),
-  `service.delete`, HIGH, fresh step-up. A paid order nothing of which was delivered: `GET/POST /v1/orders/{id}/withdrawal`
+- **Panel:** `GET /v1/services/{id}/withdrawal` (eligibility, deadline, estimate); `POST` (optional
+  `confirm_refund_to_credit: true` — the consumer's VOLUNTARY agreement to a refund to the credit, recorded as a consent;
+  without it the money goes back the way it was paid, L-06), `service.delete`, HIGH, fresh step-up. A paid order nothing of which was delivered: `GET/POST /v1/orders/{id}/withdrawal`
   (the order is cancelled, every line credited, the reserved credit freed).
 - **Letter or e-mail:** finance records it with the day it was sent: `POST /v1/staff/withdrawals`
-  (`organization_id`, `service_id` or `order_id`, `sent_at`, `refund_to_credit_agreed`, `reason`), `billing.refund.execute`,
-  step-up and a second person. Without the consumer's agreement to a credit refund the old manual path stands: a refund by
-  the original payment method through the finance tools.
+  (`organization_id`, `service_id` or `order_id`, `sent_at`, optional `refund_to_credit_agreed`, `reason`), `billing.refund.execute`,
+  step-up and a second person.
+- **Refund method (L-06, TASK-0144):** `refund_method = credit` only with the agreement; otherwise `source`: what the
+  withdrawn order's own payment (purpose `order`, a card or a transfer) brought is returned to the credit by the credit notes
+  as before and **held there** (wallet hold `withdrawal_payout`, no expiry), the withdrawal ends in state `payout_due`
+  (event `withdrawal.payout_due`, finance inbox, hot, with the deadline = notice + 14 days) and finance pays it out:
+  `POST /v1/staff/withdrawals/{id}/payout` `{reason}` (`PaymentRefundCommand` `refund.withdrawal_payout`, step-up, four eyes
+  from the refund approval threshold). The hold is released, the amount leaves the credit for
+  `liability:refund_payable:<provider>` and the gateway refund (or a bank payout finance confirms) empties it. What was paid
+  from the credit stays credit — the credit was the means of payment.
+- **Other statutory money (L-09):** a consumer's price reduction or refund for a defect, the provider's termination without
+  the customer's breach, or a paid order that cannot be delivered goes back to the order's payment:
+  `POST /v1/staff/payments/{payment}/refund-statutory` `{amount, basis: defect|provider_termination|undeliverable, reason,
+  ticket_id, credit_note_id?}`. Without `credit_note_id` the order's document gets a credit note paid out to the source (as
+  G6); with it, money that credit note already put on the credit moves to the source — never more than it returned, nor
+  than the credit still has. Consumers only, a ticket of the customer as evidence, services of the lines ended (except a
+  `defect` price reduction). A top-up is never refunded.
 - **What happens, in this order:** the service is suspended (hold `withdrawal`), then a credit note for exactly the unused
   part of each paid line (prorated by days, the notice day counts as used; add-on lines included; an unpaid invoice is
   reduced instead of money being paid out) goes back to the credit with `returnToCredit`, then the service is cancelled

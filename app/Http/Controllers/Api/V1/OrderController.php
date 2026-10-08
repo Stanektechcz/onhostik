@@ -113,9 +113,11 @@ final class OrderController extends ApiController
     {
         $this->refuseTopUpReference($request, $order);
         $model = $this->resolve($request, $order);
-        $data = $request->validate(['confirm_refund_to_credit' => ['accepted'], 'statement' => ['nullable', 'string', 'max:2000']]);
+        // L-06: the agreement to a refund to the credit is voluntary; without it the money goes back the way it was paid
+        $data = $request->validate(['confirm_refund_to_credit' => ['nullable', 'boolean'], 'statement' => ['nullable', 'string', 'max:2000']]);
+        $method = ! empty($data['confirm_refund_to_credit']) ? Withdrawal::METHOD_CREDIT : Withdrawal::METHOD_SOURCE;
 
-        return $this->dispatch(new WithdrawalCommand($model->organization_id, $this->idempotencyKey($request, "withdrawal:{$model->id}"), ['op' => 'order', 'order_id' => $model->id, 'statement' => $data['statement'] ?? null]), $this->api->context($request, Organization::query()->find($model->organization_id)), 202);
+        return $this->dispatch(new WithdrawalCommand($model->organization_id, $this->idempotencyKey($request, "withdrawal:{$model->id}"), ['op' => 'order', 'order_id' => $model->id, 'statement' => $data['statement'] ?? null, 'refund_method' => $method]), $this->api->context($request, Organization::query()->find($model->organization_id)), 202);
     }
 
     /** @return array{to:string, reason?:?string} */
