@@ -39,3 +39,8 @@ Every run is a bus command: audit `payments.comgate.check` / `payments.comgate.t
 No request has reached Comgate from this code: there is no account. `method.json` and the test-payment parameters follow the Comgate
 REST API v2.0 documentation (apidoc.comgate.cz). On the day the test merchant exists: put the credentials in the store, run
 *Ověřit spojení*, then *Testovací platba 1 Kč*, then the manual test of a card order on staging (`docs/manual-tests/01-registrace-objednavka.md`).
+
+**Owner decision I-R3 (2026-10-08):** the owner opens the Comgate test merchant account and puts its credentials into the store on the
+server himself (`php artisan onhost:secrets:set`; never into a chat, the repository or a log). Then, each step with his yes: *Ověřit
+spojení*, *Testovací platba 1 Kč*, recording the real answers (`php artisan onhost:fixtures:record comgate`, no secret in the fixture),
+tests over them, and the manual card payment on staging (package I2). Until then card payments stay unverified (go-live B5).

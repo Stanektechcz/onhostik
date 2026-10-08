@@ -23,6 +23,10 @@ discount (the configured price is the price; an included Penpot is shown "v cen�
 at the price it was sold at (0 for an included one). The customer reads the offer for a service at `GET /v1/services/{id}/penpot-offer`.
 A Penpot ends with its service (terminate chain `endPenpotStep`, the cancellation preview says so).
 
+**Owner decision I-R7 (2026-10-08):** the price is confirmed (29 Kč / EUR 1.19 a month as an add-on, included in every `web` and
+`managed` tariff) — no longer preliminary. The dedicated node (*Server prerequisites* below) is built after the staging rehearsal,
+each step with the owner's yes. If it is not there by the launch, withdrawing Penpot from sale is a new owner decision.
+
 **No node, no sale.** The cart (`409 penpot_unavailable`, nothing ordered or charged), the checkout (a quote is valid 2 h) and the
 delivery (the paid line fails and the order settlement refunds it) each ask `NodeScheduler::canHost(role penpot, provider penpot)`.
 The doctor row *Penpot is sold only with a Penpot node to run it* is a non-blocking FAIL while Penpot is on sale without a qualified

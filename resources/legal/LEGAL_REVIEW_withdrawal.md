@@ -25,6 +25,12 @@ vypnutý, dokud ho provozovatel nezapne.
   domény a v poučení i VOP. Zaplacenou objednávku, z níž se zatím nic nedodalo, lze odstoupit celou (zruší se a všechny
   řádky se dobropisují) — včetně domény, která ještě registrována nebyla.
 
+## Stav revize (rozhodnutí vlastníka I-R4, 2026-10-08)
+
+Vlastník předává tento soubor právníkovi spolu s `terms.md` a `withdrawal_waiver.md` (hlavně otázky 8 a 9). Do odpovědi se smí
+spustit s dnešními texty verze `2026-09` (vědomě přijaté riziko); verze dokumentů se do odpovědi nemění. Po odpovědi vznikne nová
+verze přes `consent_documents` a seam pro texty v prototypech (balík I5).
+
 ## Otázky pro právníka
 
 1. Stačí výslovný souhlas zaškrtnutím v panelu k vrácení na (nevyplatitelný) kredit místo původního platebního

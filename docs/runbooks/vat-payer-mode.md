@@ -151,6 +151,11 @@ Tests: `tests/Feature/Tax/G2VatPayerTest.php`.
 
 ## For the accountant (open questions)
 
+**Owner decisions I-R5 and I-R8 (2026-10-08):** ONhost stays a non-payer for **at least a year** and launches with the non-payer
+procedure as it is. These questions — and those of the owner's decision brief (loyalty discount, a refund's credit note beside the
+payment confirmation, the multi-purpose voucher, VAT on forfeited credit) — go to the accountant together with the switch to a payer
+(the day of the VAT registration, announced ahead), not before the launch.
+
 1. **Rounding**: VAT per line, half away from zero, to the haléř; summary = sum of lines (not recomputed from the summed base).
    Confirm, or the summary must be computed from the base per rate and the difference carried by a line.
 2. **DUZP of a received payment** = the bank's booking day; an import that arrives in the next month puts the receipt into the
