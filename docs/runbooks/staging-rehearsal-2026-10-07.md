@@ -3,7 +3,9 @@
 **Status: R0–R2 run 2026-10-08 (read-only, approved by the owner) — R0 differs, R1 OK (0 FAIL), R2 OK for the units; the
 rehearsal stops before R3 (staging carries a 2026-09-28 release, see *Run 2026-10-08*). R2a (read-only) found why `/up`
 answers 500: the vhost serves PHP through PHP-FPM 8.3, the release runs on 8.5 (see *R2a*); the fix and the deploy wait for
-the owner's R2b.** This is the protocol of the rehearsal scripted in
+the owner's R2b. R2b-0 to R2b-4 run 2026-10-08 02:40–02:42 UTC (owner "ano"): vhost on PHP 8.5, `/up` 200 over loopback
+and from outside, backups in `/root/r2b-2026-10`, new `onhost-staging.sh` and deployer from `0f3cde26`; the gated deploy
+(R2b-5) waits for its own owner "yes" (see *R2b*).** This is the protocol of the rehearsal scripted in
 [staging-rehearsal-2026-10.md](staging-rehearsal-2026-10.md) (steps R0–R24). It holds **outputs only**: the doctor row a step
 watches, the exit code, what differed, which rollback was used. **No password, TOTP secret, recovery code, token, key or env value
 ever goes into this file** — not even redacted fragments.
@@ -34,6 +36,16 @@ Result: **OK** (as expected) / **differs** (stopped, see notes) / **skipped** (w
 | R0 release and gate lists | 2026-10-08 | 01:37:12–01:37:15Z | **differs** | `staging.sh status`: 0 ✖, no `PARKED`, 26 WARN, `/up over loopback: 500` | `$S/releases/current` does not exist (staging predates the release layout, F2); `/up` answers 500 over loopback (F3); the four gate lists exist, root, 0600 |
 | R1 doctor before | 2026-10-08 | 01:37:30–01:37:35Z | OK | `rc=0`; 119 checks, **0 FAIL**, 26 WARN | 12 of the 13 watched rows do not exist in the staging release (F2); see *R1 starting picture* |
 | R2 PHP binary | 2026-10-08 | 01:37:46–01:37:48Z | OK (units) | *PHP binary is the one …*: row absent in this release | `PHP 8.5.8`; both `ExecStart` and the effective `systemctl show` path are `/www/server/php/85/bin/php`; 8.3 is used only by another application's cron on the same host (F1) |
+| R2b-0 checks (read-only) | 2026-10-08 ("ano" R2b-1 to R2b-4, prep + R2b-0 included) | 02:40:30Z | OK | `/up` loopback 500 (expected) | one `include enable-php-83.conf` directive (line 81; lines 15 and 47 are comments that mention it); `enable-php-85.conf` → `php-cgi-85.sock`; `VERSION` = last-good = `e711b7c7`; three units active; `pg_dump` 18.0; 266 GB free; five other vhosts include 83 (unchanged) |
+| R2b-1 vhost → PHP 8.5 | 2026-10-08 | 02:40:45–02:40:54Z | OK | `/up` loopback **200**, outside **200**, access log 200 | shell edit (the proposal's equivalent of the panel switch); only line 81 changed; `nginx -t` ok (pre-existing `proxy_headers_hash` warnings), reload rc 0; copy of the old vhost in `$B` |
+| R2b-2 backups | 2026-10-08 | 02:41:00–02:41:20Z | OK | — | dump 206 `TABLE DATA` entries; tree archive 8522 `vendor/` entries; state archive 278 `repo.git` entries; `sha256sum -c` all OK |
+| R2b-3 `onhost-staging.sh` | 2026-10-08 | 02:41:50–02:42:00Z | OK | `check passed`, no ✖ | `SHA` = `0f3cde26b8efc4c60b758fb4dc2b20f2733d0ea1` (development tip = merge of PR #133, as named in the proposal); `bash -n` clean; usranalyse line present |
+| R2b-4 deployer | 2026-10-08 | 02:42:05–02:42:21Z | OK | `app.env matches expected-env` | `source-sha` = `0f3cde26…`; `expected-env` rewritten (key names only); `expected-nonok` unchanged (2026-09-28); app, DB, units unchanged (`VERSION` still `e711b7c7`, `/up` 200) |
+| PHP 8.5 in aaPanel's site record + CLI `php` | 2026-10-08 ("PHP 8.5 … nastav ho jako primární") | 03:23–03:26Z | OK | `/up` loopback 200, outside 200 | aaPanel's own `panelSite.SetPHPVersion` (version 85): nginx, apache and OpenLiteSpeed vhost files of the site now say 85, the panel reads `85`; `/usr/bin/php` → `/www/server/php/85/bin/php` (alternatives, manual); game panel cron keeps its explicit `/www/server/php/83/bin/php`; see *R2b-5 run* |
+| R2b-3/R2b-4 again for the tip | 2026-10-08 ("ano" R2b-5) | 03:26–03:27Z | OK | `check passed`; `app.env matches expected-env` | `SHA` = `b3ac309d88de89243ba1c52daf04a6bed760ffcb` (merge of PR #135); new check line *vhost PHP-FPM matches the deploy PHP* ✔; fresh DB dump first |
+| R2b-5 gated deploy | 2026-10-08 ("ano" R2b-5; R2b-5a **not** approved) | 03:27:05–03:27:31Z | **differs: rc 5** | gate `VERDICT row`: 6 `ROW-FAIL` (all WARN), 0 HARD-FAIL, 0 GATED-FAIL | release `b3ac309d` PARKED; handled as the proposal says for rc 5 without R2b-5a: rollback B, see *R2b-5 run* |
+| Rollback B | 2026-10-08 (owner: "on failure rollback") | 03:28–03:32Z | OK | doctor 93 OK / 26 WARN / 0 FAIL; `scheduler running`, `queue worker alive` OK | DB back from the pre-deploy dump (failed DB kept as `onhost_staging_b_r2b5_failed`); `e711b7c7` redeployed **through the gate** (`VERDICT pass`, maintenance 22 s); the installed deployer stays `b3ac309d` (it refuses a downgrade, and deploys an older ref fine) |
+| Penpot node on staging | 2026-10-08 ("Ano penpot na stagingu", only after a successful deploy) | — | **not run** | — | precondition not met (R2b-5 rc 5); the release on staging (`e711b7c7`) has no Penpot provider either; coexistence plan in *R2b-5 run* |
 | R3 usranalyse directives | | | not run | queue workers up (no exit 7) | |
 | R4 TRUSTED_PROXIES loopback | | | not run | *trusted proxies are exact addresses* | |
 | R5 shared cache | | | not run | *cache store is shared (rate limits)* | |
@@ -56,6 +68,7 @@ Result: **OK** (as expected) / **differs** (stopped, see notes) / **skipped** (w
 | R22 dead letters | | | not run | *no outbox dead letters* | |
 | R23 final doctor, `expected-nonok` | | | not run | 0 unexpected FAIL | |
 | R24 gated deploy (optional) | | | not run | gate verdict | owner decides |
+| R25 compute backups (plan, PBS, rule) | 2026-10-08 ("Spusť R25") | 03:31–03:32Z | **partly: read-only part OK, rest skipped** | `compute-plan`: 0 services, no `MISSING`, rule `backups.compute` off; *every Proxmox instance carrying sold backups has a backup_storage* OK (none) | staging has **no provider instance at all** (`onhost:integrations:versions` empty, *active nodes* WARN "none"), so there is no Proxmox instance whose PBS could be checked; the test backup is a Proxmox write (excluded) and R23 is not done; the rule stays **off** (the runbook switches it on only after a real PBS backup, and only in the staff console with step-up) |
 
 ## R1 starting picture (fill from `doctor-R1.json`)
 
@@ -225,6 +238,121 @@ game panel's cron uses the 8.3 CLI, not the FPM pool; whether another vhost uses
 * `e711b7c7..9eddcd05` (development tip at R2a): 456 commits, 11 new migrations, and `deploy.sh`, `install.sh`, `staging.sh`,
   `onhost-queue@.service` changed.
 
+## R2b 2026-10-08 — `/up` fixed, backups, script and deployer (R2b-0 to R2b-4)
+
+The owner approved R2b-1 to R2b-4 of `GENERALKA-R2b-navrh.md` as written ("ano", 2026-10-08); R2b-5 (gated deploy), R2b-5a
+and everything later were **not** approved and were not run. Same key-only root SSH route, shell variables exactly as in
+the proposal (`B=/root/r2b-2026-10`, 0700). Times are UTC (the host runs CEST). Every command was the proposal's own; no
+step failed and no rollback was used. `.env`/`app.env` and private storage were not read; `app.env` was only compared by
+the deployer (key names, no values printed) and packed into a root-only archive.
+
+* **R2b-1:** the vhost was changed in the shell (`sed` on the one `include enable-php-83.conf;` directive), not in the
+  aaPanel UI. aaPanel's own site record therefore still says PHP 8.3: **saving `staging.onhost.cz` in the panel would write
+  `enable-php-83.conf` back and bring the 500 back.** Setting PHP-85 for the site in the panel (Website → PHP version)
+  makes the panel agree; until then nobody saves that site in the panel. PHP-FPM 8.3 and the other vhosts were not touched.
+* **R2b-2 backups** (all in `/root/r2b-2026-10`, root, directory 0700; archives and dump 0600):
+
+  | File | Bytes | SHA-256 |
+  | --- | --- | --- |
+  | `onhost_staging_b-before-r2b.dump` (`pg_dump -Fc`, PostgreSQL 18) | 4404808 | `d0416f1554b74196064915a5a261d399f26a72727d47b02797b9ed9e5b0b13c3` |
+  | `tree-e711b7c70f559276ebeb5d95dc7956874b6c8da4.tgz` (without `node_modules`) | 36133668 | `245b274a7680eaed7534ed8f033c59ceb7c437889576dfd84325d424b62c29df` |
+  | `deploy-state-before-r2b.tgz` (state dir with `repo.git`, deployer, units, drop-ins, `/etc/onhost`, old script) | 15865766 | `624f83c2f49442b5374761ec37c4f63608abeccec1818d08b064e5a31f8ec03f` |
+  | `onhost-staging.sh.e711b7c70f559276ebeb5d95dc7956874b6c8da4` | 19843 | `e1cd96b61eb913e22ad2a8cb54279c84f7fef70a6264661cfcc8a045b738ea11` |
+  | `vhost-before-r2b.conf` (R2b-1 rollback copy) | 4721 | — |
+
+  Also there: `SHA256SUMS` and `deployer-0f3cde26b8ef.log`.
+* **R2b-3:** new `/root/onhost-staging.sh` from `0f3cde26` (SHA-256
+  `ad577b004f0e697ff814e1d86d92cb4b882b0e650e005dc147c2917d1bc50337`). `check`: PHP 8.5.8 with every extension, FPM reload
+  `/etc/init.d/php-fpm-85 reload`, Node v24.18.1, tools, `fs.protected_hardlinks=1`, `setpriv`/`setsid` to `www`, Redis
+  `requirepass` set, PostgreSQL 18.0, the usranalyse line, three units active, `check passed`.
+* **R2b-4:** deployer installed from `0f3cde26` (`/usr/local/sbin/onhost-deploy`, `/usr/local/lib/onhost-deploy/`), expected
+  units = scheduler + queue@default + queue@mails, `expected-env` written, `app.env matches expected-env`. The script also
+  left its installer copy `/root/install-deployer.sh`.
+
+**Before R2b-5:** the target is pinned to `0f3cde26b8efc4c60b758fb4dc2b20f2733d0ea1` (the deployer came from it). Merging
+this protocol moves the `development` tip; deploying a later tip means R2b-3/R2b-4 again. `expected-nonok` is still the
+2026-09-28 snapshot, so the proposal's rc 5 risk (new doctor rows as `ROW-FAIL`, R2b-5a) stands.
+
+## R2b-5 run 2026-10-08 — PHP 8.5 made permanent, gated deploy rc 5, rollback B; Penpot and R25
+
+Owner approvals in chat (2026-10-08): PHP 8.5 as the primary PHP of the staging site; "ano" R2b-5 (gated deploy of the
+development tip, R2b-3/R2b-4 redone for it); a Penpot node on staging only after a successful deploy; R25. **R2b-5a
+(regenerating `expected-nonok`) was not approved**: on rc 5 the proposal's handling applies (rollback B, record, stop).
+Same key-only root SSH route, the proposal's shell variables, times UTC. `.env`/`app.env` and private storage were not read.
+Production, other vhosts, the game panel, Proxmox, ISPConfig, Comgate and the bank were not touched.
+
+* **PHP 8.5 in aaPanel's own record.** aaPanel keeps no PHP version in its database for a PHP site; it reads it from the
+  site's vhost files (`public.get_site_php_version` parses `enable-php-NN.conf`). R2b-1 had changed only the nginx file, so
+  the apache and OpenLiteSpeed files still named 8.3 (`php-cgi-83.sock`, `lsphp83`). The panel's own
+  `panelSite.SetPHPVersion(siteName=staging.onhost.cz, version=85)` was called with the panel's Python (the call the UI
+  makes): it answered "Successfully changed PHP Version … to PHP-85", rewrote the three files (the nginx `include` was
+  already 85; two comment lines followed) and reloaded nginx; the panel now reads `85`. Copies of the three files before:
+  `$B/panel-php85-before.{nginx,apache,openlitespeed_detail}.conf`. `nginx -t` ok, `/up` 200 over loopback and from outside;
+  the game panel's `/` answered 404 before and after (unchanged). A later save of the site in the panel keeps 8.5.
+* **CLI `php` → 8.5.** Precondition checked first: the game panel's cron (`/etc/cron.d/pterodactyl`) and its queue worker
+  use the explicit `/www/server/php/83/bin/php`; the other crons on the host name explicit `/www/server/php/85/bin/php`.
+  `/usr/bin/php` was Ubuntu's 8.1 (`/usr/bin/php.default` → `php8.1`, alternatives auto). Now
+  `update-alternatives --install /usr/bin/php php /www/server/php/85/bin/php 85` + `--set` (manual mode): `php -v` = 8.5.8.
+  Copy of the alternatives state: `$B/alternatives-php-before`. Rollback: `update-alternatives --auto php`.
+* **Fresh backups before the deploy** (`$B`, root, 0600): `onhost_staging_b-before-r2b5.dump` 4415460 bytes, SHA-256
+  `03d6137fe6f4e012a8771e137160b239167f2ce5354c4b3f2fba46b6657d7508` (206 `TABLE DATA`); `deploy-state-before-r2b5.tgz`
+  21306792 bytes, `ac897fe8e49768b9a93baed19e6f78e64a818dd5d01199e5f701e7d94d39f136`; the 0f3cde26 script copy
+  (`ad577b00…`). Sums in `$B/SHA256SUMS-r2b5`. The code tree had not changed since R2b-2 (its archive stays valid).
+* **R2b-3/R2b-4 again:** `SHA=b3ac309d88de89243ba1c52daf04a6bed760ffcb` (development tip, merge of PR #135); new
+  `/root/onhost-staging.sh` SHA-256 `cc3827f4a6ed2ed4599d75d2cf14b3b0dd1d6ce621a17ec65d383482b8e34f37`, `check passed`
+  including the new line *vhost PHP-FPM matches the deploy PHP*; deployer from `b3ac309d`, `app.env matches expected-env`.
+* **R2b-5:** `bash /root/onhost-staging.sh deploy b3ac309d…` → **rc 5** at the gate, 26 s after the start
+  (`runs/20261008-032707-b3ac309d88de`; the deployer's own platform backup `platform-backups/20261008-032710` verified first).
+  Verdict `row`: 0 HARD-FAIL, 0 GATED-FAIL, 26 `EXPECTED`, 4 `CLEARED` and **6 `ROW-FAIL`, every one a WARN** — rows that
+  did not exist in `e711b7c7`:
+
+  | Row (area\|check) | Why it is new / what it waits for |
+  | --- | --- |
+  | `payments\|Comgate answered the last administration check` | H-R8; no Comgate on staging |
+  | `documents\|VAT payer mode` | G2; the owner is not a VAT payer yet (decision 2026-10-06) |
+  | `documents\|VAT payer mode agrees with the legal entity` | R14 of this rehearsal |
+  | `catalog\|every plan on sale is one its own server can deliver` | R6/R7 (web plans revision) |
+  | `catalog\|catalogue revision 2026-10-deliverable-web-plans applied` | R7 |
+  | `security\|API tokens must name an organisation (R9)` | R12 |
+
+  The list the deployer's `nonok` would write (R2b-5a, not applied) is kept as `$B/expected-nonok.proposed-b3ac309d88de`:
+  against today's file it adds these 6 and drops the 4 `CLEARED` rows (*platform backup verified within 26 h*, *staff users
+  exist*, *backups: the backup tick ran …*, *the national bank's exchange rates are fresh*).
+* **Rollback B** (proposal, section B), 03:28–03:32Z: `artisan down` (already in maintenance), units stopped; DB:
+  sessions terminated, `onhost_staging_b` renamed to **`onhost_staging_b_r2b5_failed`** (kept, 76 migrations), new
+  `onhost_staging_b` (owner `onhost_b`) restored from `onhost_staging_b-before-r2b5.dump` with `pg_restore --exit-on-error`
+  rc 0 (65 migrations = the 11 new ones gone). `staging.sh deployer e711b7c7` was **refused, rc 2** ("does not descend from
+  the installed deployer b3ac309d … (no downgrades)") — the proposal did not foresee this; the next command, `staging.sh
+  deploy e711b7c7`, ran with the installed `b3ac309d` deployer and **passed its gate** (`VERDICT pass`, `/up` and `/v1/status`
+  200 through the bypass, units started, maintenance window 22 s), then `npm ci && npm run build` and
+  `releases/current = e711b7c7`, rc 0. B-fallback (restore from files) was not needed. `expected-nonok` was not changed.
+  **Verified:** `VERSION` = `releases/current` = `e711b7c7`; `b3ac309d….parked` remains (the record of the rc 5); three units
+  `active`; `/up` 200 over loopback and from outside, `/` 200; doctor **93 OK / 26 WARN / 0 FAIL** (the R1 picture);
+  `scheduler running`, `queue worker alive` (default, mails) OK.
+* **Penpot node: not run.** The owner's condition (a successful deploy) is not met, and `e711b7c7` has no Penpot provider
+  (`providers/Penpot`, `config/penpot.php` came later), so nothing could be registered or ordered. Read-only facts for the
+  next attempt: Ubuntu 22.04 (outside `provision-node.sh`'s Debian 12/13 / Ubuntu 24.04 → `--force-os`); Docker 29.6.1
+  already installed and used by the game node (Wings active, 14 containers) → `--docker-major 29` so the pin matches;
+  nginx 1.31.2 on 80/443 (aaPanel), Wings on 8080; ufw active; 6 CPU, 15 GB RAM (7 GB available) → N = 2, at most 3;
+  DNS `penpot.onhost.cz` and `*.penpot.onhost.cz` already resolve to 45.67.217.22. On this shared host the script must run
+  with `--no-firewall` (its `ufw default deny incoming` would cut the game ports and the panel) and
+  `--keep-host-key-algorithms` (sshd is the host's, not the node's); Caddy cannot take 80/443. **Coexistence plan:** Caddy
+  with global `http_port 8081` / `https_port 8444` on loopback; an aaPanel nginx vhost `*.penpot.onhost.cz` that on port 80
+  passes `/.well-known/acme-challenge/` to Caddy (so Caddy's automatic HTTPS still gets its certificates) and on 443
+  terminates TLS with the certificate Caddy obtained and proxies to Caddy (`proxy_ssl_server_name on`, WebSocket headers,
+  body size of the plan); the node's `proxy_reload` becomes a root-owned helper that reloads Caddy and refreshes that nginx
+  vhost. The platform's site files (`<host> { reverse_proxy 127.0.0.1:<port> }`) stay as the adapter writes them. Caveat to
+  accept for staging only: the platform's `onhost` user in the `docker` group is root on a host shared with the game node.
+* **R25:** `art onhost:backups:compute-plan` (read-only): 0 services would be backed up, no `MISSING`, rule
+  `backups.compute` off, nothing changed. Staging has no provider instance (`onhost:integrations:versions` empty, *active
+  nodes* "none"), so no Proxmox instance and no PBS datastore exists to look at from the platform; the test backup through the
+  staff console is a Proxmox write (excluded here) and R23 is not done, so the rule stays off (the runbook turns it on only
+  after a real backup on PBS, in Automations with step-up).
+
+**Next (each its own owner word):** R2b-5a — accept the 6 `ROW-FAIL` rows above into `expected-nonok` (or fix R7/R12/R14
+first), then deploy `b3ac309d` (or the then tip) again; only after that the Penpot node with the coexistence plan above.
+The failed database `onhost_staging_b_r2b5_failed` and `$B` stay until the owner agrees to clean them up.
+
 ## Outputs per step
 
 Paste only non-secret output (doctor rows, exit codes, `ls -l` lines, SHAs). The full doctor reports stay in
@@ -279,6 +407,51 @@ $ row "PHP binary is the one the deploy and the workers must use"
 (no output: the row does not exist in release e711b7c7)
 $ systemctl show -p ExecStart --value <unit>   # path only
 onhost-queue@default, onhost-queue@mails, onhost-scheduler: path=/www/server/php/85/bin/php
+```
+
+### R2b-0 to R2b-4
+
+```
+R2b-0 $ curl … --resolve $SITE:443:127.0.0.1 https://$SITE/up        → 500
+      $ grep -n 'enable-php-' $V                                      → 81:    include enable-php-83.conf;  (+ comment lines 15, 47)
+      $ grep fastcgi_pass …/enable-php-85.conf                        → fastcgi_pass  unix:/tmp/php-cgi-85.sock;
+      $ cut -d' ' -f1 $APP/VERSION; jq -r .sha last-good.json         → e711b7c7… (both); $S/releases: absent
+      $ systemctl is-active (3 units)                                 → active active active
+      $ $PGBIN/pg_dump --version; df -h /                             → 18.0; 266G free
+R2b-1 $ grep -n 'enable-php-' $V                                      → 81:    include enable-php-85.conf;
+      $ nginx -t && nginx reload                                      → syntax is ok, test is successful, rc=0
+      $ curl … loopback /up; curl https://staging.onhost.cz/up        → 200; 200
+      $ tail -3 access log                                            → GET /up 500 (R2b-0), GET /up 200
+R2b-2 $ pg_dump / tar / tar / cp; echo rc                             → 0 0 0 0
+      $ pg_restore -l | grep -c 'TABLE DATA'                          → 206
+      $ tar -tzf tree | grep -c '^staging.onhost.cz/vendor/'          → 8522
+      $ tar -tzf state | grep -c repo.git                             → 278
+      $ sha256sum -c SHA256SUMS                                       → 4 × OK
+R2b-3 $ git ls-remote … refs/heads/development                        → 0f3cde26b8efc4c60b758fb4dc2b20f2733d0ea1 (40)
+      $ curl -fsSL …/0f3cde26…/infra/aapanel/staging.sh; bash -n; mv  → rc 0
+      $ bash /root/onhost-staging.sh check                            → ✔ check passed, rc 0
+R2b-4 $ bash /root/onhost-staging.sh deployer "$SHA"                  → deployer installed from 0f3cde26…, ✔ source-sha,
+                                                                         ✔ expected-env written, ✔ app.env matches expected-env, rc 0
+      $ cat /usr/local/lib/onhost-deploy/source-sha                   → 0f3cde26b8efc4c60b758fb4dc2b20f2733d0ea1
+after $ VERSION; units; loopback /up                                  → e711b7c7…; active ×3; 200
+```
+
+### R2b-5 run
+
+```
+PHP   $ panelSite.SetPHPVersion(staging.onhost.cz, 85)                → {'status': True, … to PHP-85}; panel reads: 85
+      $ update-alternatives --set php /www/server/php/85/bin/php      → manual mode; php -v → PHP 8.5.8
+      $ grep php /etc/cron.d/pterodactyl                              → … /www/server/php/83/bin/php artisan schedule:run (explicit)
+R2b-3 $ git ls-remote … refs/heads/development                        → b3ac309d88de89243ba1c52daf04a6bed760ffcb (40)
+      $ bash /root/onhost-staging.sh check                            → ✔ vhost PHP-FPM matches the deploy PHP … ✔ check passed, rc 0
+R2b-4 $ bash /root/onhost-staging.sh deployer "$SHA"                  → ✔ source-sha b3ac309d…, ✔ app.env matches expected-env, rc 0
+R2b-5 $ bash /root/onhost-staging.sh deploy "$SHA"                    → VERDICT row; ✖ rc 5: doctor gate failed; PARKED (stage deployer, rc 5)
+B     $ psql ALTER DATABASE onhost_staging_b RENAME TO onhost_staging_b_r2b5_failed; createdb; pg_restore → rc 0; migrations 65 (failed copy 76)
+      $ bash /root/onhost-staging.sh deployer e711b7c7…               → ✖ … does not descend from the installed deployer b3ac309d… (no downgrades), rc 2
+      $ bash /root/onhost-staging.sh deploy e711b7c7…                 → VERDICT pass; maintenance window 22s; ✔ frontend built; ✔ current release: e711b7c7…, rc 0
+after $ VERSION; releases/current; units; /up                         → e711b7c7… ×2; active ×3; 200 loopback, 200 outside
+      $ doctor --json | count                                         → {"OK":93,"WARN":26}
+R25   $ art onhost:backups:compute-plan                               → 0 service(s) would be backed up · rule backups.compute: off · nothing was changed
 ```
 
 (Sections R3 … R24 are added as the steps are run, in the same form. The owner's proposal for R3–R5 is

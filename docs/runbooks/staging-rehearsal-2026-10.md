@@ -33,7 +33,7 @@ Taken from [staging-launch.md](staging-launch.md) (S-block). Nothing here is a s
 ```bash
 SITE=staging.onhost.cz
 APP=/www/wwwroot/$SITE
-P=/www/server/php/83/bin/php                       # the PHP 8.3+ CLI the deploy and the units use (checklist 0, step 1)
+P=/www/server/php/85/bin/php                       # the PHP 8.5 CLI the deploy and the units use (checklist 0, step 1)
 S=/var/lib/onhost-deploy/$SITE                     # the deployer's state directory (root only)
 DG=/usr/local/lib/onhost-deploy/deploy-gate.php    # the installed gate (staging-launch.md S4b)
 if setpriv --reuid=www --regid=www --init-groups -- true 2>/dev/null; then
@@ -96,7 +96,7 @@ workers after every change of configuration).
 
 ### R2. PHP binary, one for the deploy and the units (checklist 0 / step 1)
 
-* **Purpose:** the deployer, artisan by hand and the systemd units use the same PHP 8.3+.
+* **Purpose:** the deployer, artisan by hand and the systemd units use the same PHP 8.5.
 * **Precondition:** R1 done.
 * **Command:**
   ```bash
@@ -104,7 +104,7 @@ workers after every change of configuration).
   grep -n '^ExecStart' /etc/systemd/system/onhost-queue@.service /etc/systemd/system/onhost-scheduler.service
   row "PHP binary is the one the deploy and the workers must use"
   ```
-* **Expected:** `PHP 8.3.x` or newer; both units name the same `$P` path; the row is OK and shows version and path.
+* **Expected:** `PHP 8.5.x`; both units name the same `$P` path; the row is OK and shows version and path.
 * **Verify:** the row above.
 * **Rollback:** none needed; redeploy with the right `PHP=` (`PHP=$P … onhost-deploy`).
 * Owner approval: ☐ yes
@@ -165,7 +165,7 @@ workers after every change of configuration).
   ```bash
   art config:cache
   systemctl daemon-reload && systemctl restart onhost-scheduler.service 'onhost-queue@*'
-  systemctl reload php-fpm-85 2>/dev/null || /etc/init.d/php-fpm-83 reload      # the pool that serves staging
+  systemctl reload php-fpm-85 2>/dev/null || /etc/init.d/php-fpm-85 reload      # the pool that serves staging
   row "trusted proxies are exact addresses"
   ```
 * **Expected:** the row is OK (never `*`: a wildcard is FAIL in production, WARN on staging); `curl -sI https://$SITE/up` still answers.

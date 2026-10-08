@@ -36,6 +36,7 @@ APP_DIR=${APP_DIR:-/www/wwwroot/$SITE}
 PHP=${PHP:-/www/server/php/85/bin/php}
 PHP_FPM_RELOAD=${PHP_FPM_RELOAD:-/etc/init.d/php-fpm-85 reload}
 PHP_FPM_UNIT=${PHP_FPM_UNIT:-php-fpm-85.service}
+VHOST_CONF=${VHOST_CONF:-/www/server/panel/vhost/nginx/$SITE.conf}   # the aaPanel-generated vhost (its PHP include / socket)
 STATE=${DEPLOY_STATE_DIR:-/var/lib/onhost-deploy/$SITE}
 DEPLOY_STATE_DIR=$STATE   # install.sh's name, used by the functions the two scripts share
 R=$STATE/repo.git
@@ -161,6 +162,19 @@ npm_build() { # the frontend bundle, as the run user with Node 24, into public/b
 
 latest_sha() { git ls-remote "$REPO" refs/heads/development | cut -f1; }
 
+# The vhost's PHP handler must be the deploy PHP: aaPanel's `include enable-php-NN.conf` (or a php-cgi-NN.sock) names the
+# FPM pool that serves the site. Prints nothing when it matches or cannot be judged, else one line naming the mismatch.
+fpm_vhost_mismatch() {
+  local want found
+  [ -r "$VHOST_CONF" ] || return 0
+  want=$("$PHP" -r 'echo PHP_MAJOR_VERSION.PHP_MINOR_VERSION;' 2>/dev/null || true)
+  case "$want" in ''|*[!0-9]*) return 0;; esac
+  found=$(grep -oE 'enable-php-[0-9]+\.conf|php-cgi-[0-9]+\.sock' "$VHOST_CONF" | grep -oE '[0-9]+' | sort -u | tr '\n' ' ')
+  found=${found% }
+  [ -z "$found" ] && { echo "$VHOST_CONF names no enable-php-NN.conf or php-cgi-NN.sock (deploy PHP is $want)"; return 0; }
+  [ "$found" = "$want" ] || echo "$VHOST_CONF uses PHP-FPM $found but the deploy PHP is $want — set the site's PHP version in aaPanel (Site → PHP) to $want"
+}
+
 check() {
   FAIL=0
   say "PHP 8.5 ($PHP)"
@@ -171,6 +185,7 @@ check() {
   "$PHP" -r 'exit(preg_match("/\b(proc_open|exec|shell_exec)\b/", ini_get("disable_functions")) ? 1 : 0);' \
     && ok "proc_open/exec allowed" || bad "remove proc_open, exec, shell_exec from disable_functions"
   [ -x "${PHP_FPM_RELOAD%% *}" ] && ok "FPM reload: $PHP_FPM_RELOAD" || bad "no ${PHP_FPM_RELOAD%% *} — set PHP_FPM_RELOAD=…"
+  mm=$(fpm_vhost_mismatch); [ -z "$mm" ] && ok "vhost PHP-FPM matches the deploy PHP" || bad "$mm"
   say "Node 24"
   if N=$(node24); then ok "$N $("$N" -v)"; else bad "no Node v24 — aaPanel → App Store → Node.js version manager → v24"; fi
   say "Tools and host"
@@ -588,6 +603,7 @@ deploy() {
 status() {
   say "Status"
   echo "  version: $(cat "$APP_DIR/VERSION" 2>/dev/null)"; echo "  php: $("$PHP" -r 'echo PHP_VERSION;')"
+  mm=$(fpm_vhost_mismatch); [ -z "$mm" ] || echo "  PHP-FPM MISMATCH: $mm"
   echo "  current release: $(current_release)"
   for p in "$STATE"/releases/*.parked; do [ -e "$p" ] && echo "  PARKED: $(tr '\n' ' ' < "$p")"; done
   if N=$(node24); then echo "  node: $("$N" -v)"; fi

@@ -166,12 +166,12 @@ jobs:
           tools: composer
 
       - name: Shell syntax
-        run: for f in infra/aapanel/*.sh infra/aapanel/ci/*.sh; do bash -n "$f" || exit 1; done
+        run: for f in infra/aapanel/*.sh infra/aapanel/ci/*.sh infra/penpot/*.sh; do bash -n "$f" || exit 1; done
 
       - name: ShellCheck (warnings and errors)
         run: |
           command -v shellcheck >/dev/null || { sudo apt-get update -q && sudo apt-get install -y -q shellcheck; }
-          shellcheck -S warning infra/aapanel/*.sh infra/aapanel/ci/*.sh
+          shellcheck -S warning infra/aapanel/*.sh infra/aapanel/ci/*.sh infra/penpot/*.sh
 
       - name: Deployer end to end (A → B → A)
         run: PHP_BIN="$(command -v php)" COMPOSER_BIN="$(command -v composer)" bash infra/aapanel/ci/deploy-e2e.sh "$RUNNER_TEMP/deploy-e2e"
