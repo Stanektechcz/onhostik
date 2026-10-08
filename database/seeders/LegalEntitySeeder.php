@@ -10,7 +10,8 @@ use Onhost\Domain\Orders\LegalDocuments;
 use Onhost\Domain\Orders\Models\ConsentDocument;
 
 /**
- * Legal entity + versioned consent documents. LEGAL GATE: company identifiers,
+ * Legal entity + versioned consent documents. I-R11 (2026-10-08): name, IČO, seat, phone and e-mail are the operator's real public
+ * data (config/onhost.php, ARES); the bank details are still placeholders until the owner gives them. LEGAL GATE: company identifiers,
  * bank details and document texts are placeholders to be replaced by the real
  * ONhost entity before production (they are configuration, not code).
  */
@@ -22,15 +23,15 @@ final class LegalEntitySeeder extends Seeder
         $entity = LegalEntity::query()->updateOrCreate(['key' => 'onhost-cz'], [
             'name' => $legal('name', 'ONhost s.r.o.'),
             'ico' => $legal('ico', '00000000'),
-            'dic' => $legal('dic', 'CZ00000000'),
-            'vat_id' => $legal('vat_id', 'CZ00000000'),
+            'dic' => $legal('dic', '') ?: null, // I-R11: a non-payer has none; a made-up number on a document is worse than no number
+            'vat_id' => $legal('vat_id', '') ?: null,
             'address' => ['street' => $legal('street', 'Datacentrum 1'), 'city' => $legal('city', 'Praha'), 'postal_code' => $legal('zip', '110 00')],
             'country' => 'CZ',
             'iban' => $legal('iban', 'CZ0000000000000000000000'),
             'bic' => $legal('bic', 'XXXXCZPP'),
             'bank_account' => $legal('bank_account', '000000-0000000000/0000'),
             'series' => ['invoice' => 'FV', 'credit_note' => 'DK', 'proforma' => 'PF', 'receipt' => 'PP', 'correction' => 'OD', 'statement' => 'VY'],
-            'meta' => ['registry' => $legal('registry', 'Městský soud v Praze, oddíl C'), 'oss' => true],
+            'meta' => ['registry' => $legal('registry', ''), 'registry_en' => $legal('registry_en', ''), 'oss' => true],
         ]);
         // G2: the declared VAT mode (ONHOST_VAT_PAYER) only for a legal entity created now; an existing one keeps its mode — it is
         // switched by finance with a step-up and a second person (POST /v1/staff/tax/vat-payer-mode), never by a seeder run

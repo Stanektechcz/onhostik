@@ -44,7 +44,9 @@ final class ProductionPrepare extends Command
             }
         }
         if ($this->option('legal')) {
-            $placeholders = array_keys(array_filter(['ONHOST_LEGAL_NAME' => 'name', 'ONHOST_ICO' => 'ico', 'ONHOST_DIC' => 'dic', 'ONHOST_BANK_IBAN' => 'iban', 'ONHOST_BANK_ACCOUNT' => 'bank_account'], fn ($k) => trim((string) config("onhost.legal_entity.{$k}", '')) === ''));
+            // I-R11: a DIČ is required only of a declared VAT payer (ARES lists none for the operator, who is not one: H-R0/I-R5)
+            $required = ['ONHOST_LEGAL_NAME' => 'name', 'ONHOST_ICO' => 'ico', 'ONHOST_BANK_IBAN' => 'iban', 'ONHOST_BANK_ACCOUNT' => 'bank_account'] + (config('vat.payer', false) ? ['ONHOST_DIC' => 'dic'] : []);
+            $placeholders = array_keys(array_filter($required, fn ($k) => trim((string) config("onhost.legal_entity.{$k}", '')) === ''));
             if ($placeholders !== []) {
                 $this->error('Legal entity variables missing: '.implode(', ', $placeholders).' — the seeder would write placeholders.');
 

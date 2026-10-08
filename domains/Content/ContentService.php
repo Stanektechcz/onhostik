@@ -33,10 +33,17 @@ final class ContentService
         private readonly PartnerService $partners,
     ) {}
 
+    /**
+     * Posts the public site does not serve (I-R11, owner 2026-10-08: no fictional case studies, only real ones). The prototype's
+     * "Skladomat" migration story names a customer, a bill and a downtime nobody can document. A real case study is published under
+     * its own slug with the customer's approval.
+     */
+    public const WITHHELD_POSTS = ['migrace-z-cloudu'];
+
     /** @return list<array<string,mixed>> `{ slug, cat, title, excerpt, date, read, author, featured }` */
     public function posts(string $locale, ?string $category = null, string $kind = 'blog'): array
     {
-        $posts = Post::query()->where('kind', $kind)->where('state', 'published')->orderByDesc('published_on')->orderByDesc('created_at')->get();
+        $posts = Post::query()->where('kind', $kind)->where('state', 'published')->whereNotIn('slug', self::WITHHELD_POSTS)->orderByDesc('published_on')->orderByDesc('created_at')->get();
         if ($category !== null && $category !== 'all') {
             $posts = $posts->filter(fn (Post $p) => $p->text('category', $locale) === $category);
         }
@@ -46,7 +53,7 @@ final class ContentService
 
     public function post(string $slug, string $locale): array
     {
-        $post = Post::query()->where('slug', $slug)->where('state', 'published')->first();
+        $post = in_array($slug, self::WITHHELD_POSTS, true) ? null : Post::query()->where('slug', $slug)->where('state', 'published')->first();
         if ($post === null) {
             throw DomainError::notFound('post');
         }

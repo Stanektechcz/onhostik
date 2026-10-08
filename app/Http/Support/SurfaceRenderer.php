@@ -161,6 +161,7 @@ final class SurfaceRenderer
         if (! $demo && in_array($surface, ['admin', 'panel'], true)) { // promises of credit back in cash, a top-up bonus and a 30-day archive: corrected in the template, never in the boot JSON below (G8 item 9, H2)
             $template = CreditClaimsSeam::apply($template, [$surface]);
         }
+        $template = LegalIdentitySeam::apply($template); // I-R11: the operator's real name, IČO, seat, telephone and e-mail instead of the prototype's invented ones (every surface, demo included)
         $json = json_encode($boot, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
         // API-seam scripts are versioned by file mtime so browsers never keep a stale copy after a deploy.
         $v = fn (string $file) => '/surfaces/api/'.$file.'?v='.(@filemtime($this->root.'/api/'.$file) ?: '0');
@@ -1167,6 +1168,11 @@ HTML;
         if ($surface !== 'admin' && ! $demo) {
             $html = self::neutralizeVendors($html, $surface);
         }
+        if ($surface === 'public' && ! $demo) {
+            // I-R11: no invented testimonial, rating or case study — only references approved by a real customer. Last, because the vendor
+            // sweep above still rewrites the prototype's customer stories, and a story that is gone is not a miss of that sweep
+            $html = self::referenceSeams($html);
+        }
 
         return $html;
     }
@@ -1373,6 +1379,54 @@ HTML;
                 "coCreditHint: 'Top up credit in advance and pay ONhost services from it. Credit is not paid out and a top-up cannot be withdrawn from (terms).',",
                 "coTerms: 'Souhlasím s VOP a beru na vědomí zásady ochrany osobních údajů.',",
                 "coTerms: 'I accept the terms of service and have read the privacy policy.',",
+            ],
+            $html,
+        );
+    }
+
+    /**
+     * I-R11 (owner, 2026-10-08): the prototype's customer quotes (home page, every product page), the "4,9 / 5 · 380 recenzí" rating and
+     * the numbered customer references are invented people and companies; only real references, approved by the customer, may be
+     * published and the operator has none yet. The sections now render exactly what `ONHOST_DATA.references(cs)` carries
+     * (`onhost.content.references`: a list of `{quote, who, role}`, empty until a real one is added) and disappear while it is empty;
+     * the rating chip is gone for good (an unverifiable review score is a misleading practice, L-03). The prototype stays untouched.
+     */
+    public static function referenceSeams(string $html): string
+    {
+        $refs = '((window.ONHOST_DATA && window.ONHOST_DATA.references && window.ONHOST_DATA.references(cs)) || [])';
+        $sectionHead = "  <section style=\"border-bottom:2px solid color-mix(in srgb,var(--fg,#201e1d) 40%,transparent)\">\n    <div style=\"max-width:1360px;margin:0 auto;padding:{pad}\">\n";
+        $homeHead = str_replace('{pad}', '56px 32px 60px', $sectionHead)."      <div style=\"display:flex;flex-wrap:wrap;align-items:flex-end;gap:16px;margin-bottom:28px\">\n        <div>\n          <h6 style=\"color:var(--accDeep,#ae1800);margin:0 0 10px\">{{ t.refKicker }}</h6>";
+        $homeTail = "              <div style=\"font-size:12px;color:color-mix(in srgb,var(--fg,#201e1d) 65%,transparent)\">{{ ts.role }}</div>\n            </figcaption>\n          </figure>\n        </sc-for>\n      </div>\n    </div>\n  </section>\n";
+        $svcHead = str_replace('{pad}', '52px 32px 58px', $sectionHead).'      <h2 style="font-size:40px;margin:0 0 26px;letter-spacing:-.022em;text-wrap:balance">{{ svc.reviewsTitle }}</h2>';
+        $svcTail = "              <div style=\"font-size:12px;color:color-mix(in srgb,var(--fg,#201e1d) 65%,transparent)\">{{ sv2.role }}</div>\n            </div>\n          </div>\n        </sc-for>\n      </div>\n    </div>\n  </section>\n";
+        $chip = "        <span style=\"margin-left:auto;display:flex;align-items:center;gap:8px;border:2px solid var(--fg,#201e1d);padding:8px 12px;font-family:var(--font-heading);font-weight:800;font-size:13px\"><span style=\"color:var(--acc,#ec3013)\">★</span>{{ t.revScore }}</span>\n";
+
+        // the invented quotes and the numbered customer references are not even sent to the browser
+        $html = self::swapRe(
+            [
+                '/      testimonials: cs \? \[\n.*?\n      \],\n(?=      faq: faqData)/s',
+                '/      refs: \(cs \? \[\n.*?\]\)\.map\(r => \(\{ number: r\[0\], metric: r\[1\], quote: r\[2\], name: r\[3\], role: r\[4\] \}\)\),\n/s',
+            ],
+            [
+                "      hasTestimonials: {$refs}.length > 0,\n      testimonials: {$refs}.map(r => ({ quote: r.quote, who: r.who, role: r.role })),\n",
+                "      refs: [],\n",
+            ],
+            $html,
+        );
+
+        return self::swap(
+            [
+                $homeHead, $homeTail, $chip, "revScore: '4,9 / 5 · 380 recenzí'", "revScore: '4.9 / 5 · 380 reviews'",
+                $svcHead, $svcTail, 'sla: p.sla, migration: p.migration, reviews: p.reviews, kb: p.kb,',
+            ],
+            [
+                "  <sc-if value=\"{{ hasTestimonials }}\" hint-placeholder-val=\"{{ false }}\">\n".$homeHead,
+                $homeTail."  </sc-if>\n",
+                '',
+                "revScore: ''", "revScore: ''",
+                "  <sc-if value=\"{{ svc.hasReviews }}\" hint-placeholder-val=\"{{ false }}\">\n".$svcHead,
+                $svcTail."  </sc-if>\n",
+                "sla: p.sla, migration: p.migration, reviews: {$refs}.map(r => ({ name: r.who, role: r.role, text: r.quote })), hasReviews: {$refs}.length > 0, kb: p.kb,",
             ],
             $html,
         );

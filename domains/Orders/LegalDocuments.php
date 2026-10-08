@@ -114,6 +114,11 @@ final class LegalDocuments
         if (trim((string) config('onhost.legal_entity.phone', '')) === '') {
             $out[] = 'ONHOST_LEGAL_PHONE is empty: a consumer must be given a telephone number before the contract (§ 1820 OZ)';
         }
+        // L-04: withdrawals and complaints go to {{entity_email}}; the no-reply sender (the fallback when ONHOST_LEGAL_EMAIL is empty) reads nothing
+        $email = trim((string) config('onhost.legal_entity.email', '')) !== '' ? trim((string) config('onhost.legal_entity.email')) : trim((string) config('mail.from.address', ''));
+        if ($email === '' || preg_match('/^(no-?reply|do-?not-?reply)@/i', $email) === 1) {
+            $out[] = 'ONHOST_LEGAL_EMAIL is empty or a no-reply address: a consumer must be able to send a withdrawal and a complaint to a monitored mailbox';
+        }
 
         return $out;
     }
