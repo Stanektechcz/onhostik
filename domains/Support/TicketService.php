@@ -40,7 +40,7 @@ final class TicketService
     /** The fields of a ticket a staff write may change, each one audited with its old and new value. */
     private const AUDITED_FIELDS = ['state', 'priority', 'queue_id', 'assignee_id', 'escalation_level', 'first_response_due_at', 'resolution_due_at'];
 
-    public function __construct(private readonly AuditRecorder $audit, private readonly OutboxPublisher $outbox, private readonly Authorizer $authorizer) {}
+    public function __construct(private readonly AuditRecorder $audit, private readonly OutboxPublisher $outbox, private readonly Authorizer $authorizer, private readonly ComplaintService $complaints) {}
 
     /**
      * @param  array{subject:string, body:string, category?:?string, priority?:?string, service_id?:?string, domain_id?:?string, channel?:string, email?:?string, name?:?string, tags?:list<string>, incident_id?:?string, attachments?:list<array<string,mixed>>}  $input
@@ -76,7 +76,9 @@ final class TicketService
         if (! isset(Triage::TOPICS[$topic]) && $topic !== 'ostatni') {
             $topic = $triage['topic'];
         }
-        $contractual = $organization !== null && Service::query()->where('organization_id', $organization->id)->whereIn('sla_class', ['business', 'ha', 'critical'])->exists();
+        // the classes sold with a contractual SLA (L-05: Standard too, since the SLA in force promises it 99.9 %)
+        $contractualClasses = array_keys(array_filter((array) config('onhost.sla.classes', []), fn ($c) => is_array($c) && ($c['contractual'] ?? null) !== null));
+        $contractual = $organization !== null && Service::query()->where('organization_id', $organization->id)->whereIn('sla_class', $contractualClasses)->exists();
         $priority = Triage::priority($input['priority'] ?? null, $topic, $staff, $contractual, $subject.' '.$body);
         $policy = $this->policyFor($organization);
         $targets = $policy?->targetsFor($priority) ?? ['ack' => 60, 'first' => 240, 'next' => 480, 'resolve' => 4320];
@@ -93,6 +95,9 @@ final class TicketService
         TicketMessage::query()->create(['ticket_id' => $ticket->id, 'author_type' => $staff ? 'staff' : 'customer', 'author_id' => $user?->id, 'author_name' => $ticket->name, 'visibility' => 'public', 'body' => $body, 'attachments' => $attachments]);
         $this->audit->record($context->withScope($organization?->id), 'ticket.create', 'succeeded', ['number' => $ticket->number, 'category' => $topic, 'priority' => $priority, 'queue' => $queue?->key], 'ticket', $ticket->id);
         $this->outbox->publish(GenericEvent::of('ticket.created', 'ticket', $ticket->id, ['number' => $ticket->number, 'subject' => $ticket->subject, 'email' => $email, 'name' => $ticket->name, 'priority' => $priority, 'category' => $topic, 'queue' => $queue?->key, 'first_response_minutes' => $targets['first'], 'channel' => $ticket->channel], $organization?->id));
+        if ($topic === Triage::COMPLAINT_TOPIC) { // L-15: a complaint is confirmed at once and decided within 30 days
+            $ticket = $this->complaints->open($ticket, $context);
+        }
 
         return $ticket;
     }
@@ -298,8 +303,9 @@ final class TicketService
             $this->transition($ticket, TicketStateMachine::CLOSED, $context, 'Tiket byl automaticky uzavřen 7 dní po vyřešení.', 'public');
             $closed++;
         }
+        $complaints = $this->complaints->watch(); // L-15: the 30 days of a complaint, told before and when they run out
 
-        return ['breached' => $breached, 'closed' => $closed];
+        return ['breached' => $breached, 'closed' => $closed, 'complaints_due_soon' => $complaints['due_soon'], 'complaints_overdue' => $complaints['overdue']];
     }
 
     /** Topic clusters for the admin queue (mirrors the prototype's `clusters()`). @return list<array<string,mixed>> */

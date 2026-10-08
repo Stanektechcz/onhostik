@@ -497,8 +497,9 @@ return [
 
     'sla' => [
         'classes' => [
-            'standard' => ['objective' => 99.9, 'contractual' => null, 'certified' => false],
-            'business' => ['objective' => 99.95, 'contractual' => 99.9, 'certified' => false],
+            // L-05: the contractual figures are the SLA in force (resources/legal/sla.md 2026-09, čl. 2): Standard 99.9 %, Business 99.95 %
+            'standard' => ['objective' => 99.9, 'contractual' => 99.9, 'certified' => false],
+            'business' => ['objective' => 99.95, 'contractual' => 99.95, 'certified' => false],
             'ha' => ['objective' => 99.995, 'contractual' => 99.99, 'certified' => false],
             'critical' => ['objective' => 99.999, 'contractual' => 99.99, 'certified' => false],
         ],
@@ -508,9 +509,17 @@ return [
         'error_budget_policy' => [25 => 'normal', 50 => 'review_high_risk', 75 => 'reliability_priority', 100 => 'freeze'],
         'auto_resolve_minutes' => 15,   // probe-sourced incidents in MONITORING auto-close after a stable period
         'credit_policies' => [          // versioned bands: credit % of monthly price when availability falls below the threshold
-            'business' => ['bands' => [['below' => 99.9, 'credit_percent' => 10], ['below' => 99.0, 'credit_percent' => 25], ['below' => 95.0, 'credit_percent' => 50]], 'cap_percent' => 50],
+            // L-05 (SLA 2026-09 čl. 2): % of the monthly price for every started hour over the monthly limit, capped
+            'standard' => ['bands' => [['per_started_hour_percent' => 5]], 'cap_percent' => 50],
+            'business' => ['bands' => [['per_started_hour_percent' => 10]], 'cap_percent' => 100],
             'ha' => ['bands' => [['below' => 99.99, 'credit_percent' => 10], ['below' => 99.9, 'credit_percent' => 25], ['below' => 99.0, 'credit_percent' => 50]], 'cap_percent' => 50],
             'critical' => ['bands' => [['below' => 99.99, 'credit_percent' => 25], ['below' => 99.9, 'credit_percent' => 50], ['below' => 99.0, 'credit_percent' => 100]], 'cap_percent' => 100],
+        ],
+        // L-05 (SLA 2026-09 čl. 2): planned maintenance announced 48 h ahead counts out of the downtime only outside working
+        // hours and for at most this many hours a month; the rest of it is downtime like any other
+        'maintenance' => [
+            'max_excluded_hours_per_month' => 4,
+            'working_hours' => ['timezone' => 'Europe/Prague', 'days' => [1, 2, 3, 4, 5], 'from' => '08:00', 'to' => '17:00'],
         ],
     ],
 

@@ -9,11 +9,13 @@ use App\Http\Controllers\Api\V1\SupportController as CustomerSupportController;
 use App\Http\StaffReadAudit;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Support\Assistant\AssistantService;
 use Onhost\Domain\Support\Assistant\TicketReplyDrafter;
 use Onhost\Domain\Support\Commands\TicketStaffCommand;
 use Onhost\Domain\Support\Commands\WorkOfferStaffCommand;
+use Onhost\Domain\Support\ComplaintService;
 use Onhost\Domain\Support\Models\SupportMacro;
 use Onhost\Domain\Support\Models\SupportQueue;
 use Onhost\Domain\Support\Models\Ticket;
@@ -138,6 +140,31 @@ final class SupportController extends ApiController
         $data = $request->validate(['reason' => ['required', 'string', 'min:5', 'max:250']]);
 
         return $this->onTicket($request, $ticket, 'escalate', ['reason' => $data['reason']]);
+    }
+
+    /** L-15: the ticket is a complaint — confirmed to the customer at once, decided within 30 days of their claim. */
+    public function complaint(Request $request, string $ticket): JsonResponse
+    {
+        $this->api->authorize($request, 'support.ticket.manage', CommandScope::global()); // asked again by the bus
+
+        return $this->onComplaint($request, $ticket, 'complaint.open', []);
+    }
+
+    /** L-15: the decision on a complaint (accepted | partially_accepted | rejected) and how it was handled — confirmed to the customer. */
+    public function resolveComplaint(Request $request, string $ticket): JsonResponse
+    {
+        $this->api->authorize($request, 'support.ticket.manage', CommandScope::global());
+        $data = $request->validate(['outcome' => ['required', 'string', Rule::in(ComplaintService::OUTCOMES)], 'resolution' => ['required', 'string', 'min:10', 'max:4000']]);
+
+        return $this->onComplaint($request, $ticket, 'complaint.resolve', $data);
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function onComplaint(Request $request, string $ticket, string $op, array $payload): JsonResponse
+    {
+        $answer = (array) $this->onTicket($request, $ticket, $op, $payload)->getData(true);
+
+        return response()->json($answer + ['complaint' => ComplaintService::present($this->find($ticket))]);
     }
 
     /**
