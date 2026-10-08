@@ -613,6 +613,8 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
         Route::post('tickets/{ticket}/draft', [StaffSupportController::class, 'draft']); // a reply drafted for the agent (account facts + the service's health check); nothing is sent
         Route::post('tickets/{ticket}/transition', [StaffSupportController::class, 'transition']);
         Route::post('tickets/{ticket}/assign', [StaffSupportController::class, 'assign']);
+        Route::post('tickets/{ticket}/complaint', [StaffSupportController::class, 'complaint']); // L-15: the ticket is a complaint — confirmed, decided within 30 days
+        Route::post('tickets/{ticket}/complaint/resolve', [StaffSupportController::class, 'resolveComplaint']); // L-15: the decision, confirmed to the customer
         Route::post('tickets/{ticket}/escalate', [StaffSupportController::class, 'escalate']);
         Route::get('tickets/{ticket}/work-offers', [StaffSupportController::class, 'workOffers']);
         Route::post('tickets/{ticket}/work-offers', [StaffSupportController::class, 'proposeWork']);

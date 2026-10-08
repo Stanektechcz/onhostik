@@ -28,10 +28,14 @@ final class Triage
         'bezpecnost' => ['label' => 'Bezpečnostní incident', 'kw' => ['hack', 'napaden', 'unik', 'breach', 'phishing', 'malware', 'ransom', 'ddos', 'zneuzit', 'abuse'], 'skills' => ['SECURITY', 'ABUSE'], 'queue' => 'security'],
         // the haystack is padded with spaces, so ' api ' matches the word and not "napište"
         'api' => ['label' => 'API a integrace', 'kw' => [' api ', ' api,', ' api.', 'api kli', 'api key', 'token', 'webhook', 'openapi', 'bearer', 'integrac', 'endpoint', 'swagger'], 'skills' => ['GENERAL'], 'queue' => 'l1'],
+        'reklamace' => ['label' => 'Reklamace služby', 'kw' => ['reklamac', 'reklamuj', 'complaint'], 'skills' => ['GENERAL'], 'queue' => 'l2'],
         'cenik' => ['label' => 'Ceník a tarify', 'kw' => ['cenik', 'kolik stoji', 'kolik to stoji', 'pricing', 'price', 'nabidk', 'nabizite', 'levn', 'draz', 'zdarma', 'za mesic', 'rocne', 'jak drah'], 'skills' => ['GENERAL'], 'queue' => 'l1'],
     ];
 
     public const SECURITY_TOPICS = ['bezpecnost'];
+
+    /** L-15: a complaint about the service (reklamace) — confirmed, decided within 30 days (ComplaintService) */
+    public const COMPLAINT_TOPIC = 'reklamace';
 
     public static function normalize(string $text): string
     {

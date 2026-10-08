@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Incidents;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -322,17 +323,23 @@ final class SlaService
         if (! $incident->sla_relevant) {
             return collect();
         }
-        $downtime = $this->downtimeSeconds($incident);
-        $monthSeconds = $incident->started_at->copy()->startOfMonth()->diffInSeconds($incident->started_at->copy()->endOfMonth()) + 1;
+        $monthStart = $incident->started_at->copy()->startOfMonth();
+        $monthSeconds = (int) $monthStart->diffInSeconds($incident->started_at->copy()->endOfMonth()) + 1;
         $created = collect();
         $services = Service::query()->whereIn('id', (array) ($incident->affected_services ?? []))->get();
         foreach ($services as $service) {
             $policy = SlaCreditPolicy::current($service->sla_class);
-            if ($policy === null || config("onhost.sla.classes.{$service->sla_class}.contractual") === null) {
+            $contractual = config("onhost.sla.classes.{$service->sla_class}.contractual");
+            if ($policy === null || $contractual === null) {
                 continue;
             }
+            // L-05: the SLA is kept per calendar month — every SLA-relevant outage of the service in the month up to this one, less
+            // what earlier incidents of the month already credited (one month never pays twice, nor less than its whole downtime)
+            $month = $this->monthIncidents($service, $incident);
+            $downtime = $this->monthDowntimeSeconds($month);
             $availability = round(max(0.0, 100 - ($downtime / $monthSeconds) * 100), 4);
-            $percent = $policy->creditPercentFor($availability);
+            $already = (int) SlaCredit::query()->where('service_id', $service->id)->where('incident_id', '!=', $incident->id)->whereIn('incident_id', $month->pluck('id'))->where('state', '!=', 'rejected')->sum('credit_percent');
+            $percent = max(0, $policy->creditPercent($availability, $downtime, $monthSeconds, (float) $contractual) - $already);
             if ($percent === 0) {
                 continue;
             }
@@ -360,6 +367,7 @@ final class SlaService
                 'calculation' => [
                     'incident' => $incident->number, 'policy' => "{$policy->key}@v{$policy->version}", 'sla_class' => $service->sla_class, 'window' => [$incident->started_at->toIso8601String(), $incident->resolved_at->toIso8601String()],
                     'downtime_seconds' => $downtime, 'month_seconds' => $monthSeconds, 'availability_pct' => $availability, 'band_percent' => $percent, 'cap_percent' => $policy->cap_percent,
+                    'month' => $monthStart->format('Y-m'), 'month_incidents' => $month->pluck('number')->values()->all(), 'credited_before_percent' => $already, 'contractual_pct' => (float) $contractual,
                     'monthly_net' => $monthly, 'subscription_id' => $subscription->id,
                 ],
             ]);
@@ -467,6 +475,79 @@ final class SlaService
         }
 
         return max(0, $seconds);
+    }
+
+    /**
+     * L-05: the resolved, SLA-relevant incidents of the service in the calendar month of `$incident`, up to it (by start).
+     *
+     * @return Collection<int, Incident>
+     */
+    private function monthIncidents(Service $service, Incident $incident): Collection
+    {
+        $from = (CarbonImmutable::make($incident->started_at) ?? CarbonImmutable::now())->startOfMonth();
+
+        return Incident::query()->where('sla_relevant', true)->whereNotNull('resolved_at')->where('started_at', '>=', $from)->where('started_at', '<=', $incident->started_at)->orderBy('started_at')->get()
+            ->filter(fn (Incident $i) => $i->id === $incident->id || in_array($service->id, (array) ($i->affected_services ?? []), true))->values();
+    }
+
+    /**
+     * L-05 (SLA 2026-09 čl. 2): the month's downtime of the incidents — overlaps counted once — less planned maintenance, which
+     * counts out only when it `excludesFromSla()` (announced 48 h ahead, approved, not an emergency), only outside working hours
+     * (`onhost.sla.maintenance.working_hours`) and at most `max_excluded_hours_per_month` hours in the month.
+     *
+     * @param  Collection<int, Incident>  $incidents
+     */
+    private function monthDowntimeSeconds(Collection $incidents): int
+    {
+        $intervals = [];
+        foreach ($incidents as $i) {
+            $start = (int) CarbonImmutable::make($i->started_at)?->getTimestamp();
+            $intervals[] = [$start, (int) (CarbonImmutable::make($i->resolved_at) ?? CarbonImmutable::now())->getTimestamp(), array_values(array_map('strval', (array) $i->components))];
+        }
+        usort($intervals, fn (array $a, array $b): int => $a[0] <=> $b[0]);
+        $merged = [];
+        foreach ($intervals as [$start, $end, $components]) {
+            $last = count($merged) - 1;
+            if ($last >= 0 && $start <= $merged[$last][1]) {
+                $merged[$last][1] = max($merged[$last][1], $end);
+                $merged[$last][2] = array_values(array_unique(array_merge($merged[$last][2], $components)));
+
+                continue;
+            }
+            $merged[] = [$start, max($start, $end), $components];
+        }
+        $total = 0;
+        $excluded = 0;
+        foreach ($merged as [$start, $end, $components]) {
+            $total += $end - $start;
+            $windows = Maintenance::query()->where('sla_treatment', 'excluded')->whereIn('state', ['approved', 'in_progress', 'completed'])->where('starts_at', '<', Carbon::createFromTimestamp($end))->where('ends_at', '>', Carbon::createFromTimestamp($start))->get()
+                ->filter(fn (Maintenance $m) => $m->excludesFromSla() && array_intersect($m->components, $components) !== []);
+            foreach ($windows as $w) {
+                $excluded += self::outsideWorkingHours(max($start, $w->starts_at->getTimestamp()), min($end, $w->ends_at->getTimestamp()));
+            }
+        }
+        $cap = (int) round(max(0.0, (float) config('onhost.sla.maintenance.max_excluded_hours_per_month', 4)) * 3600);
+
+        return max(0, $total - min($cap, $excluded));
+    }
+
+    /** Seconds of [from, to) outside the working hours of the SLA (by the minute, in the seller's time zone). */
+    private static function outsideWorkingHours(int $from, int $to): int
+    {
+        $hours = (array) config('onhost.sla.maintenance.working_hours', []);
+        $zone = (string) ($hours['timezone'] ?? 'Europe/Prague');
+        $days = array_map('intval', (array) ($hours['days'] ?? [1, 2, 3, 4, 5]));
+        $open = (string) ($hours['from'] ?? '08:00');
+        $close = (string) ($hours['to'] ?? '17:00');
+        $outside = 0;
+        for ($t = $from; $t < $to; $t += 60) {
+            $local = CarbonImmutable::createFromTimestamp($t, $zone);
+            $clock = $local->format('H:i');
+            $working = in_array($local->dayOfWeekIso, $days, true) && $clock >= $open && $clock < $close;
+            $outside += $working ? 0 : min(60, $to - $t);
+        }
+
+        return $outside;
     }
 
     /** Services mapped to a component by family group and region (web-cz1 ← family web in cz1). */
