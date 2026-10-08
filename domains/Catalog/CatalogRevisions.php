@@ -13,6 +13,7 @@ use Onhost\Domain\Catalog\Models\Price;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Catalog\Models\ProductOption;
 use Onhost\Domain\Provisioning\Scheduling\PlacementRules;
+use Onhost\Domain\Services\CustomIso\CustomIsoReadiness;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Platform\Commands\CommandBus;
@@ -58,7 +59,10 @@ use Onhost\Platform\Errors\DomainError;
  *  - `grant` (optional): 'product/plan' => [key => value] the new version SELLS (in `entitlements`, or in `limits` where the current
  *    version keeps the key there) — pending while the current version does not carry exactly that value (TASK-0110);
  *  - `proposal` (optional, true): prepared for the owner's decision and NOT part of "every revision": the doctor does not ask for
- *    it and `onhost:catalog:revise` without an id neither previews nor applies it; it is previewed and applied only by its id.
+ *    it and `onhost:catalog:revise` without an id neither previews nor applies it; it is previewed and applied only by its id;
+ *  - `requires` (optional): what the installation must deliver before the revision may be published (`blockers()`); `apply()`
+ *    refuses the whole revision while anything is missing and publishes nothing of it. `custom_iso` = CustomIsoReadiness
+ *    (owner decision I-R9: clamd, the image volume and the Proxmox ISO storage, rehearsal R15–R17).
  */
 final class CatalogRevisions
 {
@@ -66,8 +70,10 @@ final class CatalogRevisions
         // TASK-0110 (owner decision G-R5): a proposal, prepared and not applied — docs/proposals/custom-iso-plans.md. The owner decides
         // which plans sell a custom ISO and how big one image may be; then `php artisan onhost:catalog:revise 2026-10-custom-iso --apply`
         // (or the plan editor) publishes new versions. Customers on the versions they hold keep them (no custom ISO until a plan change).
+        // Owner decision I-R9 (2026-10-08): published only after R15–R17 are green — `requires` makes apply() refuse until then.
         '2026-10-custom-iso' => [
             'proposal' => true,
+            'requires' => 'custom_iso',
             'reason' => 'Rozhodnutí vlastníka G-R5 (návrh TASK-0110): vlastní ISO jen tam, kde ho objednaný tarif VPS obsahuje — nové verze tarifů Compute 4/8/16 a VDS s vlastním ISO (jeden obraz do 4 GB); ceny beze změny, stávající smlouvy beze změny.',
             'plans' => [],
             'rewrite' => [],
@@ -286,6 +292,20 @@ final class CatalogRevisions
     }
 
     /**
+     * What the installation still lacks before this revision may be published (its `requires`), one line each; empty when it
+     * may run or requires nothing. The preview names it, `apply()` enforces it (owner decision I-R9).
+     *
+     * @return list<string>
+     */
+    public function blockers(string $id): array
+    {
+        return match (self::definition($this->known($id))['requires'] ?? null) {
+            'custom_iso' => app(CustomIsoReadiness::class)->unmet(),
+            default => [],
+        };
+    }
+
+    /**
      * Publishes the pending changes of one revision (or of every revision) as new plan versions, through the bus. Each plan is its
      * own command and transaction: one refusal does not undo the others, and a second run picks up what is left.
      *
@@ -300,6 +320,12 @@ final class CatalogRevisions
         foreach ($id === null ? self::ids() : [$this->known($id)] as $revision) {
             $pending = $this->pending($revision)[$revision] ?? null;
             if ($pending === null) {
+                continue;
+            }
+            $blockers = $this->blockers($revision);
+            if ($blockers !== []) { // I-R9: the whole revision waits, nothing of it is published
+                $done[] = ['kind' => 'gate', 'target' => $revision, 'error' => 'revision_not_ready: '.implode('; ', $blockers)];
+
                 continue;
             }
             $reason = (string) self::REVISIONS[$revision]['reason'];
