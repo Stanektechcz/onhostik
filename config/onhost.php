@@ -172,12 +172,13 @@ return [
     // trade licensing register part, read 2026-10-08) gives it: a natural person trading under a trade licence (legal form 101),
     // seat Molákova 2145/5, Líšeň, 628 00 Brno, trade licence since 15. 4. 2019. ARES lists no DIČ and no VAT registration, which
     // matches H-R0/I-R5 (not a VAT payer): no DIČ is invented and none is printed. `?:` instead of an env() default so an empty
-    // variable copied from an old .env.example does not blank the value. The bank details are NOT public data and stay unset
-    // until the owner gives them (the seeder then writes obvious placeholders and the doctor and `onhost:legal:publish` say so).
+    // variable copied from an old .env.example does not blank the value. I-R15 (owner, 2026-10-08): the bank details are the operator's
+    // business account 6478243359/0800 (Česká spořitelna, IBAN CZ34 0800 0000 0064 7824 3359, BIC GIBACZPX) — the same defaults as
+    // `payments.bank` below, so documents, proformas, top-up instructions and the QR code name one account.
     'legal_entity' => [
         'name' => env('ONHOST_LEGAL_NAME') ?: 'Adrian Staněk', 'ico' => env('ONHOST_ICO') ?: '08094616', 'dic' => env('ONHOST_DIC', ''), 'vat_id' => env('ONHOST_VAT_ID', ''),
         'street' => env('ONHOST_STREET') ?: 'Molákova 2145/5', 'city' => env('ONHOST_CITY') ?: 'Brno', 'zip' => env('ONHOST_ZIP') ?: '628 00',
-        'iban' => env('ONHOST_BANK_IBAN', ''), 'bic' => env('ONHOST_BANK_BIC', ''), 'bank_account' => env('ONHOST_BANK_ACCOUNT', ''),
+        'iban' => env('ONHOST_BANK_IBAN') ?: 'CZ3408000000006478243359', 'bic' => env('ONHOST_BANK_BIC') ?: 'GIBACZPX', 'bank_account' => env('ONHOST_BANK_ACCOUNT') ?: '6478243359/0800',
         // TASK-0142: what the legal documents name (§ 1820 OZ, § 435 OZ): a telephone number, the address customers write to
         // (withdrawals, complaints — not a no-reply sender; empty = mail.from.address) and the register entry. I-R11: the phone and
         // the complaints/withdrawal mailbox are the owner's; the register entry is the trade licensing register (a sole trader is not
@@ -247,10 +248,11 @@ return [
             'recurring' => (bool) env('STRIPE_RECURRING', true), // stored cards for automatic top-ups (setup_future_usage=off_session, off-session PaymentIntents)
         ],
         'bank' => [
-            'iban' => env('ONHOST_BANK_IBAN', ''),
-            'bic' => env('ONHOST_BANK_BIC', ''),
-            'account_number' => env('ONHOST_BANK_ACCOUNT', ''),
-            'fio_token' => env('ONHOST_BANK_FIO_TOKEN', ''), // Fio API token (read-only) of the account customers pay to; enables onhost:bank:sync
+            // I-R15: the operator's business account (Česká spořitelna) is the default — the same values as `legal_entity` above
+            'iban' => env('ONHOST_BANK_IBAN') ?: 'CZ3408000000006478243359',
+            'bic' => env('ONHOST_BANK_BIC') ?: 'GIBACZPX',
+            'account_number' => env('ONHOST_BANK_ACCOUNT') ?: '6478243359/0800',
+            'fio_token' => env('ONHOST_BANK_FIO_TOKEN', ''), // Fio API token (read-only) of the account customers pay to; enables onhost:bank:sync. I-R15: the account is at Česká spořitelna, not Fio — stays empty, transfers are paired in Nastavení → Bankovní platby
         ],
     ],
 

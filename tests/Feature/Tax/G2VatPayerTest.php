@@ -277,12 +277,14 @@ it('states the VAT of a payer\'s EUR invoice in CZK at the ČNB rate of the DUZP
 it('reverse-charges an EU business with a valid VAT ID and prints the legal note with both VAT IDs', function () {
     [, $org] = $this->customerWithOrganization([], ['name' => 'Odberateľ s.r.o.']);
     $org = g2SkPayer($org);
+    // the seller's own VAT number on the note (I-R15: the seeded IBAN used to contain "CZ00000000" and made the last assertion vacuous)
+    LegalEntity::query()->where('key', 'onhost-cz')->update(['dic' => 'CZ00000000', 'vat_id' => 'CZ00000000']);
     $decision = app(TaxEngine::class)->calculate(['country' => 'SK', 'customer_class' => 'b2b', 'vat_id' => 'SK1234567890', 'vat_status' => 'valid'], [['key' => 'a', 'net' => Money::minor(10000, 'CZK')]], 'CZK');
     expect($decision['lines'][0]['category'])->toBe(TaxEngine::CAT_REVERSE_CHARGE)->and($decision['lines'][0]['rate'])->toBe('0');
 
     $invoice = g2Invoice($org, 'CZK', [['sku' => 'vps', 'description' => 'VPS Compute 4', 'qty' => 1, 'unit_net' => 10000, 'discount' => 0, 'net' => 10000, 'tax_rate' => '0', 'tax_category' => 'AE', 'tax' => 0, 'total' => 10000]]);
     $html = g2Html($invoice);
-    expect($html)->toContain('Daň odvede zákazník')->and($html)->toContain('reverse charge')->and($html)->toContain('SK1234567890')->and($html)->toContain('CZ00000000');
+    expect($html)->toContain('Daň odvede zákazník')->and($html)->toContain('reverse charge')->and($html)->toContain('SK1234567890')->and($html)->toContain('DIČ dodavatele CZ00000000');
 });
 
 it('keeps a non-payer\'s invoice to the particulars of an ordinary invoice: no DUZP, no VAT, no CZK recap, no reverse charge', function () {
