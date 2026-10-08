@@ -1,7 +1,9 @@
 # Staging rehearsal protocol, started 2026-10-07 (phase I, I6)
 
 **Status: R0–R2 run 2026-10-08 (read-only, approved by the owner) — R0 differs, R1 OK (0 FAIL), R2 OK for the units; the
-rehearsal stops before R3 (staging carries a 2026-09-28 release, see *Run 2026-10-08*).** This is the protocol of the rehearsal scripted in
+rehearsal stops before R3 (staging carries a 2026-09-28 release, see *Run 2026-10-08*). R2a (read-only) found why `/up`
+answers 500: the vhost serves PHP through PHP-FPM 8.3, the release runs on 8.5 (see *R2a*); the fix and the deploy wait for
+the owner's R2b.** This is the protocol of the rehearsal scripted in
 [staging-rehearsal-2026-10.md](staging-rehearsal-2026-10.md) (steps R0–R24). It holds **outputs only**: the doctor row a step
 watches, the exit code, what differed, which rollback was used. **No password, TOTP secret, recovery code, token, key or env value
 ever goes into this file** — not even redacted fragments.
@@ -155,7 +157,7 @@ deploy, i.e. R24's command moved to the front) is a write on the server and need
 runs and the three workers are `active running`, so the application boots in the CLI. The cause was not looked for: the
 application log is private storage and the check is outside R0–R2. It has to be explained (read-only: nginx error log for the
 vhost, `curl -sk -o /dev/null -w '%{http_code}' https://staging.onhost.cz/up` from outside) before any write step; R4's own
-expectation "`/up` keeps returning 200" is not true today.
+expectation "`/up` keeps returning 200" is not true today. **Explained by R2a below: the vhost serves PHP through PHP-FPM 8.3.**
 
 ### Other observations (read-only, not findings)
 
@@ -163,6 +165,65 @@ expectation "`/up` keeps returning 200" is not true today.
   content not read), so R3b is likely a restart only.
 * The host also runs `gamepanel.onhost.cz` and another site with their own cron; per the owner rule on historical
   sites they are untouchable, and anything that flushes a shared Redis database (`cache:clear`) stays excluded.
+
+## R2a 2026-10-08 — why `/up` answers 500 (read-only diagnosis)
+
+The owner approved R2a: a read-only diagnosis of F3, 2026-10-08 ~02:05–02:15 UTC, over the same key-only root SSH route.
+**Nothing was written, restarted, reloaded, cleared or migrated on the host.** Read: directory listings and modes, `VERSION`,
+the deploy state directory listing, the vhost's nginx configuration and its access and error logs, PHP-FPM 8.3/8.5 master logs,
+the message lines of the application log (first 200 characters of each entry, no context or stack), the aaPanel WAF's Lua
+source around its 500 path, the composer platform check, the session cookie *name* from the cached configuration (one key, by
+`grep`). Not read: `.env`/`app.env`, private storage, sessions, any secret. Diagnostic requests, each equivalent to one
+`GET /up`: one FastCGI request (`cgi-fcgi`, as `www`) to each PHP-FPM socket, and one in-process request of `/up` through the
+HTTP kernel under PHP 8.3 CLI as `www` (the script came on stdin; nothing was saved on the host). Reading the PHP-FPM 8.3 pool
+and `php.ini` was refused by the workstation's permission check and was not pursued.
+
+### Cause
+
+**The nginx vhost of `staging.onhost.cz` hands PHP to PHP-FPM 8.3, and the PHP-FPM 8.3 instance answers every application
+request with an empty 500.** The release, the units, `staging.sh` and the deployer all use 8.5.
+
+| Evidence | What it shows |
+| --- | --- |
+| vhost `/www/server/panel/vhost/nginx/staging.onhost.cz.conf` (unchanged since 2026-09-15): `include enable-php-83.conf` → `fastcgi_pass unix:/tmp/php-cgi-83.sock` | the site runs on PHP-FPM 8.3; `enable-php-85.conf` (→ `/tmp/php-cgi-85.sock`) exists and the 8.5 pool runs |
+| public `GET /up` and `GET /`: `500`, empty body (access log size 0); `/build/manifest.json`: 200 | static files are fine; every PHP route fails |
+| FastCGI `GET /up` straight to `php-cgi-83.sock` (as `www`, no nginx, no WAF) | `Status: 500`, empty body |
+| FastCGI `GET /up` straight to `php-cgi-85.sock` (same request) | 200 with the application's own security headers |
+| `/up` in process under PHP 8.3.32 CLI as `www` | `STATUS 200` — the code runs on 8.3; the fault is the FPM 8.3 instance, not the code |
+| the `server_session_*` cookie on the 500 | set by aaPanel's WAF (`btwaf/public/public.lua`); the application's cookie is `onhost-session`. The WAF's only 500 path sends a captcha page with a body, so the empty 500 is not the WAF |
+| access log timeline | PHP routes 200 through FPM 8.3 until 2026-09-29 23:19 (+0200), the first 500 at 2026-09-30 00:24, only 500 since. `/up` was 200 right after the 2026-09-28 18:26 deploy |
+| PHP-FPM 8.3 master log | running since 2026-09-15 17:10, never reloaded since; one child SIGKILL 2026-10-01 18:43. The deployer reloads only 8.5 (`PHP_FPM_RELOAD=/etc/init.d/php-fpm-85 reload`), so FPM 8.3's OPcache never saw a release reset |
+| application log | no entry for any web 500 since 2026-09-30; it holds only scheduler (8.5 CLI) entries: `registrar:poll skipped` / `registrar:credit` (no `WEDOS_MAIN_*` secrets on staging, expected) and `files:prune` (`League\Flysystem\AwsS3V3\PortableVisibilityConverter` missing, not related to `/up`) |
+| vhost nginx error log | no FastCGI or upstream error, only `access forbidden by rule` for scanners |
+
+**Not established:** the PHP error inside FPM 8.3 itself. The application cannot report it (nothing in its log), FPM 8.3 has
+no `error_log`, and its configuration was not read (see above). Leading hypothesis, unconfirmed: the never-reloaded 8.3 pool
+serves a stale OPcache mix of pre- and post-2026-09-28 files, or a pool-level setting differs. It does not change the fix:
+FPM 8.3 should not serve this site at all.
+
+### Fix (a write: own owner "yes", proposed in R2b)
+
+Switch the vhost to PHP 8.5 (aaPanel → Website → `staging.onhost.cz` → PHP version 8.5, i.e. `include enable-php-85.conf`),
+`nginx -t`, reload nginx, expect `/up` 200 over loopback and from outside. It has to come **before** any gated deploy: the
+deployer's gate requires `GET /up` 200 through the maintenance bypass (rc 5 otherwise, site left in maintenance), and its
+OPcache reset reaches only FPM 8.5. Rollback: the `83` include back, `nginx -t`, reload. FPM 8.3 itself stays untouched (the
+game panel's cron uses the 8.3 CLI, not the FPM pool; whether another vhost uses `php-cgi-83.sock` is checked before, not changed).
+
+### Repository follow-ups (not changed here)
+
+* `infra/aapanel/nginx-site.conf` says to keep aaPanel's `include enable-php-83.conf` and that it maps to PHP-FPM 8.3 — wrong
+  for the 8.5 staging that `staging.sh` builds; it should name the include matching `$PHP`.
+* `staging.sh check`/`status` do not compare the vhost's `fastcgi_pass` socket with the PHP the deploy uses; a check would have
+  caught F3 on 2026-09-30.
+
+### Facts recorded for the R2b proposal (read-only)
+
+* Staging database `onhost_staging_b` (owner `onhost_b`, 67 MB) on aaPanel's PostgreSQL 18 (`/www/server/pgsql`, socket in
+  `/tmp`). `/usr/bin/pg_dump` is version 14 and cannot dump an 18 server: a dump uses `/www/server/pgsql/bin/pg_dump`.
+* Tree 124 MB without `node_modules` (108 MB), `storage` 29 MB, state directory 17 MB, 266 GB free on `/`.
+* aaPanel runs nginx and PHP-FPM from `/etc/init.d`; their systemd units show `failed`/`inactive` and are not used.
+* `e711b7c7..9eddcd05` (development tip at R2a): 456 commits, 11 new migrations, and `deploy.sh`, `install.sh`, `staging.sh`,
+  `onhost-queue@.service` changed.
 
 ## Outputs per step
 
@@ -222,7 +283,8 @@ onhost-queue@default, onhost-queue@mails, onhost-scheduler: path=/www/server/php
 
 (Sections R3 … R24 are added as the steps are run, in the same form. The owner's proposal for R3–R5 is
 `GENERALKA-R3-R5-navrh.md` on the owner's desktop; after this run it waits for F2 (a current release on staging) and F3
-(`/up` 500) — see *Run 2026-10-08*.)
+(`/up` 500) — see *Run 2026-10-08* and *R2a*. The proposal that resolves both (vhost to PHP 8.5, backups, a gated deploy of
+the development tip, rollback) is `GENERALKA-R2b-navrh.md` on the owner's desktop.)
 
 ## Closing paragraph (after the last step)
 
