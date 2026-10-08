@@ -11,7 +11,8 @@ use Onhost\Domain\Orders\Models\ConsentDocument;
 
 /**
  * Legal entity + versioned consent documents. I-R11 (2026-10-08): name, IČO, seat, phone and e-mail are the operator's real public
- * data (config/onhost.php, ARES); the bank details are still placeholders until the owner gives them. LEGAL GATE: company identifiers,
+ * data (config/onhost.php, ARES); I-R15: the bank details are the operator's business account (config defaults). The placeholders below
+ * are only what an installation with a blanked configuration would get (production:prepare --legal refuses that). LEGAL GATE: company identifiers,
  * bank details and document texts are placeholders to be replaced by the real
  * ONhost entity before production (they are configuration, not code).
  */
