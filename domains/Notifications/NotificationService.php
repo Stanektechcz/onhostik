@@ -34,6 +34,7 @@ final class NotificationService
         'wallet-topup' => 'wallet', 'payment-received' => 'invoice.issued', 'wallet-runway' => 'wallet', 'payment-refunded' => 'wallet', // G6
         'order-approval-required' => 'order', 'order-approval-rejected' => 'order', // TASK-0021
         'withdrawal-accepted' => 'legal.notice', // TASK-0025: the confirmation of a consumer's withdrawal is a mandatory legal notice
+        'legal-change' => 'legal.notice', // L-24: a new version of the contract documents, told ahead of its effective day
         'complaint-received' => 'legal.notice', 'complaint-resolved' => 'legal.notice', // L-15: § 19 ZOS confirmations of a complaint on a durable medium
         'ownership-offered' => 'account', 'ownership-transferred' => 'account', 'owner-recovery-opened' => 'security.login', 'member-mfa-reset' => 'security.login', // TASK-0042: the owner recovery notice is a security notice
         'access-restored' => 'account', // TASK-0044: the person whose access a snapshot gave back

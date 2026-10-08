@@ -7,9 +7,12 @@ namespace Onhost\Domain\Orders;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Invoicing\Models\LegalEntity;
+use Onhost\Domain\Orders\Models\Consent;
 use Onhost\Domain\Orders\Models\ConsentDocument;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
+use Onhost\Platform\Events\GenericEvent;
+use Onhost\Platform\Outbox\OutboxPublisher;
 
 /**
  * The texts behind `consent_documents` and the owner's step that puts a prepared version in force (TASK-0142).
@@ -19,7 +22,9 @@ use Onhost\Platform\Commands\CommandContext;
  * * A version is prepared as a draft (LegalEntitySeeder) and published only by the owner after an attorney confirmed it (owner
  *   decision I-R4/4A): `php artisan onhost:legal:publish <version>` shows what would happen, `--apply` does it. Publishing freezes
  *   the text's hash, sets the day it takes effect (never sooner than the notice the documents promise to existing customers), closes
- *   the older version on that day and is audited. Telling customers about the change is the owner's step before it (VOP čl. 15).
+ *   the older version on that day and is audited. L-24 (TASK-0146): publishing also tells every customer who accepted a document
+ *   that changes (`legal.document.changed`: a mandatory mail and a panel notice) — at that moment, which is at least the notice
+ *   period before the version applies (VOP čl. 15, § 1752 OZ).
  */
 final class LegalDocuments
 {
@@ -33,7 +38,7 @@ final class LegalDocuments
 
     private const VERSION_PATTERN = '/^\d{4}-\d{2}(-[a-z0-9]+)?$/';
 
-    public function __construct(private readonly AuditRecorder $audit) {}
+    public function __construct(private readonly AuditRecorder $audit, private readonly OutboxPublisher $outbox) {}
 
     /** The Markdown file of one version of a document, or null when it has none (an external document, a key the version lacks). */
     public static function path(string $key, string $version): ?string
@@ -123,8 +128,12 @@ final class LegalDocuments
     {
         return DB::transaction(function () use ($version, $effectiveFrom, $approvedBy, $context): array {
             $done = [];
+            $documents = [];
             foreach ($this->drafts($version) as $draft) {
                 $key = (string) $draft->key;
+                $title = (array) (is_string($draft->title) ? json_decode($draft->title, true) : $draft->title);
+                $documents[] = ['key' => $key, 'title' => (string) ($title['cs'] ?? $key), 'title_en' => (string) ($title['en'] ?? $title['cs'] ?? $key),
+                    'url' => rtrim((string) ($draft->url ?? ''), '/').'/'.$version, 'changed' => ConsentDocument::current($key) !== null];
                 $hash = (string) self::hash($key, $version);
                 $closed = ConsentDocument::query()->where('key', $key)->where('state', ConsentDocument::ACTIVE)->where('version', '!=', $version)
                     ->where('effective_from', '<', $effectiveFrom)->where(fn ($q) => $q->whereNull('effective_to')->orWhere('effective_to', '>', $effectiveFrom))
@@ -138,8 +147,32 @@ final class LegalDocuments
                 $this->audit->record($context, 'legal.document.published', 'succeeded', ['key' => $key, 'version' => $version, 'effective_from' => $effectiveFrom->toIso8601String(), 'hash' => $hash, 'closed' => $closed, 'approved_by' => mb_substr(trim($approvedBy), 0, 160)], 'consent_document', $key.'@'.$version);
                 $done[] = ['key' => $key, 'version' => $version, 'effective_from' => $effectiveFrom->setTimezone((string) config('onhost.billing.timezone', 'Europe/Prague'))->toDateString(), 'hash' => $hash, 'closed' => $closed];
             }
+            $told = $this->announce($version, $effectiveFrom, $documents, $context);
 
-            return $done;
+            return array_map(fn (array $row) => $row + ['told' => $told], $done);
         });
+    }
+
+    /**
+     * L-24: one `legal.document.changed` per organization that accepted any document this version changes (a document new in the
+     * version binds only those who accept it later, so it alone tells nobody). The event lists every document of the version.
+     *
+     * @param  list<array{key:string, title:string, title_en:string, url:string, changed:bool}>  $documents
+     */
+    private function announce(string $version, CarbonImmutable $effectiveFrom, array $documents, CommandContext $context): int
+    {
+        $changed = array_values(array_map(fn (array $d) => $d['key'], array_filter($documents, fn (array $d) => $d['changed'])));
+        if ($changed === []) {
+            return 0;
+        }
+        $notice = max(array_map(fn (string $key) => self::NOTICE_DAYS[$key] ?? self::DEFAULT_NOTICE_DAYS, $changed));
+        $day = $effectiveFrom->setTimezone((string) config('onhost.billing.timezone', 'Europe/Prague'))->toDateString();
+        $organizations = Consent::query()->whereIn('document_key', $changed)->whereNotNull('organization_id')->distinct()->orderBy('organization_id')->pluck('organization_id');
+        foreach ($organizations as $organizationId) {
+            $this->outbox->publish(GenericEvent::of('legal.document.changed', 'legal_version', $version, ['version' => $version, 'effective_from' => $day, 'notice_days' => $notice, 'documents' => $documents], (string) $organizationId));
+        }
+        $this->audit->record($context, 'legal.document.announced', 'succeeded', ['version' => $version, 'effective_from' => $day, 'organizations' => $organizations->count(), 'changed' => $changed], 'consent_document', 'version@'.$version);
+
+        return $organizations->count();
     }
 }

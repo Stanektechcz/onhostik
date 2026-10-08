@@ -467,6 +467,18 @@ final class NotificationRouter
                 $this->customer($m, 'wallet', $credited ? 'Vráceno na kredit po odstoupení: '.$money($p['to_credit']) : 'Odstoupení vyřízeno: '.($reduced ?? 'na kredit se nic nevrací'),
                     ($p['label'] ?? '').($credited && $reduced !== null ? ' · '.$reduced : '').' · dobropis '.implode(', ', (array) ($p['credit_notes'] ?? [])), '/panel/fakturace', 'info');
             })(),
+            // L-24 (TASK-0146): a new version of documents a customer accepted — told when it is published, ≥ 30 days (privacy 14) ahead (§ 1752 OZ, VOP čl. 15)
+            'legal.document.changed' => (function () use ($m, $p, $email, $portal, $locale): void {
+                $en = $locale === 'en';
+                $day = CarbonImmutable::parse((string) ($p['effective_from'] ?? 'now'))->format('j. n. Y');
+                $docs = collect((array) ($p['documents'] ?? []));
+                $names = $docs->map(fn ($d) => (string) ($en ? ($d['title_en'] ?? $d['title'] ?? '') : ($d['title'] ?? '')))->filter()->implode(', ');
+                $links = $docs->map(fn ($d) => (string) ($en ? ($d['title_en'] ?? $d['title'] ?? '') : ($d['title'] ?? '')).': '.$portal.(string) ($d['url'] ?? ''))->implode("\n");
+                $leave = $en ? 'If you do not agree with the change, you may terminate the contract before the day it takes effect; the unused prepaid part is returned (Terms, art. 15).'
+                    : 'Pokud se změnou nesouhlasíte, můžete smlouvu do dne účinnosti vypovědět; nevyužitou zaplacenou část vám vrátíme (VOP čl. 15).';
+                $this->customer($m, 'legal.notice', ($en ? 'Change of contract documents from ' : 'Změna smluvních dokumentů od ').$day, $names.'. '.$leave, '/dokumenty', 'warn', $email, 'legal-change',
+                    ['dokumenty' => $names, 'odkazy' => $links, 'ucinnost' => $day, 'vypoved' => $leave, 'url' => "{$portal}/dokumenty"]);
+            })(),
             'withdrawal.completed' => $this->customer($m, 'service', 'Služba ukončena odstoupením: '.($p['label'] ?? ''), 'Smlouva je ukončena. Novou službu si můžete kdykoli objednat.', '/panel/sluzby', 'info'),
             // L-06: a withdrawal without the agreement to the credit owes an order payment its money: finance pays it out within 14 days
             'withdrawal.payout_due' => $this->internal($m, 'finance', 'Odstoupení: vrátit na původní platební prostředek '.$money($p['payout'] ?? null), ($org->name ?? '').' · '.($p['label'] ?? '').' · platba '.(string) ($p['payment_id'] ?? '').' · nejpozději '.substr((string) ($p['due_by'] ?? ''), 0, 10).' · Správa → Odstoupení → Vyplatit', '/sprava#/money', 'hot'),

@@ -32,6 +32,15 @@ final class SurfaceRenderer
      */
     private const VAT_JS = "((window.ONHOST_DATA && typeof window.ONHOST_DATA.vat === 'function' && typeof window.ONHOST_DATA.vat() === 'number') ? window.ONHOST_DATA.vat() : 0.21)";
 
+    /**
+     * L-10: true while the seller is not a VAT payer (ONHOST_DATA.vatPayer() from SurfacePricing::payer()): no VAT line, no "bez DPH",
+     * the price shown is the final price the order charges. Unknown (no data) counts as a payer: the prototype's wording stays.
+     */
+    public const NON_PAYER_JS = "(window.ONHOST_DATA && typeof window.ONHOST_DATA.vatPayer === 'function' && window.ONHOST_DATA.vatPayer() === false)";
+
+    /** The panel's copy (window.ONHOST_PANEL.vat_payer from SurfaceDataController::panelPricing). */
+    public const PANEL_NON_PAYER_JS = '(window.ONHOST_PANEL && window.ONHOST_PANEL.vat_payer === false)';
+
     /** The panel's copy of the same rate (window.ONHOST_PANEL.vat from SurfaceDataController::panelPricing). */
     private const PANEL_VAT_JS = "((window.ONHOST_PANEL && typeof window.ONHOST_PANEL.vat === 'number') ? window.ONHOST_PANEL.vat : 0.21)";
 
@@ -666,6 +675,7 @@ HTML;
             $html = self::priceSeams($html, $surface); // audit P1-6: currencies with a fresh CNB rate, VAT from the tax rules
             $html = self::checkoutSeams($html);
             $html = self::legalClaimSeams($html); // TASK-0142: no promise the legal documents do not make (money-back, badges, bonus)
+            $html = self::publicClaimSeams($html); // L-03 (TASK-0146): no factual claim the operator cannot document
         }
 
         // 4d. every surface's "sign out" is a prototype stub (localStorage + a toast): the bridge's OnhostSession.signOut()
@@ -1083,7 +1093,7 @@ HTML;
                     "...(({$order} && {$order}.summary) ? {$order}.summary(this, md, [[_('Lokalita', 'Location'), {$order}.regionLabel(this, md.region)]]) : [[_('Lokalita', 'Location'), md.region]]),",
                     "...(({$order} && {$order}.summary) ? {$order}.summary(this, md, [[_('Systém', 'System'), md.os]]) : [[_('Systém', 'System'), md.os]]),",
                     "choice(_('Velikost', 'Size'), _('měnitelná za provozu', 'changeable live'), 'size', orderSizes.map(x => [x[0], x[1], x[3] != null ? x[3] : this.money(x[2]) + _(' / měsíc', ' / month')])),",
-                    "[md.type === 'domain' ? _('Cena bez DPH', 'Price excl. VAT') : _('Cena měsíčně bez DPH', 'Monthly price excl. VAT'), ({$order} && {$order}.priceLabel) ? {$order}.priceLabel(this, md, orderSize) : this.money(orderSize[2])],\n                ...({$real} ? [[_('Souhlas', 'Consent'), _('VOP, ochrana údajů, DPA a SLA · potvrzením souhlasíte se zahájením ihned', 'terms, privacy, DPA and SLA · confirming starts the service at once')]] : []),",
+                    "[md.type === 'domain' ? (".self::PANEL_NON_PAYER_JS." ? _('Cena', 'Price') : _('Cena bez DPH', 'Price excl. VAT')) : (".self::PANEL_NON_PAYER_JS." ? _('Cena měsíčně', 'Monthly price') : _('Cena měsíčně bez DPH', 'Monthly price excl. VAT')), ({$order} && {$order}.priceLabel) ? {$order}.priceLabel(this, md, orderSize) : this.money(orderSize[2])],\n                ...({$real} ? [[_('Souhlas', 'Consent'), _('VOP, ochrana údajů, DPA a SLA · potvrzením souhlasíte se zahájením ihned', 'terms, privacy, DPA and SLA · confirming starts the service at once')]] : []),",
                     "{$real} ? [_('Platba', 'Payment'), ({$order} && {$order}.payLabel ? {$order}.payLabel(this, md, orderSize) : (this.state.credit >= orderSize[2] * (1 + ".self::PANEL_VAT_JS.") ? _('z kreditu · zůstatek ', 'from credit · balance ') + this.money(this.state.credit) : _('zálohovou fakturou (převodem), nebo nejdřív dobijte kredit', 'by proforma (bank transfer), or top up credit first'))), true] : [_('Dnes zaplatíte (poměrná část)', 'Charged today (pro rata)'), this.money(Math.round(orderSize[2] * 0.23)), true]",
                     "footNote: {$real} ? _('Účtujeme celé období dopředu (' + (({$order} && {$order}.period) ? {$order}.period(this, md) : 'měsíc') + '). Kredit ' + this.money(s.credit) + ' se použije první; bez kreditu vystavíme zálohovou fakturu.', 'We charge the whole period (a ' + (({$order} && {$order}.period) ? {$order}.period(this, md) : 'month') + ') up front. Your ' + this.money(s.credit) + ' credit is used first; without credit we issue a proforma.') : _('Poměrnou část účtujeme jen za zbytek měsíce. Kredit ' + this.money(s.credit) + ' se použije první.', 'We charge pro rata for the rest of the month only. Your ' + this.money(s.credit) + ' credit is used first.'),",
                     "              if ({$order}) { this.setState({ modal: null, mStep: 0 }); {$order}.place(this, { type: md.type, size: md.size || (orderSize && orderSize[0]), region: md.region, os: md.os, name: name, pay: md.pay || '' }, orderType, orderSize); return; }\n              this.setState(st => ({\n                modal: null, mStep: 0, tab: 'servers', selected: null,",
@@ -1217,14 +1227,23 @@ HTML;
                 "coVat: 'VAT 21%',",
                 "footVat: 'Všechny ceny včetně DPH 21 %'",
                 "footVat: 'All prices include 21% VAT'",
+                "coNet: 'Cena bez DPH',",
+                "coNet: 'Price excl. VAT',",
+                '<div style="display:flex;font-size:13px;color:color-mix(in srgb,var(--fg,#201e1d) 65%,transparent);padding:2px 0 10px"><span>{{ nv.coVat }}</span><span style="margin-left:auto">{{ coLines.vat }}</span></div>',
+                '<div style="display:flex;font-size:13px;color:color-mix(in srgb,var(--fg,#201e1d) 65%,transparent);padding:3px 0"><span>{{ ct.vatLabel }}</span><span style="margin-left:auto">{{ ct.vat }}</span></div>',
             ],
             [
                 "  CUR = (window.ONHOST_DATA && typeof window.ONHOST_DATA.currencies === 'function' && window.ONHOST_DATA.currencies()) || {$czkOnly};\n",
                 "['gbp', 'GBP', cs ? 'Britská libra' : 'Pound sterling']].filter(c => !!this.CUR[c[0]]).map(c => ({",
-                "coVat: 'DPH ' + ".self::vatPercentJs('true')." + ' %',",
-                "coVat: 'VAT ' + ".self::vatPercentJs('false')." + '%',",
-                "footVat: 'Všechny ceny včetně DPH ' + ".self::vatPercentJs('true')." + ' %'",
-                "footVat: 'All prices include ' + ".self::vatPercentJs('false')." + '% VAT'",
+                // L-10: a non-payer shows final prices — no VAT row, no "bez DPH" (the row renders only while it has a label)
+                'coVat: ('.self::NON_PAYER_JS." ? '' : 'DPH ' + ".self::vatPercentJs('true')." + ' %'),",
+                'coVat: ('.self::NON_PAYER_JS." ? '' : 'VAT ' + ".self::vatPercentJs('false')." + '%'),",
+                'footVat: ('.self::NON_PAYER_JS." ? 'Nejsme plátci DPH, ceny jsou konečné.' : 'Všechny ceny včetně DPH ' + ".self::vatPercentJs('true')." + ' %')",
+                'footVat: ('.self::NON_PAYER_JS." ? 'We are not VAT registered; prices are final.' : 'All prices include ' + ".self::vatPercentJs('false')." + '% VAT')",
+                'coNet: ('.self::NON_PAYER_JS." ? 'Cena' : 'Cena bez DPH'),",
+                'coNet: ('.self::NON_PAYER_JS." ? 'Price' : 'Price excl. VAT'),",
+                '<sc-if value="{{ nv.coVat }}" hint-placeholder-val="{{ true }}"><div style="display:flex;font-size:13px;color:color-mix(in srgb,var(--fg,#201e1d) 65%,transparent);padding:2px 0 10px"><span>{{ nv.coVat }}</span><span style="margin-left:auto">{{ coLines.vat }}</span></div></sc-if>',
+                '<sc-if value="{{ ct.vatLabel }}" hint-placeholder-val="{{ true }}"><div style="display:flex;font-size:13px;color:color-mix(in srgb,var(--fg,#201e1d) 65%,transparent);padding:3px 0"><span>{{ ct.vatLabel }}</span><span style="margin-left:auto">{{ ct.vat }}</span></div></sc-if>',
             ],
             $html,
         );
@@ -1292,7 +1311,7 @@ HTML;
                 "  mny(n) {\n    const c = this.CUR[this.state.currency] || this.CUR.czk;\n    const __x = Math.round(n * c.rate * 100) / 100, __d = Number.isInteger(__x) ? c.dec : Math.max(c.dec, 2);\n    const v = new Intl.NumberFormat(this.state.lang === 'cs' ? 'cs-CZ' : 'en-US', { minimumFractionDigits: __d, maximumFractionDigits: __d }).format(__x);",
                 "  czk(n) {\n    const c = this.CUR[this.state.currency] || this.CUR.czk;\n    const __x = Math.round(n * (1 + ".self::VAT_JS.") * c.rate * 100) / 100, __d = Number.isInteger(__x) ? c.dec : Math.max(c.dec, 2);\n    const v = new Intl.NumberFormat(this.state.lang === 'cs' ? 'cs-CZ' : 'en-US', { minimumFractionDigits: __d, maximumFractionDigits: __d }).format(__x);",
                 'step: 1, commit: 1, co: {',
-                "      netLabel: _('Bez DPH', 'Excl. VAT'), vatLabel: _('DPH ' + ".self::vatPercentJs('true')." + ' %', 'VAT ' + ".self::vatPercentJs('false')." + '%'), totalLabel: (window.OnhostCart && window.OnhostCart.totalLabel) ? window.OnhostCart.totalLabel(s, cs) : _('Celkem měsíčně', 'Monthly total'),",
+                '      netLabel: ('.self::NON_PAYER_JS." ? _('Cena', 'Price') : _('Bez DPH', 'Excl. VAT')), vatLabel: (".self::NON_PAYER_JS." ? '' : _('DPH ' + ".self::vatPercentJs('true')." + ' %', 'VAT ' + ".self::vatPercentJs('false')." + '%')), totalLabel: (window.OnhostCart && window.OnhostCart.totalLabel) ? window.OnhostCart.totalLabel(s, cs) : _('Celkem měsíčně', 'Monthly total'),",
                 "      const __term =(!st.cartItems || !st.cartItems.length) && st.period === 'year' ? 12 : (st.commit || 1);\n      if (i >= 0) items[i] = Object.assign({}, items[i], { qty: items[i].qty + 1 });\n      else items.push({ id, name: name, price: price || 0, qty: 1, commit: __term, meta: meta || '' });\n      return { cartItems: items, commit: __term, cartOpen: true, menu: null, langOpen: false, orderDone: null, step: st.orderDone ? 1 : st.step };",
                 '          on: () => this.setState(st => ({ commit: c[0], cartItems: st.cartItems.map(x => (window.OnhostCart && window.OnhostCart.isDomain(x)) ? x : Object.assign({}, x, { commit: c[0] })) }))',
             ],
@@ -1356,6 +1375,61 @@ HTML;
                 "coTerms: 'I accept the terms of service and have read the privacy policy.',",
             ],
             $html,
+        );
+    }
+
+    /**
+     * L-03 (docs/legal/LEGAL_REVIEW_2026-10.md): factual claims of the public prototype nobody has documented — locations and own
+     * hardware, TIER III, green energy, a customer count, a 30-minute support response, ISO 27001 "for part of the scope", a 48-hour
+     * migration without downtime, GPU scarcity counters and uptime figures — are a misleading commercial practice when they are not
+     * true (§ 4–5 of Act No. 634/1992 Coll.). They are replaced with what the contract in force says (SLA 2026-09: 99.9 % Standard,
+     * 99.95 % Business, incident response 4 h / 1 h, RPO 24 h; VOP: 14 days to withdraw, 30 days to decide a complaint). A claim may
+     * come back only as a documented fact, through data. The prototype stays byte-identical; demo mode keeps its copy.
+     */
+    public static function publicClaimSeams(string $html): string
+    {
+        return self::swap(
+            [
+                "heroBadge: 'GPU H100 v Praze — zbývá 7 z 24 karet',",
+                "heroBadge: 'GPU H100 in Prague — 7 of 24 cards left',",
+                "dcTitle: 'Šest lokalit, latence pod 15 ms', dcCaption: 'Vlastní hardware v Praze, zbytek v partnerských TIER III datacentrech.',",
+                "dcTitle: 'Six locations, latency under 15 ms', dcCaption: 'Our own hardware in Prague, the rest in partner TIER III facilities.',",
+                "tbHours: 'Podpora 24/7 · odpověď do 30 minut',",
+                "tbHours: 'Support 24/7 · reply within 30 minutes',",
+                "coRe2d: 'Přeneseme weby, databáze i e-maily do 48 hodin a bez odstávky. Cenu si nepřipočítáváme.',",
+                "coRe2d: 'We move sites, databases and mailboxes within 48 hours with no downtime, at no charge.',",
+                "['ISO 27001 na celý rozsah', 'Certifikaci máme na část rozsahu, ne na celý. Kde ji nemáme, napíšeme to do nabídky — a pokud je podmínkou celý rozsah, do tendru nejdeme.', 'částečně', 0],",
+                "['ISO 27001 across the whole scope', 'We hold it for part of the scope, not all of it. Where we do not, the bid says so — and if full scope is mandatory, we do not bid.', 'partly', 0],",
+                "['Datacentra', 'Šest lokalit, TIER III']",
+                "['Data centres', 'Six locations, TIER III']",
+                "chips: ['TIER III', '2N', cs ? '6 lokalit' : '6 sites', cs ? '62 % OZE' : '62% renewable']",
+                "        { to: 99.99, dec: 2, suffix: ' %', text: '99,99 %', label: cs ? 'uptime 2025' : 'uptime 2025' },\n        { to: 8.4, dec: 1, suffix: ' s', text: cs ? '8,4 s' : '8.4 s', label: cs ? 'push → produkce' : 'push → production' },\n        { to: 2400, dec: 0, suffix: '+', text: cs ? '2 400+' : '2,400+', label: cs ? 'zákazníků' : 'customers' },\n        { to: 6, dec: 0, suffix: '', text: '6', label: cs ? 'lokalit v EU' : 'EU locations' },\n        { to: 100, dec: 0, suffix: ' %', text: '100 %', label: cs ? 'eko energie' : 'green energy' },\n        { to: 30, dec: 0, suffix: ' min', text: '30 min', label: cs ? 'reakce podpory' : 'support response' }",
+                "['Reakce podpory', '30 minut, člověk', '8 hodin, šablona'],",
+                "['Support response', '30 minutes, a human', '8 hours, a template'],",
+                "{ v: '99,99 %', l: cs ? 'uptime 2025' : 'uptime 2025' },",
+            ],
+            [
+                "heroBadge: 'Hosting, servery a domény v jednom panelu',",
+                "heroBadge: 'Hosting, servers and domains in one panel',",
+                "dcTitle: 'Kde služby běží', dcCaption: 'Lokalitu služby uvádíme u tarifu a v objednávce.',",
+                "dcTitle: 'Where services run', dcCaption: 'The location of a service is stated with the plan and in the order.',",
+                "tbHours: 'Podpora přes panel a e-mail',",
+                "tbHours: 'Support through the panel and e-mail',",
+                "coRe2d: 'S přenosem webů, databází i e-mailů pomůžeme; termín a případnou odstávku domluvíme předem.',",
+                "coRe2d: 'We help move sites, databases and mailboxes; the timing and any downtime are agreed in advance.',",
+                "['ISO 27001', 'Certifikáty uvádíme jen doložené; bezpečnostní opatření popíšeme v nabídce na vyžádání.', 'na vyžádání', 0],",
+                "['ISO 27001', 'We state only certifications we can document; the security measures are described in the offer on request.', 'on request', 0],",
+                "['Datacentra', 'Lokalita uvedená u tarifu']",
+                "['Data centres', 'Location stated with the plan']",
+                'chips: []',
+                "        { to: 99.9, dec: 1, suffix: ' %', text: '99,9 %', label: cs ? 'smluvní dostupnost Standard' : 'contractual uptime, Standard' },\n        { to: 99.95, dec: 2, suffix: ' %', text: '99,95 %', label: cs ? 'smluvní dostupnost Business' : 'contractual uptime, Business' },\n        { to: 14, dec: 0, suffix: '', text: '14', label: cs ? 'dní na odstoupení' : 'days to withdraw' },\n        { to: 24, dec: 0, suffix: ' h', text: '24 h', label: cs ? 'cíl bodu obnovy (RPO)' : 'recovery point objective' },\n        { to: 30, dec: 0, suffix: '', text: '30', label: cs ? 'dní na vyřízení reklamace' : 'days to decide a complaint' },\n        { to: 4, dec: 0, suffix: ' h', text: '4 h', label: cs ? 'reakce na incident (Standard)' : 'incident response (Standard)' }",
+                "['Reakce podpory', 'podle SLA, člověk', '8 hodin, šablona'],",
+                "['Support response', 'per the SLA, a human', '8 hours, a template'],",
+                "{ v: '99,9 %', l: cs ? 'smluvní SLA' : 'contractual SLA' },",
+            ],
+            $html,
+            'once',
+            ["['Datacentra', 'Šest lokalit, TIER III']", "['Data centres', 'Six locations, TIER III']"],
         );
     }
 

@@ -156,6 +156,22 @@ How it was handled: {{zpusob}}
 
 If you disagree, you may turn to the Czech Trade Inspection Authority (out-of-court dispute resolution, www.coi.cz). Details in the panel: {{url}}'.$sig['en']]],
             // ── end L-15 ──
+            // L-24 (TASK-0146): a new version of the contract documents, told when it is published (≥ 30 days, privacy 14, ahead) — legal.notice
+            'legal-change' => ['mandatory' => true, 'vars' => ['dokumenty', 'odkazy', 'ucinnost', 'vypoved', 'url'], 'cs' => ['subject' => 'Změna smluvních dokumentů od {{ucinnost}}', 'body' => 'Od {{ucinnost}} platí nové znění těchto dokumentů: {{dokumenty}}.
+
+Nové znění si můžete přečíst předem:
+{{odkazy}}
+
+{{vypoved}}
+
+Všechny dokumenty: {{url}}'.$sig['cs']], 'en' => ['subject' => 'Change of the contract documents from {{ucinnost}}', 'body' => 'From {{ucinnost}} a new version of these documents applies: {{dokumenty}}.
+
+You can read the new version in advance:
+{{odkazy}}
+
+{{vypoved}}
+
+All documents: {{url}}'.$sig['en']]],
             // ── TASK-0039: staff signed on to the customer's hosting panel (permission program P0-14) — a security notice, never switched off ──
             'staff-panel-login' => ['mandatory' => true, 'vars' => ['sluzba', 'kdo', 'tiket', 'kdy', 'url'], 'cs' => ['subject' => 'Podpora ONhost se přihlásila do panelu služby {{sluzba}}', 'body' => "{{kdo}} z podpory ONhost se {{kdy}} UTC přihlásil(a) do administračního panelu služby {{sluzba}} kvůli vašemu tiketu {{tiket}}. Přihlášení je zaznamenané v auditu vaší organizace.\n\nPokud o tom nevíte nebo si to nepřejete, odpovězte prosím v tiketu: {{url}}".$sig['cs']], 'en' => ['subject' => 'ONhost support signed on to the panel of {{sluzba}}', 'body' => "{{kdo}} of ONhost support signed on to the control panel of {{sluzba}} at {{kdy}} UTC for your ticket {{tiket}}. The sign-on is recorded in your organization's audit log.\n\nIf you did not expect this or do not want it, please reply in the ticket: {{url}}".$sig['en']]],
             // ── end TASK-0039 ──
