@@ -12,6 +12,12 @@ it('serves every seeded consent document at its URL with version, entity and neu
     $index = $this->get('/dokumenty')->assertOk()->getContent();
     foreach (LegalDocumentController::SLUGS as $slug => $key) {
         $document = ConsentDocument::current($key);
+        if (in_array($key, ['complaints', 'aup'], true)) { // TASK-0142: new documents exist only as 2026-10 drafts until the owner publishes them
+            expect($document)->toBeNull($key);
+            $this->get('/dokumenty/'.$slug)->assertNotFound();
+
+            continue;
+        }
         expect($document)->not->toBeNull($key);
         $page = $this->get('/dokumenty/'.$slug)->assertOk()->getContent();
         expect($page)->toContain('Verze '.$document->version)->toContain($document->title['cs'])->toContain('<h2>')->not->toContain('{{entity_')
@@ -19,7 +25,7 @@ it('serves every seeded consent document at its URL with version, entity and neu
         expect(preg_match('/wedos|subreg/i', $page))->toBe(0, $slug);
     }
     // the URLs stored on the documents themselves resolve (internal ones), so a consent link never dead-ends
-    foreach (ConsentDocument::query()->get() as $document) {
+    foreach (ConsentDocument::query()->where('state', ConsentDocument::ACTIVE)->get() as $document) { // a draft's URL answers once it is published (LegalDraftVersionsTest)
         if (str_starts_with((string) $document->url, '/')) {
             $this->get($document->url)->assertStatus(in_array($document->url, ['/sla'], true) ? 301 : 200);
         }

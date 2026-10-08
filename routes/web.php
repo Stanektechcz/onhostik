@@ -101,6 +101,7 @@ Route::get('panel/{path?}', [SurfaceController::class, 'panel'])->where('path', 
 // public legal documents: the versioned consent documents the checkout, domain registration and panel link to
 Route::get('dokumenty', [LegalDocumentController::class, 'index'])->name('legal.index');
 Route::get('dokumenty/{slug}', [LegalDocumentController::class, 'show'])->where('slug', '[a-z0-9-]+')->name('legal.show');
+Route::get('dokumenty/{slug}/{version}', [LegalDocumentController::class, 'version'])->where(['slug' => '[a-z0-9-]+', 'version' => '\d{4}-\d{2}(-[a-z0-9]+)?'])->name('legal.version'); // an earlier published version (TASK-0142)
 Route::get('sla', fn () => redirect('/dokumenty/sla', 301));
 // the links the platform mails: set a new password (reset / guest account) and confirm the e-mail address
 Route::get('obnova-hesla', [AuthPagesController::class, 'resetPassword'])->name('auth.reset');

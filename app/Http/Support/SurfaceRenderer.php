@@ -665,6 +665,7 @@ HTML;
             $html = self::cartSeams($html);
             $html = self::priceSeams($html, $surface); // audit P1-6: currencies with a fresh CNB rate, VAT from the tax rules
             $html = self::checkoutSeams($html);
+            $html = self::legalClaimSeams($html); // TASK-0142: no promise the legal documents do not make (money-back, badges, bonus)
         }
 
         // 4d. every surface's "sign out" is a prototype stub (localStorage + a toast): the bridge's OnhostSession.signOut()
@@ -1315,6 +1316,47 @@ HTML;
         );
 
         return $html;
+    }
+
+    /**
+     * TASK-0142 (legal review 2026-10, docs/legal/LEGAL_REVIEW_2026-10.md L-01/L-02): what the public site promises before a
+     * contract is a contract term and a commercial practice. The prototype promised a 30-day full money-back guarantee "without
+     * pro-rating" (the terms give a consumer 14 days with a proportional charge, and credit is never paid out), a 14-day free
+     * trial nobody runs, a 10 % top-up bonus that is not a rule of the control plane, and certification / rating / partnership
+     * badges (ISO 27001, TIER III, Trustpilot 4,9/5, Cloudflare partner) the operator cannot document — an unauthorised trust
+     * mark is a blacklisted practice (příloha č. 1 zákona č. 634/1992 Sb.). The consent line no longer asks for a "consent" to
+     * processing the contract itself needs (GDPR Art. 6(1)(b)). Wording follows the documents IN FORCE (2026-09) as well as
+     * the 2026-10 drafts. A badge comes back only as a verified fact through data, never as prototype copy.
+     */
+    public static function legalClaimSeams(string $html): string
+    {
+        return self::swap(
+            [
+                "heroRisk: '14 dní zdarma · migraci uděláme za vás · garance vrácení peněz 30 dní',",
+                "heroRisk: '14 days free · we handle the migration · 30-day money-back guarantee',",
+                "? ['ISO 27001', 'TIER III datacentra', '4,9/5 Trustpilot', 'Cloudflare partner', 'AMD EPYC', 'Garance 30 dní']",
+                ": ['ISO 27001', 'TIER III facilities', '4.9/5 Trustpilot', 'Cloudflare partner', 'AMD EPYC', '30-day guarantee'],",
+                "coRe1: 'Záruka 30 dní', coRe1d: 'Nesedne vám to? Vrátíme celou částku, bez otázek a bez poměrného počítání.',",
+                "coRe1: '30-day guarantee', coRe1d: 'Not a fit? We refund the full amount — no questions, no pro-rating.',",
+                "coCreditHint: 'Nabijte kredit dopředu a přidáme 10 % bonus. Kredit platí na cokoli — i na GPU po hodinách.',",
+                "coCreditHint: 'Top up in advance and we add a 10% bonus. Credit works for anything — including hourly GPUs.',",
+                "coTerms: 'Souhlasím s VOP a zpracováním údajů.',",
+                "coTerms: 'I agree to the terms and to the processing of my data.',",
+            ],
+            [
+                "heroRisk: 'Bez závazku · zrušení v panelu · spotřebitel může do 14 dnů odstoupit od smlouvy',",
+                "heroRisk: 'No lock-in · cancel in the panel · consumers may withdraw within 14 days',",
+                '? []',
+                ': [],',
+                "coRe1: '14 dní na odstoupení', coRe1d: 'Spotřebitel může do 14 dnů od smlouvy odstoupit; zaplatí jen poměrnou část za dobu, kdy služba běžela. Registrovanou doménu vrátit nelze.',",
+                "coRe1: '14 days to withdraw', coRe1d: 'Consumers may withdraw within 14 days and pay only for the days the service ran. A registered domain cannot be returned.',",
+                "coCreditHint: 'Kredit můžete dobít předem a platit z něj služby ONhost. Kredit se nevyplácí a od dobití nelze odstoupit (VOP).',",
+                "coCreditHint: 'Top up credit in advance and pay ONhost services from it. Credit is not paid out and a top-up cannot be withdrawn from (terms).',",
+                "coTerms: 'Souhlasím s VOP a beru na vědomí zásady ochrany osobních údajů.',",
+                "coTerms: 'I accept the terms of service and have read the privacy policy.',",
+            ],
+            $html,
+        );
     }
 
     /**

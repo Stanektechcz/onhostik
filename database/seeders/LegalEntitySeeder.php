@@ -6,6 +6,7 @@ namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
 use Onhost\Domain\Invoicing\Models\LegalEntity;
+use Onhost\Domain\Orders\LegalDocuments;
 use Onhost\Domain\Orders\Models\ConsentDocument;
 
 /**
@@ -29,7 +30,7 @@ final class LegalEntitySeeder extends Seeder
             'bic' => $legal('bic', 'XXXXCZPP'),
             'bank_account' => $legal('bank_account', '000000-0000000000/0000'),
             'series' => ['invoice' => 'FV', 'credit_note' => 'DK', 'proforma' => 'PF', 'receipt' => 'PP', 'correction' => 'OD', 'statement' => 'VY'],
-            'meta' => ['registry' => 'Městský soud v Praze, oddíl C', 'oss' => true],
+            'meta' => ['registry' => $legal('registry', 'Městský soud v Praze, oddíl C'), 'oss' => true],
         ]);
         // G2: the declared VAT mode (ONHOST_VAT_PAYER) only for a legal entity created now; an existing one keeps its mode — it is
         // switched by finance with a step-up and a second person (POST /v1/staff/tax/vat-payer-mode), never by a seeder run
@@ -56,6 +57,36 @@ final class LegalEntitySeeder extends Seeder
             ConsentDocument::query()->updateOrCreate(['key' => $key, 'version' => $version], [
                 'title' => $title, 'url' => $url, 'hash' => hash('sha256', $key.'|'.$version), 'effective_from' => '2026-09-01 00:00:00', 'required_for_checkout' => $required,
             ]);
+        }
+        $this->drafts();
+    }
+
+    /**
+     * TASK-0142: version 2026-10 of the customer documents, prepared as DRAFTS (owner decision I-R4/4A: the 2026-09 texts stay in
+     * force until an attorney confirms these). A draft is created once and its metadata kept in step while it is a draft; a version
+     * the owner has published (`onhost:legal:publish 2026-10 --apply`) is never touched by a seeder run again.
+     */
+    private function drafts(): void
+    {
+        $version = '2026-10';
+        foreach ([
+            ['terms', ['cs' => 'Všeobecné obchodní podmínky', 'en' => 'Terms of Service'], '/dokumenty/vop', true],
+            ['privacy', ['cs' => 'Zásady ochrany osobních údajů', 'en' => 'Privacy Policy'], '/dokumenty/ochrana-osobnich-udaju', true],
+            ['dpa', ['cs' => 'Smlouva o zpracování osobních údajů (čl. 28 GDPR)', 'en' => 'Data Processing Agreement'], '/dokumenty/dpa', false],
+            ['sla', ['cs' => 'Smlouva o úrovni služeb (SLA)', 'en' => 'Service Level Agreement'], '/sla', false],
+            ['withdrawal_waiver', ['cs' => 'Poučení o právu na odstoupení a žádost o okamžité zahájení plnění', 'en' => 'Withdrawal notice and request for immediate performance'], '/dokumenty/odstoupeni', false],
+            ['registrar_terms', ['cs' => 'Podmínky registrace a správy domén ONhost', 'en' => 'ONhost domain registration terms'], (string) config('onhost.domains.terms_url', '/dokumenty/podminky-registrace-domen'), false],
+            ['auto_renew', ['cs' => 'Podmínky automatického obnovování', 'en' => 'Auto-renewal terms'], '/dokumenty/obnovovani', false],
+            ['complaints', ['cs' => 'Reklamační řád', 'en' => 'Complaints procedure'], '/dokumenty/reklamacni-rad', false],
+            ['aup', ['cs' => 'Zásady přijatelného užívání služeb', 'en' => 'Acceptable Use Policy'], '/dokumenty/zasady-uzivani', false],
+        ] as [$key, $title, $url, $required]) {
+            $meta = ['title' => $title, 'url' => $url, 'required_for_checkout' => $required, 'hash' => LegalDocuments::hash($key, $version)];
+            $row = ConsentDocument::query()->where('key', $key)->where('version', $version)->first();
+            if ($row === null) {
+                ConsentDocument::query()->create(['key' => $key, 'version' => $version, 'state' => ConsentDocument::DRAFT, 'effective_from' => ConsentDocument::DRAFT_EFFECTIVE_FROM] + $meta);
+            } elseif ($row->state === ConsentDocument::DRAFT) {
+                ConsentDocument::query()->where('key', $key)->where('version', $version)->update(['title' => json_encode($title, JSON_UNESCAPED_UNICODE)] + array_diff_key($meta, ['title' => true]));
+            }
         }
     }
 }

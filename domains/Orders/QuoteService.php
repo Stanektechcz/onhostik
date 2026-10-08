@@ -418,15 +418,15 @@ final class QuoteService
         return $pct >= 0 ? $amount->add($delta) : $amount->subtract($delta);
     }
 
-    /** @return array<string,string> document key => version */
+    /**
+     * TASK-0142: published versions only (a draft is never quoted), and the newest in force wins when two are (the old query
+     * returned whichever row came last).
+     *
+     * @return array<string,string> document key => version
+     */
     public function currentTermsVersions(): array
     {
-        $out = [];
-        foreach (ConsentDocument::query()->where('effective_from', '<=', now())->where(fn ($q) => $q->whereNull('effective_to')->orWhere('effective_to', '>', now()))->get() as $doc) {
-            $out[$doc->key] = $doc->version;
-        }
-
-        return $out;
+        return ConsentDocument::currentVersions();
     }
 
     /** @param array<string,mixed> $line */

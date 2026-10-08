@@ -1,0 +1,102 @@
+# Právní kontrola zákaznických textů, verze 2026-10 (TASK-0142)
+
+> **Nejsem advokát.** Tento dokument připravil vývojový tým (AI asistent) jako technicko-právní podklad. Není to právní služba
+> ani právní stanovisko a nenahrazuje posouzení advokátem. Citace paragrafů a předpisů jsou uvedeny podle našeho nejlepšího
+> vědomí a **advokát je musí ověřit** (zejména znění občanského zákoníku po novele č. 374/2022 Sb. a stav transpozice směrnice
+> (EU) 2023/2673). Zadání vlastníka 2026-10-08: „zajisti právní texty a kontrolu“.
+
+## 1. Stav a co je hotové
+
+| Co | Stav |
+| --- | --- |
+| Platné texty | Verze **2026-09** zůstávají v platnosti (rozhodnutí vlastníka I-R4/4B: spuštění na nich je vědomě přijaté riziko, go-live B4). Jejich soubory `resources/legal/<klíč>.md` jsou od TASK-0142 zmrazené testem (hash; L-29). |
+| Nové texty | Verze **2026-10** jako **návrh (draft)** v `consent_documents` (`state = draft`, `effective_from` 2099-12-31): `terms`, `withdrawal_waiver`, `complaints` (**nový** reklamační řád), `privacy`, `dpa`, `aup` (**nové** zásady přijatelného užívání), `sla`, `auto_renew`, `registrar_terms`. Texty: `resources/legal/2026-10/*.md`. |
+| Co draft znamená | Není aktuální (`ConsentDocument::current`), není v nabídce ani v objednávce (`QuoteService::currentTermsVersions`), není na webu (`/dokumenty/*` → 404). Hlídá `tests/Feature/Legal/LegalDraftVersionsTest.php`. |
+| Aktivace | **Krok vlastníka** po odpovědi advokáta: `php artisan onhost:legal:publish 2026-10 --effective-from=RRRR-MM-DD --approved-by="…"` (bez `--apply` jen náhled a seznam překážek). Postup v kap. 5. |
+| Ihned účinné opravy | Veřejný web a pokladna už neslibují nic, co texty neslibují (seam `SurfaceRenderer::legalClaimSeams`, L-01, L-02, L-28). Adresa pro odstoupení a reklamace může být jiná než no-reply odesílatel (`ONHOST_LEGAL_EMAIL`, L-04). Každá zveřejněná verze má vlastní adresu `/dokumenty/<slug>/<verze>` (VOP slibovaly i předchozí verze). |
+| Neprovedeno kvůli zámku | Zápis do `docs/audit/2026-10-full-readiness/ROZHODNUTI.md` a řádku B4 v `docs/runbooks/go-live-checklist.md` drží TASK-0141; doplní koordinátor po jeho skončení (text níže v kap. 6). |
+
+## 2. Co se v textech 2026-10 mění (souhrn pro vlastníka)
+
+* **VOP:** identifikace a kontakty (telefon, zápis v OR), definice spotřebitel/podnikatel, uzavření smlouvy (tlačítko, potvrzení, archivace), **neplátce DPH – ceny konečné**, upomínky a lhůty podle kódu, **kredit** (pořadí čerpání, nevyplácení se **zákonnou výjimkou**, **bez odstoupení od dobití**, **propadnutí při výmazu účtu s potvrzením**), **věrnostní program** (G-R2), API tokeny a **schvalování rizikových akcí** (H-R1/H-R1a), asistent, **Penpot** (H-R7/I-R7), **vlastní ISO** (G-R5), placená práce podpory, export a **přechod k jinému poskytovateli (Data Act)**, omezení odpovědnosti **jen pro podnikatele**, ADR ČOI bez zrušené platformy ODR, pravidla změn VOP.
+* **Poučení o odstoupení:** podle vzoru nařízení vlády č. 363/2013 Sb.; vrácení **stejným platebním prostředkem**, souhlas s vrácením na kredit **dobrovolný**; poměrná platba; výjimka pro registraci domény; dobití kreditu; vzorový formulář.
+* **Reklamační řád (nový):** soulad digitální služby se smlouvou, uplatnění, potvrzení (§ 19 ZOS), 30 dní, práva spotřebitele (uvedení do souladu, sleva, odstoupení), peníze stejným prostředkem, vztah k SLA.
+* **Zásady přijatelného užívání (nové):** zakázaný obsah a činnosti, sdílené prostředky, e-mail, vlastní ISO, nástroje moderace, odůvodnění opatření, oznámení protiprávního obsahu a kontaktní místo podle DSA.
+* **Ochrana osobních údajů:** úplnější tabulka účelů, asistent a předání mimo EHP, automatizované rozhodování, výmaz účtu, ÚOOÚ s adresou.
+* **DPA:** náležitosti čl. 28 odst. 3 GDPR, pokyny, bezpečnostní činnosti, další zpracovatelé, třetí země.
+* **SLA:** tabulka **podle kódu** (`config/onhost.php` → `sla.classes`, `credit_policies`), měření, údržba podle `Maintenance::excludesFromSla`, zálohy jen podle tarifu.
+* **Obnovování, domény:** lhůty podle kódu, žádné slevy na domény, AUTH-ID, odstoupení u domén.
+
+## 3. Seznam zjištění
+
+Riziko: **VYSOKÉ** = možný zásah ČOI/ÚOOÚ, neplatné ujednání nebo nárok zákazníka už dnes; **STŘEDNÍ** = nesoulad, který je
+třeba vyřešit před aktivací nebo spuštěním ve větším; **NÍZKÉ** = upřesnění. Sloupec *Blokuje aktivaci* = 2026-10 nelze zveřejnit,
+dokud se neudělá uvedená věc v kódu nebo provozu (texty by slibovaly něco, co systém nedělá).
+
+| # | Zjištění | Riziko | Řešení v TASK-0142 | Blokuje aktivaci 2026-10 / zbývá | Advokát |
+| --- | --- | --- | --- | --- | --- |
+| L-01 | Veřejný web sliboval „garanci vrácení peněz 30 dní – celou částku, bez otázek a bez poměrného počítání“ a „14 dní zdarma“ (`Onhost.dc.html` `heroRisk`, `coRe1`, `trustChips`). Odporuje VOP i poučení (14 dní, poměrná část, kredit se nevyplácí); veřejný příslib může zakládat nárok a je klamavou praktikou (§ 4–5 zákona č. 634/1992 Sb.). | VYSOKÉ | Seam `legalClaimSeams` (prototyp beze změny): „14 dní na odstoupení… jen poměrná část“. Test `LegalClaimSeamTest`. | – (platí už pro 2026-09) | ověřit, zda za dobu provozu prototypu někdo garanci uplatnil |
+| L-02 | Odznaky důvěry „ISO 27001, TIER III datacentra, 4,9/5 Trustpilot, Cloudflare partner, AMD EPYC“ a „bonus 10 % k dobití“. Neprokázaný certifikát/značka je praktika z černé listiny (příloha č. 1 ZOS); hodnocení bez ověření zdroje porušuje pravidla o recenzích (§ 5a ZOS po směrnici Omnibus); bonus není pravidlem systému. | VYSOKÉ | Seam odstraní odznaky i bonus; odznak se smí vrátit jen jako ověřený fakt přes data. | – | – |
+| L-03 | **Další faktická tvrzení prototypu bez seamu** (šest lokalit, vlastní hardware v Praze, partnerská TIER III datacentra, 62 % / 100 % OZE, 2 400+ zákazníků, reakce podpory 30 min, „ISO 27001 na část rozsahu“, migrace do 48 h bez výpadku, GPU H100, …). | VYSOKÉ | Jen zjištění. | **Před spuštěním**: samostatný úkol „audit tvrzení veřejného webu“ — každé tvrzení doložit, nebo seamem změnit | ne (věcná kontrola) |
+| L-04 | `{{entity_email}}` v textech = `MAIL_FROM_ADDRESS`, v šabloně `noreply@…`. Spotřebitel by posílal odstoupení a reklamace na no-reply adresu. | VYSOKÉ | Nový `ONHOST_LEGAL_EMAIL` (prázdný = dosavadní chování); platí i pro texty 2026-09 (mění se kontaktní údaj, ne text). | **Provoz před spuštěním**: nastavit sledovanou schránku | – |
+| L-05 | **Zveřejněné SLA 2026-09 slibuje víc, než kód počítá:** Standard „5 % za hodinu“ (kód: Standard nemá smluvní SLA), Business 99,95 % / 10 % za hodinu do 100 % (kód: smluvně 99,9 %, pásma 10/25/50 %, strop 50 %), údržba „max. 4 h měsíčně“ (kód strop nemá), zálohy „denně“ (pravidla `backups.as_sold`, `backups.compute` jsou ve výchozím stavu vypnutá). | VYSOKÉ | SLA 2026-10 přepsané přesně podle kódu. | Do aktivace: u objednávek třídy Business finance ručně dorovná rozdíl podle 2026-09, nebo vlastník zváží dřívější aktivaci samotného SLA | ano (dorovnání, přechod) |
+| L-06 | **Odstoupení v panelu nejde odeslat bez souhlasu s vrácením na kredit** (422); vrácení původním způsobem není v systému (G6). § 1831 OZ: vrácení stejným prostředkem, jiný způsob jen se souhlasem. Od **19. 6. 2026** navíc směrnice (EU) 2023/2673 (čl. 11a směrnice 2011/83/EU) vyžaduje u smluv uzavřených online snadno dostupnou **funkci odstoupení** bez dalších podmínek, s potvrzením přijetí. | VYSOKÉ | Text 2026-10: souhlas dobrovolný, odstoupení i bez něj. | **Ano** — panel přijme odstoupení bez souhlasu; staff cesta „vrátit platbu objednávky původním způsobem“ (nikdy `purpose = topup`), viz G6 | ano: stav transpozice čl. 11a v ČR a požadavky na funkci |
+| L-07 | **Propadnutí kreditu při výmazu účtu** (H-R5). Rizika: nepřiměřené ujednání ve spotřebitelské smlouvě (§ 1813 OZ), bezdůvodné obohacení (§ 2991 OZ) a odrazování od výkonu práva na výmaz (čl. 12 odst. 5 a čl. 17 GDPR — výkon práva má být bezplatný). | VYSOKÉ (přijaté vlastníkem do odpovědi advokáta) | Text: výslovné potvrzení, náhled zůstatku, 14 dní, nové potvrzení při přírůstku, rozlišení ukončení služby × výmaz účtu. | ne (vlastník riziko přijal) | **ano** — varianty: (a) ponechat, (b) spotřebiteli vrátit nevyčerpaný *zakoupený* kredit (`RefundableCredit::of`), (c) propadá jen bonusový kredit |
+| L-08 | **Bez odstoupení od dobití kreditu** (H-R5). Je-li dobití samostatnou smlouvou uzavřenou na dálku, žádná výjimka § 1837 OZ na něj nedopadá. | VYSOKÉ (přijaté) | Text vysvětluje, proč jde o zálohu, a odstoupení od služeb placených z kreditu zachovává. | ne | **ano** — je dobití samostatná smlouva? Záložní řešení: odstoupení od nevyčerpané zakoupené části do 14 dnů původním způsobem |
+| L-09 | **„Kredit se nevyplácí“ (G-R4) proti zákonným peněžitým nárokům**: odstoupení (§ 1831), sleva/vrácení ceny z vad digitální služby, výpověď poskytovatele bez porušení, nesplnitelná zaplacená objednávka (např. Penpot bez uzlu, nezdařená registrace domény). | VYSOKÉ | VOP 2026-10 čl. 4.3, 4.6, 10.2, 15.2 a Reklamační řád 4.3 mají výslovnou zákonnou výjimku. | **Ano** — systém dnes vrací vše na kredit (`G4NoCashRefundTest`); potřebuje staff cestu vrácení platby objednávky původním způsobem pro tyto případy (spotřebitel) | ano: rozsah výjimky |
+| L-10 | **Neplátce DPH, ale web i texty mluví o DPH**: VOP 2026-09 „ceny bez DPH, DPH se účtuje“; web „Všechny ceny včetně DPH 21 %“, pokladna „Cena bez DPH / DPH 21 %“ — `SurfacePricing::vat()` čte sazbu z daňových pravidel bez ohledu na `VatPayerMode`. Spotřebiteli se musí ukazovat konečná cena (§ 12 ZOS) a zobrazená cena se nesmí lišit od účtované. | VYSOKÉ | VOP 2026-10: „není plátcem DPH, ceny konečné“; přechod na plátce = ohlášená změna ceny. | **Před spuštěním (samostatný úkol)**: povrchy čtou režim plátce (`VatPayerMode::isPayer`), u neplátce žádný řádek DPH ani „bez DPH“; ověřit, že součet v pokladně = částka objednávky | ne |
+| L-11 | Omezení odpovědnosti (VOP 2026-09 čl. 6) platí i pro spotřebitele — vůči slabší straně se k němu nepřihlíží (§ 2898 OZ). | STŘEDNÍ | 2026-10: omezení jen pro podnikatele. | – | potvrdit |
+| L-12 | SLA jako „jediný nárok“ a kompenzace jen kreditem i pro spotřebitele vylučuje zákonná práva z vadného plnění. | STŘEDNÍ | 2026-10: výjimka pro spotřebitele, bez dvojí náhrady. | – | potvrdit |
+| L-13 | Odkaz na platformu ODR Evropské komise — platforma byla zrušena (nařízení (EU) 2024/3228, ukončení 20. 7. 2025). | STŘEDNÍ | Odstraněno; ADR ČOI s adresou. | – | ověřit |
+| L-14 | Chybí povinné údaje: telefon (§ 1820 OZ / čl. 6 odst. 1 písm. c) směrnice 2011/83/EU), zápis v obchodním rejstříku (§ 435 OZ). | STŘEDNÍ | Zástupné symboly `{{entity_phone}}`, `{{entity_registry}}`, konfigurace `ONHOST_LEGAL_PHONE`, `ONHOST_LEGAL_REGISTRY`; `onhost:legal:publish` bez telefonu odmítne. | **Provoz**: vyplnit | – |
+| L-15 | **Reklamační řád chyběl** (§ 13 ZOS; potvrzení podle § 19 ZOS). | STŘEDNÍ | Nový dokument `complaints`. | **Ano** — podpora musí vydat potvrzení o přijetí a vyřízení a hlídat 30 dní; v systému není typ „reklamace“ (doporučení: štítek + 30denní lhůta v SLA požadavků) | ano: znění podle § 2389a a násl. OZ |
+| L-16 | **Data Act** (nařízení (EU) 2023/2854, kap. VI, od 12. 9. 2025): smluvní náležitosti přechodu (čl. 25), informace (čl. 26), poplatky (čl. 29: od 12. 1. 2027 žádné poplatky za přechod/odchozí data, do té doby nejvýše náklady). Kód účtuje stažení závěrečného archivu 500 Kč / 20 € (`onhost.services.deletion.download_fee_minor`). | STŘEDNÍ | VOP 2026-10 čl. 9 (export, přechodné období 30 dní, lhůta pro vyzvednutí, poplatek jen do 11. 1. 2027 a jen ve výši nákladů). | Do 12. 1. 2027 poplatek v kódu zrušit (úkol); doložit, že 500 Kč odpovídá nákladům | ano: dopadá kap. VI na ONhost, úplnost čl. 25 |
+| L-17 | **DSA** (nařízení (EU) 2022/2065) pro poskytovatele hostingu: kontaktní místa (čl. 11, 12), informace o moderaci v podmínkách (čl. 14), oznámení a opatření (čl. 16), odůvodnění (čl. 17), oznámení trestných činů (čl. 18). | STŘEDNÍ | AUP 2026-10 čl. 5–7. | Ověřit, že oznámení o karanténě obsahuje náležitosti odůvodnění podle čl. 17 | ano |
+| L-18 | Zásady 2026-09 tvrdí „nepředáváme mimo EHP“, ale asistent v panelu může volat OpenAI/Anthropic (`ONHOST_AI_ENABLED`, výchozí vypnuto) a čte i údaje služeb zákazníka (zpracovatelská role). | STŘEDNÍ (VYSOKÉ, zapne-li se asistent) | Zásady a DPA 2026-10 to popisují podmíněně. | Zapnout asistenta v produkci až se smlouvou s dodavatelem AI (DPA, SCC/DPF, zákaz trénování, retence) | ano: mechanismus předání |
+| L-19 | DPA 2026-09 odkazuje na seznam zpracovatelů, který neexistuje; chybí části čl. 28 odst. 3 GDPR. Pravidlo neutrality dodavatelů vs. povinnost informovat o dalších zpracovatelích. | STŘEDNÍ | DPA 2026-10 doplněna; seznam „na vyžádání“, změny 30 dní předem e-mailem. | **Vlastník** připraví seznam zpracovatelů (mimo web) | ano: stačí seznam na vyžádání? |
+| L-20 | Neověřitelná bezpečnostní tvrzení 2026-09: „šifrování v úložištích“, „ochrana proti volumetrickým útokům“, měření „mimo síť poskytovatele“. | STŘEDNÍ | 2026-10 je neuvádí. | Provoz potvrdí, co platí | – |
+| L-21 | Věrnostní body: zpětné zavedení propadání 24 měsíců u bodů dříve slibovaných „bez propadnutí“ (komentář v `config/loyalty.php`). | STŘEDNÍ | Přechodné pravidlo (počítáno od 5. 10. 2026) je v textu; změny programu 30 dní předem. | – | ano: jednostranná změna programu |
+| L-22 | Odstoupení: jednorázové poplatky (zřízení, řádky bez období) kód nevrací; § 1834 OZ váže platbu na rozsah poskytnutého plnění. Text 2026-10 vrací „všechny platby“ snížené o poměrnou část. | STŘEDNÍ | Text podle zákona. | Sladit kód, nebo advokát potvrdí výluku a text se upraví | ano |
+| L-23 | **Výjimky z odstoupení:** registrace domény jako „zcela poskytnutá služba“ (§ 1837 písm. a) OZ) je sporná (registrace trvá celé období); totéž SSL. **Pozor na zadání:** § 1837 písm. l) OZ se týká *digitálního obsahu*, ne digitálních služeb — u hostingu se právo na odstoupení souhlasem se zahájením neztrácí, platí poměrná platba (§ 1834). Texty 2026-10 se o písm. l) neopírají. | STŘEDNÍ | Text domény + poměrná platba u služeb. | – | **ano** |
+| L-24 | Změna VOP vůči stávajícím zákazníkům (§ 1752 OZ): důvody, 30 dní, právo vypovědět. Systém nemá hromadné oznámení změny dokumentů. | STŘEDNÍ | VOP 2026-10 čl. 15 (důvody, výpověď s vrácením nevyužité části). `onhost:legal:publish` hlídá lhůtu 30/14 dní. | **Ano** — oznámení e-mailem a v panelu ≥ 30 dní před účinností (doporučení: událost `legal.document.changed` → povinné oznámení) | ano |
+| L-25 | Potvrzení objednávky na trvalém nosiči (§ 1824 OZ): e-mail „Objednávka přijata“ nese jen číslo a částku, ne VOP a poučení. Odkaz není trvalý nosič. | STŘEDNÍ | Verze mají nově pevný text a hash — lze je přikládat. | Doporučení: příloha (PDF/text) odsouhlasených verzí v potvrzení objednávky | ano |
+| L-26 | Tlačítko objednávky (§ 1826a odst. 2 OZ): v prototypu „Zaplatit a spustit server“ pro všechny produkty. | STŘEDNÍ | VOP 2026-10 čl. 2.2 popisuje tlačítko „zavazující k platbě“. | Ověřit skutečný text tlačítka v produkci; jinak seam | ano: postačuje „Zaplatit…“? |
+| L-27 | Regionální ceny: skupina „EU“ +5 % podle země zákazníka (`onhost.pricing.regions`). Nařízení (EU) 2018/302 (geo-blocking) čl. 4 odst. 1 písm. b) výslovně dopadá na webhosting. | STŘEDNÍ | Jen zjištění. | Vlastník: zvážit `ONHOST_PRICING_EU_ADJUST=0` | ano |
+| L-28 | Souhlas v pokladně „Souhlasím s VOP a zpracováním údajů“ — zpracování pro smlouvu souhlas nepotřebuje (čl. 6 odst. 1 písm. b) GDPR), spojený souhlas je vadný. | NÍZKÉ | Seam: „Souhlasím s VOP a beru na vědomí zásady ochrany osobních údajů.“ | – | – |
+| L-29 | Texty 2026-09 se měnily bez nové verze (LEGAL_REVIEW_withdrawal, otázka 6); hash v souhlasech byl `sha256(klíč|verze)`, ne textu. | NÍZKÉ | Verzované složky, hash textu se zmrazí při zveřejnění, soubory 2026-09 hlídá test. | – | ano: jak naložit se souhlasy k upraveným 2026-09 |
+| L-30 | Texty jen česky, zákazníci i ze SK/EU (EUR). | NÍZKÉ | – | – | ano: jazyk vůči spotřebitelům v SK/EU, čl. 6 Řím I (VOP čl. 14.3) |
+| L-31 | AUTH-ID: 2026-10 dovoluje odmítnout vydání jen pro neuhrazenou cenu té domény. | NÍZKÉ | Text. | Ověřit kód (zda neblokuje i jiné dluhy) | – |
+| L-32 | Podmínky domén 2026-09 slibují DNSSEC; 2026-10 jej neuvádí (neověřeno), ale veřejný ceník domén DNSSEC uvádí. | NÍZKÉ | – | Provoz potvrdí DNSSEC, pak vrátit do textu | – |
+| L-33 | Odstoupení telefonem / jinou formou: staff záznam umí kanály e-mail a dopis. | NÍZKÉ | Text: „jiným jednoznačným prohlášením“. | Doplnit kanál „jiný“ | – |
+| L-34 | **Vlastní ISO a licence:** zákazníkem dodaný Windows na sdíleném hardwaru obvykle licenční podmínky Microsoftu nedovolují (hostované Windows vyžadují licence poskytovatele, SPLA). | STŘEDNÍ | AUP/VOP: odpovědnost zákazníka za licence. | Vlastník: zvážit výslovné omezení pro Windows | ano |
+| L-35 | Penpot: software třetí strany (MPL-2.0), provozovaný jako služba; „v ceně“ není sleva. | NÍZKÉ | VOP čl. 7.2. | – | – |
+| L-36 | Rizikové akce tokenů (H-R1): popsáno ve VOP čl. 6.6. | NÍZKÉ | Text. | – | – |
+
+## 4. Co musí podepsat advokát (výslovně)
+
+Bez písemného potvrzení advokáta se verze 2026-10 **nezveřejňuje** (I-R4). Advokát potvrdí nebo upraví:
+
+1. Celé texty `resources/legal/2026-10/*.md` (9 dokumentů), zejména VOP čl. 3, 4, 5, 9, 10, 11, 14, 15 a poučení.
+2. Výklad a rozhodnutí L-06 (funkce odstoupení, čl. 11a), L-07 (propadnutí kreditu), L-08 (dobití kreditu), L-09 (rozsah zákonné výjimky z „kredit se nevyplácí“), L-22 (jednorázové poplatky), L-23 (výjimky § 1837 OZ).
+3. Reklamační řád podle § 2389a a násl. OZ a § 19 ZOS (L-15).
+4. Data Act (L-16), DSA (L-17), GDPR/DPA a předání mimo EHP (L-18, L-19).
+5. Změnu VOP vůči stávajícím zákazníkům (L-24), trvalý nosič (L-25), tlačítko (L-26), geo-blocking (L-27), jazyk (L-30).
+6. Odpovědi na otevřené otázky 1–9 z `resources/legal/LEGAL_REVIEW_withdrawal.md`.
+
+## 5. Aktivace verze 2026-10 (kroky vlastníka, v tomto pořadí)
+
+1. Advokát potvrdí texty (kap. 4); jeho úpravy se zapíšou do `resources/legal/2026-10/` jako nový commit (dokud je verze draft, text lze měnit).
+2. Uzavřít položky „Blokuje aktivaci“: L-06, L-09, L-15, L-24 (v kódu nebo provozu), L-22 podle advokáta.
+3. Na serveru nastavit `ONHOST_LEGAL_PHONE`, `ONHOST_LEGAL_EMAIL`, `ONHOST_LEGAL_REGISTRY` a skutečnou právnickou osobu (`onhost:production:prepare --legal`).
+4. Oznámit změnu zákazníkům e-mailem a v panelu nejméně 30 dní před dnem účinnosti (Zásady ochrany osobních údajů 14 dní).
+5. `php artisan onhost:legal:publish 2026-10 --effective-from=RRRR-MM-DD --approved-by="jméno advokáta, datum"` — náhled bez překážek, pak totéž s `--apply`. Příkaz zmrazí hash textů, ke dni účinnosti uzavře verze 2026-09 a zapíše audit `legal.document.published`.
+6. Po dni účinnosti zkontrolovat `/dokumenty` (nová verze, odkazy na 2026-09) a objednávku (souhlas se zapíše s verzí 2026-10).
+7. Mechanismus odstoupení `billing.withdrawal` zapnout až po vyřešení L-06 a s `ONHOST_WITHDRAWAL_LEGAL_REVIEWED=true`.
+
+## 6. Návrh zápisu pro ROZHODNUTI.md a go-live B4 (doplní koordinátor, soubory drží TASK-0141)
+
+* ROZHODNUTI, fáze I, k I-R4: „TASK-0142 (2026-10-08): verze 2026-10 připravena jako draft v `consent_documents`, nezveřejněna;
+  právní kontrola `docs/legal/LEGAL_REVIEW_2026-10.md`, balík pro advokáta mimo repo. Seam veřejného webu odstranil sliby, které
+  texty nedávají (garance 30 dní, odznaky, bonus). Aktivace = `onhost:legal:publish` po odpovědi advokáta.“
+* Go-live B4: doplnit „texty 2026-10 připravené (draft), aktivace po advokátovi; **před spuštěním** navíc L-03, L-04, L-10, L-14
+  (provoz/úkoly), protože se týkají i platných textů 2026-09“.

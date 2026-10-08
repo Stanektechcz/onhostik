@@ -177,6 +177,28 @@ vysvětlení a cestu ven (znovu poslat odkaz). Stejné pravidlo drží pro vypla
 `onhost.identity.unverified_order_limit_minor` (výchozí 500000 haléřů pro CZK); kód
 `domains/Identity/EmailVerificationGuard.php`. Doctor řádky `mail` jako v F1.1.
 
+## Scénář F1.6 — Smluvní dokumenty, jejich verze a sliby pokladny (TASK-0142)
+
+**Cíl:** zákazník čte přesně verzi, kterou odsouhlasil; připravená verze (draft) není nikde vidět, dokud ji vlastník nezveřejní;
+veřejný web neslibuje nic, co dokumenty nedávají.
+
+1. Otevřete `/dokumenty`. Seznam ukazuje platné verze (dnes 2026-09); reklamační řád a zásady užívání v něm zatím nejsou.
+2. Otevřete `/dokumenty/vop` a `/dokumenty/vop/2026-09` — stejný text, verze 2026-09. Adresa `/dokumenty/vop/2026-10` vrátí 404
+   (draft) a `/dokumenty/reklamacni-rad` také 404.
+3. Na titulní stránce a v pokladně (`/kosik`) zkontrolujte texty: žádná „garance vrácení peněz 30 dní“, žádné odznaky ISO,
+   Trustpilot či Cloudflare, žádný „bonus 10 %“ k dobití; u pokladny stojí „14 dní na odstoupení“ a souhlas zní „Souhlasím s VOP
+   a beru na vědomí zásady ochrany osobních údajů.“
+4. Na serveru (jen čtení): `php artisan onhost:legal:publish 2026-10 --effective-from=<den za 31 dní>` vypíše všechny dokumenty
+   verze 2026-10 s hashem textu a překážky (telefon, právnická osoba, jméno advokáta). Nic se nezveřejní.
+
+**Očekávaný výsledek:** kroky 1–4 bez rozdílu; v databázi zůstává verze 2026-10 ve stavu `draft`.
+
+**Negativní varianty:** `--apply` bez `--approved-by` nebo s dnem účinnosti dřív než za 30 dní skončí chybou a nic nezmění.
+
+**Kde hledat při selhání:** `docs/legal/LEGAL_REVIEW_2026-10.md` (kap. 5), `app/Http/Controllers/Web/LegalDocumentController.php`,
+`domains/Orders/LegalDocuments.php`; automaticky `tests/Feature/Legal/LegalDraftVersionsTest.php` a
+`tests/Feature/Http/LegalClaimSeamTest.php`.
+
 ## Pokrytí E2E testem
 
 Automatický test `tests/Feature/E2E/SignupToWebTest.php` prochází stejné kroky bez prohlížeče:

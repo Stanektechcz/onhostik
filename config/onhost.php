@@ -170,6 +170,9 @@ return [
         'name' => env('ONHOST_LEGAL_NAME', ''), 'ico' => env('ONHOST_ICO', ''), 'dic' => env('ONHOST_DIC', ''), 'vat_id' => env('ONHOST_VAT_ID', ''),
         'street' => env('ONHOST_STREET', ''), 'city' => env('ONHOST_CITY', ''), 'zip' => env('ONHOST_ZIP', ''),
         'iban' => env('ONHOST_BANK_IBAN', ''), 'bic' => env('ONHOST_BANK_BIC', ''), 'bank_account' => env('ONHOST_BANK_ACCOUNT', ''),
+        // TASK-0142: what the legal documents name (§ 1820 OZ, § 435 OZ): a telephone number, the address customers write to
+        // (withdrawals, complaints — not a no-reply sender; empty = mail.from.address) and the commercial register entry
+        'phone' => env('ONHOST_LEGAL_PHONE', ''), 'email' => env('ONHOST_LEGAL_EMAIL', ''), 'registry' => env('ONHOST_LEGAL_REGISTRY', ''),
     ],
 
     'support' => [ // paid work on a ticket (H29): offered with a price, billed only after the customer approved it
