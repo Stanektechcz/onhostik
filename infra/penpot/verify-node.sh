@@ -13,6 +13,11 @@
 #   --ssh-port N         the SSH port the platform will use (default 22)
 #   --dns-name NAME      a name that must resolve to this node (e.g. penpot.onhost.cz or a stack label under it)
 #   --public-ip ADDR     the address --dns-name must resolve to (default: only that it resolves)
+#   --http-port N        Caddy's HTTP port (default 80), as given to provision-node.sh
+#   --https-port N       Caddy's HTTPS port (default 443)
+#   --caddy-bind ADDR    the address Caddy listens on, as given to provision-node.sh (127.0.0.1: no web port is opened)
+#   --shared-host        the node also runs other services (a Wings game node): their listeners are WARN, not FAIL
+#   --docker-host URI    the deploy user's rootless Docker socket (provider option docker_host, unix:///run/user/<uid>/docker.sock)
 #   --offline            skip the checks that reach the internet (registry, Let's Encrypt)
 #   -h, --help           this text
 #
@@ -28,6 +33,11 @@ INSTANCES=1
 DNS_NAME=""
 PUBLIC_IP=""
 OFFLINE=0
+HTTP_PORT="80"
+HTTPS_PORT="443"
+CADDY_BIND=""
+SHARED_HOST=0
+DOCKER_HOST_URI=""
 STACK_ROOT="/srv/onhost-penpot"
 BACKUP_ROOT="/var/backups/onhost-penpot"
 PROXY_SITES="/etc/caddy/onhost-penpot"
@@ -40,6 +50,11 @@ while [ "$#" -gt 0 ]; do
     --ssh-port) SSH_PORT="${2:?}"; shift 2 ;;
     --dns-name) DNS_NAME="${2:?}"; shift 2 ;;
     --public-ip) PUBLIC_IP="${2:?}"; shift 2 ;;
+    --http-port) HTTP_PORT="${2:?}"; shift 2 ;;
+    --https-port) HTTPS_PORT="${2:?}"; shift 2 ;;
+    --caddy-bind) CADDY_BIND="${2:?}"; shift 2 ;;
+    --shared-host) SHARED_HOST=1; shift ;;
+    --docker-host) DOCKER_HOST_URI="${2:?}"; shift 2 ;;
     --offline) OFFLINE=1; shift ;;
     -h|--help) sed -n '2,/^set -uo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1 (see --help)" >&2; exit 2 ;;
@@ -47,6 +62,11 @@ while [ "$#" -gt 0 ]; do
 done
 [[ "$INSTANCES" =~ ^[0-9]+$ ]] && [ "$INSTANCES" -ge 1 ] || { echo "--instances must be a positive integer" >&2; exit 2; }
 [[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]] || { echo "--ssh-port must be a port number" >&2; exit 2; }
+[[ "$HTTP_PORT" =~ ^[0-9]{1,5}$ ]] && [[ "$HTTPS_PORT" =~ ^[0-9]{1,5}$ ]] || { echo "--http-port / --https-port must be port numbers" >&2; exit 2; }
+[ -z "$CADDY_BIND" ] || [[ "$CADDY_BIND" =~ ^[0-9a-fA-F:.]{2,45}$ ]] || { echo "--caddy-bind is one IP address" >&2; exit 2; }
+[ -z "$DOCKER_HOST_URI" ] || [[ "$DOCKER_HOST_URI" =~ ^unix:///[A-Za-z0-9._/-]{1,200}$ ]] || { echo "--docker-host must be unix:///<socket path>" >&2; exit 2; }
+WEB_LOOPBACK=0
+case "$CADDY_BIND" in 127.*|::1) WEB_LOOPBACK=1 ;; esac
 
 FAILS=0; WARNS=0
 pass() { printf 'PASS  %s\n' "$*"; }
@@ -111,6 +131,14 @@ if have caddy; then
   pass "Caddy $(caddy version 2>/dev/null | awk '{print $1}')"
   if systemctl is-active --quiet caddy 2>/dev/null; then pass "caddy service active"; else fail "caddy service not active"; fi
   if grep -Fxq "import ${PROXY_SITES}/*.caddy" /etc/caddy/Caddyfile 2>/dev/null; then pass "Caddyfile imports ${PROXY_SITES}/*.caddy"; else fail "Caddyfile lacks 'import ${PROXY_SITES}/*.caddy'"; fi
+  if grep -Eq '^[[:space:]]*root[[:space:]]+\*[[:space:]]+/usr/share/caddy' /etc/caddy/Caddyfile 2>/dev/null; then fail "Caddyfile still serves the package default site (/usr/share/caddy)"; fi
+  if [ -n "$CADDY_BIND" ]; then
+    if grep -Eq "^[[:space:]]*default_bind[[:space:]]+${CADDY_BIND//./\.}([[:space:]]|\$)" /etc/caddy/Caddyfile 2>/dev/null; then pass "Caddy binds $CADDY_BIND (default_bind)"; else fail "Caddyfile has no 'default_bind $CADDY_BIND'"; fi
+  fi
+  for pp in "http_port:$HTTP_PORT:80" "https_port:$HTTPS_PORT:443"; do
+    name="${pp%%:*}"; rest="${pp#*:}"; want="${rest%%:*}"; default="${rest##*:}"
+    if [ "$want" != "$default" ] && ! grep -Eq "^[[:space:]]*${name}[[:space:]]+${want}([[:space:]]|\$)" /etc/caddy/Caddyfile 2>/dev/null; then fail "Caddyfile has no '$name $want'"; fi
+  done
   if [ "$IS_ROOT" -eq 1 ]; then
     if caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1; then pass "Caddy configuration validates"; else fail "Caddy configuration does not validate"; fi
   else skip "Caddy validation needs root"; fi
@@ -122,7 +150,10 @@ echo "-- deploy user '$DEPLOY_USER'"
 if id "$DEPLOY_USER" >/dev/null 2>&1; then
   uid="$(id -u "$DEPLOY_USER")"
   if [ "$uid" -ne 0 ]; then pass "exists, uid $uid (not root)"; else fail "$DEPLOY_USER is uid 0"; fi
-  if id -nG "$DEPLOY_USER" | tr ' ' '\n' | grep -qx docker; then pass "member of docker"; else fail "not a member of the docker group"; fi
+  if [ -n "$DOCKER_HOST_URI" ]; then
+    pass "rootless Docker ($DOCKER_HOST_URI): no docker group needed"
+    if id -nG "$DEPLOY_USER" | tr ' ' '\n' | grep -qx docker; then warn "member of the docker group although Docker is rootless: that group is root on this host's system daemon"; fi
+  elif id -nG "$DEPLOY_USER" | tr ' ' '\n' | grep -qx docker; then pass "member of docker"; else fail "not a member of the docker group"; fi
   if id -nG "$DEPLOY_USER" | tr ' ' '\n' | grep -Eqx 'sudo|wheel|admin'; then fail "member of a general sudo group: the platform's user may only run the two rules in /etc/sudoers.d/onhost-penpot"; else pass "no general sudo group"; fi
   home="$(getent passwd "$DEPLOY_USER" | cut -d: -f6)"
   ak="$home/.ssh/authorized_keys"
@@ -145,7 +176,8 @@ if id "$DEPLOY_USER" >/dev/null 2>&1; then
       if printf '%s' "$eff" | grep -qi '^hostkeyalgorithms ssh-ed25519$'; then pass "sshd: host key type is ssh-ed25519 only (one fingerprint to pin)"; else warn "sshd offers several host key types: pin the fingerprint the platform's client negotiates, or rerun provision-node.sh without --keep-host-key-algorithms"; fi
       if ss -ltnH 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]${SSH_PORT}\$"; then pass "sshd listens on $SSH_PORT"; else fail "nothing listens on SSH port $SSH_PORT"; fi
     fi
-    if sudo -n -u "$DEPLOY_USER" docker info >/dev/null 2>&1 || su -s /bin/sh -c 'docker info >/dev/null 2>&1' "$DEPLOY_USER"; then pass "the user can talk to the Docker daemon"; else fail "the user cannot talk to the Docker daemon (group membership needs a new login)"; fi
+    docker_env=(); [ -z "$DOCKER_HOST_URI" ] || docker_env=("DOCKER_HOST=$DOCKER_HOST_URI")
+    if sudo -n -u "$DEPLOY_USER" env "${docker_env[@]}" docker info >/dev/null 2>&1 || su -s /bin/sh -c "${docker_env[*]} docker info >/dev/null 2>&1" "$DEPLOY_USER"; then pass "the user can talk to the Docker daemon${DOCKER_HOST_URI:+ ($DOCKER_HOST_URI)}"; else fail "the user cannot talk to the Docker daemon (group membership needs a new login; rootless: loginctl enable-linger and the socket path)"; fi
   else
     skip "password lock, sudo rules, sshd settings and Docker access of the user need root"
   fi
@@ -168,10 +200,13 @@ if have ss; then
   exposed="$(ss -ltnH 2>/dev/null | awk '{print $4}' | grep -v -E '^(127\.|\[::1\]|::1)' | sed -E 's/.*[:.]([0-9]+)$/\1/' | sort -un | tr '\n' ' ')"
   bad=""
   for p in $exposed; do
-    case "$p" in 80|443|"$SSH_PORT") ;; *) bad="$bad $p" ;; esac
+    if [ "$WEB_LOOPBACK" -eq 0 ] && { [ "$p" = "$HTTP_PORT" ] || [ "$p" = "$HTTPS_PORT" ]; }; then continue; fi
+    [ "$p" = "$SSH_PORT" ] || bad="$bad $p"
   done
   # ports 53 of the resolver stub etc. are bound to loopback addresses other than 127.0.0.1 on some images; report, do not guess
-  if [ -z "$bad" ]; then pass "only 80, 443 and $SSH_PORT listen on a non-loopback address"; else fail "also listening on a non-loopback address:${bad} (the Penpot stacks must bind 127.0.0.1 only)"; fi
+  if [ -z "$bad" ]; then pass "only Caddy's ports and $SSH_PORT listen on a non-loopback address"
+  elif [ "$SHARED_HOST" -eq 1 ]; then warn "also listening on a non-loopback address:${bad} (a shared host's own services; none of them may be a Penpot stack port)"
+  else fail "also listening on a non-loopback address:${bad} (the Penpot stacks must bind 127.0.0.1 only)"; fi
   if ss -ltnH 2>/dev/null | awk '{print $4}' | grep -E '[:.](19[0-9]{3})$' | grep -v -E '^(127\.0\.0\.1|\[::1\])' | grep -q .; then fail "a stack port (19001-19999) is published beyond loopback"; fi
 else
   skip "ss not available"
@@ -181,8 +216,12 @@ if have ufw; then
     ufw_status="$(ufw status verbose 2>/dev/null || true)"
     if printf '%s' "$ufw_status" | grep -q '^Status: active'; then
       pass "ufw active"
-      printf '%s' "$ufw_status" | grep -q 'deny (incoming)' && pass "ufw: default deny incoming" || fail "ufw default for incoming is not deny"
-      for p in 80/tcp 443/tcp; do printf '%s' "$ufw_status" | grep -q "^$p " && pass "ufw allows $p" || fail "ufw does not allow $p"; done
+      if printf '%s' "$ufw_status" | grep -q 'deny (incoming)'; then pass "ufw: default deny incoming"
+      elif [ "$SHARED_HOST" -eq 1 ]; then warn "ufw default for incoming is not deny (a shared host: its owner's policy)"
+      else fail "ufw default for incoming is not deny"; fi
+      if [ "$WEB_LOOPBACK" -eq 0 ]; then
+        for p in "$HTTP_PORT/tcp" "$HTTPS_PORT/tcp"; do if printf '%s' "$ufw_status" | grep -q "^$p "; then pass "ufw allows $p"; else fail "ufw does not allow $p"; fi; done
+      fi
       if printf '%s' "$ufw_status" | grep -E "^${SSH_PORT}/tcp +ALLOW IN +Anywhere" | grep -q .; then warn "SSH port $SSH_PORT is open to the whole internet (runbook: from the control plane only)"; else pass "SSH is not open to Anywhere"; fi
     else
       warn "ufw is not active (fine only when the provider's network firewall does the same: 80, 443, SSH from the control plane)"
