@@ -29,7 +29,8 @@ use Onhost\Providers\Shell\SshShell;
 /**
  * Penpot executor (TASK-0123): one Docker Compose project per customer service on a dedicated Penpot node, reached over SSH
  * by the platform's own user (instance options `ssh_host`, `ssh_port`, `ssh_user`, `ssh_fingerprint`; credential
- * `ssh_private_key`). The node runs Docker Engine with the compose plugin and Caddy as the reverse proxy (docs/runbooks/penpot.md).
+ * `ssh_private_key`). The node runs Docker Engine with the compose plugin and Caddy as the reverse proxy (docs/runbooks/penpot.md);
+ * a deploy user with rootless Docker is reached through the option `docker_host` (its daemon socket, exported as DOCKER_HOST).
  *
  * What it does on the node, all synchronous (a call returns when the node is done):
  *  - provision: the project directory, its files (compose, `.env` 0600 with the secrets, SMTP env), `up -d`, the proxy site;
@@ -57,6 +58,9 @@ final class PenpotDockerProvider implements BackupCapable, InfrastructureProvide
 
     /** The SSH host key fingerprint as SshShell compares it: `SHA256:` + unpadded base64 of the key's SHA-256. */
     public const FINGERPRINT_PATTERN = '/^SHA256:[A-Za-z0-9+\/]{43}$/';
+
+    /** The rootless Docker daemon of the deploy user (option `docker_host`): an absolute unix socket path, nothing else (TASK-0150). */
+    public const DOCKER_HOST_PATTERN = '#^unix:///[A-Za-z0-9._/-]{1,200}$#';
 
     /** Exit code of the port allocation when the range is full. */
     private const PORTS_EXHAUSTED = 75;
@@ -325,7 +329,7 @@ final class PenpotDockerProvider implements BackupCapable, InfrastructureProvide
         }
         // a profile that is already there keeps its password (a retried step, a repair of a running instance): it is looked up,
         // never overwritten — only the owner sets it (PenpotOwnerWorkflow)
-        $found = $this->shell()->run($this->compose($project).' exec -T penpot-backend python3 manage.py search-profile --email '.Q::arg($email), ['timeout' => 120]);
+        $found = $this->send($this->compose($project).' exec -T penpot-backend python3 manage.py search-profile --email '.Q::arg($email), ['timeout' => 120]);
         if ($found->ok() && str_contains(strtolower($found->stdout), strtolower($email))) {
             return ['created' => false];
         }
@@ -352,7 +356,7 @@ final class PenpotDockerProvider implements BackupCapable, InfrastructureProvide
         if ($port <= 0) {
             $port = (int) trim($this->run('cat '.Q::arg($this->dir(self::project($ref->remoteId)).'/.port').' 2>/dev/null || echo 0', 30, 'stack.port')->stdout);
         }
-        $result = $this->shell()->run('curl -sS -o /dev/null -w \'%{http_code}\' --max-time 10 '.Q::arg('http://127.0.0.1:'.$port.'/'), ['timeout' => 20]);
+        $result = $this->send('curl -sS -o /dev/null -w \'%{http_code}\' --max-time 10 '.Q::arg('http://127.0.0.1:'.$port.'/'), ['timeout' => 20]);
 
         return (int) trim($result->stdout);
     }
@@ -429,7 +433,7 @@ final class PenpotDockerProvider implements BackupCapable, InfrastructureProvide
         $this->run('install -m 0600 /dev/null '.Q::arg($file), 30, 'owner.file');
         $this->transport($this->root())->write($project.'/.owner-password', $password."\n");
 
-        return $this->shell()->run($this->compose($project).' exec -T penpot-backend '.$manage.' < '.Q::arg($file).'; rc=$?; rm -f '.Q::arg($file).'; exit $rc', ['timeout' => 180]);
+        return $this->send($this->compose($project).' exec -T penpot-backend '.$manage.' < '.Q::arg($file).'; rc=$?; rm -f '.Q::arg($file).'; exit $rc', ['timeout' => 180]);
     }
 
     /**
@@ -446,7 +450,7 @@ final class PenpotDockerProvider implements BackupCapable, InfrastructureProvide
         $script = 'exec 9>'.Q::arg($root.'/.ports.lock').' && flock -w 60 9 && if [ -s '.Q::arg($own).' ]; then echo "existing $(cat '.Q::arg($own).')"; else '
             .'used=$(cat '.Q::arg($root).'/*/.port 2>/dev/null); p='.$from.'; while [ $p -le '.$to.' ] && printf \'%s\n\' "$used" | grep -qx "$p"; do p=$((p+1)); done; '
             .'[ $p -le '.$to.' ] || exit '.self::PORTS_EXHAUSTED.'; echo $p > '.Q::arg($own).' && echo "new $p"; fi';
-        $result = $this->shell()->run($script, ['timeout' => 90]);
+        $result = $this->send($script, ['timeout' => 90]);
         if ($result->exitCode === self::PORTS_EXHAUSTED) {
             throw new ProviderException('penpot', ProviderErrorCode::CAPACITY, 'No free port for another Penpot stack on this node');
         }
@@ -501,9 +505,34 @@ final class PenpotDockerProvider implements BackupCapable, InfrastructureProvide
         return 'docker compose --project-directory '.Q::arg($this->dir($project)).' -p '.Q::arg($project);
     }
 
+    /**
+     * Every command the node is sent (TASK-0150). On a node whose deploy user runs rootless Docker the instance option `docker_host`
+     * names that user's daemon socket (`unix:///run/user/<uid>/docker.sock`): the Docker CLI reads it from DOCKER_HOST, so it is
+     * exported in front of the command. A value that is not a plain absolute unix socket path is refused before anything is sent.
+     *
+     * @param  array<string,mixed>  $options
+     */
+    private function send(string $command, array $options): ShellResult
+    {
+        return $this->shell()->run($this->dockerHostPrefix().$command, $options);
+    }
+
+    private function dockerHostPrefix(): string
+    {
+        $host = trim((string) $this->instance->option('docker_host', config('penpot.docker_host') ?? ''));
+        if ($host === '') {
+            return '';
+        }
+        if (preg_match(self::DOCKER_HOST_PATTERN, $host) !== 1 || str_contains($host, '/../') || str_ends_with($host, '/..')) {
+            throw new ProviderException('penpot', ProviderErrorCode::VALIDATION, 'The Penpot node option docker_host must be a unix socket path (unix:///run/user/<uid>/docker.sock); nothing is sent');
+        }
+
+        return 'DOCKER_HOST='.Q::arg($host).'; export DOCKER_HOST; ';
+    }
+
     private function run(string $command, int $timeout, string $action): ShellResult
     {
-        $result = $this->shell()->run($command, ['timeout' => $timeout]);
+        $result = $this->send($command, ['timeout' => $timeout]);
         if (! $result->ok()) {
             $tail = mb_substr(trim($result->stderr !== '' ? $result->stderr : $result->stdout), -400);
             throw new ProviderException('penpot', $result->timedOut || $result->exitCode === 255 ? ProviderErrorCode::TRANSIENT : ProviderErrorCode::UNKNOWN, "{$action} failed (exit {$result->exitCode}): {$tail}");
