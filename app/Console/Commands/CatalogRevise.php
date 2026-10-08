@@ -41,9 +41,14 @@ final class CatalogRevise extends Command
             return self::SUCCESS;
         }
         $plans = []; // target => [from, how many revisions change it]
+        $blocked = [];
         foreach (array_keys($pending) as $revision) {
             $rows = $revisions->preview($revision);
             $this->printPreview($revision, $rows);
+            foreach ($revisions->blockers($revision) as $blocker) { // owner decision I-R9: what the installation cannot deliver yet
+                $this->warn("  not ready (I-R9): {$blocker}");
+                $blocked[$revision] = true;
+            }
             foreach ($rows as $row) {
                 if ($row['kind'] === 'plan') {
                     $plans[$row['target']] = [$plans[$row['target']][0] ?? (int) $row['from'], ($plans[$row['target']][1] ?? 0) + 1];
@@ -61,6 +66,11 @@ final class CatalogRevise extends Command
             $this->info('Dry run: nothing was published. Run again with --apply to publish the new versions.');
 
             return self::SUCCESS;
+        }
+        if ($blocked !== []) { // refused before anyone is asked: the installation cannot deliver what the revision would sell
+            $this->error('Not ready: '.implode(', ', array_keys($blocked)).' — finish the steps named above first (docs/runbooks/custom-iso.md). Nothing was published.');
+
+            return self::FAILURE;
         }
         if (! $this->option('yes') && ! $this->confirm('Publish these new plan versions now?', false)) {
             $this->warn('Nothing was published.');

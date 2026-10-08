@@ -105,7 +105,13 @@ it('detects that a plan sells custom ISO from the catalogue itself', function ()
     g10Scanner(false, 'no clamd is configured');
     expect(g10Row('custom ISO virus scan passes its self-test')['ok'])->toBeTrue();
 
+    // I-R9: the revision is published only while clamd, the image volume and the Proxmox ISO storage are ready; clamd breaks afterwards
+    g10Scanner(true);
+    config(['onhost.custom_iso.org_quota_mb' => 1]);
+    $pve = pveLab();
+    $pve->forceFill(['options' => (array) $pve->options + ['custom_iso_storage' => 'isostore']])->save();
     expect(Artisan::call('onhost:catalog:revise', ['revision' => '2026-10-custom-iso', '--apply' => true, '--yes' => true]))->toBe(0);
+    g10Scanner(false, 'no clamd is configured');
 
     $row = g10Row('custom ISO virus scan passes its self-test');
     expect($row['ok'])->toBeFalse()->and($row['detail'])->toContain('no clamd is configured');

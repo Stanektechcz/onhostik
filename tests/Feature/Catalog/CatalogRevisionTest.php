@@ -17,6 +17,7 @@ use Onhost\Domain\Catalog\Models\ProductOption;
 use Onhost\Domain\Catalog\PlanPromises;
 use Onhost\Domain\Catalog\PlanVersioning;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Services\CustomIso\IsoScanner;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Platform\Audit\AuditEvent;
@@ -350,6 +351,22 @@ it('prepares the custom ISO plans as a proposal: never applied by "every revisio
         ->expectsOutputToContain('vds/vds-16 v1 → v2: custom_iso null → true; custom_iso_max_mb null → 4096')
         ->doesntExpectOutputToContain('vps/compute-2');
     $held = catalogRevisionPlan('vps', 'compute-4')->currentVersion();
+    // I-R9 (CustomIsoRevisionGateTest): published only once clamd, the image volume and the Proxmox ISO storage are ready
+    app()->instance(IsoScanner::class, new class implements IsoScanner
+    {
+        public function scan($stream): array
+        {
+            return ['result' => self::UNAVAILABLE, 'signature' => null];
+        }
+
+        public function selfTest(): array
+        {
+            return ['ok' => true, 'detail' => 'fake: EICAR found'];
+        }
+    });
+    config(['onhost.custom_iso.org_quota_mb' => 1]);
+    $pve = pveLab();
+    $pve->forceFill(['options' => (array) $pve->options + ['custom_iso_storage' => 'isostore']])->save();
     $this->artisan('onhost:catalog:revise', ['revision' => '2026-10-custom-iso', '--apply' => true, '--yes' => true])->assertSuccessful();
 
     $new = catalogRevisionPlan('vps', 'compute-4')->currentVersion();

@@ -47,6 +47,13 @@ the deletion notice follows). Audit actions: `service.iso.upload` (also `denied`
 5. **Catalogue**: the owner decides which plans include it ([proposal](../proposals/custom-iso-plans.md)); then
    `php artisan onhost:catalog:revise 2026-10-custom-iso` (dry run) and `--apply`, or publish the versions in the plan editor. Add the
    price-list line by hand (features of the version), e.g. „Vlastní ISO do 4 GB“.
+   **Order (owner decision I-R9, 2026-10-08):** the revision runs only after steps 1, 2 and 4 are green — rehearsal R15–R17, go-live
+   checklist G-4, G-5, G-7 — then the smoke upload (R19). The code enforces it (`CustomIsoReadiness`): the dry run lists every step
+   that is not ready as `not ready (I-R9): …`, and `--apply` (also `CatalogRevisions::apply` itself) refuses and publishes nothing
+   while the virus scan fails its self-test, the image root is unset, inside the web root or has less free space than one
+   organization's quota, or a usable Proxmox instance has no `custom_iso_storage` (every usable one must have it, and there must be
+   at least one). Step 3 (PHP and nginx limits) and the smoke upload stay checks by hand. The plan editor in the staff console is
+   not gated: publishing a version with `custom_iso` there by hand (four eyes) is a deliberate decision of two people.
 
 ## Manual clean-up
 
