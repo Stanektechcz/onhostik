@@ -138,6 +138,24 @@ Your services: {{url}}'.$sig['en']]],
             // ── TASK-0031: a VAT number VIES did not confirm (the consequence sentence differs for a Czech organization) ──
             'vat-number-invalid' => ['vars' => ['dic', 'dopad', 'url'], 'cs' => ['subject' => 'DIČ {{dic}} se nepodařilo ověřit ve VIES', 'body' => "DIČ {{dic}}, které máte u nás ve fakturačních údajích, se nepodařilo ověřit v systému VIES Evropské komise.\n\n{{dopad}}\n\nZkontrolujte ho prosím ve fakturačních údajích: {{url}}".$sig['cs']], 'en' => ['subject' => 'VAT number {{dic}} could not be verified in VIES', 'body' => "The VAT number {{dic}} in your billing details could not be verified in the European Commission's VIES system.\n\n{{dopad}}\n\nPlease check it in your billing details: {{url}}".$sig['en']]],
             // ── end TASK-0031 ──
+            // ── L-15 (TASK-0145): a complaint confirmed when it is made and when it is decided (§ 19 ZOS), legal.notice, cannot be switched off ──
+            'complaint-received' => ['mandatory' => true, 'vars' => ['cislo', 'predmet', 'prijato', 'lhuta', 'url'], 'cs' => ['subject' => 'Potvrzení přijetí reklamace — {{cislo}}', 'body' => 'Potvrzujeme, že jsme {{prijato}} přijali vaši reklamaci k požadavku {{cislo}}: {{predmet}}.
+
+Reklamaci vyřídíme bez zbytečného odkladu, nejpozději do {{lhuta}} (30 dní od jejího uplatnění). O vyřízení vám pošleme potvrzení s datem a způsobem vyřízení. Průběh sledujete v panelu: {{url}}'.$sig['cs']], 'en' => ['subject' => 'Your complaint was received — {{cislo}}', 'body' => 'We confirm that on {{prijato}} we received your complaint in request {{cislo}}: {{predmet}}.
+
+We will decide it without undue delay and by {{lhuta}} at the latest (30 days from when you made it). You will receive a confirmation with the date and how it was handled. Follow it in the panel: {{url}}'.$sig['en']]],
+            'complaint-resolved' => ['mandatory' => true, 'vars' => ['cislo', 'predmet', 'prijato', 'vyrizeno', 'vysledek', 'zpusob', 'url'], 'cs' => ['subject' => 'Vyřízení reklamace — {{cislo}}', 'body' => 'Vaši reklamaci k požadavku {{cislo}} ({{predmet}}), uplatněnou {{prijato}}, jsme vyřídili {{vyrizeno}}.
+
+Výsledek: reklamace {{vysledek}}.
+Způsob vyřízení: {{zpusob}}
+
+Nesouhlasíte-li s vyřízením, můžete se obrátit na Českou obchodní inspekci (mimosoudní řešení sporů, www.coi.cz). Podrobnosti v panelu: {{url}}'.$sig['cs']], 'en' => ['subject' => 'Your complaint was decided — {{cislo}}', 'body' => 'We decided your complaint in request {{cislo}} ({{predmet}}), made on {{prijato}}, on {{vyrizeno}}.
+
+Outcome: the complaint was {{vysledek}}.
+How it was handled: {{zpusob}}
+
+If you disagree, you may turn to the Czech Trade Inspection Authority (out-of-court dispute resolution, www.coi.cz). Details in the panel: {{url}}'.$sig['en']]],
+            // ── end L-15 ──
             // ── TASK-0039: staff signed on to the customer's hosting panel (permission program P0-14) — a security notice, never switched off ──
             'staff-panel-login' => ['mandatory' => true, 'vars' => ['sluzba', 'kdo', 'tiket', 'kdy', 'url'], 'cs' => ['subject' => 'Podpora ONhost se přihlásila do panelu služby {{sluzba}}', 'body' => "{{kdo}} z podpory ONhost se {{kdy}} UTC přihlásil(a) do administračního panelu služby {{sluzba}} kvůli vašemu tiketu {{tiket}}. Přihlášení je zaznamenané v auditu vaší organizace.\n\nPokud o tom nevíte nebo si to nepřejete, odpovězte prosím v tiketu: {{url}}".$sig['cs']], 'en' => ['subject' => 'ONhost support signed on to the panel of {{sluzba}}', 'body' => "{{kdo}} of ONhost support signed on to the control panel of {{sluzba}} at {{kdy}} UTC for your ticket {{tiket}}. The sign-on is recorded in your organization's audit log.\n\nIf you did not expect this or do not want it, please reply in the ticket: {{url}}".$sig['en']]],
             // ── end TASK-0039 ──

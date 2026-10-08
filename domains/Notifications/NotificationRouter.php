@@ -298,6 +298,21 @@ final class NotificationRouter
             'ticket.escalated' => $this->internal($m, 'ticket', "Eskalace {$p['number']} → L".($p['level'] ?? ''), (string) ($p['reason'] ?? ''), '/sprava/fronta', 'hot'),
             'ticket.sla_breached' => $this->internal($m, 'ticket', "SLA porušeno · {$p['number']}", (string) ($p['kind'] ?? ''), '/sprava/fronta', 'hot'),
             'ticket.resolved' => $this->customer($m, 'ticket', "Tiket {$p['number']} vyřešen", 'Ohodnoťte prosím řešení.', '/panel/tikety'),
+            // L-15 (TASK-0145): a complaint confirmed when it is made and when it is decided (§ 19 ZOS, mandatory legal notices); support hears the 30 days run out
+            'ticket.complaint.received' => (function () use ($m, $p, $email, $portal): void {
+                $day = fn (string $iso) => $iso === '' ? '—' : CarbonImmutable::parse($iso)->setTimezone((string) config('onhost.billing.timezone', 'Europe/Prague'))->format('j. n. Y');
+                $this->internal($m, 'ticket', 'Reklamace přijata · '.($p['number'] ?? ''), ($p['subject'] ?? '').' · vyřídit do '.$day((string) ($p['due_at'] ?? '')), '/sprava/fronta', 'warn');
+                $this->customer($m, 'legal.notice', 'Reklamace přijata · '.($p['number'] ?? ''), 'Uplatněna '.$day((string) ($p['received_at'] ?? '')).', vyřídíme nejpozději do '.$day((string) ($p['due_at'] ?? '')).'.', '/panel/tikety', 'info', (string) ($p['email'] ?? $email), 'complaint-received',
+                    ['cislo' => (string) ($p['number'] ?? ''), 'predmet' => (string) ($p['subject'] ?? ''), 'prijato' => $day((string) ($p['received_at'] ?? '')), 'lhuta' => $day((string) ($p['due_at'] ?? '')), 'url' => "{$portal}/panel/tikety"]);
+            })(),
+            'ticket.complaint.resolved' => (function () use ($m, $p, $email, $portal): void {
+                $day = fn (string $iso) => $iso === '' ? '—' : CarbonImmutable::parse($iso)->setTimezone((string) config('onhost.billing.timezone', 'Europe/Prague'))->format('j. n. Y');
+                $outcome = ['accepted' => 'uznána', 'partially_accepted' => 'uznána zčásti', 'rejected' => 'zamítnuta'][(string) ($p['outcome'] ?? '')] ?? (string) ($p['outcome'] ?? '');
+                $this->customer($m, 'legal.notice', 'Reklamace vyřízena · '.($p['number'] ?? ''), 'Reklamace '.$outcome.' '.$day((string) ($p['resolved_at'] ?? '')).'. '.mb_substr((string) ($p['resolution'] ?? ''), 0, 400), '/panel/tikety', 'info', (string) ($p['email'] ?? $email), 'complaint-resolved',
+                    ['cislo' => (string) ($p['number'] ?? ''), 'predmet' => (string) ($p['subject'] ?? ''), 'prijato' => $day((string) ($p['received_at'] ?? '')), 'vyrizeno' => $day((string) ($p['resolved_at'] ?? '')), 'vysledek' => $outcome, 'zpusob' => (string) ($p['resolution'] ?? ''), 'url' => "{$portal}/panel/tikety"]);
+            })(),
+            'ticket.complaint.due_soon' => $this->internal($m, 'ticket', 'Reklamace se blíží lhůtě · '.($p['number'] ?? ''), ($p['subject'] ?? '').' · zákonná lhůta 30 dní končí '.substr((string) ($p['due_at'] ?? ''), 0, 10), '/sprava/fronta', 'warn'),
+            'ticket.complaint.overdue' => $this->internal($m, 'ticket', 'Reklamace po lhůtě · '.($p['number'] ?? ''), ($p['subject'] ?? '').' · zákonná lhůta 30 dní uplynula '.substr((string) ($p['due_at'] ?? ''), 0, 10).' · vyřiďte ihned, spotřebitel může od smlouvy odstoupit', '/sprava/fronta', 'hot'),
             'ticket.handoff' => $this->internal($m, 'ticket', "Předání od AI asistenta · {$p['number']}", (string) ($p['reason'] ?? ''), '/sprava/fronta', 'warn'),
             'incident.opened' => $this->both($m, 'incident.affecting', "{$p['number']} otevřen", (string) ($p['title'] ?? ''), 'Probíhá incident', (string) ($p['title'] ?? ''), '/sprava/incidenty', '/stav', 'hot', $email, 'incident', ['incident' => $p['number'], 'nazev' => $p['title'] ?? '', 'stav' => $p['state'] ?? '', 'dopad' => $p['impact'] ?? '', 'url' => "{$portal}/stav"]),
             'incident.updated' => $this->both($m, 'incident.affecting', "{$p['number']} → {$p['state_label']}", (string) ($p['note'] ?? ''), "{$p['number']} — {$p['state_label']}", (string) ($p['note'] ?? ''), '/sprava/incidenty', '/stav', 'warn'),

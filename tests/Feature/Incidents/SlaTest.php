@@ -131,8 +131,8 @@ it('computes SLA credits from the versioned policy and issues them as a credit n
     $candidates = $this->postJson("/v1/staff/incidents/{$id}/sla-credits")->assertOk();
     expect($candidates->json())->toHaveCount(1);
     $credit = $candidates->json('0');
-    // 10 h downtime in the month → ~98.6 % availability → business band "< 99.0 → 25 %" of the 1 000 CZK monthly price
-    expect($credit['credit_percent'])->toBe(25)->and($credit['amount']['minor'])->toBe(25000)->and($credit['state'])->toBe('candidate')->and($credit['availability_pct'])->toBeLessThan(99.0)->and($credit['calculation']['policy'])->toBe('sla-business@v1');
+    // 10 h downtime in the month: Business (SLA 2026-09, L-05) pays 10 % for every started hour over 99.95 % — ten hours, capped at 100 % of the 1 000 CZK monthly price
+    expect($credit['credit_percent'])->toBe(100)->and($credit['amount']['minor'])->toBe(100000)->and($credit['state'])->toBe('candidate')->and($credit['availability_pct'])->toBeLessThan(99.0)->and($credit['calculation']['policy'])->toBe('sla-business@v1');
     expect($this->postJson("/v1/staff/incidents/{$id}/sla-credits")->json())->toHaveCount(1); // idempotent
 
     $this->postJson("/v1/staff/sla-credits/{$credit['id']}/issue")->assertStatus(409); // must be approved first
@@ -140,9 +140,9 @@ it('computes SLA credits from the versioned policy and issues them as a credit n
     $issued = $this->postJson("/v1/staff/sla-credits/{$credit['id']}/issue")->assertOk()->assertJsonPath('state', 'issued');
 
     $note = Invoice::query()->findOrFail($issued->json('credit_note_id'));
-    expect($note->type)->toBe('credit_note')->and($note->state)->toBe(Invoice::ISSUED)->and($note->total_minor)->toBe(-30250)->and($note->number)->toStartWith('DK');
+    expect($note->type)->toBe('credit_note')->and($note->state)->toBe(Invoice::ISSUED)->and($note->total_minor)->toBe(-121000)->and($note->number)->toStartWith('DK');
     $balances = app(WalletService::class)->balances($org, 'CZK');
-    expect($balances['promo']->minor)->toBe(25000)->and($balances['available']->minor)->toBe(0);
+    expect($balances['promo']->minor)->toBe(100000)->and($balances['available']->minor)->toBe(0);
     app(OutboxPublisher::class)->relayPending();
     expect(MailOutbox::query()->where('template_key', 'sla-credit')->where('to', $customer->email)->exists())->toBeTrue();
 
