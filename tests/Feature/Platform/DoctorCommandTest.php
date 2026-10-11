@@ -17,7 +17,7 @@ it('reports production readiness as warnings outside production and as a machine
     $checks = collect($report['checks']);
     expect($report['fail'])->toBe(0)->and($report['warn'])->toBeGreaterThan(0)
         ->and($checks->pluck('check')->all())->toContain('secrets driver', 'CA bundle for outbound TLS', 'provider instances registered', 'legal entity exists', 'staff MFA required', 'no development accounts', 'bank account for transfers', 'card gateway (comgate) configured')
-        ->and($checks->firstWhere('check', 'legal entity bank details real')['status'])->toBe('WARN') // seeded placeholder IBAN
+        ->and($checks->firstWhere('check', 'legal entity bank details real')['status'])->toBe('OK') // I-R15: the seeded IBAN is the operator account
         ->and($checks->firstWhere('check', 'APP_KEY set')['status'])->toBe('OK')
         ->and($checks->firstWhere('check', 'no development accounts')['status'])->toBe('OK');
 });
