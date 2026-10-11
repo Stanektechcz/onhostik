@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Incidents;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Http\Request;
 use Onhost\Domain\Incidents\Models\OnCallAlert;
@@ -311,7 +312,7 @@ final class OnCallService
             'id' => $a->id, 'event' => $a->event, 'severity' => $a->severity, 'state' => $a->state, 'title' => $a->title, 'body' => $a->body, 'surface' => $a->surface, 'provider' => $a->provider, 'paged' => $a->provider_ref !== null,
             'escalations' => (int) $a->escalations, 'escalate_after' => $a->escalate_after?->toIso8601String(), 'escalated_at' => $a->escalated_at?->toIso8601String(),
             'acked_by' => $a->acked_by, 'acked_at' => $a->acked_at?->toIso8601String(), 'resolved_by' => $a->resolved_by, 'resolved_at' => $a->resolved_at?->toIso8601String(),
-            'trace_url' => Tracer::urlFor(data_get($a->meta, 'correlation_id')), 'repeats' => (int) data_get($a->meta, 'repeats', 0), 'occurrences' => (int) $a->occurrences, 'last_seen_at' => $a->last_seen_at !== null ? \Carbon\CarbonImmutable::parse($a->last_seen_at)->toIso8601String() : null, 'aggregate' => data_get($a->meta, 'aggregate'), 'assignee' => data_get($a->meta, 'assignee'), 'at' => $a->created_at?->toIso8601String(),
+            'trace_url' => Tracer::urlFor(data_get($a->meta, 'correlation_id')), 'repeats' => (int) data_get($a->meta, 'repeats', 0), 'occurrences' => (int) $a->occurrences, 'last_seen_at' => $a->last_seen_at !== null ? CarbonImmutable::parse($a->last_seen_at)->toIso8601String() : null, 'aggregate' => data_get($a->meta, 'aggregate'), 'assignee' => data_get($a->meta, 'assignee'), 'at' => $a->created_at?->toIso8601String(),
         ];
     }
 
