@@ -103,6 +103,21 @@ it('estimates a consumer withdrawal from what was paid, and the credit it promis
     expect($given['to_credit_minor'])->toBe($estimate['to_credit']->minor);
 });
 
+it('counts the accounting day, not the UTC day, when a chargeback is estimated for a given moment (TASK-0159)', function () {
+    // 22:30 UTC is 00:30 the next day in Prague: the withdrawal counted the Prague day, the chargeback estimate the UTC day, and the
+    // two estimates of one moment differed by a day of proration (red CI between 22:00 and 24:00 UTC)
+    $this->travelTo(CarbonImmutable::parse('2026-10-11 22:30:00', 'UTC'));
+    [$service] = h3PointsHosting($this->customerWithOrganization());
+    $now = CarbonImmutable::now();
+
+    $withdrawal = app(WithdrawalService::class)->estimate($service, $now);
+    $atMoment = app(ChargebackService::class)->estimate($service, 100, $now);
+    $today = app(ChargebackService::class)->estimate($service, 100);
+
+    expect($atMoment['refund_minor'])->toBe($withdrawal['refund']->minor)
+        ->and($atMoment['refund_minor'])->toBe($today['refund_minor'])
+        ->and($atMoment['lines'][0]['days_left'])->toBe($today['lines'][0]['days_left']);
+});
 it('changes nothing for a line bought without points', function () {
     [$service] = h3PointsHosting($this->customerWithOrganization(), 0);
     $estimate = app(ChargebackService::class)->estimate($service, 100);
