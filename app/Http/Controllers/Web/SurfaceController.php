@@ -10,6 +10,7 @@ use App\Http\Support\CreditClaimsSeam;
 use App\Http\Support\CurrentOrganization;
 use App\Http\Support\PublicApiDocs;
 use App\Http\Support\PublicContentSeam;
+use App\Http\Support\ServicePageClaimsSeam;
 use App\Http\Support\SurfaceRenderer;
 use Illuminate\Http\Request;
 use Onhost\Domain\Identity\Authorization\Authorizer;
@@ -136,6 +137,11 @@ final class SurfaceController extends Controller
         }
         if ($path === 'onhost-svc-web.js' && ! config('onhost.ui.demo', false)) { // customer surfaces never name a registrar vendor (seam #20); an SLA credit is credited, not refunded (G8 item 9)
             $js = CreditClaimsSeam::apply(str_replace("'Hetzner', 'Wedos']", "'Hetzner', 'Forpsi']", (string) file_get_contents($file)), ['svc-web']);
+
+            return response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=300', 'X-Content-Type-Options' => 'nosniff']);
+        }
+        if (ServicePageClaimsSeam::covers($path) && ! config('onhost.ui.demo', false)) { // J-R2 (K8b): the invented eco figures and EPYC stock claims are not served
+            $js = ServicePageClaimsSeam::apply((string) file_get_contents($file), $path);
 
             return response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=300', 'X-Content-Type-Options' => 'nosniff']);
         }
