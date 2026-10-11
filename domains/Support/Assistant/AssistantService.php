@@ -27,6 +27,7 @@ use Onhost\Domain\Services\Commands\ServiceActionCommand;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Services\SecurityPosture;
 use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Domain\Services\ServiceHealthCheck;
 use Onhost\Domain\Services\ServiceSummary;
@@ -129,6 +130,7 @@ final class AssistantService
         private readonly SecretMask $mask,
         private readonly AssistantBudget $budget,
         private readonly CommandBus $bus,
+        private readonly SecurityPosture $posture,
     ) {}
 
     /**
@@ -738,6 +740,7 @@ final class AssistantService
             $tools[] = ['name' => 'list_services', 'description' => 'The signed-in organization\'s services with their state, enabled features and the actions each one accepts (read-only).', 'parameters' => ['type' => 'object', 'properties' => new \stdClass, 'required' => []]];
             $tools[] = ['name' => 'get_service_status', 'description' => 'Recent operations, uptime monitoring and quotas of one service (read-only).', 'parameters' => ['type' => 'object', 'properties' => ['service_id' => ['type' => 'string']], 'required' => ['service_id']]];
             $tools[] = ['name' => 'check_service', 'description' => 'Health check of one service from the platform\'s own records (no panel call): state, whether it can be managed right now, the last backup, the HTTPS certificate, uptime monitoring, operations that failed in the last day, how close it is to its limits. Returns a verdict (ok|warn|bad) and findings with a sentence each. Use it for "is my site all right", "why is it slow/down", before proposing an action.', 'parameters' => ['type' => 'object', 'properties' => ['service_id' => ['type' => 'string']], 'required' => ['service_id']]];
+            $tools[] = ['name' => 'get_security_posture', 'description' => 'Security posture of one service (read-only): a fixed list of controls, each pass, fail, unknown or not_applicable with the evidence (source and date it was observed) and advice. unknown means ONhost has not measured it or the measurement is old; it never means fine. There is no overall score: do not call a service secure.', 'parameters' => ['type' => 'object', 'properties' => ['service_id' => ['type' => 'string']], 'required' => ['service_id']]];
             $tools[] = ['name' => 'get_service_resource', 'description' => 'One read-only listing of a service: '.self::readableKinds().' (backups: the last backups with their id, state, date and size). Passwords are never included.', 'parameters' => ['type' => 'object', 'properties' => ['service_id' => ['type' => 'string'], 'kind' => ['type' => 'string']], 'required' => ['service_id', 'kind']]];
             $tools[] = ['name' => 'propose_service_action', 'description' => 'Propose one action on a service; the customer confirms it with a button the platform names. Only these can be proposed: '.AssistantProposals::describe().'. Anything else — commands, files, passwords, keys, mail forwards, redirects, deletions, or what asks for a fresh confirmation of identity — the customer does in the panel: tell them where.', 'parameters' => ['type' => 'object', 'properties' => ['service_id' => ['type' => 'string'], 'action' => ['type' => 'string'], 'params' => ['type' => 'object']], 'required' => ['service_id', 'action']]];
         }
@@ -771,6 +774,7 @@ final class AssistantService
                     'get_dns_records' => $scope !== null ? $this->dnsRecords($scope, (string) ($call['arguments']['zone'] ?? '')) : [],
                     'get_invoice' => $scope !== null ? $this->invoiceDetail($scope, (string) ($call['arguments']['number'] ?? '')) : [],
                     'check_service' => $scope !== null ? $this->checkService($scope, (string) ($call['arguments']['service_id'] ?? '')) : [],
+                    'get_security_posture' => $scope !== null ? $this->securityPosture($scope, (string) ($call['arguments']['service_id'] ?? '')) : [],
                     'get_service_resource' => $scope !== null ? $this->serviceResource($scope, (string) ($call['arguments']['service_id'] ?? ''), (string) ($call['arguments']['kind'] ?? '')) : [],
                     'propose_service_action' => $scope !== null ? $this->propose($scope, (array) $call['arguments'], $locale, $proposed) : ['ok' => false, 'error' => 'sign in first'],
                     default => ['error' => 'unknown tool'],
@@ -820,6 +824,14 @@ final class AssistantService
             'payment_reference' => $invoice->payment_reference, 'url' => '/panel#/fakturace',
             'lines' => $invoice->lines()->limit(30)->get()->map(fn ($l) => ['description' => $l->description, 'qty' => (float) $l->qty, 'net_minor' => (int) $l->net_minor, 'tax_rate' => (float) $l->tax_rate, 'total_minor' => (int) $l->total_minor, 'period' => $l->period_from ? $l->period_from->format('Y-m-d').' – '.($l->period_to?->format('Y-m-d') ?? '') : null])->all(),
         ];
+    }
+
+    /** @return array<string,mixed> the security posture of one service the person may see */
+    private function securityPosture(AssistantScope $scope, string $serviceId): array
+    {
+        $service = $scope->service($serviceId);
+
+        return $service === null ? ['error' => 'unknown service'] : $this->posture->run($service);
     }
 
     /** @return array<string,mixed> the health check of one service the person may see */

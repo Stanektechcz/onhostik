@@ -32,7 +32,7 @@ final class Freshness
     public const COLLECTION_ERROR = 'collection_error';
 
     /** @var array<string,string> source => AutomationLedger key of the collector that feeds it */
-    public const COLLECTORS = ['certificate' => 'certificates.watch', 'usage' => 'usage.watch', 'node_usage' => 'nodes.usage', 'security_headers' => 'sites.headers', 'origin' => 'sites.origin', 'dnssec' => 'dns.dnssec'];
+    public const COLLECTORS = ['certificate' => 'certificates.watch', 'usage' => 'usage.watch', 'node_usage' => 'nodes.usage', 'security_headers' => 'sites.headers', 'origin' => 'sites.origin', 'dnssec' => 'dns.dnssec', 'mail_auth' => 'mail.auth', 'integrity' => 'sites.integrity', 'audit_chain' => 'audit.verify'];
 
     /** Minutes a measurement of this source stays current; null = the source has no collector (the caller passes its own limit). */
     public static function limitMinutes(string $source): ?int

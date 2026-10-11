@@ -84,6 +84,7 @@ use Onhost\Domain\Services\CustomIso\IsoScanner;
 use Onhost\Domain\Services\DelegatedAccessReview;
 use Onhost\Domain\Services\DeletionPolicy;
 use Onhost\Domain\Services\FinalArchive;
+use Onhost\Domain\Services\Mail\MailAuthWatch;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
@@ -695,7 +696,7 @@ Artisan::command('onhost:dns:check {--limit=200}', function (PublicDnsCheck $che
     $ledger->record('dns.check', $result);
     $this->table(['checked', 'problems', 'repaired', 'told', 'errors'], [$result]);
     // the same nightly look at the public side of every site: its security headers and whether the CDN's origin address leaks; each records its own run
-    foreach (['sites.headers' => SecurityHeadersWatch::class, 'sites.origin' => OriginExposureWatch::class] as $key => $class) {
+    foreach (['sites.headers' => SecurityHeadersWatch::class, 'sites.origin' => OriginExposureWatch::class, 'mail.auth' => MailAuthWatch::class] as $key => $class) {
         if ($ledger->off($key)) {
             continue;
         }

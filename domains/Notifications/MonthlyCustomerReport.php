@@ -10,6 +10,7 @@ use Onhost\Domain\Services\Freshness;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Services\SecurityPosture;
 use Onhost\Domain\Services\ServiceHealthCheck;
 use Onhost\Domain\Services\Web\RestoreTest;
 
@@ -37,7 +38,7 @@ final class MonthlyCustomerReport
 
     private const BACKUP_FAMILIES = ['web', 'managed', 'game', 'cloud', 'data'];
 
-    public function __construct(private readonly ServiceHealthCheck $health) {}
+    public function __construct(private readonly ServiceHealthCheck $health, private readonly SecurityPosture $posture) {}
 
     /** @return array{title:string, body:string, text:string, sections:array<string,list<string>>}|null */
     public function build(Organization $organization, ?CarbonImmutable $now = null): ?array
@@ -63,6 +64,7 @@ final class MonthlyCustomerReport
             if (($restore = $this->restoreLine($service, $en)) !== null) {
                 $lines[] = $restore;
             }
+            $lines[] = $this->postureLine($this->posture->run($service, $check)['summary'], $now, $en);
             $sections[(string) $check['name']] = $lines;
         }
         $sections[$en ? 'About this report' : 'K tomuto přehledu'] = [$en
@@ -75,7 +77,7 @@ final class MonthlyCustomerReport
         }
         $title = ($en ? 'Monthly service report ' : 'Měsíční přehled služeb ').$now->format('n/Y');
 
-        return ['title' => $title, 'body' => mb_substr(implode(' · ', array_map(fn ($lines) => $lines[0] ?? '', $sections)), 0, 900), 'text' => trim($text), 'sections' => $sections];
+        return ['title' => $title, 'body' => mb_substr(implode(' · ', array_map(fn ($lines) => $lines[0], $sections)), 0, 900), 'text' => trim($text), 'sections' => $sections];
     }
 
     /** @param array{key:string, level:string, cs:string, en:string, observed_at?:?string, state?:string} $finding */
@@ -91,6 +93,21 @@ final class MonthlyCustomerReport
         $at = ($finding['observed_at'] ?? null) !== null ? CarbonImmutable::parse((string) $finding['observed_at']) : $now;
 
         return "{$label}: ".($en ? $finding['en'] : $finding['cs']).' ('.$this->checked($at, $en).')';
+    }
+
+    /**
+     * Counts only — never a verdict. "Not verified" are the controls ONhost does not measure or whose measurement is old;
+     * they are not good news and the line does not call the service secure.
+     *
+     * @param  array{pass:int, fail:int, unknown:int, not_applicable:int}  $summary
+     */
+    private function postureLine(array $summary, CarbonImmutable $now, bool $en): string
+    {
+        $label = $en ? 'Security controls' : 'Bezpečnostní kontroly';
+
+        return $en
+            ? "{$label}: {$summary['pass']} met, {$summary['fail']} not met, {$summary['unknown']} not verified (".$this->checked($now, $en).')'
+            : "{$label}: {$summary['pass']} splněno, {$summary['fail']} nesplněno, {$summary['unknown']} neověřeno (".$this->checked($now, $en).')';
     }
 
     private function backupLine(Service $service, CarbonImmutable $now, bool $en): string

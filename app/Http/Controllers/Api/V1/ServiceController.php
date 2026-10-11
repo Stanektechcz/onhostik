@@ -32,6 +32,7 @@ use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\SshKeyGrant;
 use Onhost\Domain\Services\PlanChangeService;
+use Onhost\Domain\Services\SecurityPosture;
 use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Domain\Services\ServiceHealthCheck;
 use Onhost\Domain\Services\ServiceService;
@@ -364,6 +365,12 @@ final class ServiceController extends ApiController
     public function health(Request $request, ServiceHealthCheck $health, string $service): JsonResponse
     {
         return response()->json(['data' => $health->run($this->resolve($request, $service))]);
+    }
+
+    /** The security posture of one service (W2-1): a fixed catalog of controls, each answered only from dated evidence; unmeasured is `unknown`, never `pass`. Same visibility as the health check. */
+    public function securityPosture(Request $request, SecurityPosture $posture, string $service): JsonResponse
+    {
+        return response()->json(['data' => $posture->run($this->resolve($request, $service))]);
     }
 
     /** Live listing of one resource kind (databases, ftp, cron, subdomains, certificate, redirect, php, snapshots, mailboxes, aliases, dkim, firewall). */
