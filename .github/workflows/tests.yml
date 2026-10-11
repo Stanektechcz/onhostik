@@ -138,6 +138,45 @@ jobs:
       - name: Pest on PostgreSQL (shard ${{ matrix.shard }} of 4)
         run: php artisan test --compact --shard=${{ matrix.shard }}/4
 
+  # Staging (and the planned production host) run PHP 8.5, while every other job here pins 8.3 — the lowest version
+  # composer.json allows. This job runs the same SQLite suite and the gated deployer A → B → A on PHP 8.5, so a
+  # language change (deprecation turned error, removed function) shows up here and not first on the server (J0, TASK-0151).
+  php85:
+    name: php 8.5 (pest + deployer)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: mbstring, intl, sqlite3, pdo_sqlite, gd, bcmath, sodium
+          coverage: none
+          tools: composer
+
+      - name: Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-php85-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-php85-${{ runner.os }}-
+
+      - name: Install PHP dependencies (the committed lock, on PHP 8.5)
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Prepare the application
+        run: touch .env
+
+      - name: Pest on PHP 8.5
+        run: php artisan test --compact
+
+      - name: Deployer end to end on PHP 8.5 (A → B → A)
+        run: PHP_BIN="$(command -v php)" COMPOSER_BIN="$(command -v composer)" bash infra/aapanel/ci/deploy-e2e.sh "$RUNNER_TEMP/deploy-e2e"
+
   pest-postgres:
     needs: pest-postgres-shard
     if: ${{ always() }}

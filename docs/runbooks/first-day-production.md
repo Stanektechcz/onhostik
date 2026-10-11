@@ -1,6 +1,7 @@
 # The first day in production
 
-Hour by hour, what the operator looks at on the first day after the release of go-live (G10, TASK-0119). It starts where
+Hour by hour, what the operator looks at on the first day after the release of go-live (G10, TASK-0119). The steps before H0 and
+their order are [production-plan-2026-10.md](production-plan-2026-10.md) (phase J); this page starts at its step 13. It starts where
 [go-live-checklist.md](go-live-checklist.md) (sections 0 and 10) ends: every step there is done, the final doctor run had 0 FAIL, and the
 owner's signed tag is deployed by `onhost-deploy` ([release-and-rollback.md](release-and-rollback.md)). **This page was prepared
 and has not been run**: the times are offsets from the minute the deploy printed `OK` (call it **H0**), the commands are the ones the

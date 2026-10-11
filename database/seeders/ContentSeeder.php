@@ -9,15 +9,14 @@ use Illuminate\Support\Carbon;
 use Onhost\Domain\Content\Models\ChangelogEntry;
 use Onhost\Domain\Content\Models\ContentReference;
 use Onhost\Domain\Content\Models\Location;
-use Onhost\Domain\Content\Models\StockItem;
 use Onhost\Domain\Content\StarterPosts;
 use Onhost\Domain\Support\Models\KnowledgeArticle;
 
 /**
  * Public content: the knowledge base, changelog and locations imported from the prototype (`database/seeders/data/prototype-content.json`,
  * produced by `node database/seeders/data/export-prototype-content.mjs` from onhost-content.js / onhost-data.js); the blog starts with
- * the honest starter posts (I-R17) and, outside production, two DEMO references (I-R18). The hardware stock rows mirror `stock` on
- * `#/technika` in Onhost.dc.html, without the GPU cards (I-R16).
+ * the honest starter posts (I-R17) and, outside production, two DEMO references (I-R18). No hardware stock rows (J-R1: the
+ * prototype's EPYC counts were invented; I-R16: no GPU cards).
  */
 final class ContentSeeder extends Seeder
 {
@@ -33,7 +32,9 @@ final class ContentSeeder extends Seeder
         $this->knowledgeBase($data);
         $this->changelog($data);
         $this->locations($data);
-        $this->stock();
+        // J-R1 (owner, 2026-10-11): no stock rows are seeded — the prototype's EPYC and storage rows carried invented stock counts (and
+        // I-R16 removed the GPU rows). Staff enter real stock in the console (PUT /v1/staff/content/stock); rows an earlier seed left are
+        // not served while untouched (ContentService::PROTOTYPE_STOCK).
     }
 
     /**
@@ -95,19 +96,6 @@ final class ContentSeeder extends Seeder
             Location::query()->updateOrCreate(['code' => $cs[0]], [
                 'city' => $cs[1], 'country' => ['cs' => $cs[2], 'en' => $e[2]], 'ping_ms' => (int) preg_replace('/\D/', '', (string) $cs[3]) ?: null, 'live' => (bool) $cs[4], 'sort' => $i + 1,
             ]);
-        }
-    }
-
-    private function stock(): void
-    {
-        $rows = [
-            ['epyc-9354', 'EPYC 9354', ['cs' => '32 jader / 256 GB / 4× 3,84 TB NVMe', 'en' => '32 cores / 256 GB / 4× 3.84 TB NVMe'], 890000, 24, 0, 'ok'],
-            ['epyc-9124', 'EPYC 9124', ['cs' => '16 jader / 128 GB / 2× 1,92 TB NVMe', 'en' => '16 cores / 128 GB / 2× 1.92 TB NVMe'], 490000, 41, 0, 'ok'],
-            ['storage-240', 'Storage 240 TB', ['cs' => '12× 20 TB HDD · Toshiba MG10', 'en' => '12× 20 TB HDD · Toshiba MG10'], 640000, 0, 0, 'off'],
-        ];
-        // I-R16: no GPU rows (H100, L40S are planned, not sold); an old row is not served either (ContentService::NOT_ON_SALE_STOCK)
-        foreach ($rows as $i => [$sku, $name, $spec, $price, $available, $lead, $state]) {
-            StockItem::query()->updateOrCreate(['sku' => $sku], ['name' => $name, 'spec' => $spec, 'price_minor' => $price, 'currency' => 'CZK', 'unit' => 'month', 'available' => $available, 'lead_days' => $lead, 'availability' => $state, 'sort' => $i + 1]);
         }
     }
 

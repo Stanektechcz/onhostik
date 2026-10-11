@@ -324,6 +324,9 @@ document costs nothing and one after it affects only documents issued from then 
 
 ### Blocking for production (2026-10-07, phase I)
 
+**State on 2026-10-11 and the launch order:** [production-plan-2026-10.md](production-plan-2026-10.md) (phase J, TASK-0153) carries the
+current state of every row below and of G-1 … G-15, and the order of the production steps. This table keeps the reasons.
+
 From the repository and the owner decisions of phase I (`ROZHODNUTI-podklady-I-2026-10-07.md` on the owner's desktop lists the options; the answers of 2026-10-08 are I-R1 … I-R9 in `docs/audit/2026-10-full-readiness/ROZHODNUTI.md`).
 **Blocking** = a doctor row that is FAIL in production, or a legal or money risk the owner has not accepted; **should** = a promise
 or a safeguard that is not in place, not a deploy stop by itself.

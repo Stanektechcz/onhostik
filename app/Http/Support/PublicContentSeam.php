@@ -69,6 +69,55 @@ final class PublicContentSeam
         ];
     }
 
+    /**
+     * J-R1 (owner, 2026-10-11): the invented figures come off the public site until the owner supplies real, documented ones — the
+     * eco band on the home page (heat into the grid, solar power, "the figures are placeholders"), the PUE row of the hardware cards
+     * and the "what we cover" lead of #/technika that promised waste heat and stock.
+     *
+     * @return array<string, string> anchor => replacement, each anchor once in Onhost.dc.html
+     */
+    public static function technika(): array
+    {
+        return [
+            // the home page's eco band (the change log beside it stays)
+            "      ecoKicker: 'Eko a komunita', ecoTitle: 'Servery, které topí sousedům a platí komunitní projekty'," => "      ecoKicker: 'Provoz', ecoTitle: 'Co o provozu tvrdíme, doložíme',",
+            "      ecoSub: 'Odpadní teplo z pražské serverovny jde do sítě, elektřinu bereme z fotovoltaiky a komunitních zdrojů. Část z každého tarifu se vrací do projektů, které si volí komunita.'," => "      ecoSub: 'Čísla o energii a chlazení zveřejníme, až budou změřená a doložená. Do té doby je na webu neuvádíme.',",
+            "      ecoNote: 'Čísla jsou zatím orientační — dodejte reálná a doplníme je.'," => "      ecoNote: '',",
+            "      ecoCommunity: 'Komunita', ecoCta: 'Přidat se na Discord', ecoCta2: 'Free tier pro open-source'," => "      ecoCommunity: 'Komunita', ecoCta: 'Prohlédnout služby', ecoCta2: 'Vytvořit účet',",
+            "      ecoKicker: 'Green and community', ecoTitle: 'Servers that heat the neighbours and fund community projects'," => "      ecoKicker: 'Operations', ecoTitle: 'What we claim about operations, we document',",
+            "      ecoSub: 'Waste heat from our Prague facility goes into the district network, our power comes from solar and community sources. A share of every plan flows back into projects the community picks.'," => "      ecoSub: 'We will publish energy and cooling figures once they are measured and documented. Until then the site does not state them.',",
+            "      ecoNote: 'These figures are placeholders — send us the real ones and we will drop them in.'," => "      ecoNote: '',",
+            "      ecoCommunity: 'Community', ecoCta: 'Join the Discord', ecoCta2: 'Free tier for open source'," => "      ecoCommunity: 'Community', ecoCta: 'Browse services', ecoCta2: 'Create an account',",
+            // #/technika: the lead no longer promises waste heat and stock, the hardware cards lose the PUE row
+            ', lokality, odpadní teplo a to, co máme právě teď skladem.\'' => ' a lokality.\'',
+            ', locations, waste heat and what is actually in stock right now.\'' => ' and locations.\'',
+            "        ['Chlazení dřív než výkon', 'PUE 1,18', 'Úzkým místem naší GPU haly není počet karet, ale chlazení. Kdo staví na výkon a ne na teplo, dojde na hranici o rok dřív.'],\n" => '',
+            "        ['Cooling before compute', 'PUE 1.18', 'The bottleneck in our GPU hall is cooling, not card count. Build for compute rather than heat and you hit the wall a year early.'],\n" => '',
+        ];
+    }
+
+    /**
+     * J-R1: whole blocks replaced, each `[from, to, replacement]` (from unique, cut up to the first `to` after it) — the "first year
+     * with a customer" story on #/ceny-a-sla and the "in stock right now" section of #/technika lose their markup and their data
+     * (so the story and the EPYC counts are not even in the page source), and the unused eco figures of the data object are emptied.
+     *
+     * @return list<array{0: string, 1: string, 2: string}>
+     */
+    public static function technikaBlocks(): array
+    {
+        $section = "    <div style=\"max-width:1360px;margin:0 auto;padding:52px 32px 58px\">\n";
+
+        return [
+            // markup: the story section (up to the sales section) and the stock section (up to the "engineer's day" section)
+            ["  <section style=\"border-bottom:2px solid color-mix(in srgb,var(--fg,#201e1d) 40%,transparent)\">\n".$section.'      <h2 style="font-size:40px;margin:0 0 10px;letter-spacing:-.022em;text-wrap:balance">{{ yearTitle }}</h2>', "  <section>\n", ''],
+            ["  <section style=\"background:var(--ink,#1a1918);color:#f3f2f2;border-bottom:2px solid color-mix(in srgb,var(--fg,#201e1d) 40%,transparent)\">\n".$section.'      <h6 style="color:var(--neon,#b8ff2e);margin:0 0 10px">{{ stockKicker }}</h6>', '  <section style="border-bottom:2px solid', ''],
+            // data: the story, the stock rows (the GPU rows were already rewritten by gpu()) and the eco figures
+            ["      yearTitle: cs ? 'První rok u nás, doložený'", '      glosTitle:', "      yearTitle: '', yearLead: '', yearRows: [], yearFoot: '',\n"],
+            ["      stockKicker: cs ? 'Skladem právě teď'", "      ]).map(x => ({\n        name: x[0], spec: x[1], price: x[2]", "      stockKicker: '', stockTitle: '', stockLead: '', stockFoot: '',\n      stock: ([\n"],
+            ["      ecoStats: [\n", '      ecoCommunityItems:', "      ecoStats: [],\n"],
+        ];
+    }
+
     /** The team page block, from its comment to the next key (`isMissingView`), replaced as a whole. */
     public const TEAM_FROM = "      /* ---------- Lidé v podpoře (#/lide) ---------- */\n      ppKicker:";
 

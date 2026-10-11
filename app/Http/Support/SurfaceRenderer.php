@@ -1178,6 +1178,13 @@ HTML;
             // I-R11: no invented testimonial, rating or case study — only references approved by a real customer. Last, because the vendor
             // sweep above still rewrites the prototype's customer stories, and a story that is gone is not a miss of that sweep
             $html = self::referenceSeams($html);
+            // J-R1 (TASK-0152): no invented first-year story, eco figures or EPYC stock counts until the owner documents real ones —
+            // after the vendor sweep for the same reason (the story it neutralises is then removed as a whole)
+            $tech = PublicContentSeam::technika();
+            $html = self::swap(array_keys($tech), array_values($tech), $html);
+            foreach (PublicContentSeam::technikaBlocks() as [$from, $to, $replacement]) {
+                $html = self::between($html, $from, $to, $replacement);
+            }
         }
 
         return $html;
