@@ -579,12 +579,34 @@ final class Doctor extends Command
         $this->add('documents', 'legal entity exists', $entity !== null, (string) config('onhost.billing.legal_entity', 'onhost-cz'));
         if ($entity !== null) {
             $placeholder = str_starts_with((string) $entity->iban, 'CZ0000') || (string) $entity->iban === '';
-            $this->add('documents', 'legal entity bank details real', ! $placeholder, $placeholder ? 'seeded placeholder IBAN — run LegalEntitySeeder with production values' : (string) $entity->iban);
+            $checksum = $placeholder || self::ibanChecksumValid((string) $entity->iban); // I-R15: a mistyped IBAN would put every transfer on hold
+            $this->add('documents', 'legal entity bank details real', ! $placeholder && $checksum, match (true) {
+                $placeholder => 'seeded placeholder IBAN — run LegalEntitySeeder with production values',
+                ! $checksum => 'IBAN '.$entity->iban.' has wrong check digits — correct ONHOST_BANK_IBAN and run onhost:production:prepare --legal',
+                default => (string) $entity->iban,
+            });
             $this->add('documents', 'legal entity identification', (string) $entity->ico !== '' && (string) $entity->name !== '', "{$entity->name} · IČO {$entity->ico}");
         }
         // G2: the VAT mode documents are issued in, and the way out when the declaration (ONHOST_VAT_PAYER) and the legal entity disagree
         $vat = app(VatPayerMode::class)->report();
         $this->add('documents', 'VAT payer mode', $vat['consistent'], $vat['detail'], true, $vat['remedy']);
+    }
+
+    /** ISO 13616 mod-97 check of an IBAN (letters → 10..35, country and check digits moved to the end, remainder 1). */
+    private static function ibanChecksumValid(string $iban): bool
+    {
+        $iban = strtoupper(str_replace(' ', '', $iban));
+        if (preg_match('/^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/', $iban) !== 1) {
+            return false;
+        }
+        $remainder = 0;
+        foreach (str_split(substr($iban, 4).substr($iban, 0, 4)) as $char) {
+            foreach (str_split(ctype_alpha($char) ? (string) (ord($char) - 55) : $char) as $digit) {
+                $remainder = ($remainder * 10 + (int) $digit) % 97;
+            }
+        }
+
+        return $remainder === 1;
     }
 
     private function identity(): void

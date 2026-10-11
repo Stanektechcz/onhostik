@@ -42,8 +42,8 @@ it('seeds the legal entity from the real public data and invents no VAT number',
         ->and($entity->dic)->toBeNull()->and($entity->vat_id)->toBeNull()
         ->and($entity->meta['registry'])->toContain('živnostenském rejstříku')->not->toContain('obchodním rejstříku')
         ->and(config('onhost.legal_entity.phone'))->toBe('+420 736 741 902')->and(config('onhost.legal_entity.email'))->toBe('reklamace@onhost.cz');
-    // the bank details are not public data: they stay placeholders until the owner gives them
-    expect($entity->iban)->toBe('CZ0000000000000000000000');
+    // I-R15: the owner gave the business account; the seeded entity carries it (OperatorBankAccountTest)
+    expect($entity->iban)->toBe('CZ3408000000006478243359');
 });
 
 it('prints the real identity in the documents and leaves only the attorney, the notice and the bank details to publication', function () {
