@@ -58,7 +58,7 @@ final class PartnerController extends ApiController
         }
 
         // staff see the clients' contacts and dunning; the partner's own view does not (TASK-0040, program D13)
-        return $this->ok(PartnerPresenters::partner($model, true) + ['balance' => $partners->balance($model), 'clients' => $partners->clients($model, true)->values()->all(), 'months' => $partners->commissionMonths($model)]);
+        return $this->ok(PartnerPresenters::partner($model, true) + ['balance' => $partners->balance($model), 'clients' => $partners->clients($model, true)->values()->all(), 'months' => $partners->commissionMonths($model), 'duplicates' => $partners->duplicateCommissions($model)]);
     }
 
     public function approve(Request $request, string $partner): JsonResponse
@@ -116,6 +116,17 @@ final class PartnerController extends ApiController
         return $this->dispatch(new PartnerCommand($this->onceKey($request, "payout.unfreeze:{$payout}"), ['op' => 'payout.unfreeze', 'payout_id' => $payout] + $data), $this->api->context($request, null, $data['reason']));
     }
     // ── end TASK-0040 ──
+
+    /**
+     * I-R6 (K5, TASK-0158): finance cancels the newer row of a double commission that the deploy set aside (migration 000949).
+     * HIGH, a fresh step-up and a second person (PartnerCommand); the first attempt opens the request for approval.
+     */
+    public function cancelDuplicateCommission(Request $request, string $commission): JsonResponse
+    {
+        $data = $request->validate(['reason' => ['required', 'string', 'min:10', 'max:500']]);
+
+        return $this->dispatch(new PartnerCommand($this->onceKey($request, "commission.cancel_duplicate:{$commission}"), ['op' => 'commission.cancel_duplicate', 'commission_id' => $commission] + $data), $this->api->context($request, null, $data['reason']));
+    }
 
     public function recomputeTiers(Request $request): JsonResponse
     {

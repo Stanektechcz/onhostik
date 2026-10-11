@@ -13,11 +13,15 @@ use Onhost\Platform\Eloquent\Model;
  * States (owner decision R7, TASK-0097): `pending` until 30 days after the client paid (`payable_at`), then `payable`; a payout
  * takes it `allocated`, its payment `paid`. A credit note inside the window makes it `cancelled` (given back in full) or adds a
  * pending reversal that matures with it; after the window the reversal is `payable` at once — a minus on the next payouts.
+ * The newer row of a genuine double commission is `duplicate` (set aside, never payable) until finance cancels it (K5, I-R6).
  *
  * @property Carbon|null $invoice_paid_at
  * @property Carbon|null $payable_at
  * @property Carbon|null $cancelled_at
  * @property bool $fragment
+ * @property string|null $duplicate_of_id the commission that stands, on the newer row of a double commission set aside by migration 000949 (I-R6)
+ * @property string|null $duplicate_invoice_id the invoice a set-aside row was accrued for (its invoice_id is null: it no longer claims the invoice)
+ * @property string|null $cancels_id on the reversal of a commission-only cancellation: the commission it cancels (unique)
  */
 final class PartnerCommission extends Model
 {
@@ -30,6 +34,9 @@ final class PartnerCommission extends Model
     public const PAID = 'paid';
 
     public const CANCELLED = 'cancelled';
+
+    /** The newer row of a double commission, set aside before 000950 (migration 000949, I-R6): never payable; finance cancels it (DuplicateCommissions). */
+    public const DUPLICATE = 'duplicate';
 
     protected static string $idPrefix = 'pcm';
 
