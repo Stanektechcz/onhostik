@@ -31,7 +31,7 @@ it('serves the prototype content in the shapes onhost-data.js and onhost-content
     expect($this->getJson('/v1/locations')->assertOk()->json('data.0'))->toBe(['PRG', 'Praha', 'Česko', '4 ms', 1]);
     expect($this->getJson('/v1/locations?locale=en')->json('data.2.2'))->toBe('Germany');
     $stock = $this->getJson('/v1/stock')->assertOk();
-    expect($stock->json('data'))->toHaveCount(3)->and($stock->json('data.0.0'))->toBe('EPYC 9354')->and($stock->json('data.0.4'))->toBe('24 kusů skladem')->and($stock->json('data.0.5'))->toBe('ok'); // I-R16: no GPU rows
+    expect($stock->json('data'))->toBe([]); // I-R16: no GPU rows; J-R1: no invented EPYC/storage rows either — staff enter real stock (below)
     expect($this->getJson('/v1/reseller/tiers')->assertOk()->json('data.0.m'))->toBe('20 %');
 });
 
