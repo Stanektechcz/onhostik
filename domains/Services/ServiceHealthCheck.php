@@ -5,13 +5,17 @@ declare(strict_types=1);
 namespace Onhost\Domain\Services;
 
 use Carbon\CarbonImmutable;
+use Onhost\Domain\Dns\DnssecWatch;
+use Onhost\Domain\Dns\Models\DnsZone;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Services\Models\Backup;
+use Onhost\Domain\Services\Models\CdnZone;
 use Onhost\Domain\Services\Models\ManagedCertificate;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\Models\UptimeMonitor;
 use Onhost\Domain\Services\Web\CertificateWatch;
+use Onhost\Domain\Services\Web\SecurityHeadersWatch;
 
 /**
  * "Is my service all right?" — answered from what the platform already knows, in one pass and without asking a panel:
@@ -36,6 +40,9 @@ final class ServiceHealthCheck
         if (in_array($service->family, ['web', 'managed'], true)) {
             $findings[] = $this->certificate($service);
             $findings[] = $this->monitor($service);
+            $findings[] = $this->securityHeaders($service);
+            $findings[] = $this->originExposure($service);
+            $findings[] = $this->dnssec($service);
         }
         $findings[] = $this->suspensionLeft($service);
         $findings[] = $this->operations($service);
@@ -193,6 +200,85 @@ final class ServiceHealthCheck
         return Freshness::stamp($state === 'issued'
             ? self::finding('certificate', 'ok', 'Certifikát HTTPS je vystavený.', 'The HTTPS certificate is issued.')
             : self::finding('certificate', 'warn', 'Web zatím nemá vystavený certifikát HTTPS.', 'The site has no HTTPS certificate yet.'), Freshness::assess('certificate', null));
+    }
+
+    /**
+     * What the site sends in its response headers, as the nightly look last saw it (`SecurityHeadersWatch`). Advice only; a
+     * look that failed is said as failed — and keeps the last known reading beside it — never as "fine".
+     *
+     * @return array{key:string, level:'ok'|'warn'|'bad', cs:string, en:string}|null
+     */
+    private function securityHeaders(Service $service): ?array
+    {
+        $seen = (array) data_get($service->tags, 'security_headers', []);
+        if ($seen === []) {
+            return null; // never looked at: the nightly collector has not reached this site yet
+        }
+        if (! empty($seen['error'])) {
+            $why = $seen['error'] === 'refused' ? ['adresa webu není veřejná, nic jsme neposlali', 'the address of the site is not public, nothing was sent'] : ['web neodpověděl', 'the site did not answer'];
+
+            return Freshness::stamp(self::finding('security_headers', 'warn', "Bezpečnostní hlavičky webu se nepodařilo ověřit: {$why[0]}.", "The site's security headers could not be checked: {$why[1]}."),
+                ['state' => Freshness::COLLECTION_ERROR, 'observed_at' => $seen['checked_at'] ?? null, 'age_minutes' => null]);
+        }
+        $missing = array_values(array_intersect(SecurityHeadersWatch::CHECKS, array_map('strval', (array) ($seen['missing'] ?? []))));
+        $assessment = Freshness::assess('security_headers', $seen['checked_at'] ?? null);
+        if ($missing === []) {
+            return Freshness::stamp(self::finding('security_headers', 'ok', 'Web posílá sledované bezpečnostní hlavičky (HSTS, CSP, ochrana proti vložení do rámu, nosniff, Referrer-Policy, příznaky cookies).', 'The site sends the monitored security headers (HSTS, CSP, framing protection, nosniff, Referrer-Policy, cookie flags).'), $assessment);
+        }
+        $cs = implode('; ', array_map(fn (string $k) => SecurityHeadersWatch::ADVICE[$k][0], $missing));
+        $en = implode('; ', array_map(fn (string $k) => SecurityHeadersWatch::ADVICE[$k][1], $missing));
+
+        return Freshness::stamp(self::finding('security_headers', 'warn', 'Webu chrání méně, než by mohl — doporučení (sami nic neměníme): '.$cs.'.', 'The site is less protected than it could be — advice (we change nothing ourselves): '.$en.'.'), $assessment);
+    }
+
+    /**
+     * A site behind the CDN whose node address is handed out by another public name (`OriginExposureWatch`).
+     *
+     * @return array{key:string, level:'ok'|'warn'|'bad', cs:string, en:string}|null
+     */
+    private function originExposure(Service $service): ?array
+    {
+        $seen = (array) data_get($service->tags, 'origin_exposure', []);
+        if ($seen === [] || ! CdnZone::query()->where('service_id', $service->id)->where('state', 'active')->exists()) {
+            return null;
+        }
+        $assessment = Freshness::assess('origin', $seen['checked_at'] ?? null);
+        $leaks = (array) ($seen['leaks'] ?? []);
+        if ($leaks === []) {
+            return Freshness::stamp(self::finding('origin_exposure', 'ok', 'Adresa původního serveru za CDN se z veřejného DNS nezjistí.', 'The address of the server behind the CDN cannot be found in public DNS.'), $assessment);
+        }
+        $names = implode(', ', array_slice(array_map(fn ($l) => (string) ($l['name'] ?? ''), $leaks), 0, 5));
+
+        return Freshness::stamp(self::finding('origin_exposure', 'warn',
+            "Tyto názvy v DNS prozrazují adresu původního serveru a obcházejí CDN: {$names}. Doporučení: nasměrujte je jinam (nebo je pošlete přes CDN) a zvažte omezení přístupu na server jen z adres CDN; sami nic neměníme.",
+            "These DNS names reveal the address of the origin server and bypass the CDN: {$names}. Advice: point them elsewhere (or proxy them through the CDN) and consider allowing connections to the server only from the CDN's addresses; we change nothing ourselves."), $assessment);
+    }
+
+    /**
+     * The DS record at the registry against the key our nameserver signs the domain's zone with (`DnssecWatch`). A missing or
+     * foreign DS breaks name resolution for validating resolvers, so it is `bad`; a DS that could not be read is never `ok`.
+     *
+     * @return array{key:string, level:'ok'|'warn'|'bad', cs:string, en:string}|null
+     */
+    private function dnssec(Service $service): ?array
+    {
+        $host = mb_strtolower(rtrim(trim((string) $service->hostname), '.'));
+        $zone = $host === '' ? null : DnsZone::query()->where('organization_id', $service->organization_id)->where('state', 'active')->where('dnssec', true)
+            ->get()->filter(fn (DnsZone $z) => $host === $z->name || str_ends_with($host, '.'.$z->name))->sortByDesc(fn (DnsZone $z) => strlen($z->name))->first();
+        if ($zone === null) {
+            return null;
+        }
+        $check = (array) $zone->dnssec_check;
+        $assessment = Freshness::assess('dnssec', $check['checked_at'] ?? null);
+        $name = $zone->name;
+        $finding = match ((string) ($check['state'] ?? DnssecWatch::UNKNOWN)) {
+            DnssecWatch::OK => self::finding('dnssec', 'ok', "DNSSEC domény {$name}: DS záznam u registru odpovídá našemu klíči.", "DNSSEC for {$name}: the DS record at the registry matches our key."),
+            DnssecWatch::MISSING => self::finding('dnssec', 'bad', "DNSSEC domény {$name} je zapnuté, ale registr nemá žádný DS záznam; zveřejněte DS u registru, nebo DNSSEC vypněte.", "DNSSEC is on for {$name}, but the registry holds no DS record; publish the DS at the registry, or switch DNSSEC off."),
+            DnssecWatch::MISMATCH => self::finding('dnssec', 'bad', "DS záznam u registru pro {$name} neodpovídá klíči, kterým zónu podepisujeme; validující resolvery mohou doménu přestat překládat. Zveřejněte aktuální DS, nebo DNSSEC vypněte.", "The DS record at the registry for {$name} does not match the key we sign the zone with; validating resolvers may stop resolving the domain. Publish the current DS, or switch DNSSEC off."),
+            default => self::finding('dnssec', 'warn', "DS záznam domény {$name} u registru se zatím nepodařilo ověřit.", "The DS record of {$name} at the registry could not be verified yet."),
+        };
+
+        return Freshness::stamp($finding, $assessment);
     }
 
     /** @return array{key:string, level:'ok'|'warn'|'bad', cs:string, en:string} */

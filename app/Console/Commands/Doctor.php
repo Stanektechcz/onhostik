@@ -334,6 +334,9 @@ final class Doctor extends Command
         $drifted = DnsZone::query()->whereNotNull('drift')->limit(50)->pluck('name');
         $this->add('dns', 'every DNS zone equals what its provider serves', $drifted->isEmpty(), $drifted->isEmpty() ? 'no differences at the last comparison (onhost:dns:drift, nightly)' : $drifted->count().' zone(s) differ: '.$drifted->take(5)->implode(', ').' — compare in the console and publish or import', false);
 
+        $dsBroken = DnsZone::query()->where('dnssec', true)->whereIn('dnssec_check->state', ['missing', 'mismatch', 'unknown'])->limit(50)->get(['name', 'dnssec_check']);
+        $this->add('dns', 'every signed zone has its DS at the registry', $dsBroken->isEmpty(), $dsBroken->isEmpty() ? 'the registry holds the DS of our key for every zone with DNSSEC at the last look (onhost:dns:drift, nightly)' : $dsBroken->count().' signed zone(s) without a verified DS: '.$dsBroken->take(5)->map(fn (DnsZone $z) => $z->name.' ('.data_get($z->dnssec_check, 'state').')')->implode(', ').' — missing/mismatch breaks resolution for validating resolvers: publish the DS at the registry or switch DNSSEC off; unknown = the registry could not be read', false);
+
         $unasked = DnsZone::query()->whereNotNull('drift_error')->limit(50)->get(['name', 'drift_error']);
         $this->add('dns', 'every DNS zone could be compared with its provider', $unasked->isEmpty(), $unasked->isEmpty() ? 'the provider answered for every zone at the last comparison' : $unasked->count().' zone(s) could not be compared: '.$unasked->take(5)->map(fn (DnsZone $z) => $z->name.' ('.$z->getAttribute('drift_error').')')->implode(', ').' — the provider did not answer; see the provider health and `onhost:dns:drift`', false);
 
