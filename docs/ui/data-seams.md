@@ -97,3 +97,15 @@ seam, so a deploy never serves a stale transform.
   kept `DeletionPolicy::retentionDays()`, 60 by default; `{retention_days}` in a corrected sentence is filled in by the seam).
 * **Staff sign-on** opens the one-time link only when it starts with `https:`; otherwise it says so and offers nothing.
 * **Sessions view** says before the click that ending a session renews the "remember me" token, so remembered browsers sign in again.
+
+## Public content of 2026-10-08 (TASK-0149, I-R16 to I-R19)
+
+* **GPU "připravujeme"** — `App\Http\Support\PublicContentSeam::gpu()`, applied in `SurfaceRenderer::transform()` (public, non-demo, anchors
+  counted by the seam anchor report): the mega menu card, the AI band, the service list (a text price instead of 39 / 19 Kč an hour; the
+  list's `price` map accepts a string), menus, search, the `#/technika` stock rows, the price comparison and the delivery promise.
+* **Team page `#/lide`** — the block from `/* ---------- Lidé v podpoře` to `isMissingView:` is replaced by `PublicContentSeam::team()`,
+  which reads `ONHOST_DATA.team(cs)` (`TeamRoster`) and `ONHOST_DATA.contact()` (legal entity phone and e-mail).
+* **Blog** — `ONHOST_DATA.blog(cs)` (published posts with their text, `ContentService::blog()`); the served `onhost-content.js` replaces the
+  prototype's `const blog = [...]` with it (`PublicContentSeam::contentModule()`, `SurfaceController`).
+* **References** — `ONHOST_DATA.references(cs)` now comes from `content_references` (`ContentService::references()`), edited in
+  Nastavení → Blog a reference.

@@ -103,8 +103,6 @@ final class ContentSeeder extends Seeder
         $rows = [
             ['epyc-9354', 'EPYC 9354', ['cs' => '32 jader / 256 GB / 4× 3,84 TB NVMe', 'en' => '32 cores / 256 GB / 4× 3.84 TB NVMe'], 890000, 24, 0, 'ok'],
             ['epyc-9124', 'EPYC 9124', ['cs' => '16 jader / 128 GB / 2× 1,92 TB NVMe', 'en' => '16 cores / 128 GB / 2× 1.92 TB NVMe'], 490000, 41, 0, 'ok'],
-            ['l40s', 'L40S', ['cs' => '48 GB VRAM · vLLM předinstalované', 'en' => '48 GB VRAM · vLLM preinstalled'], 1290000, 6, 0, 'warn'],
-            ['h100', 'H100', ['cs' => '80 GB VRAM · rezervace od 3 měsíců', 'en' => '80 GB VRAM · reservation from 3 months'], 3890000, 0, 5, 'off'],
             ['storage-240', 'Storage 240 TB', ['cs' => '12× 20 TB HDD · Toshiba MG10', 'en' => '12× 20 TB HDD · Toshiba MG10'], 640000, 0, 0, 'off'],
         ];
         // I-R16: no GPU rows (H100, L40S are planned, not sold); an old row is not served either (ContentService::NOT_ON_SALE_STOCK)

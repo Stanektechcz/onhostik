@@ -172,11 +172,11 @@ final class ContentEditor
         $fields = [];
         foreach (['title' => 250, 'category' => 60, 'excerpt' => 500] as $key => $max) {
             if (array_key_exists($key, $input)) {
-                $fields[$key] = array_replace($post?->{$key} ?? [], ContentText::locales($input[$key], $max, $key === 'excerpt'));
+                $fields[$key] = array_replace($post->{$key} ?? [], ContentText::locales($input[$key], $max, $key === 'excerpt'));
             }
         }
         if (array_key_exists('body', $input)) {
-            $fields['body'] = array_replace($post?->body ?? [], $this->body($input['body']));
+            $fields['body'] = array_replace($post->body ?? [], $this->body($input['body']));
         }
         if (array_key_exists('author', $input)) {
             $fields['author'] = ContentText::line($input['author'], 120) ?: null;
@@ -188,15 +188,15 @@ final class ContentEditor
                 };
             }
         }
-        $title = $fields['title'] ?? $post?->title ?? [];
-        $body = $fields['body'] ?? $post?->body ?? [];
+        $title = $fields['title'] ?? $post->title ?? [];
+        $body = $fields['body'] ?? $post->body ?? [];
         if (($title['cs'] ?? '') === '') {
             throw new DomainError('post_title_empty', 'The post needs a Czech title.', 422, ['field' => 'title.cs']);
         }
         if (($body['cs'] ?? []) === []) {
             throw new DomainError('post_body_empty', 'The post needs a Czech text.', 422, ['field' => 'body.cs']);
         }
-        if (($fields['category']['cs'] ?? $post?->category['cs'] ?? '') === '') {
+        if (($fields['category']['cs'] ?? $post->category['cs'] ?? '') === '') {
             throw new DomainError('post_category_empty', 'The post needs a Czech category.', 422, ['field' => 'category.cs']);
         }
 
@@ -233,7 +233,7 @@ final class ContentEditor
     {
         $fields = [];
         if (array_key_exists('quote', $input)) {
-            $fields['quote'] = array_replace($reference?->quote ?? [], ContentText::locales($input['quote'], 600, true));
+            $fields['quote'] = array_replace($reference->quote ?? [], ContentText::locales($input['quote'], 600, true));
         }
         if (array_key_exists('who', $input)) {
             $fields['who'] = ContentText::line($input['who'], 120);
@@ -241,7 +241,7 @@ final class ContentEditor
         if (array_key_exists('role', $input)) {
             $fields['role'] = ContentText::locales($input['role'], 160) ?: null;
         }
-        if ((($fields['quote'] ?? $reference?->quote ?? [])['cs'] ?? '') === '' || ($fields['who'] ?? $reference?->who ?? '') === '') {
+        if ((($fields['quote'] ?? $reference->quote ?? [])['cs'] ?? '') === '' || ($fields['who'] ?? $reference->who ?? '') === '') {
             throw new DomainError('reference_incomplete', 'A reference needs a Czech quote and the name of the person quoted.', 422, ['field' => 'quote.cs']);
         }
 

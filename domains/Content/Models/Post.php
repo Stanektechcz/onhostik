@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Content\Models;
 
+use Illuminate\Support\Carbon;
 use Onhost\Platform\Eloquent\Model;
 
 /**
  * Blog post / static page with per-locale title, excerpt, category and body (`[[heading, paragraph], …]`). Written by staff through
  * the ContentCommand (I-R17): `state` draft | published | archived, `revision` counts the writes (the idempotency key of an edit).
+ *
+ * @property Carbon|null $published_on
  */
 final class Post extends Model
 {
