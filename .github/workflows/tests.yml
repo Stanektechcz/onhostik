@@ -205,12 +205,17 @@ jobs:
           tools: composer
 
       - name: Shell syntax
-        run: for f in infra/aapanel/*.sh infra/aapanel/ci/*.sh infra/penpot/*.sh; do bash -n "$f" || exit 1; done
+        run: for f in infra/aapanel/*.sh infra/aapanel/ci/*.sh infra/penpot/*.sh infra/penpot/ci/*.sh; do bash -n "$f" || exit 1; done
 
       - name: ShellCheck (warnings and errors)
         run: |
           command -v shellcheck >/dev/null || { sudo apt-get update -q && sudo apt-get install -y -q shellcheck; }
-          shellcheck -S warning infra/aapanel/*.sh infra/aapanel/ci/*.sh infra/penpot/*.sh
+          shellcheck -S warning infra/aapanel/*.sh infra/aapanel/ci/*.sh infra/penpot/*.sh infra/penpot/ci/*.sh
 
       - name: Deployer end to end (A → B → A)
         run: PHP_BIN="$(command -v php)" COMPOSER_BIN="$(command -v composer)" bash infra/aapanel/ci/deploy-e2e.sh "$RUNNER_TEMP/deploy-e2e"
+
+      # J2 (TASK-0154): provision-node.sh for real on this throw-away runner, as staging Path A runs it (shared host, Caddy on
+      # loopback with local_certs, no docker group): the second run must report 0 changes and the user must stay out of docker
+      - name: Penpot node provisioning, real run twice (idempotence)
+        run: sudo --preserve-env=CI bash infra/penpot/ci/provision-twice.sh "$RUNNER_TEMP/penpot-node"

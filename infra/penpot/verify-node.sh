@@ -18,6 +18,8 @@
 #   --caddy-bind ADDR    the address Caddy listens on, as given to provision-node.sh (127.0.0.1: no web port is opened)
 #   --shared-host        the node also runs other services (a Wings game node): their listeners are WARN, not FAIL
 #   --docker-host URI    the deploy user's rootless Docker socket (provider option docker_host, unix:///run/user/<uid>/docker.sock)
+#   --local-certs        Caddy issues from its own CA behind a front proxy (provision-node.sh --local-certs): checks the
+#                        option instead of Let's Encrypt reachability
 #   --offline            skip the checks that reach the internet (registry, Let's Encrypt)
 #   -h, --help           this text
 #
@@ -38,6 +40,7 @@ HTTPS_PORT="443"
 CADDY_BIND=""
 SHARED_HOST=0
 DOCKER_HOST_URI=""
+LOCAL_CERTS=0
 STACK_ROOT="/srv/onhost-penpot"
 BACKUP_ROOT="/var/backups/onhost-penpot"
 PROXY_SITES="/etc/caddy/onhost-penpot"
@@ -55,6 +58,7 @@ while [ "$#" -gt 0 ]; do
     --caddy-bind) CADDY_BIND="${2:?}"; shift 2 ;;
     --shared-host) SHARED_HOST=1; shift ;;
     --docker-host) DOCKER_HOST_URI="${2:?}"; shift 2 ;;
+    --local-certs) LOCAL_CERTS=1; shift ;;
     --offline) OFFLINE=1; shift ;;
     -h|--help) sed -n '2,/^set -uo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1 (see --help)" >&2; exit 2 ;;
@@ -135,6 +139,9 @@ if have caddy; then
   if [ -n "$CADDY_BIND" ]; then
     if grep -Eq "^[[:space:]]*default_bind[[:space:]]+${CADDY_BIND//./\.}([[:space:]]|\$)" /etc/caddy/Caddyfile 2>/dev/null; then pass "Caddy binds $CADDY_BIND (default_bind)"; else fail "Caddyfile has no 'default_bind $CADDY_BIND'"; fi
   fi
+  if [ "$LOCAL_CERTS" -eq 1 ]; then
+    if grep -Eq '^[[:space:]]*local_certs([[:space:]]|$)' /etc/caddy/Caddyfile 2>/dev/null; then pass "Caddy issues stack certificates from its local CA (local_certs)"; else fail "Caddyfile has no 'local_certs' although the node sits behind a TLS front proxy (--local-certs)"; fi
+  fi
   for pp in "http_port:$HTTP_PORT:80" "https_port:$HTTPS_PORT:443"; do
     name="${pp%%:*}"; rest="${pp#*:}"; want="${rest%%:*}"; default="${rest##*:}"
     if [ "$want" != "$default" ] && ! grep -Eq "^[[:space:]]*${name}[[:space:]]+${want}([[:space:]]|\$)" /etc/caddy/Caddyfile 2>/dev/null; then fail "Caddyfile has no '$name $want'"; fi
@@ -152,7 +159,7 @@ if id "$DEPLOY_USER" >/dev/null 2>&1; then
   if [ "$uid" -ne 0 ]; then pass "exists, uid $uid (not root)"; else fail "$DEPLOY_USER is uid 0"; fi
   if [ -n "$DOCKER_HOST_URI" ]; then
     pass "rootless Docker ($DOCKER_HOST_URI): no docker group needed"
-    if id -nG "$DEPLOY_USER" | tr ' ' '\n' | grep -qx docker; then warn "member of the docker group although Docker is rootless: that group is root on this host's system daemon"; fi
+    if id -nG "$DEPLOY_USER" | tr ' ' '\n' | grep -qx docker; then fail "member of the docker group although Docker is rootless: that group is root on this host's system daemon (gpasswd -d $DEPLOY_USER docker, or provision-node.sh --no-docker-group)"; fi
   elif id -nG "$DEPLOY_USER" | tr ' ' '\n' | grep -qx docker; then pass "member of docker"; else fail "not a member of the docker group"; fi
   if id -nG "$DEPLOY_USER" | tr ' ' '\n' | grep -Eqx 'sudo|wheel|admin'; then fail "member of a general sudo group: the platform's user may only run the two rules in /etc/sudoers.d/onhost-penpot"; else pass "no general sudo group"; fi
   home="$(getent passwd "$DEPLOY_USER" | cut -d: -f6)"
@@ -236,7 +243,8 @@ if [ "$OFFLINE" -eq 1 ]; then
   skip "registry and ACME reachability (--offline)"
 else
   if curl -fsS -o /dev/null --max-time 15 https://registry-1.docker.io/v2/ 2>/dev/null || [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 https://registry-1.docker.io/v2/ 2>/dev/null)" = "401" ]; then pass "Docker Hub reachable (images are pulled by digest)"; else fail "Docker Hub not reachable from the node"; fi
-  if curl -fsS -o /dev/null --max-time 15 https://acme-v02.api.letsencrypt.org/directory 2>/dev/null; then pass "Let's Encrypt reachable (Caddy certificates)"; else fail "Let's Encrypt not reachable: Caddy cannot issue certificates"; fi
+  if [ "$LOCAL_CERTS" -eq 1 ]; then skip "Let's Encrypt (--local-certs: the front proxy holds the public certificate)"
+  elif curl -fsS -o /dev/null --max-time 15 https://acme-v02.api.letsencrypt.org/directory 2>/dev/null; then pass "Let's Encrypt reachable (Caddy certificates)"; else fail "Let's Encrypt not reachable: Caddy cannot issue certificates"; fi
 fi
 if [ -n "$DNS_NAME" ]; then
   resolved="$(getent ahostsv4 "$DNS_NAME" 2>/dev/null | awk 'NR==1 {print $1}')"
