@@ -42,7 +42,7 @@ it('says "připravujeme" wherever the public site offered GPU cards, with no pri
 });
 
 it('sells no GPU product and serves no GPU stock row', function () {
-    expect(Product::query()->where('slug', 'like', '%gpu%')->exists())->toBeFalse();
+    expect(Product::query()->where('key', 'like', '%gpu%')->exists())->toBeFalse();
 
     $stock = collect($this->getJson('/v1/stock')->assertOk()->json('data'))->pluck(0)->all();
     expect($stock)->not->toContain('L40S')->not->toContain('H100');
