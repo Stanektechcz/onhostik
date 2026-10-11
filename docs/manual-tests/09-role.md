@@ -24,7 +24,7 @@ Postranní menu konzole vzniká z `StaffNavigation`: položka se zobrazí, když
 
 | Role (klíč) | Název | Počet oprávnění | Položek menu |
 |---|---|---|---|
-| `platform_owner` | PlatformOwner / SuperAdmin | 114 | 47 |
+| `platform_owner` | PlatformOwner / SuperAdmin | 114 | 48 |
 | `iam_admin` | IAMAdmin | 9 | 4 |
 | `infrastructure_admin` | InfrastructureAdmin | 15 | 19 |
 | `network_admin` | NetworkAdmin | 6 | 18 |
@@ -50,15 +50,15 @@ Postranní menu konzole vzniká z `StaffNavigation`: položka se zobrazí, když
 | `support_l2` | SupportL2 | 13 | 14 |
 | `support_l3` | SupportL3 | 15 | 25 |
 | `sales` | Sales | 3 | 7 |
-| `marketing_content` | MarketingContent | 2 | 3 |
-| `product_manager` | ProductManager | 6 | 11 |
+| `marketing_content` | MarketingContent | 2 | 4 |
+| `product_manager` | ProductManager | 6 | 12 |
 | `auditor_read_only` | AuditorReadOnly | 6 | 11 |
 
 ### `platform_owner` PlatformOwner / SuperAdmin
 
 Break-glass only; never a daily account.
 
-**Očekávané menu konzole** (položek: 47):
+**Očekávané menu konzole** (položek: 48):
 
 - **Přehled**: Přehled
 - **Podpora**: Fronta tiketů, Detail tiketu
@@ -67,7 +67,7 @@ Break-glass only; never a daily account.
 - **Infrastruktura**: Infrastruktura, Běhové úlohy, Automatizace, Odchylky a úklid, Herní uzly, Šablony her, Alokace a porty, Provisioning fronta, Kapacita a nákup uzlů, Integrace providerů, Umístění tarifů, Registrátoři domén, Provoz a operace, Hromadné akce
 - **Obchod**: Obnovy a expirace, Kredity a platby, Věrnost a kampaně, Marketplace
 - **Finance**: Bankovní platby, Platební brána Comgate, Upomínky a pohledávky, Odstoupení od smlouvy, SLA kredity, Partneři, Výplaty partnerům, Reporty a výhled
-- **Produkt**: Ceník, slevy a doplňky, Tarify a verze, Navigace klientského panelu, Životní cyklus služeb, Šablony zpráv a odchozí pošta, Obsah webu
+- **Produkt**: Ceník, slevy a doplňky, Tarify a verze, Navigace klientského panelu, Životní cyklus služeb, Šablony zpráv a odchozí pošta, Obsah webu, Blog a reference
 - **Bezpečnost a compliance**: Bezpečnostní incidenty a lhůty, Zneužití (DSA), Žádosti o data
 - **Identita a schvalování**: Schvalování, Reset MFA
 
@@ -883,10 +883,10 @@ Odmítnuté akce (musí skončit chybou):
 
 Public content only.
 
-**Očekávané menu konzole** (položek: 3):
+**Očekávané menu konzole** (položek: 4):
 
 - **Přehled**: Přehled
-- **Produkt**: Obsah webu
+- **Produkt**: Obsah webu, Blog a reference
 - **Identita a schvalování**: Schvalování
 
 **Oprávnění** (2): `content.manage`, `staff.inbox.read`
@@ -909,13 +909,13 @@ Odmítnuté akce (musí skončit chybou):
 
 Catalogue, plan versions and prices, notification templates, feature flags; no customer data beyond the overview.
 
-**Očekávané menu konzole** (položek: 11):
+**Očekávané menu konzole** (položek: 12):
 
 - **Přehled**: Přehled
 - **Zákazníci**: Zákazníci
 - **Provoz**: SLO a dostupnost
 - **Finance**: Reporty a výhled
-- **Produkt**: Ceník, slevy a doplňky, Tarify a verze, Navigace klientského panelu, Životní cyklus služeb, Šablony zpráv a odchozí pošta, Obsah webu
+- **Produkt**: Ceník, slevy a doplňky, Tarify a verze, Navigace klientského panelu, Životní cyklus služeb, Šablony zpráv a odchozí pošta, Obsah webu, Blog a reference
 - **Identita a schvalování**: Schvalování
 
 **Oprávnění** (6): `catalog.manage`, `content.manage`, `feature_flag.manage`, `notification.template.manage`, `report.read`, `staff.customer.read`

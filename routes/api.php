@@ -705,6 +705,18 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
         Route::get('leads', [StaffContentController::class, 'leads']);
         Route::post('leads/{lead}/transition', [StaffContentController::class, 'transitionLead']);
         Route::put('content/posts', [StaffContentController::class, 'upsertPost']);
+        // I-R17 / I-R18 (TASK-0149): the blog and the customer references, edited in Nastavení → Blog a reference (ContentCommand)
+        Route::get('content/posts', [StaffContentController::class, 'posts']);
+        Route::post('content/posts', [StaffContentController::class, 'createPost']);
+        Route::patch('content/posts/{post}', [StaffContentController::class, 'updatePost']);
+        Route::post('content/posts/{post}/state', [StaffContentController::class, 'postState']);
+        Route::delete('content/posts/{post}', [StaffContentController::class, 'deletePost']);
+        Route::get('content/references', [StaffContentController::class, 'references']);
+        Route::post('content/references', [StaffContentController::class, 'createReference']);
+        Route::post('content/references/order', [StaffContentController::class, 'orderReferences']);
+        Route::patch('content/references/{reference}', [StaffContentController::class, 'updateReference']);
+        Route::post('content/references/{reference}/state', [StaffContentController::class, 'referenceState']);
+        Route::delete('content/references/{reference}', [StaffContentController::class, 'deleteReference']);
         Route::put('content/kb', [StaffContentController::class, 'upsertArticle']);
         Route::put('content/changelog', [StaffContentController::class, 'upsertChangelog']);
         Route::put('content/stock', [StaffContentController::class, 'upsertStock']);

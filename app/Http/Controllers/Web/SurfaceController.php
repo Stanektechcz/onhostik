@@ -9,6 +9,7 @@ use App\Http\Navigation\StaffNavigation;
 use App\Http\Support\CreditClaimsSeam;
 use App\Http\Support\CurrentOrganization;
 use App\Http\Support\PublicApiDocs;
+use App\Http\Support\PublicContentSeam;
 use App\Http\Support\SurfaceRenderer;
 use Illuminate\Http\Request;
 use Onhost\Domain\Identity\Authorization\Authorizer;
@@ -128,7 +129,8 @@ final class SurfaceController extends Controller
             return response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=300', 'X-Content-Type-Options' => 'nosniff']);
         }
         if ($path === 'onhost-content.js' && ! config('onhost.ui.demo', false)) { // credit is never paid back in cash (G8 item 9, owner decision 2026-10-05)
-            $js = CreditClaimsSeam::apply((string) file_get_contents($file), ['content']);
+            // I-R17 (TASK-0149): the blog is what staff publish (ONHOST_DATA.blog); the prototype's posts are not sent
+            $js = PublicContentSeam::contentModule(CreditClaimsSeam::apply((string) file_get_contents($file), ['content']));
 
             return response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=300', 'X-Content-Type-Options' => 'nosniff']);
         }

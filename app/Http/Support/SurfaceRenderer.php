@@ -677,6 +677,12 @@ HTML;
             $html = self::checkoutSeams($html);
             $html = self::legalClaimSeams($html); // TASK-0142: no promise the legal documents do not make (money-back, badges, bonus)
             $html = self::publicClaimSeams($html); // L-03 (TASK-0146): no factual claim the operator cannot document
+            // TASK-0149: GPU only "připravujeme" (I-R16), the real team and contacts on #/lide (I-R19), no invented reply median
+            $gpu = PublicContentSeam::gpu();
+            $html = self::swap(array_keys($gpu), array_values($gpu), $html);
+            $html = self::between($html, PublicContentSeam::TEAM_FROM, PublicContentSeam::TEAM_TO, PublicContentSeam::team());
+            $help = PublicContentSeam::articleHelp();
+            $html = self::swap(array_keys($help), array_values($help), $html);
         }
 
         // 4d. every surface's "sign out" is a prototype stub (localStorage + a toast): the bridge's OnhostSession.signOut()
@@ -1388,7 +1394,8 @@ HTML;
      * I-R11 (owner, 2026-10-08): the prototype's customer quotes (home page, every product page), the "4,9 / 5 · 380 recenzí" rating and
      * the numbered customer references are invented people and companies; only real references, approved by the customer, may be
      * published and the operator has none yet. The sections now render exactly what `ONHOST_DATA.references(cs)` carries
-     * (`onhost.content.references`: a list of `{quote, who, role}`, empty until a real one is added) and disappear while it is empty;
+     * (I-R18: the references staff publish in Nastavení → Blog a reference, `ContentService::references()`, a list of `{quote, who,
+     * role}`) and disappear while it is empty;
      * the rating chip is gone for good (an unverifiable review score is a misleading practice, L-03). The prototype stays untouched.
      */
     public static function referenceSeams(string $html): string
