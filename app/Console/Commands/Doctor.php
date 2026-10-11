@@ -34,6 +34,7 @@ use Onhost\Domain\Orders\OrderStateMachine;
 use Onhost\Domain\Platform\IsolationChecks;
 use Onhost\Domain\Platform\QueueLaneHeartbeat;
 use Onhost\Domain\Provisioning\AutomationLedger;
+use Onhost\Domain\Provisioning\CollectorHeartbeat;
 use Onhost\Domain\Provisioning\Models\IntegrationHealth;
 use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\Operation;
@@ -403,8 +404,31 @@ final class Doctor extends Command
         }
         $off = $ledger->disabled();
         $this->add('automation', 'no rule switched off', $off === [], $off === [] ? 'every rule on' : 'off: '.implode(', ', $off), false);
+        foreach (app(CollectorHeartbeat::class)->checks() as $check) {
+            $this->add($check['area'], $check['check'], $check['ok'], $check['detail'], $check['blocking']);
+        }
+        $this->auditChain($ledger);
         $backlog = $ledger->backlog();
         $this->add('automation', 'operation backlog', ! $backlog['alert'], $backlog['stale'].' operation(s) due for more than '.$backlog['age_minutes'].' min (threshold '.$backlog['threshold'].($backlog['jobs'] !== null ? ', '.$backlog['jobs'].' queued job(s)' : '').')', false);
+    }
+
+    /** The audit hash chain: the last `onhost:audit:verify` result (no full walk here); broken is blocking, a verify older than 48 h only warns. */
+    private function auditChain(AutomationLedger $ledger): void
+    {
+        $last = $ledger->last('audit.verify');
+        if ($last === null) {
+            $this->add('audit', 'audit chain verified', false, 'onhost:audit:verify has not run yet', false);
+
+            return;
+        }
+        if (($last['error'] ?? null) !== null) {
+            $this->add('audit', 'audit chain intact', false, 'BROKEN at '.($last['stats']['broken_id'] ?? '?').': '.$last['error'].' (checked '.CarbonImmutable::parse((string) $last['at'])->diffForHumans().')');
+
+            return;
+        }
+        $age = (int) CarbonImmutable::parse((string) $last['at'])->diffInHours(now(), true);
+        $this->add('audit', 'audit chain intact', true, ($last['stats']['checked'] ?? 0).' row(s) verified '.CarbonImmutable::parse((string) $last['at'])->diffForHumans());
+        $this->add('audit', 'audit chain verify is recent', $age <= 48, $age <= 48 ? 'last verify '.$age.' h ago' : 'last verify '.$age.' h ago (more than 48 h) — is the nightly onhost:audit:verify running?', false);
     }
 
     private function secretsAndTls(): void
