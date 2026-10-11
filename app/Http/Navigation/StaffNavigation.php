@@ -248,6 +248,15 @@ final class StaffNavigation
                 N::get('posts', null), N::get('kb', null), N::get('changelog', null),
                 N::write('put', 'staff/content/posts', 'content.manage'), N::write('put', 'staff/content/changelog', 'content.manage'), N::write('put', 'staff/content/kb', 'support.kb.manage'),
             ], any: ['content.manage', 'support.kb.manage']),
+            // I-R17 / I-R18 (TASK-0149): the blog and the customer references, written in a settings page through ContentCommand
+            new N('content_editor', 'product', 65, 'pen', ['cs' => 'Blog a reference', 'en' => 'Blog and references'], N::SCREEN_PAGE, '/sprava/nastaveni/obsah', [
+                N::get('staff/content/posts', 'content.manage'), N::get('staff/content/references', 'content.manage'),
+                N::write('post', 'staff/content/posts', 'content.manage'), N::write('patch', 'staff/content/posts/{post}', 'content.manage'),
+                N::write('post', 'staff/content/posts/{post}/state', 'content.manage'), N::write('delete', 'staff/content/posts/{post}', 'content.manage'),
+                N::write('post', 'staff/content/references', 'content.manage'), N::write('post', 'staff/content/references/order', 'content.manage'),
+                N::write('patch', 'staff/content/references/{reference}', 'content.manage'), N::write('post', 'staff/content/references/{reference}/state', 'content.manage'),
+                N::write('delete', 'staff/content/references/{reference}', 'content.manage'),
+            ], all: ['content.manage']),
             // ── security and compliance ──
             new N('security_incidents', 'security', 10, 'lock', ['cs' => 'Bezpečnostní incidenty a lhůty', 'en' => 'Security incidents and deadlines'], N::SCREEN_VIEW, 'opsaudit', [
                 N::get('staff/security/incidents', 'security.incident.manage'), N::get('staff/security/incidents/{case}', 'security.incident.manage'),

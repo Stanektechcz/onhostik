@@ -696,9 +696,7 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
 
     'content' => [
         'changelog_year' => 2026,
-        // I-R11 (owner, 2026-10-08): customer quotes on the public pages — ONLY real ones, approved by the person quoted. None were provided
-        // (the prototype's are invented), so the sections stay hidden. Shape per locale: [['quote' => '…', 'who' => 'Name', 'role' => 'Role, Company'], …]
-        'references' => ['cs' => [], 'en' => []],
+        // I-R18 (TASK-0149): customer references live in the database (content_references), edited in Nastavení → Blog a reference
         'domain_page_tlds' => ['cz', 'com', 'eu'], // the TLDs the domain page leads with
         'game_product' => 'game',                 // the product the game configurator sells
         'plans_product' => 'web-hosting',

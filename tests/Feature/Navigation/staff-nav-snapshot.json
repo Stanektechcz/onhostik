@@ -42,6 +42,7 @@
         "lifecycle",
         "templates",
         "content",
+        "content_editor",
         "security_incidents",
         "abuse",
         "data_requests",
@@ -454,6 +455,7 @@
     "marketing_content": [
         "dash",
         "content",
+        "content_editor",
         "approvals"
     ],
     "product_manager": [
@@ -467,6 +469,7 @@
         "lifecycle",
         "templates",
         "content",
+        "content_editor",
         "approvals"
     ],
     "auditor_read_only": [

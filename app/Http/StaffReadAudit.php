@@ -97,6 +97,8 @@ final class StaffReadAudit
     /** GET routes under /v1/staff that show no customer's data, and why. @var array<string, string> */
     public const EXEMPT = [
         'v1/staff/automation' => 'platform automation rules',
+        'v1/staff/content/posts' => 'blog posts staff write for the public site (I-R17), drafts included; no customer data',
+        'v1/staff/content/references' => 'customer references published only with the customer\'s consent (I-R18): public content, no account data',
         'v1/staff/capacity' => 'platform capacity, numbers per node',
         'v1/staff/capacity/budget' => 'platform capacity budget',
         'v1/staff/chargebacks/analytics' => 'aggregates over all chargebacks, no customer named',

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Content;
 
 use Onhost\Domain\Content\Models\ChangelogEntry;
+use Onhost\Domain\Content\Models\ContentReference;
 use Onhost\Domain\Content\Models\Lead;
 use Onhost\Domain\Content\Models\Location;
 use Onhost\Domain\Content\Models\Post;
@@ -39,6 +40,9 @@ final class ContentService
      * its own slug with the customer's approval.
      */
     public const WITHHELD_POSTS = ['migrace-z-cloudu'];
+
+    /** I-R16 (owner, 2026-10-08): GPU cards are planned, not sold — no rental row, price or stock count for them is served. */
+    public const NOT_ON_SALE_STOCK = ['l40s', 'h100'];
 
     /** @return list<array<string,mixed>> `{ slug, cat, title, excerpt, date, read, author, featured }` */
     public function posts(string $locale, ?string $category = null, string $kind = 'blog'): array
@@ -119,7 +123,7 @@ final class ContentService
     /** `[name, spec, price, unit, availability, state][]` */
     public function stock(string $locale): array
     {
-        return StockItem::query()->orderBy('sort')->get()->map(function (StockItem $s) use ($locale) {
+        return StockItem::query()->whereNotIn('sku', self::NOT_ON_SALE_STOCK)->orderBy('sort')->get()->map(function (StockItem $s) use ($locale) {
             $price = Money::minor($s->price_minor, $s->currency)->format($locale);
             $unit = $locale === 'cs' ? 'nájem / měsíc' : 'rental / month';
             $availability = match (true) {
@@ -192,6 +196,41 @@ final class ContentService
         $this->audit->record($context, 'lead.transition', 'succeeded', ['state' => $state], 'lead', $lead->id);
 
         return $lead;
+    }
+
+    /**
+     * The public blog for the generated data script (I-R17): every published post with its text, newest first, in the shape the
+     * prototype's content module renders (`onhost-content.js`: slug, cat, title, excerpt, date, read, author, featured, body).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function blog(string $locale): array
+    {
+        return Post::query()->where('kind', 'blog')->where('state', 'published')->whereNotIn('slug', self::WITHHELD_POSTS)->orderByDesc('published_on')->orderByDesc('created_at')->get()
+            ->map(fn (Post $p) => array_replace($this->postSummary($p, $locale), [
+                'date' => $p->published_on === null ? '' : ($locale === 'en' ? $p->published_on->format('j M Y') : $p->published_on->format('j. n. Y')),
+                'author' => (string) $p->author,
+                'body' => array_values(array_map(fn ($section) => [(string) ($section[0] ?? ''), (string) ($section[1] ?? '')], (array) ($p->body[$locale] ?? $p->body['cs'] ?? []))),
+            ]))->values()->all();
+    }
+
+    /**
+     * The customer references the public pages show (I-R18): published, in the editor's order, `{quote, who, role}` in the locale
+     * (Czech when the English text is missing). A DEMO row seeded outside production is shown in production only when a member of
+     * staff published it there.
+     *
+     * @return list<array{quote:string, who:string, role:string}>
+     */
+    public function references(string $locale): array
+    {
+        $query = ContentReference::query()->where('published', true)->orderBy('sort')->orderBy('created_at');
+        if (app()->environment('production')) {
+            $query->where(fn ($q) => $q->where('demo', false)->orWhereNotNull('published_by'));
+        }
+
+        return $query->get()->map(fn (ContentReference $r) => [
+            'quote' => $this->localized($r->quote, $locale), 'who' => (string) $r->who, 'role' => (string) (($r->role ?? [])[$locale] ?? ($r->role ?? [])['cs'] ?? ''),
+        ])->filter(fn (array $r) => $r['quote'] !== '' && $r['who'] !== '')->values()->all();
     }
 
     private function postSummary(Post $p, string $locale): array

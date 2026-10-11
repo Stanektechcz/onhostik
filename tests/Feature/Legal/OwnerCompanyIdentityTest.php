@@ -10,6 +10,7 @@ use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Support\Facades\Cache;
 use Onhost\Domain\Content\ContentService;
+use Onhost\Domain\Content\Models\ContentReference;
 use Onhost\Domain\Invoicing\Models\LegalEntity;
 use Onhost\Domain\Orders\LegalDocuments;
 use Onhost\Platform\Errors\DomainError;
@@ -118,18 +119,19 @@ it('serves no invented customer quote, rating or numbered reference on the publi
     expect($prototype)->toContain('Tomáš Vrba')->and(app(SurfaceRenderer::class)->transform($prototype, 'public', true))->toContain('Tomáš Vrba');
 });
 
-it('serves a reference only when a real one is configured', function () {
-    config(['onhost.content.references.cs' => [['quote' => 'Migrace proběhla bez výpadku.', 'who' => 'Jana Skutečná', 'role' => 'Studio X'], ['quote' => '', 'who' => 'Nikdo', 'role' => '']]]);
+it('serves a reference only when staff published a real one (I-R18: the references live in the database)', function () {
+    ContentReference::query()->create(['quote' => ['cs' => 'Migrace proběhla bez výpadku.'], 'who' => 'Jana Skutečná', 'role' => ['cs' => 'Studio X'], 'sort' => 1, 'published' => true]);
+    ContentReference::query()->create(['quote' => ['cs' => 'Ještě neschváleno.'], 'who' => 'Nikdo', 'sort' => 2, 'published' => false]);
     Cache::forget('surfaces:onhost-data.js');
 
     expect(i11Data($this)['data']['cs']['references'])->toBe([['quote' => 'Migrace proběhla bez výpadku.', 'who' => 'Jana Skutečná', 'role' => 'Studio X']])
-        ->and(i11Data($this)['data']['en']['references'])->toBe([]);
+        ->and(i11Data($this)['data']['en']['references'])->toBe([['quote' => 'Migrace proběhla bez výpadku.', 'who' => 'Jana Skutečná', 'role' => 'Studio X']]); // Czech when no English text
 });
 
 it('does not serve the invented migration case study of the blog', function () {
     $this->seed([ContentSeeder::class]);
     $content = app(ContentService::class);
 
-    expect(collect($content->posts('cs'))->pluck('slug')->all())->not->toContain('migrace-z-cloudu')->and(collect($content->posts('cs'))->count())->toBeGreaterThan(3);
+    expect(collect($content->posts('cs'))->pluck('slug')->all())->not->toContain('migrace-z-cloudu')->and(collect($content->posts('cs'))->count())->toBeGreaterThanOrEqual(3); // I-R17: the honest starter posts
     expect(fn () => $content->post('migrace-z-cloudu', 'cs'))->toThrow(DomainError::class);
 });

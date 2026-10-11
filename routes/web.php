@@ -113,6 +113,7 @@ Route::get('sprava/nastaveni/hromadne-akce', [SystemSettingsController::class, '
 Route::get('sprava/nastaveni/zivotni-cyklus', [SystemSettingsController::class, 'lifecycle'])->middleware(['auth:sanctum', 'token.scope'])->name('settings.lifecycle'); // audit §5ab
 Route::get('sprava/nastaveni/schvalovani', [SystemSettingsController::class, 'approvals'])->middleware(['auth:sanctum', 'token.scope'])->name('settings.approvals'); // four eyes: requests for a second person
 Route::get('sprava/nastaveni/tarify', [SystemSettingsController::class, 'plans'])->middleware(['auth:sanctum', 'token.scope'])->name('settings.plans'); // versions of a plan (H01)
+Route::get('sprava/nastaveni/obsah', [SystemSettingsController::class, 'content'])->middleware(['auth:sanctum', 'token.scope'])->name('settings.content'); // I-R17/I-R18: blog and references
 Route::get('sprava/konzole/{service}', [StaffConsoleController::class, 'show'])->middleware(['auth:sanctum', 'token.scope'])->name('staff.console'); // the staff-side server console (audit §5p-2)
 Route::get('sprava/{path?}', [SurfaceController::class, 'admin'])->where('path', '.*')->name('surface.admin');
 Route::get('partner/{path?}', [SurfaceController::class, 'partner'])->where('path', '.*')->name('surface.partner');

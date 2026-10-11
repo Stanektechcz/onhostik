@@ -51,6 +51,12 @@ final class SystemSettingsController extends Controller
         return $this->page($request, '/sprava/nastaveni/tarify', 'admin.plans');
     }
 
+    /** Nastavení systému → Blog a reference (I-R17, I-R18): posts and customer references, written through ContentCommand. */
+    public function content(Request $request): View|RedirectResponse
+    {
+        return $this->page($request, '/sprava/nastaveni/obsah', 'admin.content');
+    }
+
     /** Nastavení systému → Schvalování: requests for the second person of a critical action (four eyes, ApprovalService). */
     public function approvals(Request $request): View|RedirectResponse
     {

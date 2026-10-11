@@ -27,6 +27,8 @@ use Onhost\Domain\Compliance\Commands\ComplianceCommand;
 use Onhost\Domain\Compliance\Commands\ComplianceCommandHandler;
 use Onhost\Domain\Compliance\Commands\DataRequestCommand;
 use Onhost\Domain\Compliance\Commands\DataRequestCommandHandler;
+use Onhost\Domain\Content\Commands\ContentCommand;
+use Onhost\Domain\Content\Commands\ContentCommandHandler;
 use Onhost\Domain\Dns\Commands\DnsCommand;
 use Onhost\Domain\Dns\Commands\DnsCommandHandler;
 use Onhost\Domain\Domains\Commands\DomainCommand;
@@ -73,9 +75,9 @@ use Onhost\Domain\Orders\Listeners\FulfillPaidOrder;
 use Onhost\Domain\Orders\Listeners\ReleaseOrderReservation;
 use Onhost\Domain\Orders\Listeners\SettleOrderPayment;
 use Onhost\Domain\Organizations\Commands\CreateOrganizationCommand;
-use Onhost\Domain\Organizations\Commands\OrganizationCommand;
+use Onhost\Domain\Organizations\Commands\OrganizationCommand; // TASK-0035
 use Onhost\Domain\Organizations\Commands\OrganizationsCommandHandler;
-use Onhost\Domain\Organizations\Listeners\RevokeMemberSideDoors; // TASK-0035
+use Onhost\Domain\Organizations\Listeners\RevokeMemberSideDoors;
 use Onhost\Domain\Partners\Commands\PartnerCommand;
 use Onhost\Domain\Partners\Commands\PartnerPortalCommand;
 use Onhost\Domain\Partners\Commands\PartnersCommandHandler;
@@ -160,6 +162,7 @@ final class DomainServiceProvider extends ServiceProvider
         RemovePaymentMethodCommand::class => WalletCommandHandler::class,
         BankCommand::class => BankCommandHandler::class,
         ComgateCheckCommand::class => ComgateCheckCommandHandler::class, // H-R8: the administration's Comgate check
+        ContentCommand::class => ContentCommandHandler::class, // I-R17/I-R18: the blog and the customer references edited by staff
         PaymentRefundCommand::class => PaymentRefundCommandHandler::class, // G6: an order payment refunded to its source on a withdrawal, a bank payout confirmed
         ServiceActionCommand::class => ServicesCommandHandler::class,
         ServiceArchiveCommand::class => ServiceArchiveCommandHandler::class,
