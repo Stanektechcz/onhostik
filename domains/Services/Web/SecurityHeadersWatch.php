@@ -100,7 +100,9 @@ final class SecurityHeadersWatch
             $url = $next;
         }
 
-        return ['missing' => self::missing($response?->headers() ?? []), 'status' => (int) $response?->status()];
+        return $response instanceof Response
+            ? ['missing' => self::missing($response->headers()), 'status' => $response->status()]
+            : ['missing' => self::missing([]), 'status' => 0];
     }
 
     /** The Location of a redirect that stays on the same site over HTTPS; null when the response is not one or leaves. */

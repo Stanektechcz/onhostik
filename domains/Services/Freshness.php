@@ -38,7 +38,7 @@ final class Freshness
     public static function limitMinutes(string $source): ?int
     {
         $key = self::COLLECTORS[$source] ?? null;
-        $collector = $key !== null ? (CollectorHeartbeat::EXPECTED[$key] ?? null) : null;
+        $collector = $key !== null ? CollectorHeartbeat::EXPECTED[$key] : null;
 
         return $collector !== null ? $collector['minutes'] * CollectorHeartbeat::GRACE_FACTOR : null;
     }

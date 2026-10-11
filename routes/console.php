@@ -443,7 +443,7 @@ Artisan::command('onhost:audit:verify {--max= : stop after this many rows}', fun
     $ledger->record('audit.verify', ['checked' => $result['checked'], 'ok' => $result['ok'], 'broken_id' => $result['broken_id']], $result['ok'] ? null : (string) $result['reason']);
     $this->{$result['ok'] ? 'info' : 'error'}($result['ok'] ? "audit chain intact, {$result['checked']} row(s) checked" : "audit chain BROKEN at row {$result['broken_at']} ({$result['broken_id']}): {$result['reason']}");
 
-    return $result['ok'] ? self::SUCCESS : self::FAILURE;
+    return $result['ok'] ? 0 : 1;
 })->purpose('Walk the audit hash chain and report the first broken link (edited, removed or inserted row)');
 
 Artisan::command('onhost:ledger:verify', function (LedgerService $ledger) {
