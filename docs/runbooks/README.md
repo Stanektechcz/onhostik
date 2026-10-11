@@ -35,6 +35,7 @@ recorded in the hash-chained audit log. Never edit rows in the database during a
 | [penpot.md](penpot.md) | Penpot for web hosting (H8): the delivery model (one compose stack per service on a dedicated Penpot node), the server prerequisites before the first sale, the node build scripts (`infra/penpot/`) with run order, sizing and rollback, secrets, backups, outages, upgrades |
 | [staging-rehearsal-2026-10.md](staging-rehearsal-2026-10.md) | The go-live rehearsal on staging (H6): numbered steps R0–R24 with precondition, command, expected result, doctor rows, rollback and the owner's yes per step, plus the protocol table to fill in — prepared, not executed |
 | [staging-rehearsal-2026-10-07.md](staging-rehearsal-2026-10-07.md) | Protocol of the rehearsal (phase I, I6): header, step log R0–R24 with the owner's yes per step, the R1/R23 doctor rows, outputs only (no secrets) — skeleton, no step run yet |
+| [staging-rehearsal-2026-10-11.md](staging-rehearsal-2026-10-11.md) | Protocol of the phase J rehearsal (J3): frozen deploy target and gate prediction of J1, step log A–C, `--legal`, Penpot D–G, R3–R24, R25, G2 with the owner's yes per step — opened, no step run yet |
 
 On-call rotation, escalation contacts and SLA classes are in `docs/sre/` and `config/onhost.php` (`sla`).
 
