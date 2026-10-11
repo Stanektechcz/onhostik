@@ -98,7 +98,21 @@ final class ServiceHealthCheck
     /** @return array{key:string, level:'ok'|'warn'|'bad', cs:string, en:string} */
     private function backup(Service $service): array
     {
-        $last = Backup::query()->where('service_id', $service->id)->where('state', 'completed')->where('kind', '!=', 'final')->orderByDesc('finished_at')->first();
+        $base = Backup::query()->where('service_id', $service->id)->where('state', 'completed')->where('kind', '!=', 'final')->orderByDesc('finished_at');
+        $newest = (clone $base)->first();
+        // a set that lacks a database is not the latest good backup: the previous whole one is
+        $last = (clone $base)->whereNull('meta->incomplete')->first();
+        if ($newest !== null && $newest->finished_at !== null && $newest->id !== $last?->id && data_get($newest->meta, 'incomplete') !== null) {
+            $lacks = BackupCompleteness::missingOf($newest);
+            $what = $lacks !== [] ? 'chybí DB '.implode(', ', $lacks) : 'zálohu se nepodařilo přečíst celou';
+            $whatEn = $lacks !== [] ? 'database '.implode(', ', $lacks).' is missing' : 'it could not be read back in full';
+            $good = $last?->finished_at;
+
+            return Freshness::stamp(self::finding('backup', 'warn',
+                "Poslední záloha je neúplná ({$newest->finished_at->format('j. n. Y H:i')}): {$what}. ".($good !== null ? 'Poslední úplná záloha: '.$good->format('j. n. Y H:i').'.' : 'Úplnou zálohu zatím nemáme.'),
+                "The last backup is incomplete ({$newest->finished_at->format('j. n. Y H:i')}): {$whatEn}. ".($good !== null ? 'Last complete backup: '.$good->format('j. n. Y H:i').'.' : 'There is no complete backup yet.')),
+                Freshness::assess('backup', $good, max(1, (int) config('onhost.backups.coverage_days', 3)) * 1440));
+        }
         if ($last === null || $last->finished_at === null) {
             return Freshness::stamp(self::finding('backup', 'warn', 'Služba zatím nemá žádnou dokončenou zálohu.', 'The service has no finished backup yet.'), Freshness::assess('backup', null));
         }
