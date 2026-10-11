@@ -14,6 +14,35 @@ Status: **HAVE** = exists in the repository, **PARTIAL** = exists but incomplete
 judged from the repository, look at the deployed site. "Repo" names where the thing lives; the prototype pages in `apps/surfaces` stay
 byte-identical, so any change to what a visitor sees goes through the seams (`apps/surfaces/api/*`, `SurfaceRenderer`).
 
+## 0. State of rows 1–17 after phase J (J4, TASK-0155, 2026-10-11)
+
+Read from the repository and the tests; **not yet looked at in a browser** (package J7) and **not on a deployed site** (decision 2).
+The table in section 1 keeps the reasoning; this one is the current answer.
+
+| # | Status now | What changed in J4 / what is left |
+| --- | --- | --- |
+| 1 | PARTIAL | Footer: identity line (`LegalIdentitySeam`, TASK-0147) + the new legal block (`PublicLegalLinks`). Left: the entity row in each database (`onhost:production:prepare --legal`, B2) |
+| 2 | PARTIAL | Phone and complaints e-mail shown (I-R11). Left: support hours — owner input (decision 7) |
+| 3 | HAVE | VOP linked from the footer of every page (only the version in force) |
+| 4 | PARTIAL | The complaints rules exist as the `2026-10` draft (`complaints`, slug `reklamacni-rad`); the footer links them **automatically once published** — after the lawyer (decision 6, C-R10b) |
+| 5 | HAVE / lawyer | Linked from the footer; naming Comgate as processor is for the lawyer (draft texts) |
+| 6 | VERIFY | The cookie listing is part of J7 (browser) |
+| 7 | HAVE | Withdrawal document linked from the footer |
+| 8 | HAVE | Unchanged (VOP 2.3, 8.1; statutory refunds to the original method, L-09) |
+| 9 | HAVE | Prices in Kč; the footer of every page says *Nejsme plátci DPH, ceny jsou konečné.* (L-10, TASK-0146). Left: the accountant's confirmation of the wording (decision 7) |
+| 10 | PARTIAL | The checkout says when the service runs (`OnhostCart.eta`); the product cards do not repeat it |
+| 11 | HAVE (logos: owner) | Only what is delivered: card through the gateway **only while the gateway has its credentials** (`ONHOST_DATA.cardPayments()`; without them the cart offers and starts on the bank transfer) and the bank transfer with a pro forma invoice. Left: official Comgate and card-scheme logos (decision 7, after the account) |
+| 12 | PARTIAL | A card order without gateway credentials is refused up front with a plain Czech sentence that names the bank transfer, before a guest account is created and without any request to the gateway (`CardPayments`, `payment_card_unavailable` 409; it used to create the account and come back as a provider error). Left: the walk-through as a stranger on the deployed site (J7), the reviewer's demo account (owner) |
+| 13 | MISSING | Which environment Comgate reviews — decision 2 (recommended: the pre-launch variant of `production-plan-2026-10.md` §5) |
+| 14 | HAVE | Unchanged |
+| 15 | HAVE | Unchanged |
+| 16 | HAVE | The footer links the Czech Trade Inspection's out-of-court dispute resolution (`https://adr.coi.cz/cs`). No EU ODR link: the platform was shut down on 20 July 2025 (Regulation (EU) 2024/3228, L-13) |
+| 17 | PARTIAL | Unchanged; the new footer block is Czech and English |
+
+Engineering packages of section 3: **C-R10a done** (J4), **C-R10b** waits for the lawyer (the link appears by itself on publication),
+**C-R10c done** (tile list follows the gateway), **C-R10d done** (footer VAT line since TASK-0146, checkout activation time),
+**C-R10e done** (`CardPayments`). No request was made to Comgate (tests use `Http::preventStrayRequests()`).
+
 ## 1. Checklist
 
 | # | What the reviewer expects on the public site | Repo state | Status | What to do |

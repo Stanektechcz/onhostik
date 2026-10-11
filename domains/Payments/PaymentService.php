@@ -74,6 +74,9 @@ final class PaymentService
         if ($existing !== null) {
             return $existing;
         }
+        // C-R10e (J4): a gateway without its credentials is never called (an order, an invoice, a top-up): a plain refusal
+        // that names the bank transfer instead of a provider error after a request with empty credentials
+        app(CardPayments::class)->assertAvailable($providerKey === null ? null : (string) $providerKey);
         // stored methods (audit §5f-1): the customer's saved card is resolved here and its token handed to the provider; the flag to keep a new card rides on the intent
         $stored = null;
         if (! empty($options['stored_method_id'])) {
