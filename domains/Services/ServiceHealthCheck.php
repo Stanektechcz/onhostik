@@ -17,6 +17,7 @@ use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\Models\UptimeMonitor;
 use Onhost\Domain\Services\Penpot\PenpotHealth;
+use Onhost\Domain\Services\Vulnerability\VulnerabilityFinding;
 use Onhost\Domain\Services\Web\CertificateWatch;
 use Onhost\Domain\Services\Web\SecurityHeadersWatch;
 
@@ -49,6 +50,7 @@ final class ServiceHealthCheck
             $findings[] = $this->securityHeaders($service);
             $findings[] = $this->originExposure($service);
             $findings[] = $this->dnssec($service);
+            $findings[] = VulnerabilityFinding::for($service); // W2-2: possibly affected components, from the nightly match of KEV/EPSS
         }
         if (in_array($service->family, ['web', 'managed', 'mail'], true)) {
             $findings[] = $this->mailAuth($service);

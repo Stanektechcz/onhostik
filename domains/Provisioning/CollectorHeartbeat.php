@@ -25,6 +25,8 @@ final class CollectorHeartbeat
         'sites.origin' => ['name' => 'CDN origin exposure', 'minutes' => 1440],
         'dns.dnssec' => ['name' => 'DNSSEC DS at the registry', 'minutes' => 1440],
         'mail.auth' => ['name' => 'mail authentication (SPF, DKIM, DMARC)', 'minutes' => 1440],
+        'vulns.feed' => ['name' => 'vulnerability feeds (CISA KEV, FIRST EPSS)', 'minutes' => 1440],
+        'vulns.match' => ['name' => 'vulnerability match against site components', 'minutes' => 1440, 'needs' => 'vulns.feed'],
         'sites.integrity' => ['name' => 'site integrity', 'minutes' => 1440],
         'mail.blocklist' => ['name' => 'mail blocklists', 'minutes' => 1440],
         'metering.rollup' => ['name' => 'usage rollup', 'minutes' => 1440],

@@ -94,6 +94,8 @@ use Onhost\Domain\Services\ServiceIdentityCheck;
 use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\Services\SshKeyLedger;
 use Onhost\Domain\Services\UsageWatch;
+use Onhost\Domain\Services\Vulnerability\VulnerabilityFeedSync;
+use Onhost\Domain\Services\Vulnerability\VulnerabilityMatcher;
 use Onhost\Domain\Services\Web\BackupScheduler;
 use Onhost\Domain\Services\Web\CdnService;
 use Onhost\Domain\Services\Web\CertificateAutoIssuer;
@@ -538,6 +540,7 @@ Schedule::command('onhost:nodes:check')->dailyAt('05:20')->withoutOverlapping()-
 Schedule::command('onhost:nodes:usage')->everyFifteenMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:sites:integrity')->dailyAt('04:40')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:dns:check')->dailyAt('05:10')->withoutOverlapping()->onOneServer();
+Schedule::command('onhost:vulns:sync')->dailyAt('04:20')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:mail:blocklist')->dailyAt('05:25')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:digest:staff-daily')->dailyAt('07:15')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:ledger:verify')->dailyAt('05:00')->onOneServer();
@@ -719,6 +722,30 @@ Artisan::command('onhost:mail:blocklist {--limit=200}', function (BlocklistCheck
     $ledger->record('mail.blocklist', $result);
     $this->table(['checked', 'listed', 'told', 'errors'], [$result]);
 })->purpose('Ask the mail blocklists whether the address a node sends from is listed: one spammer on a shared node makes every other customer on it bounce');
+
+Artisan::command('onhost:vulns:sync', function (VulnerabilityFeedSync $feeds, VulnerabilityMatcher $matcher, AutomationLedger $ledger) {
+    if ($ledger->off('vulns.feed')) {
+        $this->warn('switched off by staff (console → automation)');
+
+        return;
+    }
+    // 1. our copy of CISA KEV + FIRST EPSS (a failed fetch keeps the last good copy and is recorded as the collector's error)
+    $result = $feeds->run();
+    $ledger->record('vulns.feed', $result, $result['kev'] === 'error' ? ($result['error'] ?? 'KEV fetch failed') : null);
+    $this->table(['kev', 'epss', 'entries', 'scored', 'error'], [[$result['kev'], $result['epss'], $result['entries'], $result['scored'], $result['error'] ?? '']]);
+    // 2. the copy next to what the WordPress toolkit knows about each site: advice only
+    if ($ledger->off('vulns.match')) {
+        return;
+    }
+    try {
+        $match = $matcher->run();
+        $ledger->record('vulns.match', $match, $match['no_feed'] ? 'no copy of the vulnerability feeds yet' : null);
+        $this->table(['checked', 'matched', 'kev', 'no_inventory', 'errors'], [[$match['checked'], $match['matched'], $match['kev'], $match['no_inventory'], $match['errors']]]);
+    } catch (Throwable $e) {
+        $ledger->record('vulns.match', [], mb_substr($e->getMessage(), 0, 200));
+        $this->warn('vulns.match failed: '.$e->getMessage());
+    }
+})->purpose('Copy the public vulnerability feeds (CISA known exploited, FIRST EPSS) and compare them with the WordPress components ONhost knows each site runs: "possibly affected — verify the version", never an update');
 
 Artisan::command('onhost:nodes:check', function (NodePrerequisites $prerequisites, AutomationLedger $ledger) {
     if ($ledger->off('nodes.check')) {

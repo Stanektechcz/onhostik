@@ -33,6 +33,14 @@ return [
         // authority's duplicate-certificate allowance
         'watch_renew_days' => (int) env('ONHOST_CERT_WATCH_RENEW_DAYS', 10),
     ],
+    // W2-2: public vulnerability feeds read daily (CISA KEV, FIRST EPSS) through EgressGuard; a copy older than stale_days is "stale", never "fine"
+    'vuln' => [
+        'kev_url' => env('ONHOST_VULN_KEV_URL', 'https://raw.githubusercontent.com/cisagov/kev-data/develop/known_exploited_vulnerabilities.json'),
+        'epss_url' => env('ONHOST_VULN_EPSS_URL', 'https://api.first.org/data/v1/epss'),
+        'timeout_seconds' => (int) env('ONHOST_VULN_TIMEOUT', 30),
+        'stale_days' => 3,
+        'epss_high' => 0.5,
+    ],
     'egress' => [ // destinations a CUSTOMER names (uptime checks, webhooks, import URLs): public addresses only (EgressGuard)
         'node_service_ports' => [22, 25, 80, 443, 2022, 3306, 5432, 6379, 8006, 8080, 8081, 8443, 8888, 9000, 11211, 27017], // loopback ports of a node a customer's reverse proxy may not point at (panels, databases, caches)
         'deny_cidrs' => array_values(array_filter(array_map('trim', explode(',', (string) env('ONHOST_EGRESS_DENY_CIDRS', ''))))),   // the operator's own public management ranges

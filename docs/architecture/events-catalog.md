@@ -352,3 +352,11 @@ vault entry (`ForgetPenpotSecrets`).
 | `penpot.instance.recovered` | service | `label` — an instance that was reported unreachable answers again; the customer in-app | PenpotSweep |
 | `penpot.owner_password.changed` | service | `label`, `owner_email`, `actor_id` — the password of the owner's Penpot account was set (never the password); the customer in-app (warn: "if it was not you…") | PenpotOwnerWorkflow |
 <!-- TASK-0123 penpot: end -->
+
+<!-- W2-2 vulnerability priority: begin -->
+Vulnerability priority (CISA KEV + FIRST EPSS compared with the WordPress components ONhost knows each site runs). Advice only; nothing is updated.
+
+| Event | Aggregate | Payload / meaning | Source |
+| --- | --- | --- | --- |
+| `vulnerability.priority.detected` | service | `cve`, `kind` (core/plugin/theme), `component` (slug), `priority` (`kev`), `basis` (`product_name`: matched by name, the version is NOT evaluated — "possibly affected, verify the version") — a component of the site is the product of a CISA known-exploited entry that this site had no match for the day before. Not routed to the customer yet; staff see the list at `GET /v1/staff/vulnerabilities` | VulnerabilityMatcher (`onhost:vulns:sync`) |
+<!-- W2-2 vulnerability priority: end -->

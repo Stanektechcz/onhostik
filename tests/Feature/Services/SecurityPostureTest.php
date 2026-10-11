@@ -47,9 +47,10 @@ it('lists the whole catalog and answers unknown for what nobody measured', funct
     $controls = collect($result['controls'])->keyBy('id');
 
     expect($controls->keys()->all())->toBe(array_keys(SecurityPosture::CATALOG))->and($controls)->toHaveCount(22);
-    foreach (['iam-access-review', 'server-patching', 'ssh-hardening', 'web-input-validation', 'web-dependency-updates', 'secrets-management', 'deploy-rollback', 'incident-response', 'agent-prompt-injection', 'agent-action-scope'] as $id) {
+    foreach (['iam-access-review', 'server-patching', 'ssh-hardening', 'web-input-validation', 'secrets-management', 'deploy-rollback', 'incident-response', 'agent-prompt-injection', 'agent-action-scope'] as $id) {
         expect($controls[$id]['status'])->toBe('unknown')->and($controls[$id]['note']['cs'])->toBe('ONhost toto zatím neměří.')->and($controls[$id]['note']['en'])->toBe('ONhost does not measure this yet.');
     }
+    expect($controls['web-dependency-updates']['status'])->toBe('unknown')->and($controls['web-dependency-updates']['note']['en'])->toContain('does not measure this yet'); // W2-2: measured only for WordPress components it can see
     // a fresh site: nothing of the nightly collectors has looked at it
     foreach (['web-security-headers', 'web-session-security', 'web-upload-isolation', 'backup-restore', 'dns-change-control', 'network-exposure'] as $id) {
         expect($controls[$id]['status'])->toBe('unknown');

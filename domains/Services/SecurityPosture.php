@@ -122,10 +122,27 @@ final class SecurityPosture
             'backup-restore' => $this->restore($service),
             'backup-protection' => $this->fromFinding($findings['backup'] ?? null, 'backup'),
             'mail-authentication' => $this->mail($service, $findings['mail_auth'] ?? null),
+            'web-dependency-updates' => $this->dependencies($findings['vulnerabilities'] ?? null),
             'dns-change-control' => $this->fromFinding($findings['dnssec'] ?? null, 'dnssec', ['cs' => 'ONhost toto zatím neměří; ověřuje jen DS záznam u domén s DNSSEC zapnutým v naší DNS zóně.', 'en' => 'ONhost does not measure this yet; it only verifies the DS record of domains with DNSSEC switched on in our DNS zone.']),
             'monitoring-audit' => $this->monitoring($service),
             default => $this->unmeasured(),
         };
+    }
+
+    /**
+     * Known-exploited / likely-exploited vulnerabilities among the components ONhost can see (W2-2). A pass is worded for what it is:
+     * no match by NAME among the WordPress components the toolkit read, not a statement that every version is patched.
+     *
+     * @param  ?array<string,mixed>  $finding
+     */
+    private function dependencies(?array $finding): array
+    {
+        $result = $this->fromFinding($finding, 'vulnerabilities', ['cs' => 'ONhost toto zatím neměří; porovnává jen zásuvné moduly a šablony WordPressu, které zná, a to podle názvů.', 'en' => 'ONhost does not measure this yet; it only compares the WordPress plugins and themes it knows about, by name.']);
+        if ($result['status'] === self::PASS) {
+            $result['note'] = ['cs' => 'Bez shody podle názvu mezi součástmi, které ONhost zná (WordPress); verze ani zranitelnosti mimo seznamy CISA KEV a EPSS neposuzuje.', 'en' => 'No match by name among the components ONhost knows (WordPress); it judges neither versions nor vulnerabilities outside the CISA KEV and EPSS lists.'];
+        }
+
+        return $result;
     }
 
     /** No source of evidence exists for this control. */

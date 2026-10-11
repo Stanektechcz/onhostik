@@ -54,6 +54,7 @@ use App\Http\Controllers\Api\V1\Staff\ReportController;
 use App\Http\Controllers\Api\V1\Staff\SupportController as StaffSupportController;
 use App\Http\Controllers\Api\V1\Staff\SupportSettingsController;
 use App\Http\Controllers\Api\V1\Staff\VatPayerModeController;
+use App\Http\Controllers\Api\V1\Staff\VulnerabilityController;
 use App\Http\Controllers\Api\V1\Staff\WithdrawalController as StaffWithdrawalController;
 use App\Http\Controllers\Api\V1\StatusController;
 use App\Http\Controllers\Api\V1\SupportController;
@@ -454,6 +455,7 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
         Route::post('tax/vat-payer-mode', [VatPayerModeController::class, 'update']); // G2: switched by finance, step-up + four eyes
         // ── end TASK-0031 ──
         Route::get('services', [CustomerController::class, 'services']);
+        Route::get('vulnerabilities', [VulnerabilityController::class, 'index']); // W2-2: possible matches of KEV/EPSS with the components of all services, most urgent first
         Route::get('domains', [CustomerController::class, 'domains']);
         Route::get('integrations', [ProvisioningController::class, 'integrations']);
         Route::post('integrations', [ProvisioningController::class, 'upsertInstance']);
