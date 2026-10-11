@@ -25,7 +25,7 @@ use Onhost\Domain\Services\Web\CertificateWatch;
 final class ServiceHealthCheck
 {
     /**
-     * @return array{service_id:string, name:string, family:string, state:string, verdict:'ok'|'warn'|'bad', findings:list<array{key:string, level:'ok'|'warn'|'bad', cs:string, en:string}>, checked_at:string}
+     * @return array{service_id:string, name:string, family:string, state:string, verdict:'ok'|'warn'|'bad', findings:list<array{key:string, level:'ok'|'warn'|'bad', cs:string, en:string, observed_at?:?string, state?:string}>, checked_at:string}
      */
     public function run(Service $service): array
     {
@@ -100,15 +100,18 @@ final class ServiceHealthCheck
     {
         $last = Backup::query()->where('service_id', $service->id)->where('state', 'completed')->where('kind', '!=', 'final')->orderByDesc('finished_at')->first();
         if ($last === null || $last->finished_at === null) {
-            return self::finding('backup', 'warn', 'Služba zatím nemá žádnou dokončenou zálohu.', 'The service has no finished backup yet.');
+            return Freshness::stamp(self::finding('backup', 'warn', 'Služba zatím nemá žádnou dokončenou zálohu.', 'The service has no finished backup yet.'), Freshness::assess('backup', null));
         }
         $days = (int) floor($last->finished_at->diffInDays(now(), true));
         $when = $last->finished_at->format('j. n. Y H:i');
         $limit = max(1, (int) config('onhost.backups.coverage_days', 3));
 
-        return $days > $limit
+        $finding = $days > $limit
             ? self::finding('backup', 'warn', "Poslední záloha je {$days} dní stará ({$when}).", "The last backup is {$days} days old ({$when}).")
             : self::finding('backup', 'ok', "Poslední záloha: {$when}.", "Last backup: {$when}.");
+
+        // the age rule above already words an old backup; the stamp adds the machine-readable state
+        return Freshness::stamp($finding, Freshness::assess('backup', $last->finished_at, $limit * 1440));
     }
 
     /**
@@ -144,11 +147,14 @@ final class ServiceHealthCheck
             $left = (int) floor(now()->diffInDays($managed->expires_at, false));
             $until = $managed->expires_at->format('j. n. Y');
 
-            return match (true) {
+            // a certificate the platform issued itself is a record it keeps, not a reading taken from a node
+            $record = ['state' => Freshness::CURRENT, 'observed_at' => ($managed->updated_at ?? $managed->created_at)?->toIso8601String(), 'age_minutes' => null];
+
+            return Freshness::stamp(match (true) {
                 $left < 0 => self::finding('certificate', 'bad', "Certifikát HTTPS vypršel {$until}.", "The HTTPS certificate expired on {$until}."),
                 $left <= 10 => self::finding('certificate', 'warn', "Certifikát HTTPS vyprší za {$left} dní ({$until}); obnova probíhá automaticky.", "The HTTPS certificate expires in {$left} days ({$until}); it renews by itself."),
                 default => self::finding('certificate', 'ok', "Certifikát HTTPS platí do {$until}.", "The HTTPS certificate is valid until {$until}."),
-            };
+            }, $record);
         }
         // What the node really serves, as the daily watch last saw it (`CertificateWatch`). Before that existed this
         // answered from `access.certificate` — a flag written once, at the first issue — so the platform kept saying
@@ -160,18 +166,19 @@ final class ServiceHealthCheck
             $until = $expires->format('j. n. Y');
             $names = implode(', ', array_slice(array_map('strval', (array) ($seen['names'] ?? [])), 0, 3));
 
-            return match (true) {
+            return Freshness::stamp(match (true) {
                 ! empty($seen['mismatch']) => self::finding('certificate', 'bad', "Certifikát, kterým se web hlásí, neplatí pro tuhle doménu (je vystavený na {$names}); prohlížeč návštěvníka ukáže varování.", "The certificate the site presents is not valid for this domain (it covers {$names}); a visitor's browser shows a warning."),
                 $left < 0 => self::finding('certificate', 'bad', "Certifikát HTTPS vypršel {$until}; obnovu jsme si vyžádali.", "The HTTPS certificate expired on {$until}; a new one has been requested."),
                 $left <= CertificateWatch::renewAtDays() => self::finding('certificate', 'warn', "Certifikát HTTPS vyprší za {$left} dní ({$until}); obnovu jsme si vyžádali.", "The HTTPS certificate expires in {$left} days ({$until}); a new one has been requested."),
                 default => self::finding('certificate', 'ok', "Certifikát HTTPS platí do {$until}.", "The HTTPS certificate is valid until {$until}."),
-            };
+            }, Freshness::assess('certificate', $seen['checked_at'] ?? null));
         }
         $state = (string) data_get($service->tags, 'access.certificate', '');
 
-        return $state === 'issued'
+        // only a flag written once at the first issue: nothing was ever measured on the node
+        return Freshness::stamp($state === 'issued'
             ? self::finding('certificate', 'ok', 'Certifikát HTTPS je vystavený.', 'The HTTPS certificate is issued.')
-            : self::finding('certificate', 'warn', 'Web zatím nemá vystavený certifikát HTTPS.', 'The site has no HTTPS certificate yet.');
+            : self::finding('certificate', 'warn', 'Web zatím nemá vystavený certifikát HTTPS.', 'The site has no HTTPS certificate yet.'), Freshness::assess('certificate', null));
     }
 
     /** @return array{key:string, level:'ok'|'warn'|'bad', cs:string, en:string} */
@@ -182,9 +189,11 @@ final class ServiceHealthCheck
             return self::finding('monitor', 'warn', 'Monitoring dostupnosti není zapnutý.', 'Uptime monitoring is not switched on.');
         }
 
-        return $monitor->state === 'down'
+        $seen = Freshness::assess('monitor', $monitor->last_checked_at, max(15, (int) ceil(((int) $monitor->interval_seconds) * 3 / 60)));
+
+        return Freshness::stamp($monitor->state === 'down'
             ? self::finding('monitor', 'bad', 'Monitoring hlásí výpadek: '.(string) $monitor->url.'.', 'Monitoring reports an outage: '.(string) $monitor->url.'.')
-            : self::finding('monitor', 'ok', 'Monitoring hlásí, že web odpovídá'.($monitor->last_ms ? " ({$monitor->last_ms} ms)" : '').'.', 'Monitoring reports the site answers'.($monitor->last_ms ? " ({$monitor->last_ms} ms)" : '').'.');
+            : self::finding('monitor', 'ok', 'Monitoring hlásí, že web odpovídá'.($monitor->last_ms ? " ({$monitor->last_ms} ms)" : '').'.', 'Monitoring reports the site answers'.($monitor->last_ms ? " ({$monitor->last_ms} ms)" : '').'.'), $seen);
     }
 
     /** @return array{key:string, level:'ok'|'warn'|'bad', cs:string, en:string}|null */
@@ -213,11 +222,13 @@ final class ServiceHealthCheck
             return null;
         }
 
-        return match ((string) ($usage['level'] ?? 'ok')) {
+        $seen = Freshness::assess('usage', $usage['checked_at'] ?? null);
+
+        return Freshness::stamp(match ((string) ($usage['level'] ?? 'ok')) {
             'full' => self::finding('usage', 'bad', "Služba vyčerpala limit ({$top['key']}, {$top['pct']} %).", "The service has used up its limit ({$top['key']}, {$top['pct']} %)."),
             'critical' => self::finding('usage', 'bad', "Služba je na {$top['pct']} % svého limitu ({$top['key']}).", "The service is at {$top['pct']} % of its limit ({$top['key']})."),
             'warn' => self::finding('usage', 'warn', "Služba se blíží limitu: {$top['pct']} % ({$top['key']}).", "The service is getting close to its limit: {$top['pct']} % ({$top['key']})."),
             default => self::finding('usage', 'ok', "Využití je v pořádku (nejvíc {$top['pct']} %, {$top['key']}).", "Usage is fine (at most {$top['pct']} %, {$top['key']})."),
-        };
+        }, $seen);
     }
 }
