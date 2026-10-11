@@ -120,7 +120,7 @@ it('wires the public and panel seams to the platform numbers and hides the payme
         ->not->toContain("vatLabel: _('DPH 21 %', 'VAT 21%')")->not->toContain("coVat: 'DPH 21 %'")->not->toContain("footVat: 'Všechny ceny včetně DPH 21 %'")
         ->toContain('window.ONHOST_DATA.vat()');
     // R13: card and bank transfer only — Apple Pay / Google Pay, PayPal, crypto and SEPA are gone
-    expect($html)->toContain("['card', 'Karta', 'Visa, Mastercard · platební brána'], ['bank', 'Bankovní převod', 'QR platba, zálohová faktura']\n")
+    expect($html)->toContain("[['card', 'Karta', 'Visa, Mastercard · platební brána']]), ['bank', 'Bankovní převod', 'QR platba, zálohová faktura']\n")
         ->not->toContain("['wallet', 'Apple Pay / Google Pay'")->not->toContain("['paypal', 'PayPal'")->not->toContain("['crypto', 'Krypto'")->not->toContain("['sepa', 'SEPA inkaso'");
     // the game landing never falls back to the prototype's slot prices
     expect($html)->not->toContain("? window.ONHOST_DATA.gameSlots(cs) : null) || [\n      { p: 149,");

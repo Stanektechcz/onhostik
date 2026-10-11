@@ -118,6 +118,37 @@ final class PublicContentSeam
         ];
     }
 
+    /** True in the page when the public data says the card gateway has no credentials (`ONHOST_DATA.cardPayments()`, J4). */
+    public const NO_CARD_JS = "(window.ONHOST_DATA && typeof window.ONHOST_DATA.cardPayments === 'function' && window.ONHOST_DATA.cardPayments() === false)";
+
+    /**
+     * J4 (TASK-0155), what the Comgate review looks at on the public site (docs/runbooks/comgate-merchant-review.md):
+     *  - C-R10a: the footer gains a legal block — the documents in force and the out-of-court dispute body (`ONHOST_DATA.legalLinks`,
+     *    `PublicLegalLinks`); the identity line next to it is `LegalIdentitySeam`'s;
+     *  - C-R10c/e: the card tile only while the gateway can take a card (`ONHOST_DATA.cardPayments()`); without it the cart offers the
+     *    bank transfer and starts on it, and an order that asks for the card anyway is refused up front (`CardPayments`).
+     * Applied after `SurfaceRenderer::checkoutSeams()`, whose tile list it narrows.
+     *
+     * @return array<string, string> anchor => replacement, each anchor once in the served public template
+     */
+    public static function comgateReview(): array
+    {
+        $noCard = self::NO_CARD_JS;
+        $markup = "      <div style=\"margin-top:10px;display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12px\">\n"
+            ."        <sc-for list=\"{{ footLegal }}\" as=\"fl\" hint-placeholder-count=\"7\">\n"
+            ."          <a href=\"{{ fl.href }}\" style=\"color:color-mix(in srgb,var(--fg,#201e1d) 65%,transparent);text-decoration:underline\">{{ fl.label }}</a>\n"
+            ."        </sc-for>\n"
+            ."      </div>\n";
+
+        return [
+            "        ['card', 'Karta', 'Visa, Mastercard · platební brána'], ['bank', 'Bankovní převod', 'QR platba, zálohová faktura']\n" => "        ...({$noCard} ? [] : [['card', 'Karta', 'Visa, Mastercard · platební brána']]), ['bank', 'Bankovní převod', 'QR platba, zálohová faktura']\n",
+            "        ['card', 'Card', 'Visa, Mastercard · payment gateway'], ['bank', 'Bank transfer', 'QR payment, pro forma invoice']\n" => "        ...({$noCard} ? [] : [['card', 'Card', 'Visa, Mastercard · payment gateway']]), ['bank', 'Bank transfer', 'QR payment, pro forma invoice']\n",
+            "guest: false, pay: 'card'," => "guest: false, pay: ({$noCard} ? 'bank' : 'card'),",
+            "      topLinks: (cs\n" => "      footLegal: ((window.ONHOST_DATA && window.ONHOST_DATA.legalLinks && window.ONHOST_DATA.legalLinks(cs)) || []).map(l => ({ label: l[0], href: l[1] })),\n      topLinks: (cs\n",
+            "        <span>{{ t.tbHours }}</span>\n      </div>\n" => "        <span>{{ t.tbHours }}</span>\n      </div>\n".$markup,
+        ];
+    }
+
     /** The team page block, from its comment to the next key (`isMissingView`), replaced as a whole. */
     public const TEAM_FROM = "      /* ---------- Lidé v podpoře (#/lide) ---------- */\n      ppKicker:";
 

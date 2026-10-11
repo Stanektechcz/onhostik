@@ -48,7 +48,7 @@ it('generates catalogue-driven plans, comparison tables and SKUs for the public 
     // cart rules, per-line add-ons, confirmation with payment instructions, billing address (seam #24)
     expect($html)->toContain('get COMMITS() { return window.OnhostCart')->toContain('coItemAddons: window.OnhostCart')->toContain('window.OnhostCart.doneCopy(window.__onhostOrder, cs).title')->toContain('{{ co.doneRows }}')->toContain('{{ co.lblAddress }}')->toContain('Alespoň 12 znaků, písmena i číslice.')->toContain('/surfaces/api/onhost-cart.api.js');
     // payment methods the platform really takes, an honest ETA per method, and the signed-in customer's identity pre-filled
-    expect($html)->toContain("['card', 'Karta', 'Visa, Mastercard · platební brána'], ['bank', 'Bankovní převod', 'QR platba, zálohová faktura']\n")->not->toContain("['wallet', 'Apple Pay")->not->toContain("['paypal', 'PayPal'")->not->toContain("['sepa', 'SEPA inkaso'")
+    expect($html)->toContain("[['card', 'Karta', 'Visa, Mastercard · platební brána']]), ['bank', 'Bankovní převod', 'QR platba, zálohová faktura']\n")->not->toContain("['wallet', 'Apple Pay")->not->toContain("['paypal', 'PayPal'")->not->toContain("['sepa', 'SEPA inkaso'")
         ->toContain('window.OnhostCart.eta(this.state, true)')->toContain('window.OnhostCart.prefill() : {})');
     $cart = (string) file_get_contents((string) $this->get('/surfaces/api/onhost-cart.api.js')->assertOk()->baseResponse->getFile());
     expect($cart)->toContain('window.OnhostCart = {')->toContain('registrace na ')->toContain('obnova ')->toContain('prefill: function ()')->toContain('po připsání platby');

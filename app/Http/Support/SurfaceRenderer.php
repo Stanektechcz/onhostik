@@ -1185,6 +1185,9 @@ HTML;
             foreach (PublicContentSeam::technikaBlocks() as [$from, $to, $replacement]) {
                 $html = self::between($html, $from, $to, $replacement);
             }
+            // J4 (TASK-0155): the footer's legal block, the card tile only with a working gateway (after checkoutSeams above)
+            $review = PublicContentSeam::comgateReview();
+            $html = self::swap(array_keys($review), array_values($review), $html);
         }
 
         return $html;
