@@ -693,6 +693,7 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
         Route::post('partners/payouts/{payout}/reject', [StaffPartnerController::class, 'rejectPayout']);
         Route::post('partners/payouts/{payout}/pay', [StaffPartnerController::class, 'payPayout']);
         Route::post('partners/tiers/recompute', [StaffPartnerController::class, 'recomputeTiers']);
+        Route::post('partners/commissions/{commission}/cancel-duplicate', [StaffPartnerController::class, 'cancelDuplicateCommission']); // I-R6 (K5): four eyes
         Route::get('partners/requests', [StaffPartnerController::class, 'requests']); // contract change requests (audit §5m-1)
         Route::post('partners/requests/{partnerRequest}/decide', [StaffPartnerController::class, 'decideRequest']);
         Route::get('partners/{partner}', [StaffPartnerController::class, 'show']);

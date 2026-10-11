@@ -330,6 +330,12 @@ final class NotificationRouter
             'partner.commission.cancelled' => $this->customer($m, 'partner', 'Provize zrušena: faktura '.($p['invoice'] ?? ''), 'Klient dostal peníze zpět do 30 dnů od zaplacení (dobropis '.($p['credit_note'] ?? '').'); provize '.$money($p['amount'] ?? null).' se nevyplatí.', '/partner#/provize', 'info'),
             'partner.commission.reduced' => $this->customer($m, 'partner', 'Provize snížena: faktura '.($p['invoice'] ?? ''), 'Klient dostal část peněz zpět do 30 dnů od zaplacení (dobropis '.($p['credit_note'] ?? '').'); provize je nižší o '.$money($p['amount'] ?? null).', zbývá '.$money($p['left'] ?? null).'.', '/partner#/provize', 'info'),
             'partner.commission.adjusted' => $this->customer($m, 'partner', 'Provize opravena: faktura '.($p['invoice'] ?? ''), 'Klient dostal peníze zpět po ochranné lhůtě (dobropis '.($p['credit_note'] ?? '').'); '.$money($p['amount'] ?? null).' se odečte od příští výplaty.', '/partner#/provize', 'warn'),
+            // I-R6 (K5, TASK-0158): finance cancelled the newer row of a double commission (set aside by the deploy)
+            'partner.commission.duplicate_cancelled' => $this->customer($m, 'partner', 'Zdvojená provize opravena: faktura '.($p['invoice'] ?? ''), match ($p['outcome'] ?? 'cancelled') {
+                'deducted' => 'Provize k této faktuře byla vyplacena dvakrát. '.$money($p['amount'] ?? null).' se odečte od příští výplaty.',
+                'credited' => 'Oprava provize k této faktuře byla zapsaná dvakrát. '.$money($p['amount'] ?? null).' přičteme k příští výplatě.',
+                default => 'Provize k této faktuře byla zapsaná dvakrát. Druhý zápis ('.$money($p['amount'] ?? null).') jsme zrušili, vyplacen nebude.',
+            }, '/partner#/provize', ($p['outcome'] ?? 'cancelled') === 'deducted' ? 'warn' : 'info'),
             // the whole account is going to be erased: said in the panel at once, with the date and the way to stop it
             'compliance.data_request.deletion_scheduled' => $this->customer($m, 'legal.notice', 'Účet bude smazán', 'Smazání účtu proběhne '.self::when($p['execute_after'] ?? null).'. Do té doby ho můžete zrušit v nastavení.', '/panel/nastaveni', 'warn'),
             'compliance.data_export.ready' => $this->customer($m, 'legal.notice', 'Export dat je připraven', 'Ke stažení '.($p['days'] ?? 30).' dní.', '/panel/nastaveni', 'info', $email, 'data-export', ['url' => "{$portal}/panel/nastaveni", 'dni' => $p['days'] ?? 30]),

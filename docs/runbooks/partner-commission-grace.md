@@ -10,7 +10,8 @@
 | `pending` | earned, waiting out 30 days from the client's payment (`payable_at`) | `invoice.paid` → `PartnerService::accrueForInvoice`; the marketplace share on acceptance and on every monthly renewal (`MarketplaceService`) — all through `CommissionGrace::book` |
 | `payable` | may be paid out | the hourly maturing job, once `payable_at` passed |
 | `allocated` / `paid` | in a payout / paid (unchanged, `PartnerPayouts`) | payout request / four-eyes payment |
-| `cancelled` | given back in full inside the window; never payable | a credit note while the commission is `pending` |
+| `cancelled` | given back in full inside the window; never payable | a credit note while the commission is `pending`; finance's cancellation of a set-aside double (below) |
+| `duplicate` | the newer row of a genuine double commission, set aside before 000950; never payable | migration `000949` (I-R6, K5) |
 
 - **Inside the window** (the commission is still `pending`) a credit note on the commissioned invoice — a refund, a withdrawal,
   a cancellation ("chargeback") refund: each of them writes one — cancels the commission when it gives back the whole net, or
@@ -46,7 +47,10 @@ Manual run: `php artisan onhost:partners:mature-commissions` (safe to repeat).
 | `partner.commission.reduced` | partner_commission | as above; `left` is what will still mature | `CommissionGrace::reverseForCreditNote` |
 | `partner.commission.adjusted` | partner_commission | as above; the commission had matured, `amount` is deducted from the next payouts (routed `warn`) | `CommissionGrace::reverseForCreditNote` |
 
-Audit actions: `partner.commission.mature`, `partner.commission.cancel`, `partner.commission.reduce`, `partner.commission.adjust`.
+| `partner.commission.duplicate_cancelled` | partner_commission (the cancelled newer row) | `invoice` (number of the invoice it was accrued for), `amount` (positive Money), `outcome` (`cancelled` · `deducted` · `credited`) — `deducted` routed `warn` | `DuplicateCommissions::cancel` (K5) |
+
+Audit actions: `partner.commission.mature`, `partner.commission.cancel`, `partner.commission.reduce`, `partner.commission.adjust`,
+`partner.commission.cancel_duplicate` (the bus's own record of the command: finance's reason, the step-up, the approval).
 
 The same rows are in `docs/architecture/events-catalog.md` (customer-facing events).
 
@@ -60,16 +64,43 @@ Existing duplicates of (invoice, kind) are marked fragments only when they look 
 rate and currency; positive amounts; every row but the oldest linked to a payout; together not more than base × rate plus a
 haler per row). The count of marked rows is printed. Any other duplicate (a genuine double accrual) stops the migration
 **before it changes anything**, naming the groups as `invoice/kind`: finance decides which row stands, then the migration is run
-again.
+again. Since K5 that can no longer happen on a deploy: `000949` runs first and has set every such newer row aside (below); the
+refusal stays in `000950` as written.
 
 **Owner decision I-R6 (2026-10-08), the rule in advance:** for every group the migration names, finance cancels the **newer** row
 by an ordinary correction (a new record; never an amount edited by hand), then the deploy is run again — no meeting in between.
 
-**Open (engineering, only if the migration ever stops):** the platform has no correction for one commission on its own today — a
-credit note reverses a commission only together with the customer's invoice, which would be wrong here — and the migration would
-not recognise a row that was cancelled. Before finance can apply I-R6, a small package is needed: a commission cancellation through
-the bus (finance, step-up and a second person; a negative `reversal` row linked to the cancelled one, carried by the next payouts)
-and the migration leaving such a cancelled row out of the unique index. While the migration finds nothing, nothing of this is needed.
+### A genuine double: set aside by `000949`, cancelled by finance (K5, TASK-0158; owner decisions I-R6, J-R3)
+
+`000950` is never edited (J-R3: it already ran on staging copies and in CI). A new migration, `0001_01_01_000949`, sorts before it
+and runs first on a database that has not run `000950` yet:
+
+1. **Deploy.** For every group of (invoice, kind) that `000950` would refuse, `000949` applies the owner's rule decided in advance
+   (I-R6: the **newer** row goes) as far as a migration may — it **sets the newer row aside**: the row's invoice link moves to
+   `duplicate_invoice_id` (it no longer claims the invoice, so `000950` builds its index), `duplicate_of_id` names the commission that
+   stands, and a row nobody was paid for (`payable`) becomes `duplicate`, which no payout takes. Amounts, partner and dates are not
+   touched. The deploy prints `partner_commissions: N newer row(s) of a double commission set aside (I-R6) … <ids>` (also in the log).
+   Groups that look like payout remainders stay `000950`'s (fragments, as before).
+2. **The migration stops instead** (before it changes anything) when a newer row sits in an open payout (`allocated`): a rejected
+   payout would turn a held row back into `payable`. The message names `invoice/kind (payout …)`. The deployer stops with rc 4 (site in
+   maintenance, recovery command printed); finance finishes or rejects that payout on the running (last good) release, then the deploy
+   runs again. Nothing else waits on engineering.
+3. **Finance cancels each set-aside row** on the released code: `POST /v1/staff/partners/commissions/{id}/cancel-duplicate` with
+   `reason` (10–500 characters), as `partner.manage` (BillingFinanceAdmin). The command `partner.commission.cancel_duplicate` is **HIGH**:
+   a fresh step-up, and the first attempt opens a request a **second person** approves (the staff approvals queue, `GET /v1/staff/approvals`); the repeat with
+   `approval_ids` runs it. With `ONHOST_FOUR_EYES=false` the sole approver waits the time lock. The staff partner detail
+   (`GET /v1/staff/partners/{partner}`, `duplicates`) lists the rows still waiting.
+   - a `duplicate` row (nobody was paid) becomes `cancelled`, and a new `reversal` row (`cancels_id` → the row, `invoice_id` empty,
+     the amount negated, also `cancelled`) nets it to zero — nothing is ever paid;
+   - a row already paid out stays `paid` (the money left) and the reversal is `payable` at once: a minus on the partner's next payouts
+     (`deducted`; for a doubled reversal a plus, `credited`), as a credit note after the grace window;
+   - a second cancellation of the same row is refused (`409 commission_already_cancelled`; the partial unique index on `cancels_id`
+     stops two at once); a row that is not a set-aside duplicate is refused (`422 commission_not_duplicate`) — any other correction
+     is a credit note on the client invoice. The partner is told (`partner.commission.duplicate_cancelled`).
+
+Rollback of `000949` (`migrate:rollback` past it): every set-aside row gets its invoice back, `duplicate` turns back into `payable`, the
+columns go; a cancellation's reversal row stays (a record of its own). On a database that already ran `000950` the unique index keeps
+(invoice, kind) single, so `000949` only adds its columns.
 
 Rollback (`migrate:rollback --step=1`): drops the index, turns `pending` and `cancelled` rows back into `payable` (a cancelled
 commission and its cancelled reversal net to zero) and drops the columns.
@@ -79,3 +110,5 @@ commission and its cancelled reversal net to zero) and drops the columns.
 - The grace period is the constant `CommissionGrace::DAYS` (30, R7), not a config key: changing it is an owner decision.
 - A fragment row copies the base of the commission it came from, so the tier volume (`recomputeTier`) and the monthly table's
   base count a split commission's base twice. This predates R7 and is not changed here.
+- A group that mixes a payout remainder and a genuine double does not look like remainders, so `000949` sets every newer row of it
+  aside (as `000950` judges groups as a whole); finance compares the amounts with the payout before cancelling one (K5).
