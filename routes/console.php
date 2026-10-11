@@ -519,6 +519,7 @@ Schedule::command('onhost:services:usage-watch')->hourlyAt(50)->withoutOverlappi
 Schedule::command('onhost:billing:renewal-guard')->dailyAt('07:35')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:provisioning:board')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:digest:weekly')->weeklyOn(1, '07:00')->withoutOverlapping()->onOneServer();
+Schedule::command('onhost:digest:monthly')->monthlyOn(1, '07:30')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:nodes:check')->dailyAt('05:20')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:nodes:usage')->everyFifteenMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:sites:integrity')->dailyAt('04:40')->withoutOverlapping()->onOneServer();
@@ -717,6 +718,17 @@ Artisan::command('onhost:digest:weekly', function (DigestService $digests, Autom
     $ledger->record('digest.weekly', $result);
     $this->table(['organizations', 'sent', 'skipped'], [$result]);
 })->purpose('Weekly customer digest: renewals and expiries ahead, credit, backups, monitors, plan usage');
+
+Artisan::command('onhost:digest:monthly', function (DigestService $digests, AutomationLedger $ledger) {
+    if ($ledger->off('digest.monthly')) {
+        $this->warn('switched off by staff (console → automation)');
+
+        return;
+    }
+    $result = $digests->monthly();
+    $ledger->record('digest.monthly', $result);
+    $this->table(['organizations', 'sent', 'skipped'], [$result]);
+})->purpose('Monthly customer report: what was checked per service and when; unverified items said as unverified');
 
 Artisan::command('onhost:digest:staff-daily', function (DigestService $digests, AutomationLedger $ledger) {
     if ($ledger->off('digest.staff')) {

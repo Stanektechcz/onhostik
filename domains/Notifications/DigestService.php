@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Onhost\Domain\Billing\Models\DunningCase;
 use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Incidents\OnCallRota;
+use Onhost\Domain\Notifications\Models\Notification;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\Models\IntegrationHealth;
@@ -73,6 +74,48 @@ final class DigestService
         }
 
         return $stats;
+    }
+
+    /**
+     * The monthly customer report (W1-10): one per organization per calendar month. Rerunning in the same month sends nothing;
+     * an organization whose digest frequency is `off` gets nothing.
+     *
+     * @return array{organizations:int, sent:int, skipped:int}
+     */
+    public function monthly(): array
+    {
+        $stats = ['organizations' => 0, 'sent' => 0, 'skipped' => 0];
+        $monthStart = CarbonImmutable::now()->startOfMonth();
+        $ids = Service::query()->whereNotIn('state', [ServiceStateMachine::TERMINATED])->distinct()->pluck('organization_id');
+        foreach (Organization::query()->whereIn('id', $ids)->orderBy('created_at')->get() as $organization) {
+            $stats['organizations']++;
+            $already = Notification::query()->where('organization_id', $organization->id)->where('event', 'digest.monthly')->where('created_at', '>=', $monthStart)->exists();
+            if (self::frequency($organization) === 'off' || $already) {
+                $stats['skipped']++;
+
+                continue;
+            }
+            $report = $this->customerMonthly($organization);
+            if ($report === null) {
+                $stats['skipped']++;
+
+                continue;
+            }
+            $locale = ($organization->locale ?? 'cs') === 'en' ? 'en' : 'cs';
+            $this->notifications->notify('customer', 'digest', $report['title'], $report['body'], '/panel', $organization->id, null, 'organization', $organization->id, 'digest.monthly', 'info', $locale);
+            if ($organization->billing_email) {
+                $this->notifications->queueMail('digest-monthly', (string) $organization->billing_email, ['organizace' => (string) $organization->name, 'shrnuti' => $report['text'], 'url' => rtrim((string) config('app.url'), '/').'/panel'], 'organization', $organization->id, $organization->id, $locale);
+            }
+            $stats['sent']++;
+        }
+
+        return $stats;
+    }
+
+    /** @return array{title:string, body:string, text:string, sections:array<string,list<string>>}|null */
+    public function customerMonthly(Organization $organization): ?array
+    {
+        return app(MonthlyCustomerReport::class)->build($organization);
     }
 
     /** @return array{title:string, body:string, text:string, sections:array<string,list<string>>}|null */

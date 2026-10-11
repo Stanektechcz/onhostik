@@ -32,6 +32,7 @@ final class CollectorHeartbeat
         'audit.verify' => ['name' => 'audit chain verify', 'minutes' => 1440],
         'digest.staff' => ['name' => 'staff daily digest', 'minutes' => 1440],
         'digest.weekly' => ['name' => 'customer weekly digest', 'minutes' => 10080],
+        'digest.monthly' => ['name' => 'customer monthly report', 'minutes' => 44640],
     ];
 
     public const GRACE_FACTOR = 2;
