@@ -452,7 +452,7 @@ it('H2: deducts one advance per order; a second payment of the same order is a p
     ]);
     app(PaymentService::class)->settle($again, CommandContext::system('webhook:comgate'), 'card');
 
-    $receipts = Invoice::query()->where('organization_id', $org->id)->where('type', 'receipt')->orderBy('created_at')->get();
+    $receipts = Invoice::query()->where('organization_id', $org->id)->where('type', 'receipt')->orderBy('created_at')->orderBy('number')->get(); // the number breaks a tie of one second (PostgreSQL)
     expect($receipts)->toHaveCount(2)
         ->and($receipts[0]->meta['advance_for']['order_id'] ?? null)->toBe($order->id)
         ->and($receipts[1]->meta)->not->toHaveKey('advance_for'); // a prepayment (credit), not the advance of the order
