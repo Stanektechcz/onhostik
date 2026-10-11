@@ -118,8 +118,9 @@ Nothing below was done; there is no Penpot node yet. Every step is the operator'
 1. **A dedicated Linux server** (Debian 12/13 or Ubuntu 24.04), not a shared web node. Budget per instance: the plan's 4 GB RAM and
    2 vCPU plus ~20 GB disk; the node's capacity in the platform (`nodes.capacity`) must reflect it (`NodeScheduler` places by it).
 2. **Docker Engine with the compose plugin** (`docker compose version` answers; Docker 27–29 are what the adapter was written for).
-3. **Caddy** as the reverse proxy on ports 80/443, with this line in `/etc/caddy/Caddyfile`:
-   `import /etc/caddy/onhost-penpot/*.caddy`. Caddy issues certificates by itself (HTTP-01) once a host name resolves to the node.
+3. **Caddy** as the reverse proxy on ports 80/443 (or moved behind a front proxy, *Shared host* below), with this line in
+   `/etc/caddy/Caddyfile`: `import /etc/caddy/onhost-penpot/*.caddy`. Caddy issues certificates by itself (HTTP-01) once a host
+   name resolves to the node. Never with the package's default `:80` file server (TASK-0150: the script writes its own file first).
 4. **The platform's user** (default `onhost`, option `ssh_user`): SSH key login only; member of the `docker` group; owner of
    `/srv/onhost-penpot`, `/var/backups/onhost-penpot` and `/etc/caddy/onhost-penpot`; allowed to run `systemctl reload caddy` (a
    sudoers rule, or set the instance option `proxy_reload` to the command that works). `curl` installed (the probe).
@@ -195,10 +196,16 @@ platform (`ram_mb`, `cpu_cores`, `disk_gb`) is what the scheduler places by: ent
    *before* the first run when the quota is wanted (`--require-quota` makes the script fail without it).
 2. **Provision** (as root on the node; copy the two scripts and the `.pub` file there):
    `./provision-node.sh --dry-run --ssh-pubkey-file onhost-penpot-cz1.pub --ssh-allow <control plane IP> --ssh-allow <your IP> --ssh-port 22`,
-   read the output, then run it again without `--dry-run`. It installs Docker (apt key fingerprint checked, major pinned to 29; the
-   adapter supports 27-29) and Caddy (the project's apt repository, or `--caddy-source distro`) with the
-   `import /etc/caddy/onhost-penpot/*.caddy` line; it creates the `onhost` user (password locked, key bound with `from=` and without
-   forwarding, docker group), `/srv/onhost-penpot`, `/var/backups/onhost-penpot`, `/etc/caddy/onhost-penpot`,
+   read the output (a dry run also prints the content of every file it would write), then run it again without `--dry-run`. In this
+   order: Docker (apt key fingerprint checked, major pinned to 29; the adapter supports 27-29; `/etc/docker/daemon.json` with log
+   rotation and live-restore is written *before* Docker first starts, so it never needs a restart), then the `onhost` user
+   (password locked, key bound with `from=` and without forwarding, docker group — created before anything is made its property;
+   TASK-0150 fixed a first run that failed because `/etc/caddy/onhost-penpot` was given to a user that did not exist yet), then
+   Caddy (the project's apt repository, or `--caddy-source distro`): the script writes its own `/etc/caddy/Caddyfile` (global
+   options `http_port`, `https_port`, `default_bind` and the `import /etc/caddy/onhost-penpot/*.caddy` line) and only then installs
+   the package with service start-up held (`policy-rc.d`) and that file kept (`--force-confold`), so the package's default `:80`
+   site never runs; a package default file found later is replaced (the original kept as `Caddyfile.pre-onhost`), an operator's
+   own file only gets the import line. Then `/srv/onhost-penpot`, `/var/backups/onhost-penpot`, `/etc/caddy/onhost-penpot`,
    `/etc/sudoers.d/onhost-penpot` (exactly `systemctl reload caddy` and the quota helper), `/usr/local/sbin/onhost-penpot-quota`, the ufw
    rules (80, 443, SSH only from the allowed addresses) and an sshd drop-in with `HostKeyAlgorithms ssh-ed25519`, so exactly one
    fingerprint exists. A second run must report `0 change(s)`. It refuses to enable the firewall when your own SSH session is not
@@ -226,6 +233,97 @@ platform (`ram_mb`, `cpu_cores`, `disk_gb`) is what the scheduler places by: ent
 7. **Smoke test** on this node with a staff assisted order, then `docs/manual-tests/11-penpot.md`. Only then is Penpot truly on sale
    (B11). Until the node is accepted every order is refused honestly (`409 penpot_unavailable`).
 
+### Shared host (a node that already runs Docker, e.g. a Wings game node) — TASK-0150
+
+A dedicated server stays the recommendation (*Delivery model*). When the owner decides to put Penpot on a host that already runs
+Docker, `provision-node.sh` notices it (`systemctl is-active docker`, or `docker ps` answers; `--shared-host` declares it before
+Docker runs) and then:
+
+* **never restarts Docker** and changes nothing of it — no apt source, no version pin (a pin could move the host's Docker at the
+  next `apt upgrade`), no package, no `/etc/docker/daemon.json` (it would only take effect at a restart, and a restart without
+  live-restore stops every game server). It checks the running major (27-29, else WARN: the panel version gate holds the node) and
+  that `docker compose` answers (missing: install `docker-compose-plugin` by hand — it does not restart Docker). No log rotation is
+  a WARN: add it in a maintenance window. `--allow-docker-restart` lifts all of this (the installed major is then pinned, not 29,
+  unless `--docker-major` says otherwise) and restarts Docker once when it writes `daemon.json` — only in an announced window;
+* **never touches the firewall's policy**: no `ufw default deny`, no `ufw enable` (it would cut Wings 8080/2022 and the game ports);
+  only the SSH rule from the control plane and Caddy's ports are added;
+* **refuses to install Caddy on ports that are taken** (another web server on 80/443): move Caddy behind the host's front proxy
+  with `--caddy-bind 127.0.0.1 --http-port 8080 --https-port 8443`. Caddy then binds loopback only (an empty `http://` site
+  carries the bind to the redirect and ACME server too, as the Caddy documentation requires), no web port is opened in ufw, and
+  the front proxy must (a) forward `/.well-known/acme-challenge/` of every `*.penpot.onhost.cz` name on port 80 to
+  `127.0.0.1:8080` with the original `Host`, and (b) pass TLS for those names to `127.0.0.1:8443` (TCP/SNI passthrough, or
+  `proxy_pass https://127.0.0.1:8443` with `proxy_ssl_server_name on` and `proxy_ssl_name $host`). Without (a) Caddy gets no
+  certificate. Verify with the same options: `./verify-node.sh --shared-host --caddy-bind 127.0.0.1 --http-port 8080 --https-port 8443`
+  (the host's other listeners and its firewall policy are then WARN, not FAIL).
+
+Node capacity on a shared host is what is left for Penpot, not the server's size: enter that in `capacity`, or the scheduler
+oversells the game servers' memory.
+
+### Rootless Docker for the deploy user — TASK-0150
+
+The `docker` group is root on the host. Where that is not acceptable (a shared host especially), the deploy user can run its own
+rootless Docker daemon and the adapter talks to it through the instance option **`docker_host`**:
+
+1. As root: `apt-get install docker-ce-rootless-extras uidmap dbus-user-session`; give the user subuid/subgid ranges
+   (`/etc/subuid`, `/etc/subgid`); `loginctl enable-linger onhost` (the daemon survives the end of SSH sessions); do **not** add the
+   user to the `docker` group (remove it if `provision-node.sh` did: `gpasswd -d onhost docker`).
+2. As the user: `dockerd-rootless-setuptool.sh install`, then `systemctl --user enable --now docker`. The socket is
+   `/run/user/<uid>/docker.sock` (`id -u onhost`).
+3. Instance option `docker_host: "unix:///run/user/<uid>/docker.sock"`. The adapter exports it as `DOCKER_HOST` in front of every
+   command it sends; anything that is not a plain absolute `unix:///` path is refused before a command is sent (the node's health
+   says `docker_host`). Without the option the system daemon is used (the default).
+4. Verify: `./verify-node.sh --docker-host unix:///run/user/<uid>/docker.sock …` (no docker-group check; Docker access is tested
+   with that socket).
+
+What changes with rootless Docker: the volumes live under `~onhost/.local/share/docker`, so the XFS quota helper (which looks at
+`/var/lib/docker` and runs as root) does not apply — leave `quota_command` empty (doctor WARN: storage only measured) or put the
+user's home on its own XFS `prjquota` volume and adapt the helper; published ports go through `rootlesskit` (still 127.0.0.1 only);
+the stacks' memory/CPU limits need cgroup v2 with delegation (`systemctl --user` default on Debian 12/Ubuntu 24.04 — check
+`docker info` shows `Cgroup Driver: systemd`, else the limits are not enforced). **Not run on a real node yet.**
+
+### A sandbox-only Penpot node and the doctor — TASK-0150
+
+A Penpot instance with `options.sandbox: true` (a lab node) is placed on **only** for sandbox tenants (`feature_flags.sandbox`,
+`NodeScheduler`); every other customer's Penpot order is refused (`penpot_unavailable`). The doctor row *Penpot is sold only with a
+Penpot node to run it* used to count it anyway and said *on sale; usable Penpot nodes: 1* while every real order was refused. It
+now counts production and sandbox nodes apart: with only sandbox nodes the row is a non-blocking FAIL naming them (*the only Penpot
+node(s) belong to a sandbox instance*); with a production node it is OK and lists the sandbox nodes as a note. The other node rows
+(*pins its SSH host key*, *limits the storage of a stack*) still cover sandbox nodes — a lab node holds the same kind of SSH key.
+
+### Staging with Penpot (Path A) — TASK-0150
+
+The staging deployer (`infra/aapanel/deploy.sh`) refuses Path B as soon as **any** provider instance holds a stored secret
+(`path_b_stored_secrets`, staging-launch.md S0 GATE step 4): registering a Penpot node with its `ssh_private_key` on staging makes
+that host **Path A** for good. That refusal is intended — a host whose database can reach a node is no longer "a host without a live
+credential" — so a staging Penpot is done as Path A, in this order, each step with the owner's yes:
+
+1. **A lab node, never production's.** A separate small server (or VM) built with `provision-node.sh`; its own deploy key pair
+   (never the production node's key); host name e.g. `penpot-lab.onhost.cz`; its own `--ssh-allow` (the staging host only).
+2. **Containment first (staging-launch.md S0 GATE step 4).** `$STATE/egress-blocked` lists every live endpoint — the production
+   panels, **the production Penpot node(s)' SSH port** (e.g. `198.51.100.20:22`), registrars, DNS/CDN, Discord — with the
+   `inet onhost_containment` reject rules and the probe printing nothing. The **lab node is not listed** (staging must reach it);
+   the deployer proves every listed address is rejected on the output hook before each release.
+3. **Leave Path B on purpose.** Remove the root-owned marker (`rm $STATE/path-b`) and record the switch in the release record
+   (O1: Path A). A non-empty `egress-blocked` now carries the release; `path_b_stored_secrets` is no longer asked.
+4. **Register the lab node** on staging (step 4 of *Run order*): instance `penpot-lab` with `options.sandbox: true` and the lab
+   node's fingerprint, the key in the staging vault (`onhost:integrations:secret penpot-lab ssh_private_key`), node row
+   `role: penpot`, qualify it. Only sandbox organizations (`feature_flags.sandbox`) get Penpot placed there.
+5. **Doctor on staging.** The row `penpot|Penpot is sold only with a Penpot node to run it` is now non-OK by design (only a sandbox
+   node) and so is `penpot|every Penpot node limits the storage of a stack` without the XFS quota: add both, each with its reason,
+   to `$STATE/expected-nonok` (O11 list in the release record) — or the deployer stops the release (rc 5, `ROW-FAIL`).
+6. **The queue lane and the freeze — an owner decision.** Penpot work runs on `onhost-queue@provider-penpot`, which staging masks
+   with the other provider lanes (S0 GATE step 1; O12: "the provider lanes never in phase 1"), and the staging containment keeps
+   provisioning frozen (`onhost:provisioning:freeze`, re-asserted by root's cron while `$STATE/expect-freeze` exists). The freeze
+   is global — there is no per-provider thaw — so a Penpot smoke test is a **window**: with the steps above verified (every live
+   endpoint rejected, every other provider lane still masked), unmask and start only `onhost-queue@provider-penpot`, move
+   `$STATE/expect-freeze` aside, `onhost:provisioning:thaw`, run the test, then freeze again, put `expect-freeze` back and stop and
+   mask the lane. The scheduler does not run on Path A: probe and back up by hand (`php artisan onhost:penpot:sweep`). Add the lane
+   to `$STATE/expected-units` only if the owner decides it stays on.
+7. **Smoke test** with a sandbox organization (staff assisted order), then `docs/manual-tests/11-penpot.md` on staging.
+
+Undo: delete the node row and the instance, remove the vault entry, mask the lane again, take the two rows out of
+`expected-nonok`. The host stays Path A (its database once held a node key); going back to Path B is a fresh Path B install.
+
 **Unverified until the first run:** that the adapter's SSH client negotiates the `ssh-ed25519` host key and the pinned fingerprint
 matches (on a mismatch error re-read the fingerprint of that key type); that the sudo rule matches the reload command
 (`proxy_reload` above); the container hardening and the owner password over stdin (their sections).
@@ -234,8 +332,9 @@ matches (on a mismatch error re-read the fingerprint of that key type); that the
 
 * **Nothing registered yet (before step 4):** destroy the server, or undo selectively and keep your own SSH session open until the
   end: `ufw disable`; remove `/etc/sudoers.d/onhost-penpot`, `/etc/ssh/sshd_config.d/50-onhost-penpot.conf` and
-  `/usr/local/sbin/onhost-penpot-quota`, then `systemctl reload ssh`; remove the `import` line from `/etc/caddy/Caddyfile` (the original
-  is `/etc/caddy/Caddyfile.pre-onhost`); `userdel -r onhost`; remove `/srv/onhost-penpot`, `/var/backups/onhost-penpot` and
+  `/usr/local/sbin/onhost-penpot-quota`, then `systemctl reload ssh`; restore `/etc/caddy/Caddyfile` from
+  `/etc/caddy/Caddyfile.pre-onhost` (or remove the `import` line from an operator's own file; a file starting with
+  `# Managed by ONhost provision-node.sh` is the script's); `userdel -r onhost`; remove `/srv/onhost-penpot`, `/var/backups/onhost-penpot` and
   `/etc/caddy/onhost-penpot`; purge `caddy docker-ce docker-ce-cli containerd.io docker-compose-plugin` and delete
   `/etc/apt/preferences.d/onhost-docker`, `/etc/apt/sources.list.d/docker.list`, `/etc/apt/sources.list.d/caddy-stable.list`.
 * **Registered, not accepted:** a `qualifying` node is never placed on. Delete the node row, disable the provider instance in the

@@ -35,6 +35,10 @@ return [
     'proxy_sites' => '/etc/caddy/onhost-penpot',
     'proxy_reload' => 'systemctl reload caddy',
 
+    // the Docker daemon the platform's user talks to (TASK-0150): null = the system daemon (docker group); a node whose deploy user
+    // runs rootless Docker sets the instance option to its socket, e.g. unix:///run/user/1001/docker.sock (docs/runbooks/penpot.md)
+    'docker_host' => null,
+
     // each stack's frontend listens on 127.0.0.1:<port> only; the proxy is the one way in
     'ports' => ['from' => 19001, 'to' => 19999],
 

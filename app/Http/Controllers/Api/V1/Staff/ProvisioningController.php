@@ -430,7 +430,7 @@ final class ProvisioningController extends ApiController
 
     public function upsertNode(Request $request, string $instance): JsonResponse
     {
-        $data = $request->validate(['name' => ['required', 'string', 'max:120'], 'role' => ['required', 'in:compute,web,managed,game,mail,dns,apps,backup'], 'region_code' => ['nullable', 'string', 'max:16'], 'state' => ['nullable', 'in:active,draining,maintenance,unreachable,disabled'], 'capacity' => ['nullable', 'array'], 'failure_domain' => ['nullable', 'string', 'max:60'], 'remote_id' => ['nullable', 'string', 'max:120'], 'tags' => ['nullable', 'array']]);
+        $data = $request->validate(['name' => ['required', 'string', 'max:120'], 'role' => ['required', 'in:compute,web,managed,game,mail,dns,apps,backup,penpot'], 'region_code' => ['nullable', 'string', 'max:16'], 'state' => ['nullable', 'in:active,draining,maintenance,unreachable,disabled'], 'capacity' => ['nullable', 'array'], 'failure_domain' => ['nullable', 'string', 'max:60'], 'remote_id' => ['nullable', 'string', 'max:120'], 'tags' => ['nullable', 'array']]);
 
         return $this->dispatch(new ProvisioningCommand($this->idempotencyKey($request, "node.upsert:{$instance}:{$data['name']}"), ['op' => 'node.upsert', 'instance_key' => $instance, 'node' => $data]), $this->api->context($request), 201);
     }

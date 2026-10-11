@@ -30,18 +30,23 @@ final class PenpotHealth
     {
         $product = Product::query()->where('key', PenpotInstances::PRODUCT)->first();
         $onSale = $product !== null && $product->state === 'active';
-        $nodes = $this->usableNodes();
+        // TASK-0150: a node of a sandbox instance (`options.sandbox`) takes only sandbox tenants (NodeScheduler); it is no node for
+        // the customers Penpot is on sale to, and counting it said "on sale; usable Penpot nodes: 1" while every order was refused
+        $nodes = $this->usableNodes(false);
+        $sandboxNodes = $this->usableNodes(true);
+        $sandboxNote = $sandboxNodes > 0 ? "; sandbox-only Penpot nodes (sandbox tenants only): {$sandboxNodes}" : '';
         // H-R7 (TASK-0128): Penpot is on sale before its node exists; the cart and the delivery refuse a Penpot no node can run
         // (penpot_unavailable, nothing charged / the line refunded), so a missing node is a finding to act on, not a deploy blocker
         $rows = [[
             'area' => 'penpot', 'check' => 'Penpot is sold only with a Penpot node to run it', 'ok' => ! $onSale || $nodes > 0, 'blocking' => false,
             'detail' => match (true) {
                 $product === null => 'not in the catalogue: php artisan onhost:catalog:revise 2026-10-penpot-on-sale (dry run), then --apply',
-                ! $onSale => "not on sale (draft); usable Penpot nodes: {$nodes}",
+                ! $onSale => "not on sale (draft); usable Penpot nodes: {$nodes}{$sandboxNote}",
+                $nodes === 0 && $sandboxNodes > 0 => "on sale, but the only Penpot node(s) ({$sandboxNodes}) belong to a sandbox instance: they serve sandbox tenants only, the cart refuses every customer's Penpot order (penpot_unavailable) and nothing is charged",
                 $nodes === 0 => 'on sale, but no qualified Penpot node: the cart refuses every Penpot order (penpot_unavailable) and nothing is charged',
-                default => "on sale; usable Penpot nodes: {$nodes}",
+                default => "on sale; usable Penpot nodes: {$nodes}{$sandboxNote}",
             },
-            'remedy' => $onSale && $nodes === 0 ? 'register and qualify a Penpot node (docs/runbooks/penpot.md: server prerequisites, provider instance `penpot`, node role `penpot`), or take Penpot off sale' : '',
+            'remedy' => $onSale && $nodes === 0 ? 'register and qualify a Penpot node on a production instance (docs/runbooks/penpot.md: server prerequisites, provider instance `penpot` without options.sandbox, node role `penpot`), or take Penpot off sale' : '',
         ]];
         $offer = app(PenpotOffer::class);
         $tariffs = $offer->overview()['tariffs'];
@@ -121,9 +126,11 @@ final class PenpotHealth
         return is_string($at) && $at !== '' && Carbon::parse($at)->greaterThan(now()->subMinutes(self::STALE_MINUTES));
     }
 
-    private function usableNodes(): int
+    /** Active, qualified Penpot nodes of usable instances — of sandbox instances only, or of the others (NodeScheduler::pick). */
+    private function usableNodes(bool $sandbox): int
     {
-        $instances = ProviderInstance::query()->platform()->where('provider', 'penpot')->get()->filter(fn (ProviderInstance $i) => $i->isUsable())->pluck('id')->all();
+        $instances = ProviderInstance::query()->platform()->where('provider', 'penpot')->get()
+            ->filter(fn (ProviderInstance $i) => $i->isUsable() && (bool) data_get($i->options, 'sandbox', false) === $sandbox)->pluck('id')->all();
 
         return $instances === [] ? 0 : Node::query()->whereIn('provider_instance_id', $instances)->where('state', 'active')->get()->filter(fn (Node $n) => NodeScheduler::serves($n, 'penpot'))->count();
     }
