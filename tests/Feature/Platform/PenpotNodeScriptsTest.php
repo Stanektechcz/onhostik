@@ -307,3 +307,12 @@ it('gives Caddy local certificates behind a front proxy that terminates TLS only
         // a rootless node whose user can still reach the system daemon is a failure, not a warning
         ->toContain('fail "member of the docker group although Docker is rootless');
 });
+
+it('compares file modes as numbers, so a re-run on an unchanged node reports 0 changes (J2; proved for real in CI)', function () {
+    $provision = penpotNodeScript('provision-node.sh');
+
+    // `stat -c %a` prints 644 for the 0644 the script asks for: a string compare rewrote every file on every run
+    expect($provision)->toContain('same_mode()')
+        ->not->toMatch('/stat -c \'%a\' "\$(SYSROOT)?\$path"\)" = "\$mode"/');
+    expect((string) file_get_contents(base_path('.github/workflows/tests.yml')))->toContain('infra/penpot/ci/provision-twice.sh');
+});

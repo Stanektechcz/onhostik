@@ -161,6 +161,10 @@ run() { # run a command, or only show it
   "$@"
 }
 
+# same_mode PATH MODE: stat prints `644` for the `0644` this script asks for — compare the numbers, not the strings (a string
+# compare made every re-run rewrite every file and directory: CI's real double run found it, J2/TASK-0154)
+same_mode() { [ "$((8#$(stat -c '%a' "$1")))" -eq "$((8#$2))" ]; }
+
 # write_file PATH MODE OWNER:GROUP  (content on stdin): writes only when the content or the metadata differ; a dry run shows the
 # content it would write (nothing this script writes is a secret: a public key, rules, configuration)
 write_file() {
@@ -168,7 +172,7 @@ write_file() {
   LAST_WRITE_CHANGED=0
   tmp="$(mktemp)"
   cat >"$tmp"
-  if [ -f "$SYSROOT$path" ] && cmp -s "$tmp" "$SYSROOT$path" && [ "$(stat -c '%a' "$SYSROOT$path")" = "$mode" ] && [ "$(stat -c '%U:%G' "$SYSROOT$path")" = "$owner" ]; then
+  if [ -f "$SYSROOT$path" ] && cmp -s "$tmp" "$SYSROOT$path" && same_mode "$SYSROOT$path" "$mode" && [ "$(stat -c '%U:%G' "$SYSROOT$path")" = "$owner" ]; then
     rm -f "$tmp"; return 0
   fi
   LAST_WRITE_CHANGED=1
@@ -183,7 +187,7 @@ write_file() {
 
 ensure_dir() { # ensure_dir PATH MODE OWNER:GROUP
   local path="$1" mode="$2" owner="$3"
-  if [ -d "$path" ] && [ "$(stat -c '%a' "$path")" = "$mode" ] && [ "$(stat -c '%U:%G' "$path")" = "$owner" ]; then return 0; fi
+  if [ -d "$path" ] && same_mode "$path" "$mode" && [ "$(stat -c '%U:%G' "$path")" = "$owner" ]; then return 0; fi
   if [ "$DRY_RUN" -eq 1 ]; then log "  [dry-run] directory $path ($mode $owner)"; CHANGED=$((CHANGED + 1)); return 0; fi
   install -d -m "$mode" -o "${owner%%:*}" -g "${owner##*:}" "$path"
   changed "directory $path"
