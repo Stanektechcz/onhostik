@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Support\Facades\Http;
+use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Partners\Models\PartnerCommission;
@@ -39,7 +40,7 @@ beforeEach(function () {
 /** An approved partner with 2 000 CZK of payable commission; its number is recorded VIES-valid with the trader name VIES gave. */
 function vatR3Partner(array $attributes, ?string $viesName = null): Organization
 {
-    $org = Organization::query()->create($attributes + ['slug' => 'r3-'.uniqid(), 'owner_user_id' => 'usr_r3', 'customer_class' => 'b2b', 'currency' => 'CZK']);
+    $org = Organization::query()->create($attributes + ['slug' => 'r3-'.uniqid(), 'owner_user_id' => User::factory()->create()->id, 'customer_class' => 'b2b', 'currency' => 'CZK']);
     $number = (string) VatStanding::subject($org)?->value;
     app(CommandBus::class)->dispatch(new RecordVatCheckCommand($org->id, 'vat-r3:'.$org->id.':'.uniqid('', true), [
         'number' => $number, 'status' => 'valid', 'consultation_number' => 'WAPIR3', 'trigger' => 'operator', 'source' => 'vies', 'name' => $viesName,

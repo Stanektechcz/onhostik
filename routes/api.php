@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\V1\CatalogController;
 use App\Http\Controllers\Api\V1\CheckoutController;
 use App\Http\Controllers\Api\V1\ComplianceController;
 use App\Http\Controllers\Api\V1\ContentController;
+use App\Http\Controllers\Api\V1\CustomIsoController;
 use App\Http\Controllers\Api\V1\DnsController;
 use App\Http\Controllers\Api\V1\DomainController;
 use App\Http\Controllers\Api\V1\GreenController;
@@ -26,6 +27,7 @@ use App\Http\Controllers\Api\V1\OrganizationController;
 use App\Http\Controllers\Api\V1\OrganizationStatusController;
 use App\Http\Controllers\Api\V1\PartnerController;
 use App\Http\Controllers\Api\V1\PaymentController;
+use App\Http\Controllers\Api\V1\PenpotController;
 use App\Http\Controllers\Api\V1\ProjectController;
 use App\Http\Controllers\Api\V1\RegistrarConnectionController;
 use App\Http\Controllers\Api\V1\RewardsController;
@@ -34,6 +36,7 @@ use App\Http\Controllers\Api\V1\ServiceAccountController;
 use App\Http\Controllers\Api\V1\ServiceController;
 use App\Http\Controllers\Api\V1\Staff\ApprovalController;
 use App\Http\Controllers\Api\V1\Staff\ChargebackController;
+use App\Http\Controllers\Api\V1\Staff\ComgateController;
 use App\Http\Controllers\Api\V1\Staff\ComplianceController as StaffComplianceController;
 use App\Http\Controllers\Api\V1\Staff\ConsoleController;
 use App\Http\Controllers\Api\V1\Staff\ContentController as StaffContentController;
@@ -50,9 +53,11 @@ use App\Http\Controllers\Api\V1\Staff\RegistrarController;
 use App\Http\Controllers\Api\V1\Staff\ReportController;
 use App\Http\Controllers\Api\V1\Staff\SupportController as StaffSupportController;
 use App\Http\Controllers\Api\V1\Staff\SupportSettingsController;
+use App\Http\Controllers\Api\V1\Staff\VatPayerModeController;
 use App\Http\Controllers\Api\V1\Staff\WithdrawalController as StaffWithdrawalController;
 use App\Http\Controllers\Api\V1\StatusController;
 use App\Http\Controllers\Api\V1\SupportController;
+use App\Http\Controllers\Api\V1\TokenApprovalController;
 use App\Http\Controllers\Api\V1\WalletController;
 use App\Http\Controllers\Api\V1\WebhookController;
 use App\Http\Controllers\Api\V1\WebSessionController;
@@ -135,6 +140,7 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
     Route::get('abuse-cases', [ComplianceController::class, 'abuseCases']);
     Route::post('abuse-cases/{case}/appeal', [ComplianceController::class, 'appeal']);
     Route::get('data-requests', [ComplianceController::class, 'dataRequests']);
+    Route::get('data-requests/deletion-preview', [ComplianceController::class, 'deletionPreview']); // H0 (H-R5): what an erasure does, the forfeited credit included
     Route::post('data-requests', [ComplianceController::class, 'requestData']);
     Route::post('data-requests/{dataRequest}/cancel', [ComplianceController::class, 'cancel']); // stops a scheduled erasure during its grace period
     Route::get('data-requests/{dataRequest}/download', [ComplianceController::class, 'download']);
@@ -179,6 +185,7 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
     Route::get('account/marketplace/orders/{order}/evidence/{entry}/{key}', [MarketplaceController::class, 'evidenceFile'])->where('entry', '[0-9]+'); // the file behind a report item (audit §5p-3)
     Route::patch('me', [MeController::class, 'update']);
     Route::post('me/password', [MeController::class, 'changePassword']);
+    Route::post('me/email/verification', [AuthController::class, 'resendVerification'])->middleware('throttle:auth'); // R5: the verification mail again (also limited per person in the guard)
     Route::get('me/shared-services', [ServiceAccessController::class, 'mine']);
     Route::post('me/totp/enroll', [MeController::class, 'totpEnroll']);
     Route::post('me/totp/confirm', [MeController::class, 'totpConfirm']);
@@ -194,6 +201,9 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
     Route::delete('service-accounts/{account}', [ServiceAccountController::class, 'destroy']);
     Route::post('service-accounts/{account}/tokens', [ServiceAccountController::class, 'issueToken']);
     Route::delete('service-accounts/{account}/tokens/{token}', [ServiceAccountController::class, 'revokeToken']);
+    // H0 (owner decision H-R1): a risky action through an API token waits for the organization's owner (no token reaches these)
+    Route::get('token-approvals', [TokenApprovalController::class, 'index']);
+    Route::post('token-approvals/{approval}/decision', [TokenApprovalController::class, 'decide']);
     // ── end TASK-0079 ──
     // TASK-0070: the browser's own — open web sessions (list, end one, end every other) and the organization it works in
     Route::get('me/sessions', [WebSessionController::class, 'index']);
@@ -250,6 +260,7 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
 
     Route::get('wallet', [WalletController::class, 'show']);
     Route::get('account/rewards', [RewardsController::class, 'show']); // loyalty programme: points, level, badges
+    Route::post('cart/loyalty', [CartController::class, 'loyalty']); // G3 (G-R2): redeem loyalty points on the signed-in customer's cart (`loyalty.redeem`)
     Route::get('account/referral', [RewardsController::class, 'referral']); // invites (audit §5j-2)
     Route::post('account/referral/code', [RewardsController::class, 'referralCode']);
     Route::get('account/missions', [RewardsController::class, 'missions']); // missions and the streak (audit §5j-3)
@@ -338,6 +349,8 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
     Route::get('services/{service}/actions/{action}/preview', [ServiceController::class, 'preview'])->where('action', '[a-z_.]+'); // what a destructive action would really do (H414)
     Route::post('services/{service}/actions', [ServiceController::class, 'action']);
     Route::post('services/{service}/game-files/upload', [ServiceController::class, 'uploadFile']); // binary files to a game server, scanned first (audit §5r-3/§5r-4)
+    Route::get('services/{service}/isos', [CustomIsoController::class, 'index']);  // the organization's own installation images (TASK-0110: only where the VPS plan sells them)
+    Route::post('services/{service}/isos', [CustomIsoController::class, 'store'])->middleware('throttle:custom-iso-upload'); // upload: plan, size, ISO 9660, virus scan, quota; attach/detach/delete are the service actions iso.*
     foreach (['power', 'resize', 'backup', 'restore', 'snapshot', 'suspend', 'resume', 'terminate'] as $shorthand) {
         Route::post("services/{service}/{$shorthand}", [ServiceController::class, 'action'])->defaults('action', $shorthand);
     }
@@ -348,6 +361,9 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
     Route::get('services/{service}/backups', [ServiceController::class, 'backups']);
     Route::get('services/{service}/features', [ServiceController::class, 'features']);
     Route::get('services/{service}/health', [ServiceController::class, 'health']); // one-pass check from the platform's records (ServiceHealthCheck)
+    Route::get('services/{service}/penpot', [PenpotController::class, 'show']); // TASK-0123: the Penpot card (address, login, limits, backups)
+    Route::post('services/{service}/penpot/owner-password', [PenpotController::class, 'ownerPassword']); // TASK-0123: HIGH + step-up
+    Route::get('services/{service}/penpot-offer', [PenpotController::class, 'offer']); // H-R7: what a Penpot costs next to this service
     Route::get('services/{service}/resources/{kind}', [ServiceController::class, 'resources'])->where('kind', '[a-z_]+');
     Route::get('services/{service}/logs', [ServiceController::class, 'logs']);
     Route::get('services/{service}/files/download', [ServiceController::class, 'fileDownload']);
@@ -433,6 +449,8 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
         Route::post('customers/{organization}/limit-raises/free', [CustomerController::class, 'grantFreeLimitRaise']);
         // ── TASK-0031 ──
         Route::post('customers/{organization}/vat-status', [CustomerController::class, 'overrideVatStatus']); // a VAT status set by hand, step-up + four eyes
+        Route::get('tax/vat-payer-mode', [VatPayerModeController::class, 'show']); // G2: the seller's VAT mode in force
+        Route::post('tax/vat-payer-mode', [VatPayerModeController::class, 'update']); // G2: switched by finance, step-up + four eyes
         // ── end TASK-0031 ──
         Route::get('services', [CustomerController::class, 'services']);
         Route::get('domains', [CustomerController::class, 'domains']);
@@ -462,6 +480,7 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
         // ── TASK-0025 consumer withdrawals: the list for finance and the record of a notice sent by e-mail or letter ──
         Route::get('withdrawals', [StaffWithdrawalController::class, 'index']);
         Route::post('withdrawals', [StaffWithdrawalController::class, 'store']);
+        Route::post('withdrawals/{withdrawal}/payout', [StaffWithdrawalController::class, 'payout']); // L-06: what an order payment gets back without the agreement to the credit
         // ── end TASK-0025 ──
         // loyalty programme: the level table and manual awards
         Route::get('loyalty/levels', [RewardsController::class, 'levels']);
@@ -508,6 +527,17 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
         Route::get('payments/bank', [PaymentsController::class, 'bank']);
         Route::post('payments/bank/lines', [PaymentsController::class, 'recordBankLine']);
         Route::post('payments/bank/sync', [PaymentsController::class, 'syncBank']);
+        Route::get('payments/comgate', [ComgateController::class, 'show']); // H-R8: credentials present?, mode, last check — never a secret
+        Route::post('payments/comgate/check', [ComgateController::class, 'check']); // connection | 1 Kč test payment (step-up)
+        Route::put('payments/comgate/test-mode', [ComgateController::class, 'setTestMode']); // four eyes
+        // ── G6: an order payment refunded to its source on a consumer's withdrawal; bank payouts confirmed by finance ──
+        Route::get('payments/refunds', [PaymentsController::class, 'refunds']);
+        Route::post('payments/refunds/{refund}/confirm', [PaymentsController::class, 'confirmRefund']);
+        Route::post('payments/refunds/{refund}/cancel', [PaymentsController::class, 'cancelRefund']);
+        Route::post('payments/{payment}/refund', [PaymentsController::class, 'refund']);
+        Route::post('payments/{payment}/refund-statutory', [PaymentsController::class, 'refundStatutory']); // L-09: a consumer's statutory money back to the order's payment
+        // ── end G6 ──
+        Route::get('payments/refunds/not-paid-out', [PaymentsController::class, 'refundsNotPaidOut']); // H3 (TASK-0121): cancelled payouts nobody sent again
         Route::get('registrars', [RegistrarController::class, 'index']);
         Route::post('registrars/costs/refresh', [RegistrarController::class, 'refresh']);
         Route::post('registrars/costs/scrape', [RegistrarController::class, 'scrape']);
@@ -527,6 +557,8 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
         Route::put('pricing/options', [PricingController::class, 'upsertOption']);
         Route::delete('pricing/options/{product}/{key}', [PricingController::class, 'deleteOption']);
         Route::put('pricing/addon-products', [PricingController::class, 'setAddonProducts']);
+        Route::get('pricing/penpot', [PricingController::class, 'penpot']); // H-R7: Penpot per web hosting tariff
+        Route::put('pricing/penpot', [PricingController::class, 'setPenpot']);
         Route::get('pricing/plans/{product}/{plan}/versions', [PricingController::class, 'planVersions']); // a plan is never edited: a change is a new version (H01)
         Route::post('pricing/plans/{product}/{plan}/versions', [PricingController::class, 'publishPlanVersion']);
         Route::post('pricing/plans/{product}/{plan}/versions/{version}/activate', [PricingController::class, 'activatePlanVersion'])->whereNumber('version');
@@ -581,6 +613,8 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
         Route::post('tickets/{ticket}/draft', [StaffSupportController::class, 'draft']); // a reply drafted for the agent (account facts + the service's health check); nothing is sent
         Route::post('tickets/{ticket}/transition', [StaffSupportController::class, 'transition']);
         Route::post('tickets/{ticket}/assign', [StaffSupportController::class, 'assign']);
+        Route::post('tickets/{ticket}/complaint', [StaffSupportController::class, 'complaint']); // L-15: the ticket is a complaint — confirmed, decided within 30 days
+        Route::post('tickets/{ticket}/complaint/resolve', [StaffSupportController::class, 'resolveComplaint']); // L-15: the decision, confirmed to the customer
         Route::post('tickets/{ticket}/escalate', [StaffSupportController::class, 'escalate']);
         Route::get('tickets/{ticket}/work-offers', [StaffSupportController::class, 'workOffers']);
         Route::post('tickets/{ticket}/work-offers', [StaffSupportController::class, 'proposeWork']);
@@ -671,6 +705,18 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
         Route::get('leads', [StaffContentController::class, 'leads']);
         Route::post('leads/{lead}/transition', [StaffContentController::class, 'transitionLead']);
         Route::put('content/posts', [StaffContentController::class, 'upsertPost']);
+        // I-R17 / I-R18 (TASK-0149): the blog and the customer references, edited in Nastavení → Blog a reference (ContentCommand)
+        Route::get('content/posts', [StaffContentController::class, 'posts']);
+        Route::post('content/posts', [StaffContentController::class, 'createPost']);
+        Route::patch('content/posts/{post}', [StaffContentController::class, 'updatePost']);
+        Route::post('content/posts/{post}/state', [StaffContentController::class, 'postState']);
+        Route::delete('content/posts/{post}', [StaffContentController::class, 'deletePost']);
+        Route::get('content/references', [StaffContentController::class, 'references']);
+        Route::post('content/references', [StaffContentController::class, 'createReference']);
+        Route::post('content/references/order', [StaffContentController::class, 'orderReferences']);
+        Route::patch('content/references/{reference}', [StaffContentController::class, 'updateReference']);
+        Route::post('content/references/{reference}/state', [StaffContentController::class, 'referenceState']);
+        Route::delete('content/references/{reference}', [StaffContentController::class, 'deleteReference']);
         Route::put('content/kb', [StaffContentController::class, 'upsertArticle']);
         Route::put('content/changelog', [StaffContentController::class, 'upsertChangelog']);
         Route::put('content/stock', [StaffContentController::class, 'upsertStock']);

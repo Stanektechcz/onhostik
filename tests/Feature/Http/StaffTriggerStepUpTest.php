@@ -129,6 +129,7 @@ it('every HIGH or CRITICAL authorize() outside the bus is classified', function 
         'Api/V1/Staff/RegistrarController.php::domain.registrar.manage' => 'read: connections; the connection write is RegistrarConnectionCommand',
         'Api/V1/Staff/ReportController.php::billing.dunning.manage' => 'read: GET /v1/staff/dunning (the run is authorizeAction)',
         'Api/V1/Staff/CustomerController.php::billing.limit_raise.waive' => 'bus: StaffCustomerCommand (CRITICAL, four-eyes)',
+        'Api/V1/ComplianceController.php::organization.close' => 'read: GET /v1/data-requests/deletion-preview (H0, H-R5: the forfeited credit before an erasure; the erasure itself is DataRequestCommand)',
     ];
     $root = app_path('Http/Controllers');
     $found = [];
@@ -138,7 +139,8 @@ it('every HIGH or CRITICAL authorize() outside the bus is classified', function 
         }
         // `->authorize(` itself and every `->resolve…(` helper that hands its literal to authorize() (round 1: a HIGH permission
         // behind a helper was never classified); the arguments are matched with their parentheses balanced
-        preg_match_all('/(?:->authorize|->resolve[A-Za-z]*)(\((?:[^()]++|(?1))*\))/', (string) file_get_contents($file->getPathname()), $calls);
+        // TASK-0098: authorizeOrNotFound() is authorize() with a 404 for a stranger — the same check, so it is classified alike
+        preg_match_all('/(?:->authorize(?:OrNotFound)?|->resolve[A-Za-z]*)(\((?:[^()]++|(?1))*\))/', (string) file_get_contents($file->getPathname()), $calls);
         $relative = str_replace('\\', '/', substr($file->getPathname(), strlen($root) + 1));
         foreach ($calls[1] as $arguments) {
             preg_match_all("/'([a-z_]+(?:\\.[a-z_]+)+)'/", $arguments, $keys);

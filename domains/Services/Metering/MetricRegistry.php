@@ -161,9 +161,20 @@ final class MetricRegistry
             'interval_minutes' => null, 'drives_guard' => true, 'status' => self::ENFORCED_ONLY, 'reason' => null,
         ],
         'ram_mb' => [
-            'entitlement' => ['ram_mb'], 'unit' => 'bytes', 'scope' => 'service', 'limit_kind' => self::HARD, 'families' => ['cloud', 'data', 'game'],
-            'sources' => ['proxmox' => 'ProxmoxComputeProvider sets qemu memory at provision/resize and drift-checks it; UsageWatch also measures live mem_bytes against ram_mb for cloud/game', 'pterodactyl' => 'ProvisionGameServerWorkflow sets memory_mb from ram_mb'],
+            'entitlement' => ['ram_mb'], 'unit' => 'bytes', 'scope' => 'service', 'limit_kind' => self::HARD, 'families' => ['cloud', 'data', 'game', 'penpot'],
+            'sources' => ['proxmox' => 'ProxmoxComputeProvider sets qemu memory at provision/resize and drift-checks it; UsageWatch also measures live mem_bytes against ram_mb for cloud/game', 'pterodactyl' => 'ProvisionGameServerWorkflow sets memory_mb from ram_mb', 'penpot' => 'PenpotDockerProvider::limits → PenpotCompose sets deploy.resources.limits.memory of every container of the stack from ram_mb (TASK-0123; sold since H-R7)'],
             'interval_minutes' => 60, 'drives_guard' => true, 'status' => self::MEASURED, 'reason' => null,
+        ],
+        // TASK-0128 (H-R7): the Penpot plan is on sale, so its numbers are held to the same rule as every other plan's
+        'cpus' => [
+            'entitlement' => ['cpus'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::HARD, 'families' => ['penpot'],
+            'sources' => ['penpot' => 'PenpotDockerProvider::limits → PenpotCompose sets deploy.resources.limits.cpus of the stack\'s containers from cpus'],
+            'interval_minutes' => null, 'drives_guard' => false, 'status' => self::ENFORCED_ONLY, 'reason' => null,
+        ],
+        'storage_gb' => [
+            'entitlement' => ['storage_gb'], 'unit' => 'bytes', 'scope' => 'service', 'limit_kind' => self::HARD, 'families' => ['penpot'],
+            'sources' => ['penpot' => 'PenpotDockerProvider refuses a stack the node has no room for (assertDiskRoom) and applies the node\'s storage quota helper (options.quota_command, XFS project quota) with storage_gb; a node without the helper is a doctor finding ("every Penpot node limits the storage of a stack")'],
+            'interval_minutes' => null, 'drives_guard' => false, 'status' => self::ENFORCED_ONLY, 'reason' => null,
         ],
         'traffic_tb' => [
             'entitlement' => ['traffic_tb'], 'unit' => 'bytes_month', 'scope' => 'service', 'limit_kind' => self::NONE, 'families' => ['cloud', 'addon'],
@@ -176,6 +187,13 @@ final class MetricRegistry
             'sources' => ['proxmox' => 'SnapshotLimit counts the VM\'s snapshots (ComputeProvider::listSnapshots) at the request and again in the snapshot step, and refuses a new one at the plan\'s number; the platform\'s own safety snapshots (pre_rollback, pre_reinstall) do not count'],
             'interval_minutes' => null, 'drives_guard' => false, 'status' => self::ENFORCED_ONLY,
             'reason' => 'Phase C (C9): a snapshot is refused once the server holds as many as its plan sells (feature_limit_reached); nothing samples the count over time — it is checked when a snapshot is asked for.',
+        ],
+        // TASK-0110 (owner decision G-R5): the size of one customer image, sold only with the plan's `custom_iso` switch
+        'custom_iso_max_mb' => [
+            'entitlement' => ['custom_iso_max_mb'], 'unit' => 'mb', 'scope' => 'service', 'limit_kind' => self::HARD, 'families' => ['cloud'],
+            'sources' => ['proxmox' => 'CustomIsoLibrary::stage() refuses an upload larger than CustomIsoPolicy::maxBytes() — the plan\'s number, never more than what clamd scans in full (onhost.custom_iso.scan_max_mb) — before it is scanned or kept'],
+            'interval_minutes' => null, 'drives_guard' => false, 'status' => self::ENFORCED_ONLY,
+            'reason' => 'Checked on every upload against the bytes that arrived (not the size the browser claims); the organization\'s total and the number of images are the operator\'s quota (onhost.custom_iso.org_quota_mb, org_max_images), not the plan\'s.',
         ],
         // TASK-0023 placement-capacity (decision 7): kept for the web family only — a web plan that sells it runs only on ISPConfig
         'php_workers_dedicated' => [

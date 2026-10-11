@@ -105,7 +105,7 @@ it('records whose key sits on a shell account by fingerprint, never the key, and
     // another organization sees nothing of it
     [$stranger] = $this->customerWithOrganization();
     $this->actingAs($stranger, 'sanctum');
-    $this->getJson("/v1/services/{$service->id}/ssh-keys")->assertForbidden();
+    $this->getJson("/v1/services/{$service->id}/ssh-keys")->assertNotFound(); // a stranger to the organization: 404, as for a missing id (TASK-0098)
 });
 
 it('takes a removed member\'s keys off every account at once and tells the organization', function () {

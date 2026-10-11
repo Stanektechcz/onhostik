@@ -382,6 +382,9 @@ Tests: `tests/Feature/Services/ComputeBackupScheduleTest.php`.
 
 ### Going live with server backups (operator steps)
 
+Owner decision I-R1 (2026-10-08): these steps run **on staging first**, as rehearsal step R25 after the final doctor (R23,
+[staging-rehearsal-2026-10.md](staging-rehearsal-2026-10.md)); on production only on the owner's word.
+
 1. `php artisan onhost:backups:compute-plan` on production (read-only): note every service with `backup storage
    MISSING` and the web-window line.
 2. For each Proxmox instance behind a MISSING row set the instance option **`backup_storage`** (the storage ID of the

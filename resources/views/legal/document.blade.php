@@ -37,7 +37,18 @@
 <main>
   <h1>{{ $title }}</h1>
   <div class="meta">Verze {{ $document->version }} · účinná od {{ $document->effective_from?->format('j. n. Y') }}@if ($document->effective_to) · do {{ $document->effective_to->format('j. n. Y') }}@endif · {{ $document->required_for_checkout ? 'součást každé objednávky' : 'platí pro uvedené služby' }}</div>
+  @if ($superseded)
+  <div class="meta"><strong>Toto je dřívější verze.</strong> Platnou verzi {{ $superseded->version }} najdete na <a href="/dokumenty/{{ $slug }}">/dokumenty/{{ $slug }}</a>.</div>
+  @endif
   <article>{!! $html !!}</article>
+  @if ($earlier !== [])
+  <div class="others">
+    <strong>Předchozí verze:</strong>
+    @foreach ($earlier as $old)
+      <a href="/dokumenty/{{ $slug }}/{{ $old['version'] }}">{{ $old['version'] }} (od {{ $old['effective_from']?->format('j. n. Y') }})</a>
+    @endforeach
+  </div>
+  @endif
   <div class="others">
     <strong>Další dokumenty:</strong>
     @foreach ($others as $other)

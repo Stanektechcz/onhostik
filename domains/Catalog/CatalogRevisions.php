@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Catalog;
 
+use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Catalog\Commands\CatalogCommand;
 use Onhost\Domain\Catalog\Models\Plan;
@@ -12,6 +13,7 @@ use Onhost\Domain\Catalog\Models\Price;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Catalog\Models\ProductOption;
 use Onhost\Domain\Provisioning\Scheduling\PlacementRules;
+use Onhost\Domain\Services\CustomIso\CustomIsoReadiness;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Platform\Commands\CommandBus;
@@ -47,11 +49,59 @@ use Onhost\Platform\Errors\DomainError;
  *  - `products`: product key => ['match' => regex on the current description, 'description' => {cs, en}] — replaced only while
  *    the current description still says what the revision withdraws, so a text staff wrote since is left alone;
  *  - `create`: keys of `PRODUCTS` a running catalogue must have — created (`CatalogCommand product.create`) while missing, never
- *    changed once they exist. A product defined here carries no prices of its own (a raise is priced by its parent's options).
+ *    changed once they exist. A product defined here carries no prices of its own (a raise is priced by its parent's options)
+ *    unless its plan defines `prices` (H-R7 Penpot);
+ *  - `price_defined` (optional): keys of `PRODUCTS` whose row is still the untouched draft an older proposal created (draft, every
+ *    price zero): their plans get the defined prices (`plan.publish`) and the product goes on sale (`product.state`). A product
+ *    staff priced or took off sale since is never touched again — the only revision kind that writes a price, and only over zero;
+ *  - `penpot_offer` (optional): the per-tariff Penpot rules (`pricing.penpot`, PenpotOffer::defaults) written once, while the
+ *    setting does not exist (`CatalogCommand pricing.penpot.set`);
+ *  - `grant` (optional): 'product/plan' => [key => value] the new version SELLS (in `entitlements`, or in `limits` where the current
+ *    version keeps the key there) — pending while the current version does not carry exactly that value (TASK-0110);
+ *  - `proposal` (optional, true): prepared for the owner's decision and NOT part of "every revision": the doctor does not ask for
+ *    it and `onhost:catalog:revise` without an id neither previews nor applies it; it is previewed and applied only by its id;
+ *  - `requires` (optional): what the installation must deliver before the revision may be published (`blockers()`); `apply()`
+ *    refuses the whole revision while anything is missing and publishes nothing of it. `custom_iso` = CustomIsoReadiness
+ *    (owner decision I-R9: clamd, the image volume and the Proxmox ISO storage, rehearsal R15–R17).
  */
 final class CatalogRevisions
 {
     public const REVISIONS = [
+        // TASK-0110 (owner decision G-R5): a proposal, prepared and not applied — docs/proposals/custom-iso-plans.md. The owner decides
+        // which plans sell a custom ISO and how big one image may be; then `php artisan onhost:catalog:revise 2026-10-custom-iso --apply`
+        // (or the plan editor) publishes new versions. Customers on the versions they hold keep them (no custom ISO until a plan change).
+        // Owner decision I-R9 (2026-10-08): published only after R15–R17 are green — `requires` makes apply() refuse until then.
+        '2026-10-custom-iso' => [
+            'proposal' => true,
+            'requires' => 'custom_iso',
+            'reason' => 'Rozhodnutí vlastníka G-R5 (návrh TASK-0110): vlastní ISO jen tam, kde ho objednaný tarif VPS obsahuje — nové verze tarifů Compute 4/8/16 a VDS s vlastním ISO (jeden obraz do 4 GB); ceny beze změny, stávající smlouvy beze změny.',
+            'plans' => [],
+            'rewrite' => [],
+            'products' => [],
+            'grant' => [
+                'vps/compute-4' => ['custom_iso' => true, 'custom_iso_max_mb' => 4096],
+                'vps/compute-8' => ['custom_iso' => true, 'custom_iso_max_mb' => 4096],
+                'vps/compute-16' => ['custom_iso' => true, 'custom_iso_max_mb' => 4096],
+                'vds/vds-4' => ['custom_iso' => true, 'custom_iso_max_mb' => 4096],
+                'vds/vds-8' => ['custom_iso' => true, 'custom_iso_max_mb' => 4096],
+                'vds/vds-16' => ['custom_iso' => true, 'custom_iso_max_mb' => 4096],
+            ],
+            'wording' => '/ISO/u',
+        ],
+        // Owner decision H-R7 (2026-10-07, TASK-0128) replaces the proposal `2026-10-penpot` of TASK-0123: Penpot is on sale — included
+        // in every web hosting tariff, an add-on at 29 Kč a month next to any other service. The revision creates the product priced
+        // and on sale (or prices and puts on sale the untouched draft the old proposal created), and writes the per-tariff rules once
+        // (`pricing.penpot`, PenpotOffer::defaults). Staff change both afterwards: the add-on price in the plan editor, the tariffs in
+        // the Penpot editor (`pricing.penpot.set`). Without a qualified Penpot node the cart refuses the order (PenpotParents).
+        '2026-10-penpot-on-sale' => [
+            'reason' => 'Rozhodnutí vlastníka H-R7 (2026-10-07): Penpot je v prodeji — v ceně každého tarifu webhostingu, k ostatním službám jako doplněk za 29 Kč měsíčně (rok = 12 měsíců, bez slevy). Cenu doplňku mění editor tarifů, Penpot u jednotlivých tarifů webhostingu administrace; bez kvalifikovaného uzlu Penpot košík objednávku odmítne (TASK-0128).',
+            'plans' => [],
+            'rewrite' => [],
+            'products' => [],
+            'create' => ['penpot'],
+            'price_defined' => ['penpot'],
+            'penpot_offer' => true,
+        ],
         '2026-09-honest-promises' => [
             'reason' => 'Rozhodnutí vlastníka 2/4/6/18 (2026-09-25): PITR, počet spojení, dedikovaná odchozí IP a dedikovaná databáze se neposkytují a interval záloh „1h“ se opravuje na „hourly“ — nové verze bez nich, ceny beze změny, stávající smlouvy beze změny.',
             'plans' => [
@@ -110,21 +160,49 @@ final class CatalogRevisions
             // never on the price list and never a cart upsell: it is ordered for one running service (LimitRaiseLine)
             'meta' => ['listed' => false, 'limit_raise' => true],
         ],
+        // TASK-0123: one Penpot per service on a dedicated Penpot node (executor `penpot`). H-R7 (TASK-0128): on sale, ordered for a
+        // service (never from the price list: `listed` false) and priced by that service's tariff (PenpotOffer); the plan's prices
+        // are the add-on price next to a service that is no web hosting. `admin_priced`: `product.state active` is refused while a
+        // price is zero, so it is never sold for nothing by accident.
+        'penpot' => [
+            'family' => 'penpot', 'executor' => 'penpot', 'billing_model' => 'subscription', 'sort' => 25, 'state' => 'active',
+            'name' => ['cs' => 'Penpot', 'en' => 'Penpot'],
+            'description' => ['cs' => 'Vlastní Penpot pro váš tým — open-source nástroj pro design a prototypy na vlastní adrese s HTTPS a denními zálohami, provozuje ONhost.', 'en' => 'Your own Penpot for your team — the open-source design and prototyping tool on its own address with HTTPS and daily backups, run by ONhost.'],
+            'meta' => ['persona' => 'web', 'admin_priced' => true, 'listed' => false, 'ordered_for_service' => true, 'chips' => ['Open source', 'HTTPS', 'Denní zálohy']],
+            'plans' => [
+                'penpot-team' => [
+                    'name' => ['cs' => 'Penpot Team', 'en' => 'Penpot Team'], 'sla_class' => 'standard', 'highlighted' => true,
+                    'description' => ['cs' => 'Jedna instance Penpotu pro tým.', 'en' => 'One Penpot instance for a team.'],
+                    // read by the Penpot node (PenpotDockerProvider::limits) and the backup sweep (onhost:penpot:sweep)
+                    'entitlements' => ['ram_mb' => 4096, 'cpus' => 2, 'storage_gb' => 20, 'backup_days' => 14],
+                    'features' => ['cs' => ['Vlastní instance Penpotu', '4 GB RAM, 2 vCPU', '20 GB pro soubory a databázi', 'HTTPS na vlastní adrese', 'Denní zálohy 14 dní'], 'en' => ['Your own Penpot instance', '4 GB RAM, 2 vCPU', '20 GB for files and the database', 'HTTPS on its own address', 'Daily backups kept 14 days']],
+                    'periods' => ['month', 'year'],
+                    // monthly add-on price per currency (H-R7: 29 Kč; EUR at the catalogue's ratio of the other 29 Kč add-ons); a year is 12 months
+                    'prices' => ['CZK' => 2900, 'EUR' => 119],
+                ],
+            ],
+        ],
     ];
 
     /** Features lines staff may have written that repeat a withdrawn promise: the preview warns, nothing rewrites them. */
     private const WITHDRAWN_WORDING = '/PITR|spojení|connection|dedikovan|dedicated/iu';
 
-    /** @return list<string> */
+    /** The revisions "every revision" means: all but the proposals, which wait for the owner and are named by their id (TASK-0110). @return list<string> */
     public static function ids(): array
     {
-        return array_keys(self::REVISIONS);
+        return array_values(array_filter(array_keys(self::REVISIONS), fn (string $id) => empty(self::definition($id)['proposal'])));
+    }
+
+    /** Revisions prepared for the owner's decision and not applied by "every revision" (TASK-0110). @return list<string> */
+    public static function proposals(): array
+    {
+        return array_values(array_diff(array_keys(self::REVISIONS), self::ids()));
     }
 
     /**
      * What is still to do, per revision (only revisions with something pending).
      *
-     * @return array<string, array{plans: array<string, array{version: int, drop: array<string,string>, set: array<string, array{bag: string, from: mixed, to: mixed}>}>, products: array<string, array{cs: string, en: string}>, create?: list<string>, options?: array<string, string>}>
+     * @return array<string, array{plans: array<string, array{version: int, drop: array<string,string>, set: array<string, array{bag: string, from: mixed, to: mixed}>}>, products: array<string, array{cs: string, en: string}>, create?: list<string>, options?: array<string, string>, priced?: list<string>, offer?: bool}>
      */
     public function pending(?string $id = null): array
     {
@@ -134,8 +212,11 @@ final class CatalogRevisions
             $products = $this->pendingProducts($revision);
             $create = $this->pendingCreates($revision);
             $options = $this->pendingOptions($revision);
-            if ($plans !== [] || $products !== [] || $create !== [] || $options !== []) {
-                $out[$revision] = ['plans' => $plans, 'products' => $products] + ($create === [] ? [] : ['create' => $create]) + ($options === [] ? [] : ['options' => $options]);
+            $priced = $this->pendingPriced($revision);
+            $offer = ! empty(self::definition($revision)['penpot_offer']) && ! app(PenpotOffer::class)->configured();
+            if ($plans !== [] || $products !== [] || $create !== [] || $options !== [] || $priced !== [] || $offer) {
+                $out[$revision] = ['plans' => $plans, 'products' => $products] + ($create === [] ? [] : ['create' => $create]) + ($options === [] ? [] : ['options' => $options])
+                    + ($priced === [] ? [] : ['priced' => $priced]) + ($offer ? ['offer' => true] : []);
             }
         }
 
@@ -175,6 +256,12 @@ final class CatalogRevisions
         foreach ($pending['create'] ?? [] as $key) {
             $rows[] = ['kind' => 'create', 'target' => $key, 'definition' => self::PRODUCTS[$key]];
         }
+        foreach ($pending['priced'] ?? [] as $key) {
+            $rows[] = ['kind' => 'priced', 'target' => $key, 'prices' => array_map(fn (array $plan) => $plan['prices'] ?? [], self::definedPlans($key)), 'state' => 'active'];
+        }
+        if (! empty($pending['offer'])) {
+            $rows[] = ['kind' => 'offer', 'target' => PenpotOffer::KEY, 'rules' => app(PenpotOffer::class)->defaults()];
+        }
         foreach ($pending['plans'] as $target => $change) {
             $version = $this->currentVersion($target);
             $rows[] = [
@@ -205,6 +292,20 @@ final class CatalogRevisions
     }
 
     /**
+     * What the installation still lacks before this revision may be published (its `requires`), one line each; empty when it
+     * may run or requires nothing. The preview names it, `apply()` enforces it (owner decision I-R9).
+     *
+     * @return list<string>
+     */
+    public function blockers(string $id): array
+    {
+        return match (self::definition($this->known($id))['requires'] ?? null) {
+            'custom_iso' => app(CustomIsoReadiness::class)->unmet(),
+            default => [],
+        };
+    }
+
+    /**
      * Publishes the pending changes of one revision (or of every revision) as new plan versions, through the bus. Each plan is its
      * own command and transaction: one refusal does not undo the others, and a second run picks up what is left.
      *
@@ -221,6 +322,12 @@ final class CatalogRevisions
             if ($pending === null) {
                 continue;
             }
+            $blockers = $this->blockers($revision);
+            if ($blockers !== []) { // I-R9: the whole revision waits, nothing of it is published
+                $done[] = ['kind' => 'gate', 'target' => $revision, 'error' => 'revision_not_ready: '.implode('; ', $blockers)];
+
+                continue;
+            }
             $reason = (string) self::REVISIONS[$revision]['reason'];
             foreach ($pending['create'] ?? [] as $key) { // a product the code defines, as the four-eyes catalogue operation (system actor on the CLI)
                 try {
@@ -228,6 +335,17 @@ final class CatalogRevisions
                     $done[] = ['kind' => 'create', 'target' => $key];
                 } catch (DomainError $e) {
                     $done[] = ['kind' => 'create', 'target' => $key, 'error' => $e->error.': '.$e->getMessage()];
+                }
+            }
+            foreach ($pending['priced'] ?? [] as $key) { // the untouched draft of an older proposal: its defined prices, then on sale
+                $done[] = $this->applyPriced($revision, $key, $reason, $context);
+            }
+            if (! empty($pending['offer'])) { // the per-tariff Penpot rules, once (a price: four eyes in the console, the system actor here)
+                try {
+                    $bus->dispatch(new CatalogCommand('catalog.revise:'.$revision.':penpot-offer', ['op' => 'pricing.penpot.set', 'config' => app(PenpotOffer::class)->defaults(), 'reason' => $reason]), $context);
+                    $done[] = ['kind' => 'offer', 'target' => PenpotOffer::KEY];
+                } catch (DomainError $e) {
+                    $done[] = ['kind' => 'offer', 'target' => PenpotOffer::KEY, 'error' => $e->error.': '.$e->getMessage()];
                 }
             }
             foreach ($pending['plans'] as $target => $change) {
@@ -277,7 +395,7 @@ final class CatalogRevisions
     /**
      * One line for the doctor: 'revision: product/plan (−key, ~key), product key'.
      *
-     * @param  array<string, array{plans: array<string, array{drop: array<string,string>, set: array<string,mixed>}>, products: array<string,mixed>, create?: list<string>, options?: array<string,string>}>  $pending
+     * @param  array<string, array{plans: array<string, array{drop: array<string,string>, set: array<string,mixed>}>, products: array<string,mixed>, create?: list<string>, options?: array<string,string>, priced?: list<string>, offer?: bool}>  $pending
      */
     public static function summary(array $pending): string
     {
@@ -294,6 +412,12 @@ final class CatalogRevisions
             foreach ($p['create'] ?? [] as $product) {
                 $items[] = 'new product '.$product;
             }
+            foreach ($p['priced'] ?? [] as $product) {
+                $items[] = 'prices and on sale: '.$product;
+            }
+            if (! empty($p['offer'])) {
+                $items[] = 'Penpot per web hosting tariff';
+            }
             foreach (array_keys($p['options'] ?? []) as $option) {
                 $items[] = 'option '.$option.' withdrawn';
             }
@@ -306,7 +430,7 @@ final class CatalogRevisions
     private function known(string $id): string
     {
         if (! array_key_exists($id, self::REVISIONS)) {
-            throw new DomainError('catalog_revision_unknown', "Unknown catalogue revision {$id}; known: ".implode(', ', self::ids()).'.', 422, ['field' => 'revision']);
+            throw new DomainError('catalog_revision_unknown', "Unknown catalogue revision {$id}; known: ".implode(', ', array_keys(self::REVISIONS)).'.', 422, ['field' => 'revision']);
         }
 
         return $id;
@@ -315,7 +439,7 @@ final class CatalogRevisions
     /**
      * A revision as the code reads it (the constant's literal types are narrower than what a revision may hold).
      *
-     * @return array{reason: string, plans: array<string, list<string>>, rewrite: array<string, array<string, mixed>>, products: array<string, array{match: string, description: array{cs: string, en: string}}>, create?: list<string>, drop_undelivered?: list<string>, withdraw_undelivered_options?: list<string>, wording?: string}
+     * @return array{reason: string, plans: array<string, list<string>>, rewrite: array<string, array<string, mixed>>, products: array<string, array{match: string, description: array{cs: string, en: string}}>, create?: list<string>, drop_undelivered?: list<string>, withdraw_undelivered_options?: list<string>, wording?: string, grant?: array<string, array<string, mixed>>, proposal?: bool, price_defined?: list<string>, penpot_offer?: bool}
      */
     private static function definition(string $revision): array
     {
@@ -329,6 +453,10 @@ final class CatalogRevisions
         $targets = [];
         foreach (array_keys($definition['plans']) as $target) {
             $targets[$target] = true;
+        }
+        $grant = (array) ($definition['grant'] ?? []);
+        foreach (array_keys($grant) as $target) {
+            $targets[(string) $target] = true;
         }
         $undelivered = array_values(array_map('strval', (array) ($definition['drop_undelivered'] ?? [])));
         if ($definition['rewrite'] !== [] || $undelivered !== []) { // a rewrite (or an undeliverable key) looks at every plan: the old value is wrong wherever it is
@@ -365,6 +493,12 @@ final class CatalogRevisions
                         $set[$key] = ['bag' => $bag, 'from' => $values[$key], 'to' => $map[(string) $values[$key]]];
                         break;
                     }
+                }
+            }
+            foreach ((array) ($grant[$target] ?? []) as $key => $value) { // what the new version sells (TASK-0110)
+                $bag = array_key_exists($key, $bags['limits']) && ! array_key_exists($key, $bags['entitlements']) ? 'limits' : 'entitlements';
+                if (($bags[$bag][$key] ?? null) !== $value) {
+                    $set[(string) $key] = ['bag' => $bag, 'from' => $bags[$bag][$key] ?? null, 'to' => $value];
                 }
             }
             if ($drop !== [] || $set !== []) {
@@ -415,6 +549,60 @@ final class CatalogRevisions
         return $out;
     }
 
+    /**
+     * Products of `price_defined` still in the state an older proposal left them: a draft whose every active price of every
+     * plan's current version is zero. Anything else — priced by staff, put on sale, taken off sale again — is staff's.
+     *
+     * @return list<string>
+     */
+    private function pendingPriced(string $revision): array
+    {
+        $out = [];
+        foreach (array_map('strval', (array) (self::definition($revision)['price_defined'] ?? [])) as $key) {
+            $product = Product::query()->where('key', $key)->first();
+            if ($product === null || $product->state !== 'draft' || self::definedPlans($key) === []) {
+                continue;
+            }
+            $versions = Plan::query()->where('product_id', $product->id)->get()->map(fn (Plan $plan) => $plan->currentVersion()?->id)->filter()->values()->all();
+            $prices = Price::query()->whereIn('plan_version_id', $versions)->where('state', 'active');
+            if ($versions !== [] && (clone $prices)->exists() && ! (clone $prices)->where('amount_minor', '>', 0)->exists()) {
+                $out[] = $key;
+            }
+        }
+
+        return $out;
+    }
+
+    /** @return array{kind: string, target: string, error?: string} the defined prices of every plan of the product, then on sale */
+    private function applyPriced(string $revision, string $key, string $reason, CommandContext $context): array
+    {
+        $bus = app(CommandBus::class);
+        try {
+            foreach (self::definedPlans($key) as $planKey => $plan) {
+                $version = $this->currentVersion($key.'/'.$planKey, false);
+                if ($version === null) {
+                    continue;
+                }
+                $prices = [];
+                foreach (Price::query()->where('plan_version_id', $version->id)->where('state', 'active')->get() as $price) {
+                    $amount = self::definedAmount($plan, (string) $price->currency, (string) $price->period);
+                    if ($amount > 0) {
+                        $prices[] = ['currency' => $price->currency, 'period' => $price->period, 'amount' => number_format($amount / 100, 2, '.', '')];
+                    }
+                }
+                // from zero: no "large change" to confirm in the human sense, the flag only lets the number leave zero
+                $bus->dispatch(new CatalogCommand(mb_substr('catalog.revise:'.$revision.':priced:'.$key.'/'.$planKey.':v'.$version->version, 0, 190), [
+                    'op' => 'plan.publish', 'product_key' => $key, 'plan_key' => (string) $planKey, 'base_version' => (int) $version->version, 'prices' => $prices, 'confirm_large_change' => true, 'reason' => $reason,
+                ]), $context);
+            }
+            $bus->dispatch(new CatalogCommand('catalog.revise:'.$revision.':on-sale:'.$key, ['op' => 'product.state', 'state' => 'active', 'products' => [$key], 'reason' => $reason]), $context);
+
+            return ['kind' => 'priced', 'target' => $key];
+        } catch (DomainError $e) {
+            return ['kind' => 'priced', 'target' => $key, 'error' => $e->error.': '.$e->getMessage()];
+        }
+    }
+
     /** @return list<string> products of `PRODUCTS` this revision creates that the catalogue does not have yet */
     private function pendingCreates(string $revision): array
     {
@@ -432,7 +620,67 @@ final class CatalogRevisions
     {
         $definition = self::PRODUCTS[$key] ?? throw new DomainError('product_undefined', "Product {$key} is not defined in code (CatalogRevisions::PRODUCTS); a new product comes with the code that delivers it.", 422, ['field' => 'product_key']);
 
-        return ['key' => $key] + $definition;
+        return ['key' => $key] + array_diff_key($definition, ['plans' => true]);
+    }
+
+    /**
+     * A product of `PRODUCTS` with the plans its definition carries (TASK-0123): version 1 of each plan, priced at the plan's defined
+     * monthly `prices` (a year is twelve months, no implied discount — H-R7) or at zero where it defines none — what it costs then is
+     * staff's (`plan.publish`), and an `admin_priced` product cannot go on sale while a price is zero (CatalogPreflight::assertPriced).
+     * Refused when the product exists (a defined product is created once).
+     */
+    public static function createDefined(string $key): Product
+    {
+        $attributes = CatalogPreflight::newProduct($key);
+        $plans = self::definedPlans($key);
+
+        return DB::transaction(function () use ($attributes, $plans): Product {
+            $product = Product::query()->create($attributes);
+            $sort = 0;
+            foreach ($plans as $planKey => $definition) {
+                $plan = Plan::query()->create([
+                    'product_id' => $product->id, 'key' => (string) $planKey, 'name' => $definition['name'], 'description' => $definition['description'] ?? null,
+                    'sla_class' => (string) ($definition['sla_class'] ?? 'standard'), 'highlighted' => (bool) ($definition['highlighted'] ?? false), 'state' => 'active', 'sort' => ++$sort * 10,
+                ]);
+                $version = PlanVersion::query()->create([
+                    'plan_id' => $plan->id, 'version' => 1, 'entitlements' => (array) ($definition['entitlements'] ?? []), 'limits' => (array) ($definition['limits'] ?? []),
+                    'features' => (array) ($definition['features'] ?? []), 'effective_from' => now()->subMinute(),
+                ]);
+                foreach (['CZK', 'EUR'] as $currency) {
+                    foreach ((array) ($definition['periods'] ?? ['month']) as $period) {
+                        $amount = self::definedAmount($definition, $currency, (string) $period);
+                        Price::query()->create(['plan_version_id' => $version->id, 'currency' => $currency, 'period' => (string) $period, 'amount_minor' => $amount, 'renewal_amount_minor' => $amount, 'setup_minor' => 0, 'effective_from' => now()->subMinute(), 'state' => 'active']);
+                    }
+                }
+            }
+
+            return $product;
+        });
+    }
+
+    /** @param array<string,mixed> $plan @return int the defined price of one period in minor units (0 where the plan defines none) */
+    private static function definedAmount(array $plan, string $currency, string $period): int
+    {
+        $monthly = (int) (((array) ($plan['prices'] ?? []))[$currency] ?? 0);
+
+        return $period === 'year' ? $monthly * 12 : $monthly;
+    }
+
+    /** @return array<string, array<string, mixed>> plan key => definition (name, description, sla_class, highlighted, entitlements, limits, features, periods, prices) */
+    private static function definedPlans(string $key): array
+    {
+        return self::PRODUCTS[$key]['plans'] ?? [];
+    }
+
+    /** The defined products a fresh install creates (CatalogSeeder): those of revisions that are not proposals. @return list<string> */
+    public static function seededProducts(): array
+    {
+        $keys = [];
+        foreach (self::ids() as $id) {
+            array_push($keys, ...array_map('strval', (array) (self::definition($id)['create'] ?? [])));
+        }
+
+        return array_values(array_unique(array_intersect($keys, array_keys(self::PRODUCTS))));
     }
 
     /** @return array<string, array{cs: string, en: string}> */

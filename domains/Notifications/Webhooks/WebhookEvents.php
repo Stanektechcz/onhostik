@@ -111,7 +111,6 @@ final class WebhookEvents
         'wallet.topup.completed' => ['topup_id', 'amount', 'purpose:code', 'balance'], // the source can name the payment gateway
         'wallet.charged' => ['hold_id', 'amount', 'purpose:code'],
         'wallet.runway.low' => ['days', 'depletes_at', 'shortfall', 'available'],
-        'wallet.refund.requested' => ['refund_id', 'amount'],
         'wallet.frozen' => ['reason:code'],
         'wallet.hold.released' => ['hold_id', 'reason:code'],
         'subscription.created' => ['service_id', 'period:code', 'amount', 'metered', 'current_period_end'],

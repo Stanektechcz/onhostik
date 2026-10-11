@@ -6,8 +6,10 @@ namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
 use App\Http\Navigation\StaffNavigation;
+use App\Http\Support\CreditClaimsSeam;
 use App\Http\Support\CurrentOrganization;
 use App\Http\Support\PublicApiDocs;
+use App\Http\Support\PublicContentSeam;
 use App\Http\Support\SurfaceRenderer;
 use Illuminate\Http\Request;
 use Onhost\Domain\Identity\Authorization\Authorizer;
@@ -126,8 +128,14 @@ final class SurfaceController extends Controller
 
             return response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=300', 'X-Content-Type-Options' => 'nosniff']);
         }
-        if ($path === 'onhost-svc-web.js' && ! config('onhost.ui.demo', false)) { // customer surfaces never name a registrar vendor (seam #20)
-            $js = str_replace("'Hetzner', 'Wedos']", "'Hetzner', 'Forpsi']", (string) file_get_contents($file));
+        if ($path === 'onhost-content.js' && ! config('onhost.ui.demo', false)) { // credit is never paid back in cash (G8 item 9, owner decision 2026-10-05)
+            // I-R17 (TASK-0149): the blog is what staff publish (ONHOST_DATA.blog); the prototype's posts are not sent
+            $js = PublicContentSeam::contentModule(CreditClaimsSeam::apply((string) file_get_contents($file), ['content']));
+
+            return response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=300', 'X-Content-Type-Options' => 'nosniff']);
+        }
+        if ($path === 'onhost-svc-web.js' && ! config('onhost.ui.demo', false)) { // customer surfaces never name a registrar vendor (seam #20); an SLA credit is credited, not refunded (G8 item 9)
+            $js = CreditClaimsSeam::apply(str_replace("'Hetzner', 'Wedos']", "'Hetzner', 'Forpsi']", (string) file_get_contents($file)), ['svc-web']);
 
             return response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=300', 'X-Content-Type-Options' => 'nosniff']);
         }
@@ -163,7 +171,7 @@ final class SurfaceController extends Controller
         if ($user instanceof User && $surface === 'partner' && ! $demo && ! $this->runsPartnership($user, $boot['user'] ?? null)) {
             return redirect(self::PARTNER_APPLICATION);
         }
-        $html = $this->renderer->render($surface, $boot, $demo);
+        $html = $this->renderer->render($surface, $boot, $demo); // the credit/bonus/archive sentences are corrected inside render(), in the template only (G8 item 9, H2)
         $headers = ['Content-Type' => 'text/html; charset=utf-8', 'Cache-Control' => 'no-store', 'X-Frame-Options' => 'SAMEORIGIN', 'Referrer-Policy' => 'strict-origin-when-cross-origin'];
         if (in_array($surface, self::CONCEPT_SURFACES, true)) {
             $headers['X-Robots-Tag'] = 'noindex, nofollow';

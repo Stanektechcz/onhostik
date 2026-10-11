@@ -65,6 +65,9 @@ final class ServiceActionCommand extends OrganizationCommand implements RiskAwar
         'command.run' => 'service.console', 'command.send' => 'service.console', 'shell.create' => 'service.console', 'shell.key' => 'service.console', 'shell.delete' => 'service.console',
         'access.reset' => 'service.console', 'rescue.start' => 'service.console', 'subuser.create' => 'service.console',
         'rescue.stop' => 'service.manage', 'subuser.delete' => 'service.manage', // ending access is never more than managing
+        // a customer's own image booted on the server is a system of their choosing on its disks, as a rescue image is (TASK-0110);
+        // taking it out again is never more than managing, deleting one is deleting data of the service
+        'iso.attach' => 'service.console', 'iso.detach' => 'service.manage', 'iso.delete' => 'service.data.delete',
         // a schedule is raised to the console when one of its tasks is a console command (permissionFor)
         'schedule.create' => 'service.manage', 'schedule.delete' => 'service.manage', 'schedule.toggle' => 'service.manage', 'schedule.run' => 'service.manage',
         // The game panel account opens every server of that account, not only this service: the organization owner alone
@@ -104,7 +107,7 @@ final class ServiceActionCommand extends OrganizationCommand implements RiskAwar
      * restore without it, C13-H1c), the panel password that opens every server of the account, and new keys or a rescue system
      * that open the server itself.
      */
-    public const STEP_UP = [...DestructivePreview::ACTIONS, 'panel.password', 'access.reset', 'rescue.start'];
+    public const STEP_UP = [...DestructivePreview::ACTIONS, 'panel.password', 'access.reset', 'rescue.start', 'iso.delete'];
 
     /** HIGH risk: the step-up list, a resize (it follows a paid plan change) and the operator's mailbox retention. */
     public const HIGH_RISK = [...self::STEP_UP, 'resize', 'mailbox.backup_retention'];

@@ -33,11 +33,13 @@ use Onhost\Domain\Provisioning\Scheduling\PlacementRules;
 use Onhost\Domain\Provisioning\Workflow\Workflow;
 use Onhost\Domain\Provisioning\Workflows\CdnWorkflow;
 use Onhost\Domain\Provisioning\Workflows\CertificateWorkflow;
+use Onhost\Domain\Provisioning\Workflows\CustomIsoWorkflow;
 use Onhost\Domain\Provisioning\Workflows\DeployWorkflow;
 use Onhost\Domain\Provisioning\Workflows\ImportWorkflow;
 use Onhost\Domain\Provisioning\Workflows\ProvisionAppWorkflow;
 use Onhost\Domain\Provisioning\Workflows\ProvisionGameServerWorkflow;
 use Onhost\Domain\Provisioning\Workflows\ProvisionMailDomainWorkflow;
+use Onhost\Domain\Provisioning\Workflows\ProvisionPenpotWorkflow;
 use Onhost\Domain\Provisioning\Workflows\ProvisionVpsWorkflow;
 use Onhost\Domain\Provisioning\Workflows\ProvisionWebsiteWorkflow;
 use Onhost\Domain\Provisioning\Workflows\ServiceActionWorkflow;
@@ -46,12 +48,15 @@ use Onhost\Domain\Provisioning\Workflows\StagingWorkflow;
 use Onhost\Domain\Provisioning\Workflows\WordPressWorkflow;
 use Onhost\Domain\Services\Access\OwnerOnlyActions;
 use Onhost\Domain\Services\Commands\ServiceActionCommand;
+use Onhost\Domain\Services\CustomIso\CustomIsoPolicy;
 use Onhost\Domain\Services\Limits\LimitRaises;
 use Onhost\Domain\Services\Metering\CustomerUsage;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\DatabaseInstance;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Services\Penpot\PenpotInstances;
+use Onhost\Domain\Services\Penpot\PenpotParents;
 use Onhost\Domain\Services\Web\CommandRunner;
 use Onhost\Domain\Services\Web\CronCommand;
 use Onhost\Domain\Services\Web\CustomDirectives;
@@ -114,6 +119,9 @@ final class ServiceService
 
             return $this->attachAddon($organization, $product, $version, $config, $context, $item);
         }
+        if ($product->key === PenpotInstances::PRODUCT) { // H-R7: a Penpot belongs to one service of this organization and needs a node
+            $config = $this->penpotParent($item, $order, $organization, $config, $context);
+        }
 
         return $this->create($organization, $product, $version, $config, $context, $item, $item->name);
     }
@@ -135,24 +143,71 @@ final class ServiceService
         $region = (string) ($config['region'] ?? config('onhost.provisioning.default_region', 'cz1'));
         // a service lands in a project of its own organization or in none: somebody else's project id is not a place
         $projectId = isset($config['project_id']) && Project::query()->where('organization_id', $organization->id)->whereKey((string) $config['project_id'])->exists() ? (string) $config['project_id'] : null;
-        $service = DB::transaction(function () use ($organization, $product, $version, $config, $item, $name, $entitlements, $limits, $region, $projectId) {
-            $service = Service::query()->create([
-                'organization_id' => $organization->id, 'project_id' => $projectId, 'product_key' => $product->key, 'plan_version_id' => $version?->id, 'family' => $product->family,
-                'name' => $name ?: ($product->localizedName('cs').($version ? ' '.$version->plan?->localizedName('cs') : '')), 'label' => $config['label'] ?? null,
-                'state' => ServiceStateMachine::PAID, 'region_code' => $region, 'entitlements' => $entitlements, 'sla_class' => (string) ($version?->plan?->sla_class ?? 'standard'),
-                'order_item_id' => $item?->id, 'tags' => array_filter(['parent_service_id' => $config['parent_service_id'] ?? null]), 'desired_spec' => [],
-            ]);
-            $desired = $this->desiredSpec($service, $product, $version, $config, $organization, $limits);
-            $service->forceFill(['desired_spec' => $desired, 'hostname' => $desired['hostname'] ?? $desired['domain'] ?? null])->save();
-            $item?->forceFill(['service_id' => $service->id, 'state' => 'provisioning'])->save();
+        try {
+            $service = DB::transaction(function () use ($organization, $product, $version, $config, $item, $name, $entitlements, $limits, $region, $projectId) {
+                $service = Service::query()->create([
+                    'organization_id' => $organization->id, 'project_id' => $projectId, 'product_key' => $product->key, 'plan_version_id' => $version?->id, 'family' => $product->family,
+                    'name' => $name ?: ($product->localizedName('cs').($version ? ' '.$version->plan?->localizedName('cs') : '')), 'label' => $config['label'] ?? null,
+                    'state' => ServiceStateMachine::PAID, 'region_code' => $region, 'entitlements' => $entitlements, 'sla_class' => (string) ($version?->plan?->sla_class ?? 'standard'),
+                    'order_item_id' => $item?->id, 'tags' => array_filter(['parent_service_id' => $config['parent_service_id'] ?? null]), 'desired_spec' => [],
+                    // H-R7 (TASK-0130): one Penpot per service, kept by a partial unique index (migration 001110)
+                    'penpot_parent_id' => $product->family === PenpotInstances::FAMILY && ! empty($config['parent_service_id']) ? (string) $config['parent_service_id'] : null,
+                ]);
+                $desired = $this->desiredSpec($service, $product, $version, $config, $organization, $limits);
+                $service->forceFill(['desired_spec' => $desired, 'hostname' => $desired['hostname'] ?? $desired['domain'] ?? null])->save();
+                $item?->forceFill(['service_id' => $service->id, 'state' => 'provisioning'])->save();
 
-            return $service;
-        });
+                return $service;
+            });
+        } catch (UniqueConstraintViolationException $e) {
+            if ($product->family !== PenpotInstances::FAMILY || ! str_contains($e->getMessage(), 'penpot')) {
+                throw $e;
+            }
+            throw new DomainError('penpot_exists', 'The service already has its Penpot.', 409); // two deliveries at the same instant: the database decided
+        }
         $this->audit->record($context->withScope($organization->id), 'service.create', 'succeeded', ['product' => $product->key, 'plan_version_id' => $version?->id, 'region' => $region], 'service', $service->id);
         $this->outbox->publish(GenericEvent::of('service.created', 'service', $service->id, ['product_key' => $product->key, 'family' => $product->family, 'order_item_id' => $item?->id], $organization->id));
         $this->startProvisioning($service, $context);
 
         return $service;
+    }
+
+    /**
+     * The parent of a paid Penpot line, proven again at delivery (owner decision H-R7): the service the line names — or the one
+     * the same order's parent line just created — must be this organization's, running, and without another Penpot; and a node
+     * must be able to run it. A refusal fails the line, and the order settlement gives its money back.
+     *
+     * @param  array<string,mixed>  $config
+     * @return array<string,mixed>
+     */
+    private function penpotParent(OrderItem $item, Order $order, Organization $organization, array $config, CommandContext $context): array
+    {
+        if (empty($config['parent_service_id']) && ! empty($config['parent_line_id'])) {
+            $parentItem = OrderItem::query()->where('order_id', $item->order_id)->where('id', '!=', $item->id)->get()->first(fn (OrderItem $i) => (($i->config['line_id'] ?? null) === $config['parent_line_id']));
+            if ($parentItem === null) {
+                throw new DomainError('penpot_parent_required', 'Penpot refers to an order line that does not exist.', 422);
+            }
+            if ($parentItem->service_id === null) {
+                $this->createFromOrderItem($parentItem, $order, $context); // the parent service first
+            }
+            $config['parent_service_id'] = (string) $parentItem->fresh()?->service_id;
+        }
+        $parent = Service::query()->where('organization_id', $organization->id)->find((string) ($config['parent_service_id'] ?? ''));
+        if ($parent === null) {
+            throw new DomainError('penpot_parent_required', 'Penpot needs a service of the same organization.', 422);
+        }
+        if (in_array($parent->family, ['addon', PenpotInstances::FAMILY], true) || $parent->terminate_at !== null || in_array($parent->state, [ServiceStateMachine::TERMINATING, ServiceStateMachine::TERMINATED, ServiceStateMachine::FAILED], true)) {
+            throw new DomainError('penpot_parent_inactive', "Penpot cannot be delivered: service {$parent->id} has ended or is no parent for it.", 409);
+        }
+        if (PenpotParents::of($parent)->isNotEmpty()) { // two orders paid one after the other
+            throw new DomainError('penpot_exists', "Service {$parent->id} already has its Penpot.", 409);
+        }
+        if (! PenpotParents::deliverable($organization->id, (array) (PlanVersion::query()->find($item->plan_version_id)->entitlements ?? []))) {
+            throw PenpotParents::unavailable();
+        }
+        $config['parent_service_id'] = $parent->id;
+
+        return $config;
     }
 
     /** Addons (extra IPv4, backup plans) attach to a parent service instead of provisioning their own resource. */
@@ -210,6 +265,7 @@ final class ServiceService
             $executor === 'ispconfig', $executor === 'aapanel' => ProvisionWebsiteWorkflow::class,
             $executor === 'pterodactyl' => ProvisionGameServerWorkflow::class,
             $executor === 'kubernetes' && $service->family === 'apps' => ProvisionAppWorkflow::class,
+            $executor === 'penpot' && $service->family === 'penpot' => ProvisionPenpotWorkflow::class, // TASK-0123
             default => throw new DomainError('product_not_provisionable', "No provisioning workflow for executor '{$executor}' / family '{$service->family}'.", 422),
         };
     }
@@ -636,7 +692,7 @@ final class ServiceService
     private static function assertCoreActionOffered(Service $service, string $action): void
     {
         $families = match ($action) {
-            'backup', 'restore' => ['web', 'managed', 'cloud', 'data', 'game'],
+            'backup', 'restore' => ['web', 'managed', 'cloud', 'data', 'game', 'penpot'], // penpot: its database dump + assets on its node (TASK-0123)
             'restore.test' => ['web', 'managed'], // a set of database dumps is what can be restored into a copy and compared
             'snapshot', 'rollback_snapshot' => ['cloud', 'data'],
             'power' => ['cloud', 'data', 'game'],
@@ -682,6 +738,7 @@ final class ServiceService
             str_starts_with($action, 'wp.') => WordPressWorkflow::class,
             $action === 'import.run' => ImportWorkflow::class,
             str_starts_with($action, 'cdn.') => CdnWorkflow::class,
+            str_starts_with($action, 'iso.') => CustomIsoWorkflow::class, // a customer's own image (TASK-0110)
             str_starts_with($action, 'site.') => SiteWorkflow::class,
             $action === 'ssl.wildcard' => CertificateWorkflow::class,
             default => ServiceActionWorkflow::class,
@@ -697,6 +754,9 @@ final class ServiceService
     private function featureParams(Service $service, string $action, array $params): array
     {
         $features = app(ServiceFeatures::class);
+        if ($action === 'iso.attach') { // G-R5: only where the ordered plan has it — said as such (403, „není v tarifu“), not as a missing panel feature
+            CustomIsoPolicy::assertInPlan($service);
+        }
         if (! in_array($action, $features->actions($service), true)) {
             throw new DomainError('feature_unavailable', "{$action} is not available for this service.", 422, ['action' => $action]);
         }
@@ -853,6 +913,8 @@ final class ServiceService
             // which image is the node's business: the value is checked against what it really offers (RescueMode)
             'rescue.start' => array_filter(['image' => (string) ($params['image'] ?? '') !== '' ? mb_substr((string) $params['image'], 0, 200) : null, 'hours' => isset($params['hours']) ? max(1, min(72, (int) $params['hours'])) : null], fn ($v) => $v !== null),
             'rescue.stop' => [],
+            // a customer's own image (TASK-0110): the organization's, ready, not on another server; the plan and a rescue session decide too
+            'iso.attach', 'iso.detach', 'iso.delete' => CustomIsoPolicy::params($service, $action, $params),
             'command.send' => ['command' => $need('command', '/^[^\r\n]{1,1000}$/', 'command is required (one line)')],
             'schedule.create' => (function () use ($need, $params, $action) {
                 $actions = [];
@@ -1451,7 +1513,17 @@ final class ServiceService
         $this->recordConsoleIssuer((string) ($access['token'] ?? ''), $service, $context);
         $this->audit->record($context->withScope($service->organization_id), 'service.console', 'succeeded', ['kind' => $access['kind'], 'expires_at' => $access['expires_at']], 'service', $service->id);
 
-        return $access;
+        // E5: the adapter's `url` is the node's own daemon socket and `meta` the panel's server id — what a customer's browser is told is
+        // only the relay `socket`. The operator's console keeps both (it prints them for the person who runs the node).
+        if (StaffActor::acts($context)) {
+            return $access;
+        }
+        // the portal's own link (Proxmox: <portal>/console/ws/<token>) is ours and stays; any other address is the node's
+        $portal = rtrim((string) config('onhost.portal_url'), '/');
+        $ours = $portal !== '' && str_starts_with((string) ($access['url'] ?? ''), $portal.'/');
+        $hide = ['meta' => true] + ($ours ? [] : ['url' => true]);
+
+        return array_diff_key($access, $hide);
     }
 
     /**
@@ -1609,6 +1681,8 @@ final class ServiceService
 
                 return ['egg' => $egg, 'environment' => array_merge((array) ($config['environment'] ?? []), ! empty($config['version']) ? [(string) config("onhost.game.eggs.{$egg}.version_env", 'MINECRAFT_VERSION') => (string) $config['version']] : []), 'port' => $config['port'] ?? null]; // §5o: the version the customer or staff chose
             })(),
+            // TASK-0123: one Penpot per service on a Penpot node; the name is the platform's (`<8 chars>.penpot.onhost.cz`)
+            'penpot' => ['hostname' => PenpotInstances::hostnameFor((string) $service->id)],
             'apps' => ['app' => array_merge(['name' => Str::slug((string) ($config['app']['name'] ?? $config['label'] ?? "app-{$shortId}")), 'runtime' => $meta['runtimes'][0] ?? 'node-22', 'port' => 8080, 'git_branch' => 'main', 'healthcheck_path' => '/'], (array) ($config['app'] ?? []))],
             default => [],
         };

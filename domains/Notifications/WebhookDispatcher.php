@@ -12,6 +12,7 @@ use Onhost\Domain\Notifications\Models\WebhookEndpoint;
 use Onhost\Domain\Notifications\Webhooks\DeliverWebhook;
 use Onhost\Domain\Notifications\Webhooks\WebhookEvents;
 use Onhost\Domain\Notifications\Webhooks\WebhookPayload;
+use Onhost\Domain\Notifications\Webhooks\WebhookQueue;
 use Onhost\Domain\Notifications\Webhooks\WebhookSigner;
 use Onhost\Domain\Notifications\Webhooks\WebhookView;
 use Onhost\Platform\Events\GenericEvent;
@@ -109,6 +110,8 @@ final class WebhookDispatcher
     public function retryDue(int $limit = 200): array
     {
         $stats = ['queued' => 0, 'dead' => 0];
+        // G7: a secret whose rotation overlap is over signs nothing any more and is not kept: this pass, every minute, clears it
+        WebhookEndpoint::query()->whereNotNull('previous_secret')->where('previous_secret_expires_at', '<=', now())->update(['previous_secret' => null, 'previous_secret_expires_at' => null]);
         $due = WebhookDelivery::query()->whereIn('state', [WebhookDelivery::PENDING, WebhookDelivery::FAILED])->where('next_attempt_at', '<=', now())->orderBy('next_attempt_at')->limit($limit)->get();
         foreach ($due as $delivery) {
             $endpoint = WebhookEndpoint::query()->find($delivery->endpoint_id);
@@ -211,7 +214,7 @@ final class WebhookDispatcher
                 throw new \RuntimeException($problem);
             }
             $response = $this->http->withOptions($this->egress->options((string) $endpoint->url)) // public destinations only, pinned, no redirects
-                ->withHeaders(WebhookSigner::headers((string) $endpoint->secret, $delivery->event, $delivery->id, $body))
+                ->withHeaders(WebhookSigner::headers((string) $endpoint->secret, $delivery->event, $delivery->id, $body, null, $endpoint->previousSecret()))
                 ->timeout(8)->connectTimeout(3)->withBody($body, 'application/json')->post((string) $endpoint->url);
             $status = $response->status();
             if ($status >= 200 && $status < 300) {
@@ -259,6 +262,6 @@ final class WebhookDispatcher
 
     private function queue(WebhookDelivery $delivery): void
     {
-        DeliverWebhook::dispatch($delivery->id)->afterCommit();
+        DeliverWebhook::dispatch($delivery->id)->onQueue(WebhookQueue::name())->afterCommit(); // G7: the webhooks lane while a worker runs it
     }
 }

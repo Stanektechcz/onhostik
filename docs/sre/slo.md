@@ -39,7 +39,7 @@ locations fail in their latest interval; one failing location is a probe problem
 ## On-call
 
 * Primary SRE + secondary; incident commander for p1/p2 (see `docs/runbooks/incident-response.md`).
-* Pages come from the burn-rate alerts, `integration.down`, `OnhostOutboxLag` and probe quorum incidents.
+* Pages come from the burn-rate alerts, `integration.down`, `OnhostOutboxLag` and probe quorum incidents. Outbox dead letters (events the relay gave up on) are not lag: `OnhostOutboxDeadLetters` opens a ticket, `OnhostOutboxDeadLettersOld` pages after a day ([outbox-dead-letters.md](../runbooks/outbox-dead-letters.md)).
 * Post-mortem within 5 working days for p1/p2 and for any incident that burned more than 20 % of a budget.
 * MTTR/MTTA and availability per component are on `GET /v1/staff/incidents/metrics` and
   `GET /v1/staff/reports/slo` (admin `#/reporty`).

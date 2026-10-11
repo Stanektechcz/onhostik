@@ -32,6 +32,15 @@ final class SurfaceRenderer
      */
     private const VAT_JS = "((window.ONHOST_DATA && typeof window.ONHOST_DATA.vat === 'function' && typeof window.ONHOST_DATA.vat() === 'number') ? window.ONHOST_DATA.vat() : 0.21)";
 
+    /**
+     * L-10: true while the seller is not a VAT payer (ONHOST_DATA.vatPayer() from SurfacePricing::payer()): no VAT line, no "bez DPH",
+     * the price shown is the final price the order charges. Unknown (no data) counts as a payer: the prototype's wording stays.
+     */
+    public const NON_PAYER_JS = "(window.ONHOST_DATA && typeof window.ONHOST_DATA.vatPayer === 'function' && window.ONHOST_DATA.vatPayer() === false)";
+
+    /** The panel's copy (window.ONHOST_PANEL.vat_payer from SurfaceDataController::panelPricing). */
+    public const PANEL_NON_PAYER_JS = '(window.ONHOST_PANEL && window.ONHOST_PANEL.vat_payer === false)';
+
     /** The panel's copy of the same rate (window.ONHOST_PANEL.vat from SurfaceDataController::panelPricing). */
     private const PANEL_VAT_JS = "((window.ONHOST_PANEL && typeof window.ONHOST_PANEL.vat === 'number') ? window.ONHOST_PANEL.vat : 0.21)";
 
@@ -149,6 +158,10 @@ final class SurfaceRenderer
         $path = $this->root.'/'.$file;
         $key = 'surface:'.$surface.':'.($demo ? 'demo' : 'api').':'.filemtime($path).':'.filesize($path).':'.$this->assetVersion();
         $template = Cache::remember($key, 3600, fn () => $this->transform((string) file_get_contents($path), $surface, $demo));
+        if (! $demo && in_array($surface, ['admin', 'panel'], true)) { // promises of credit back in cash, a top-up bonus and a 30-day archive: corrected in the template, never in the boot JSON below (G8 item 9, H2)
+            $template = CreditClaimsSeam::apply($template, [$surface]);
+        }
+        $template = LegalIdentitySeam::apply($template); // I-R11: the operator's real name, IČO, seat, telephone and e-mail instead of the prototype's invented ones (every surface, demo included)
         $json = json_encode($boot, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
         // API-seam scripts are versioned by file mtime so browsers never keep a stale copy after a deploy.
         $v = fn (string $file) => '/surfaces/api/'.$file.'?v='.(@filemtime($this->root.'/api/'.$file) ?: '0');
@@ -662,6 +675,14 @@ HTML;
             $html = self::cartSeams($html);
             $html = self::priceSeams($html, $surface); // audit P1-6: currencies with a fresh CNB rate, VAT from the tax rules
             $html = self::checkoutSeams($html);
+            $html = self::legalClaimSeams($html); // TASK-0142: no promise the legal documents do not make (money-back, badges, bonus)
+            $html = self::publicClaimSeams($html); // L-03 (TASK-0146): no factual claim the operator cannot document
+            // TASK-0149: GPU only "připravujeme" (I-R16), the real team and contacts on #/lide (I-R19), no invented reply median
+            $gpu = PublicContentSeam::gpu();
+            $html = self::swap(array_keys($gpu), array_values($gpu), $html);
+            $html = self::between($html, PublicContentSeam::TEAM_FROM, PublicContentSeam::TEAM_TO, PublicContentSeam::team());
+            $help = PublicContentSeam::articleHelp();
+            $html = self::swap(array_keys($help), array_values($help), $html);
         }
 
         // 4d. every surface's "sign out" is a prototype stub (localStorage + a toast): the bridge's OnhostSession.signOut()
@@ -1079,7 +1100,7 @@ HTML;
                     "...(({$order} && {$order}.summary) ? {$order}.summary(this, md, [[_('Lokalita', 'Location'), {$order}.regionLabel(this, md.region)]]) : [[_('Lokalita', 'Location'), md.region]]),",
                     "...(({$order} && {$order}.summary) ? {$order}.summary(this, md, [[_('Systém', 'System'), md.os]]) : [[_('Systém', 'System'), md.os]]),",
                     "choice(_('Velikost', 'Size'), _('měnitelná za provozu', 'changeable live'), 'size', orderSizes.map(x => [x[0], x[1], x[3] != null ? x[3] : this.money(x[2]) + _(' / měsíc', ' / month')])),",
-                    "[md.type === 'domain' ? _('Cena bez DPH', 'Price excl. VAT') : _('Cena měsíčně bez DPH', 'Monthly price excl. VAT'), ({$order} && {$order}.priceLabel) ? {$order}.priceLabel(this, md, orderSize) : this.money(orderSize[2])],\n                ...({$real} ? [[_('Souhlas', 'Consent'), _('VOP, ochrana údajů, DPA a SLA · potvrzením souhlasíte se zahájením ihned', 'terms, privacy, DPA and SLA · confirming starts the service at once')]] : []),",
+                    "[md.type === 'domain' ? (".self::PANEL_NON_PAYER_JS." ? _('Cena', 'Price') : _('Cena bez DPH', 'Price excl. VAT')) : (".self::PANEL_NON_PAYER_JS." ? _('Cena měsíčně', 'Monthly price') : _('Cena měsíčně bez DPH', 'Monthly price excl. VAT')), ({$order} && {$order}.priceLabel) ? {$order}.priceLabel(this, md, orderSize) : this.money(orderSize[2])],\n                ...({$real} ? [[_('Souhlas', 'Consent'), _('VOP, ochrana údajů, DPA a SLA · potvrzením souhlasíte se zahájením ihned', 'terms, privacy, DPA and SLA · confirming starts the service at once')]] : []),",
                     "{$real} ? [_('Platba', 'Payment'), ({$order} && {$order}.payLabel ? {$order}.payLabel(this, md, orderSize) : (this.state.credit >= orderSize[2] * (1 + ".self::PANEL_VAT_JS.") ? _('z kreditu · zůstatek ', 'from credit · balance ') + this.money(this.state.credit) : _('zálohovou fakturou (převodem), nebo nejdřív dobijte kredit', 'by proforma (bank transfer), or top up credit first'))), true] : [_('Dnes zaplatíte (poměrná část)', 'Charged today (pro rata)'), this.money(Math.round(orderSize[2] * 0.23)), true]",
                     "footNote: {$real} ? _('Účtujeme celé období dopředu (' + (({$order} && {$order}.period) ? {$order}.period(this, md) : 'měsíc') + '). Kredit ' + this.money(s.credit) + ' se použije první; bez kreditu vystavíme zálohovou fakturu.', 'We charge the whole period (a ' + (({$order} && {$order}.period) ? {$order}.period(this, md) : 'month') + ') up front. Your ' + this.money(s.credit) + ' credit is used first; without credit we issue a proforma.') : _('Poměrnou část účtujeme jen za zbytek měsíce. Kredit ' + this.money(s.credit) + ' se použije první.', 'We charge pro rata for the rest of the month only. Your ' + this.money(s.credit) + ' credit is used first.'),",
                     "              if ({$order}) { this.setState({ modal: null, mStep: 0 }); {$order}.place(this, { type: md.type, size: md.size || (orderSize && orderSize[0]), region: md.region, os: md.os, name: name, pay: md.pay || '' }, orderType, orderSize); return; }\n              this.setState(st => ({\n                modal: null, mStep: 0, tab: 'servers', selected: null,",
@@ -1153,6 +1174,11 @@ HTML;
         if ($surface !== 'admin' && ! $demo) {
             $html = self::neutralizeVendors($html, $surface);
         }
+        if ($surface === 'public' && ! $demo) {
+            // I-R11: no invented testimonial, rating or case study — only references approved by a real customer. Last, because the vendor
+            // sweep above still rewrites the prototype's customer stories, and a story that is gone is not a miss of that sweep
+            $html = self::referenceSeams($html);
+        }
 
         return $html;
     }
@@ -1213,14 +1239,23 @@ HTML;
                 "coVat: 'VAT 21%',",
                 "footVat: 'Všechny ceny včetně DPH 21 %'",
                 "footVat: 'All prices include 21% VAT'",
+                "coNet: 'Cena bez DPH',",
+                "coNet: 'Price excl. VAT',",
+                '<div style="display:flex;font-size:13px;color:color-mix(in srgb,var(--fg,#201e1d) 65%,transparent);padding:2px 0 10px"><span>{{ nv.coVat }}</span><span style="margin-left:auto">{{ coLines.vat }}</span></div>',
+                '<div style="display:flex;font-size:13px;color:color-mix(in srgb,var(--fg,#201e1d) 65%,transparent);padding:3px 0"><span>{{ ct.vatLabel }}</span><span style="margin-left:auto">{{ ct.vat }}</span></div>',
             ],
             [
                 "  CUR = (window.ONHOST_DATA && typeof window.ONHOST_DATA.currencies === 'function' && window.ONHOST_DATA.currencies()) || {$czkOnly};\n",
                 "['gbp', 'GBP', cs ? 'Britská libra' : 'Pound sterling']].filter(c => !!this.CUR[c[0]]).map(c => ({",
-                "coVat: 'DPH ' + ".self::vatPercentJs('true')." + ' %',",
-                "coVat: 'VAT ' + ".self::vatPercentJs('false')." + '%',",
-                "footVat: 'Všechny ceny včetně DPH ' + ".self::vatPercentJs('true')." + ' %'",
-                "footVat: 'All prices include ' + ".self::vatPercentJs('false')." + '% VAT'",
+                // L-10: a non-payer shows final prices — no VAT row, no "bez DPH" (the row renders only while it has a label)
+                'coVat: ('.self::NON_PAYER_JS." ? '' : 'DPH ' + ".self::vatPercentJs('true')." + ' %'),",
+                'coVat: ('.self::NON_PAYER_JS." ? '' : 'VAT ' + ".self::vatPercentJs('false')." + '%'),",
+                'footVat: ('.self::NON_PAYER_JS." ? 'Nejsme plátci DPH, ceny jsou konečné.' : 'Všechny ceny včetně DPH ' + ".self::vatPercentJs('true')." + ' %')",
+                'footVat: ('.self::NON_PAYER_JS." ? 'We are not VAT registered; prices are final.' : 'All prices include ' + ".self::vatPercentJs('false')." + '% VAT')",
+                'coNet: ('.self::NON_PAYER_JS." ? 'Cena' : 'Cena bez DPH'),",
+                'coNet: ('.self::NON_PAYER_JS." ? 'Price' : 'Price excl. VAT'),",
+                '<sc-if value="{{ nv.coVat }}" hint-placeholder-val="{{ true }}"><div style="display:flex;font-size:13px;color:color-mix(in srgb,var(--fg,#201e1d) 65%,transparent);padding:2px 0 10px"><span>{{ nv.coVat }}</span><span style="margin-left:auto">{{ coLines.vat }}</span></div></sc-if>',
+                '<sc-if value="{{ ct.vatLabel }}" hint-placeholder-val="{{ true }}"><div style="display:flex;font-size:13px;color:color-mix(in srgb,var(--fg,#201e1d) 65%,transparent);padding:3px 0"><span>{{ ct.vatLabel }}</span><span style="margin-left:auto">{{ ct.vat }}</span></div></sc-if>',
             ],
             $html,
         );
@@ -1268,7 +1303,7 @@ HTML;
                 "    const __quoted = window.OnhostCart && window.OnhostCart.totals ? window.OnhostCart.totals(this) : null;\n    if (__quoted) return __quoted;\n    const __vat = ".self::VAT_JS.";\n    return { count: items.reduce((a, x) => a + x.qty, 0), net: after, promoOff, vat: after * __vat, total: after * (1 + __vat), commitOff: window.OnhostCart ? window.OnhostCart.commitOff(items) : 0, addonsOff: window.OnhostCart ? window.OnhostCart.addonsTotal(items) : 0 };",
                 "    const items = (s.cartItems || []).map(it => {\n      const __row = window.OnhostCart ? window.OnhostCart.cartRow(it, this, _) : null;\n      if (__row) return __row;\n      const d = window.OnhostCart ? window.OnhostCart.discount(it) : (this.COMMITS.find(c => c[0] === it.commit) || [1, 0])[1];\n      const line = window.OnhostCart ? window.OnhostCart.lineNet(it, d) : it.price * it.qty * (1 - d);",
                 "        meta: (it.commit === 1 ? _('měsíčně, bez závazku', 'monthly, no commitment') : (window.OnhostCart && window.OnhostCart.termLabel ? window.OnhostCart.termLabel(it, d, _) : (d ? _('závazek ' + it.commit + ' měsíců · sleva ' + Math.round(d * 100) + ' %', it.commit + '-month term · ' + Math.round(d * 100) + '% off') : _('závazek ' + it.commit + ' měsíců', it.commit + '-month term')))),",
-                "      promoOffLabel: _('Sleva ' + String(s.promo || '').toUpperCase(), String(s.promo || '').toUpperCase() + ' discount'),",
+                "      promoOffLabel: (window.OnhostCart && window.OnhostCart.discountLabel) ? window.OnhostCart.discountLabel(s, cs) : _('Sleva ' + String(s.promo || '').toUpperCase(), String(s.promo || '').toUpperCase() + ' discount'),", // G3: the discount row names its parts (a code, loyalty points)
                 "      applyPromo: (e) => { if (e && e.preventDefault) e.preventDefault(); if (window.OnhostCart) { window.OnhostCart.applyPromo(this); return; } this.setState(st => ({ promoOk: (st.promo || '').trim().toUpperCase() === 'ONHOST10' })); },",
                 "      promoState: window.OnhostCart ? window.OnhostCart.promoState(s, cs) : (s.promoOk ? _('Kód uplatněn — sleva 10 %', 'Code applied — 10% off') : ((s.promo || '').trim() ? _('Zkuste ONHOST10', 'Try ONHOST10') : '')),",
                 "      commitOpts: (window.OnhostCart ? window.OnhostCart.commitOpts(cs, s.cartItems) : [[1, cs ? '1 měsíc' : '1 month', 0], [12, cs ? '12 měsíců' : '12 months', 10], [24, cs ? '24 měsíců' : '24 months', 18]]).map(c => ({",
@@ -1288,7 +1323,7 @@ HTML;
                 "  mny(n) {\n    const c = this.CUR[this.state.currency] || this.CUR.czk;\n    const __x = Math.round(n * c.rate * 100) / 100, __d = Number.isInteger(__x) ? c.dec : Math.max(c.dec, 2);\n    const v = new Intl.NumberFormat(this.state.lang === 'cs' ? 'cs-CZ' : 'en-US', { minimumFractionDigits: __d, maximumFractionDigits: __d }).format(__x);",
                 "  czk(n) {\n    const c = this.CUR[this.state.currency] || this.CUR.czk;\n    const __x = Math.round(n * (1 + ".self::VAT_JS.") * c.rate * 100) / 100, __d = Number.isInteger(__x) ? c.dec : Math.max(c.dec, 2);\n    const v = new Intl.NumberFormat(this.state.lang === 'cs' ? 'cs-CZ' : 'en-US', { minimumFractionDigits: __d, maximumFractionDigits: __d }).format(__x);",
                 'step: 1, commit: 1, co: {',
-                "      netLabel: _('Bez DPH', 'Excl. VAT'), vatLabel: _('DPH ' + ".self::vatPercentJs('true')." + ' %', 'VAT ' + ".self::vatPercentJs('false')." + '%'), totalLabel: (window.OnhostCart && window.OnhostCart.totalLabel) ? window.OnhostCart.totalLabel(s, cs) : _('Celkem měsíčně', 'Monthly total'),",
+                '      netLabel: ('.self::NON_PAYER_JS." ? _('Cena', 'Price') : _('Bez DPH', 'Excl. VAT')), vatLabel: (".self::NON_PAYER_JS." ? '' : _('DPH ' + ".self::vatPercentJs('true')." + ' %', 'VAT ' + ".self::vatPercentJs('false')." + '%')), totalLabel: (window.OnhostCart && window.OnhostCart.totalLabel) ? window.OnhostCart.totalLabel(s, cs) : _('Celkem měsíčně', 'Monthly total'),",
                 "      const __term =(!st.cartItems || !st.cartItems.length) && st.period === 'year' ? 12 : (st.commit || 1);\n      if (i >= 0) items[i] = Object.assign({}, items[i], { qty: items[i].qty + 1 });\n      else items.push({ id, name: name, price: price || 0, qty: 1, commit: __term, meta: meta || '' });\n      return { cartItems: items, commit: __term, cartOpen: true, menu: null, langOpen: false, orderDone: null, step: st.orderDone ? 1 : st.step };",
                 '          on: () => this.setState(st => ({ commit: c[0], cartItems: st.cartItems.map(x => (window.OnhostCart && window.OnhostCart.isDomain(x)) ? x : Object.assign({}, x, { commit: c[0] })) }))',
             ],
@@ -1312,6 +1347,151 @@ HTML;
         );
 
         return $html;
+    }
+
+    /**
+     * TASK-0142 (legal review 2026-10, docs/legal/LEGAL_REVIEW_2026-10.md L-01/L-02): what the public site promises before a
+     * contract is a contract term and a commercial practice. The prototype promised a 30-day full money-back guarantee "without
+     * pro-rating" (the terms give a consumer 14 days with a proportional charge, and credit is never paid out), a 14-day free
+     * trial nobody runs, a 10 % top-up bonus that is not a rule of the control plane, and certification / rating / partnership
+     * badges (ISO 27001, TIER III, Trustpilot 4,9/5, Cloudflare partner) the operator cannot document — an unauthorised trust
+     * mark is a blacklisted practice (příloha č. 1 zákona č. 634/1992 Sb.). The consent line no longer asks for a "consent" to
+     * processing the contract itself needs (GDPR Art. 6(1)(b)). Wording follows the documents IN FORCE (2026-09) as well as
+     * the 2026-10 drafts. A badge comes back only as a verified fact through data, never as prototype copy.
+     */
+    public static function legalClaimSeams(string $html): string
+    {
+        return self::swap(
+            [
+                "heroRisk: '14 dní zdarma · migraci uděláme za vás · garance vrácení peněz 30 dní',",
+                "heroRisk: '14 days free · we handle the migration · 30-day money-back guarantee',",
+                "? ['ISO 27001', 'TIER III datacentra', '4,9/5 Trustpilot', 'Cloudflare partner', 'AMD EPYC', 'Garance 30 dní']",
+                ": ['ISO 27001', 'TIER III facilities', '4.9/5 Trustpilot', 'Cloudflare partner', 'AMD EPYC', '30-day guarantee'],",
+                "coRe1: 'Záruka 30 dní', coRe1d: 'Nesedne vám to? Vrátíme celou částku, bez otázek a bez poměrného počítání.',",
+                "coRe1: '30-day guarantee', coRe1d: 'Not a fit? We refund the full amount — no questions, no pro-rating.',",
+                "coCreditHint: 'Nabijte kredit dopředu a přidáme 10 % bonus. Kredit platí na cokoli — i na GPU po hodinách.',",
+                "coCreditHint: 'Top up in advance and we add a 10% bonus. Credit works for anything — including hourly GPUs.',",
+                "coTerms: 'Souhlasím s VOP a zpracováním údajů.',",
+                "coTerms: 'I agree to the terms and to the processing of my data.',",
+            ],
+            [
+                "heroRisk: 'Bez závazku · zrušení v panelu · spotřebitel může do 14 dnů odstoupit od smlouvy',",
+                "heroRisk: 'No lock-in · cancel in the panel · consumers may withdraw within 14 days',",
+                '? []',
+                ': [],',
+                "coRe1: '14 dní na odstoupení', coRe1d: 'Spotřebitel může do 14 dnů od smlouvy odstoupit; zaplatí jen poměrnou část za dobu, kdy služba běžela. Registrovanou doménu vrátit nelze.',",
+                "coRe1: '14 days to withdraw', coRe1d: 'Consumers may withdraw within 14 days and pay only for the days the service ran. A registered domain cannot be returned.',",
+                "coCreditHint: 'Kredit můžete dobít předem a platit z něj služby ONhost. Kredit se nevyplácí a od dobití nelze odstoupit (VOP).',",
+                "coCreditHint: 'Top up credit in advance and pay ONhost services from it. Credit is not paid out and a top-up cannot be withdrawn from (terms).',",
+                "coTerms: 'Souhlasím s VOP a beru na vědomí zásady ochrany osobních údajů.',",
+                "coTerms: 'I accept the terms of service and have read the privacy policy.',",
+            ],
+            $html,
+        );
+    }
+
+    /**
+     * I-R11 (owner, 2026-10-08): the prototype's customer quotes (home page, every product page), the "4,9 / 5 · 380 recenzí" rating and
+     * the numbered customer references are invented people and companies; only real references, approved by the customer, may be
+     * published and the operator has none yet. The sections now render exactly what `ONHOST_DATA.references(cs)` carries
+     * (I-R18: the references staff publish in Nastavení → Blog a reference, `ContentService::references()`, a list of `{quote, who,
+     * role}`) and disappear while it is empty;
+     * the rating chip is gone for good (an unverifiable review score is a misleading practice, L-03). The prototype stays untouched.
+     */
+    public static function referenceSeams(string $html): string
+    {
+        $refs = '((window.ONHOST_DATA && window.ONHOST_DATA.references && window.ONHOST_DATA.references(cs)) || [])';
+        $sectionHead = "  <section style=\"border-bottom:2px solid color-mix(in srgb,var(--fg,#201e1d) 40%,transparent)\">\n    <div style=\"max-width:1360px;margin:0 auto;padding:{pad}\">\n";
+        $homeHead = str_replace('{pad}', '56px 32px 60px', $sectionHead)."      <div style=\"display:flex;flex-wrap:wrap;align-items:flex-end;gap:16px;margin-bottom:28px\">\n        <div>\n          <h6 style=\"color:var(--accDeep,#ae1800);margin:0 0 10px\">{{ t.refKicker }}</h6>";
+        $homeTail = "              <div style=\"font-size:12px;color:color-mix(in srgb,var(--fg,#201e1d) 65%,transparent)\">{{ ts.role }}</div>\n            </figcaption>\n          </figure>\n        </sc-for>\n      </div>\n    </div>\n  </section>\n";
+        $svcHead = str_replace('{pad}', '52px 32px 58px', $sectionHead).'      <h2 style="font-size:40px;margin:0 0 26px;letter-spacing:-.022em;text-wrap:balance">{{ svc.reviewsTitle }}</h2>';
+        $svcTail = "              <div style=\"font-size:12px;color:color-mix(in srgb,var(--fg,#201e1d) 65%,transparent)\">{{ sv2.role }}</div>\n            </div>\n          </div>\n        </sc-for>\n      </div>\n    </div>\n  </section>\n";
+        $chip = "        <span style=\"margin-left:auto;display:flex;align-items:center;gap:8px;border:2px solid var(--fg,#201e1d);padding:8px 12px;font-family:var(--font-heading);font-weight:800;font-size:13px\"><span style=\"color:var(--acc,#ec3013)\">★</span>{{ t.revScore }}</span>\n";
+
+        // the invented quotes and the numbered customer references are not even sent to the browser
+        $html = self::swapRe(
+            [
+                '/      testimonials: cs \? \[\n.*?\n      \],\n(?=      faq: faqData)/s',
+                '/      refs: \(cs \? \[\n.*?\]\)\.map\(r => \(\{ number: r\[0\], metric: r\[1\], quote: r\[2\], name: r\[3\], role: r\[4\] \}\)\),\n/s',
+            ],
+            [
+                "      hasTestimonials: {$refs}.length > 0,\n      testimonials: {$refs}.map(r => ({ quote: r.quote, who: r.who, role: r.role })),\n",
+                "      refs: [],\n",
+            ],
+            $html,
+        );
+
+        return self::swap(
+            [
+                $homeHead, $homeTail, $chip, "revScore: '4,9 / 5 · 380 recenzí'", "revScore: '4.9 / 5 · 380 reviews'",
+                $svcHead, $svcTail, 'sla: p.sla, migration: p.migration, reviews: p.reviews, kb: p.kb,',
+            ],
+            [
+                "  <sc-if value=\"{{ hasTestimonials }}\" hint-placeholder-val=\"{{ false }}\">\n".$homeHead,
+                $homeTail."  </sc-if>\n",
+                '',
+                "revScore: ''", "revScore: ''",
+                "  <sc-if value=\"{{ svc.hasReviews }}\" hint-placeholder-val=\"{{ false }}\">\n".$svcHead,
+                $svcTail."  </sc-if>\n",
+                "sla: p.sla, migration: p.migration, reviews: {$refs}.map(r => ({ name: r.who, role: r.role, text: r.quote })), hasReviews: {$refs}.length > 0, kb: p.kb,",
+            ],
+            $html,
+        );
+    }
+
+    /**
+     * L-03 (docs/legal/LEGAL_REVIEW_2026-10.md): factual claims of the public prototype nobody has documented — locations and own
+     * hardware, TIER III, green energy, a customer count, a 30-minute support response, ISO 27001 "for part of the scope", a 48-hour
+     * migration without downtime, GPU scarcity counters and uptime figures — are a misleading commercial practice when they are not
+     * true (§ 4–5 of Act No. 634/1992 Coll.). They are replaced with what the contract in force says (SLA 2026-09: 99.9 % Standard,
+     * 99.95 % Business, incident response 4 h / 1 h, RPO 24 h; VOP: 14 days to withdraw, 30 days to decide a complaint). A claim may
+     * come back only as a documented fact, through data. The prototype stays byte-identical; demo mode keeps its copy.
+     */
+    public static function publicClaimSeams(string $html): string
+    {
+        return self::swap(
+            [
+                "heroBadge: 'GPU H100 v Praze — zbývá 7 z 24 karet',",
+                "heroBadge: 'GPU H100 in Prague — 7 of 24 cards left',",
+                "dcTitle: 'Šest lokalit, latence pod 15 ms', dcCaption: 'Vlastní hardware v Praze, zbytek v partnerských TIER III datacentrech.',",
+                "dcTitle: 'Six locations, latency under 15 ms', dcCaption: 'Our own hardware in Prague, the rest in partner TIER III facilities.',",
+                "tbHours: 'Podpora 24/7 · odpověď do 30 minut',",
+                "tbHours: 'Support 24/7 · reply within 30 minutes',",
+                "coRe2d: 'Přeneseme weby, databáze i e-maily do 48 hodin a bez odstávky. Cenu si nepřipočítáváme.',",
+                "coRe2d: 'We move sites, databases and mailboxes within 48 hours with no downtime, at no charge.',",
+                "['ISO 27001 na celý rozsah', 'Certifikaci máme na část rozsahu, ne na celý. Kde ji nemáme, napíšeme to do nabídky — a pokud je podmínkou celý rozsah, do tendru nejdeme.', 'částečně', 0],",
+                "['ISO 27001 across the whole scope', 'We hold it for part of the scope, not all of it. Where we do not, the bid says so — and if full scope is mandatory, we do not bid.', 'partly', 0],",
+                "['Datacentra', 'Šest lokalit, TIER III']",
+                "['Data centres', 'Six locations, TIER III']",
+                "chips: ['TIER III', '2N', cs ? '6 lokalit' : '6 sites', cs ? '62 % OZE' : '62% renewable']",
+                "        { to: 99.99, dec: 2, suffix: ' %', text: '99,99 %', label: cs ? 'uptime 2025' : 'uptime 2025' },\n        { to: 8.4, dec: 1, suffix: ' s', text: cs ? '8,4 s' : '8.4 s', label: cs ? 'push → produkce' : 'push → production' },\n        { to: 2400, dec: 0, suffix: '+', text: cs ? '2 400+' : '2,400+', label: cs ? 'zákazníků' : 'customers' },\n        { to: 6, dec: 0, suffix: '', text: '6', label: cs ? 'lokalit v EU' : 'EU locations' },\n        { to: 100, dec: 0, suffix: ' %', text: '100 %', label: cs ? 'eko energie' : 'green energy' },\n        { to: 30, dec: 0, suffix: ' min', text: '30 min', label: cs ? 'reakce podpory' : 'support response' }",
+                "['Reakce podpory', '30 minut, člověk', '8 hodin, šablona'],",
+                "['Support response', '30 minutes, a human', '8 hours, a template'],",
+                "{ v: '99,99 %', l: cs ? 'uptime 2025' : 'uptime 2025' },",
+            ],
+            [
+                "heroBadge: 'Hosting, servery a domény v jednom panelu',",
+                "heroBadge: 'Hosting, servers and domains in one panel',",
+                "dcTitle: 'Kde služby běží', dcCaption: 'Lokalitu služby uvádíme u tarifu a v objednávce.',",
+                "dcTitle: 'Where services run', dcCaption: 'The location of a service is stated with the plan and in the order.',",
+                "tbHours: 'Podpora přes panel a e-mail',",
+                "tbHours: 'Support through the panel and e-mail',",
+                "coRe2d: 'S přenosem webů, databází i e-mailů pomůžeme; termín a případnou odstávku domluvíme předem.',",
+                "coRe2d: 'We help move sites, databases and mailboxes; the timing and any downtime are agreed in advance.',",
+                "['ISO 27001', 'Certifikáty uvádíme jen doložené; bezpečnostní opatření popíšeme v nabídce na vyžádání.', 'na vyžádání', 0],",
+                "['ISO 27001', 'We state only certifications we can document; the security measures are described in the offer on request.', 'on request', 0],",
+                "['Datacentra', 'Lokalita uvedená u tarifu']",
+                "['Data centres', 'Location stated with the plan']",
+                'chips: []',
+                "        { to: 99.9, dec: 1, suffix: ' %', text: '99,9 %', label: cs ? 'smluvní dostupnost Standard' : 'contractual uptime, Standard' },\n        { to: 99.95, dec: 2, suffix: ' %', text: '99,95 %', label: cs ? 'smluvní dostupnost Business' : 'contractual uptime, Business' },\n        { to: 14, dec: 0, suffix: '', text: '14', label: cs ? 'dní na odstoupení' : 'days to withdraw' },\n        { to: 24, dec: 0, suffix: ' h', text: '24 h', label: cs ? 'cíl bodu obnovy (RPO)' : 'recovery point objective' },\n        { to: 30, dec: 0, suffix: '', text: '30', label: cs ? 'dní na vyřízení reklamace' : 'days to decide a complaint' },\n        { to: 4, dec: 0, suffix: ' h', text: '4 h', label: cs ? 'reakce na incident (Standard)' : 'incident response (Standard)' }",
+                "['Reakce podpory', 'podle SLA, člověk', '8 hodin, šablona'],",
+                "['Support response', 'per the SLA, a human', '8 hours, a template'],",
+                "{ v: '99,9 %', l: cs ? 'smluvní SLA' : 'contractual SLA' },",
+            ],
+            $html,
+            'once',
+            ["['Datacentra', 'Šest lokalit, TIER III']", "['Data centres', 'Six locations, TIER III']"],
+        );
     }
 
     /**
@@ -1584,10 +1764,19 @@ HTML;
         if ($relative === '' || str_contains($relative, '..') || str_starts_with($relative, '/')) {
             return null;
         }
+        if (str_starts_with($relative, '_archive/')) {
+            return null; // H0 (H-R6): an archived prototype is kept for reference, never served
+        }
         $full = $this->root.'/'.$relative;
         $real = realpath($full);
         $rootReal = realpath($this->root);
         if ($real === false || $rootReal === false || ! str_starts_with($real, $rootReal) || ! is_file($real)) {
+            return null;
+        }
+        // H0 (H-R6, review L): an archived prototype is kept for reference, never served — decided on the real path, whatever the
+        // spelling (`_ARCHIVE/…`, `./_archive/…`, a backslash) or the case-insensitive file system that resolves it
+        $inside = strtolower(str_replace('\\', '/', ltrim(substr($real, strlen($rootReal)), '\\/')));
+        if ($inside === '_archive' || str_starts_with($inside, '_archive/')) {
             return null;
         }
 

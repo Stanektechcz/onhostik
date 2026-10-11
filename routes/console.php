@@ -37,6 +37,7 @@ use Onhost\Domain\Incidents\OrganizationStatusService;
 use Onhost\Domain\Incidents\SlaService;
 use Onhost\Domain\Integrations\DiscordService;
 use Onhost\Domain\Invoicing\InvoiceService;
+use Onhost\Domain\Loyalty\LoyaltyExpiry;
 use Onhost\Domain\Loyalty\MissionService;
 use Onhost\Domain\Marketplace\MarketplaceService;
 use Onhost\Domain\Notifications\DigestService;
@@ -48,6 +49,7 @@ use Onhost\Domain\Orders\OrderSettlement;
 use Onhost\Domain\Organizations\AccessExpiry;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\OrganizationService;
+use Onhost\Domain\Partners\Commands\PartnerCommand;
 use Onhost\Domain\Partners\PartnerService;
 use Onhost\Domain\Payments\BankStatementImporter;
 use Onhost\Domain\Provisioning\AutomationLedger;
@@ -76,6 +78,9 @@ use Onhost\Domain\Provisioning\QueueScaler;
 use Onhost\Domain\Provisioning\Reconciler;
 use Onhost\Domain\Provisioning\Scheduling\NodeRebalancer;
 use Onhost\Domain\Services\Access\ServiceAccessService;
+use Onhost\Domain\Services\CustomIso\ClamdIsoScanner;
+use Onhost\Domain\Services\CustomIso\CustomIsoLibrary;
+use Onhost\Domain\Services\CustomIso\IsoScanner;
 use Onhost\Domain\Services\DelegatedAccessReview;
 use Onhost\Domain\Services\DeletionPolicy;
 use Onhost\Domain\Services\FinalArchive;
@@ -106,6 +111,7 @@ use Onhost\Domain\WalletLedger\LedgerService;
 use Onhost\Domain\WalletLedger\WalletForecast;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditChainVerifier;
+use Onhost\Platform\Commands\CommandBus;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Errors\ProviderException;
@@ -266,6 +272,11 @@ Artisan::command('onhost:marketplace:sla', function (MarketplaceService $marketp
 Artisan::command('onhost:loyalty:campaigns', function (MissionService $missions) {
     $this->table(['campaigns', 'organizations'], [$missions->announceCampaigns()]);
 })->purpose('Announce mission campaigns whose window opened (audit §5l-5)');
+
+Artisan::command('onhost:loyalty:expire', function (LoyaltyExpiry $expiry) {
+    $expired = $expiry->expire();
+    $this->table(['organizations', 'points expired', 'organizations warned'], [[$expired['organizations'], $expired['points'], $expiry->warn()]]);
+})->purpose('Expire loyalty points 24 months after they were credited and warn the customer 30 days before (owner decision G-R2)');
 
 Artisan::command('onhost:marketplace:auto-accept', function (MarketplaceService $marketplace) {
     $this->info('accepted after the window: '.$marketplace->autoAccept());
@@ -491,6 +502,7 @@ Schedule::command('onhost:orders:settle')->everyTenMinutes()->withoutOverlapping
 // a service left in SUSPENDING/RESUMING/RESIZING by a step the panel refused accepts nothing until it is put back; nothing is sent to a panel
 Schedule::command('onhost:services:release-stranded --apply --minutes=30')->everyTenMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:services:rescue-expire')->everyTenMinutes()->withoutOverlapping()->onOneServer();
+Schedule::command('onhost:isos:sweep')->hourly()->withoutOverlapping()->onOneServer(); // TASK-0110 review H2: dead custom ISO uploads
 Schedule::command('onhost:services:restore-test')->dailyAt('04:20')->withoutOverlapping()->onOneServer(); // the cadence is per service; this only asks who is owed one
 Schedule::command('onhost:billing:meter')->hourlyAt(2)->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:billing:rate')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
@@ -513,6 +525,7 @@ Schedule::command('onhost:marketplace:sla')->dailyAt('05:10')->onOneServer(); //
 Schedule::command('onhost:loyalty:campaigns')->dailyAt('05:20')->onOneServer(); // campaign announcements (audit §5l-5)
 Schedule::command('onhost:marketplace:auto-accept')->dailyAt('05:05')->onOneServer(); // deliveries nobody answered (audit §5j-1)
 Schedule::command('onhost:loyalty:missions')->dailyAt('05:15')->withoutOverlapping()->onOneServer(); // missions and streaks (audit §5j-3)
+Schedule::command('onhost:loyalty:expire')->dailyAt('05:35')->withoutOverlapping()->onOneServer(); // G3 (G-R2): points 24 months old expire, a warning 30 days before
 Schedule::command('onhost:chargebacks:analyse')->dailyAt('05:25')->onOneServer(); // chargeback clusters → incidents (audit §5j-6)
 Schedule::command('onhost:commerce:prune')->dailyAt('04:20')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:services:usage-watch')->hourlyAt(50)->withoutOverlapping()->onOneServer();
@@ -561,6 +574,14 @@ Artisan::command('onhost:partners:apply-models', function (PartnerService $partn
     $this->info('changes applied: '.$partners->applyPendingChanges());
 })->purpose('Apply approved contract changes (model, rate lock, payout terms, white-label scope) whose day came (audit §5m-1, §5n-1)');
 
+// R7 (TASK-0097): a commission is payable 30 days after the client paid. onOneServer keeps the schedule on one server; the key is
+// the minute, so a run retried within that minute is answered from the bus's memory. Runs that do overlap (a manual run beside the
+// schedule) flip each row once anyway: CommissionGrace::mature updates on `state = pending`.
+Artisan::command('onhost:partners:mature-commissions', function (CommandBus $bus) {
+    $result = (array) $bus->dispatch(new PartnerCommand('partner.commissions.mature:'.now()->format('YmdHi'), ['op' => 'commissions.mature']), CommandContext::system('cli:partners:mature-commissions'));
+    $this->info('matured: '.(int) ($result['matured'] ?? 0).' · partners: '.(int) ($result['partners'] ?? 0));
+})->purpose('Make partner commissions payable once 30 days passed since the client paid (owner decision R7)');
+
 Artisan::command('onhost:partners:auto-payouts', function (PartnerService $partners) {
     $stats = $partners->autoPayouts();
     $this->info("payouts requested: {$stats['requested']} · skipped: {$stats['skipped']}");
@@ -580,6 +601,7 @@ Artisan::command('onhost:partners:verify-domains', function (PartnerService $par
 
 Schedule::command('onhost:partners:tiers')->monthlyOn(1, '02:30')->onOneServer();
 Schedule::command('onhost:partners:apply-models')->dailyAt('02:35')->onOneServer(); // approved contract changes take effect on the 1st (audit §5m-1, §5n-1)
+Schedule::command('onhost:partners:mature-commissions')->hourlyAt(20)->onOneServer(); // R7: before the monthly auto-payouts at 06:00 too
 Schedule::command('onhost:partners:auto-payouts')->monthlyOn(1, '06:00')->onOneServer(); // monthly / quarterly payout terms (audit §5n-1)
 Schedule::command('onhost:provisioning:capacity-forecast')->dailyAt('03:45')->onOneServer(); // pools running short reach operations (audit §5m-7)
 Schedule::command('onhost:partners:verify-domains')->hourly()->onOneServer();
@@ -840,6 +862,28 @@ Artisan::command('onhost:services:rescue-expire {--limit=50 : how many services 
     }
     $this->info(sprintf('rescue sessions past their window: %d · put back: %d · failed: %d', $stats['checked'], $stats['ended'], count($stats['errors'])));
 })->purpose('End the rescue sessions whose window has passed and put the servers back');
+
+// TASK-0110 review H2: an upload whose process died left a reservation against the organization's quota and a file on the image disk.
+Artisan::command('onhost:isos:sweep {--hours= : staged uploads older than this many hours are dead (default onhost.custom_iso.staging_hours)} {--dry-run : count what would be removed or quarantined, change nothing}', function (CustomIsoLibrary $library) {
+    $hours = $this->option('hours');
+    $dry = (bool) $this->option('dry-run');
+    $stats = $library->sweep($hours === null || $hours === '' ? null : max(1, (int) $hours), $dry);
+    if ($dry) {
+        $this->warn('dry run: nothing was changed');
+    }
+    $this->info(sprintf('custom ISO uploads swept: %d staging row(s), %d stray file(s), %d orphaned image file(s) quarantined, %d quarantined file(s) past retention deleted', $stats['rows'], $stats['files'], $stats['quarantined'], $stats['purged'])); // H1: orphans wait in quarantine/ (review M1)
+})->purpose('Remove custom ISO uploads that never finished (staging rows and incoming files)');
+
+// TASK-0110 review M1: uploads are refused (503) while this fails — EICAR must be found and a file beyond clamd's limits reported.
+Artisan::command('onhost:isos:scanner-check {--fresh : forget the cached answer and test again}', function (IsoScanner $scanner) {
+    if ($this->option('fresh')) {
+        Cache::forget(ClamdIsoScanner::SELF_TEST_KEY); // the answer is kept for minutes (a failed one for one)
+    }
+    $check = $scanner->selfTest();
+    $check['ok'] ? $this->info('custom ISO virus scan: OK — '.$check['detail']) : $this->error('custom ISO virus scan: FAILED — '.$check['detail'].' (uploads are refused)');
+
+    return $check['ok'] ? 0 : 1;
+})->purpose('Self-test of the virus scan custom ISO uploads need (EICAR found, AlertExceedsMax on)');
 
 /*
  * A node nobody has qualified sells nothing (H471). Without arguments this lists what is waiting and what each one
@@ -1389,3 +1433,7 @@ Schedule::command('onhost:withdrawals:finish')->hourlyAt(25)->withoutOverlapping
 // ── TASK-0031: re-check the VIES-valid VAT numbers before their 30 days run out (tax.vies_recheck, off by default) ──
 Schedule::command('onhost:vat:recheck')->dailyAt('04:20')->withoutOverlapping()->onOneServer();
 // ── end TASK-0031 ──
+
+// ── TASK-0123: every running Penpot answers, and gets its daily backup (database dump + assets on its node) ──
+Schedule::command('onhost:penpot:sweep')->everyTenMinutes()->withoutOverlapping()->onOneServer();
+// ── end TASK-0123 ──

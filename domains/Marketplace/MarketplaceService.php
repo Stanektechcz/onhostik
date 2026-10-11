@@ -17,6 +17,7 @@ use Onhost\Domain\Marketplace\Models\MarketplaceListing;
 use Onhost\Domain\Marketplace\Models\MarketplaceOrder;
 use Onhost\Domain\Orders\CreditOrderPolicy;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Partners\CommissionGrace;
 use Onhost\Domain\Partners\Models\Partner;
 use Onhost\Domain\Partners\Models\PartnerCommission;
 use Onhost\Domain\Services\Models\Service;
@@ -565,10 +566,10 @@ final class MarketplaceService
                 }
             }
             $order->forceFill(['period_delivered_at' => null, 'period_warned_at' => null])->save(); // the new period starts unserved
-            if ($partner !== null && $order->partner_minor > 0) {
-                PartnerCommission::query()->create([
+            if ($partner !== null && $order->partner_minor > 0) { // R7 (TASK-0097): the period's share is pending for 30 days like any commission
+                CommissionGrace::book([
                     'partner_id' => $partner->id, 'organization_id' => $order->organization_id, 'invoice_id' => $invoice->id, 'period' => $now->format('Y-m'), 'kind' => 'marketplace',
-                    'base_minor' => $order->price_minor, 'rate_pct' => max(0, 100 - $this->commissionPct($order)), 'amount_minor' => max(0, (int) $order->partner_minor - $missedCredit->minor), 'currency' => $order->currency, 'state' => 'payable', 'invoice_paid_at' => $now,
+                    'base_minor' => $order->price_minor, 'rate_pct' => max(0, 100 - $this->commissionPct($order)), 'amount_minor' => max(0, (int) $order->partner_minor - $missedCredit->minor), 'currency' => $order->currency, 'invoice_paid_at' => $now,
                 ]);
             }
             $this->audit->record($scoped, 'marketplace.renew', 'succeeded', ['order' => $order->id, 'invoice' => $invoice->number, 'total' => $gross, 'period_end' => $end->toIso8601String()], 'marketplace_order', $order->id);
@@ -747,10 +748,12 @@ final class MarketplaceService
                 $this->outbox->publish(GenericEvent::of('marketplace.late_credit', 'marketplace_order', $order->id, ['title' => MarketplaceListing::query()->find($order->listing_id)?->title, 'credit' => $lateCredit, 'days_late' => $this->daysLate($order), 'partner_organization_id' => Partner::query()->find($order->partner_id)?->organization_id], $order->organization_id));
             }
             $partner = Partner::query()->find($order->partner_id);
+            // R7 (TASK-0097): the share is pending for 30 days like any commission; when another writer booked it first (the unique
+            // index on invoice_id + kind), its row stands and the acceptance is kept
             if ($partner !== null && $order->partner_minor > 0 && ! PartnerCommission::query()->where('kind', 'marketplace')->where('invoice_id', $order->invoice_id)->exists()) {
-                PartnerCommission::query()->create([
+                CommissionGrace::book([
                     'partner_id' => $partner->id, 'organization_id' => $order->organization_id, 'invoice_id' => $order->invoice_id, 'period' => now()->format('Y-m'), 'kind' => 'marketplace',
-                    'base_minor' => $order->price_minor, 'rate_pct' => max(0, 100 - $this->commissionPct($order)), 'amount_minor' => $order->partner_minor, 'currency' => $order->currency, 'state' => 'payable', 'invoice_paid_at' => now(),
+                    'base_minor' => $order->price_minor, 'rate_pct' => max(0, 100 - $this->commissionPct($order)), 'amount_minor' => $order->partner_minor, 'currency' => $order->currency, 'invoice_paid_at' => now(),
                 ]);
             }
             $this->audit->record($context->withScope($order->organization_id), 'marketplace.accept', 'succeeded', ['order' => $order->id, 'by' => $by, 'reason' => $reason, 'partner_share' => Money::minor((int) $order->partner_minor, $order->currency)], 'marketplace_order', $order->id);

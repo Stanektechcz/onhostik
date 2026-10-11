@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Support\Facades\Http;
+use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Domain\Partners\Models\PartnerCommission;
@@ -46,7 +47,7 @@ function vatCrRecordVies(Organization $org, ?string $viesName): void
 /** An approved Czech partner with 2 000 CZK of payable commission. */
 function vatCrPartner(array $attributes): Organization
 {
-    $org = Organization::query()->create($attributes + ['slug' => 'cr-'.uniqid(), 'owner_user_id' => 'usr_cr', 'customer_class' => 'b2b', 'currency' => 'CZK', 'country' => 'CZ']);
+    $org = Organization::query()->create($attributes + ['slug' => 'cr-'.uniqid(), 'owner_user_id' => User::factory()->create()->id, 'customer_class' => 'b2b', 'currency' => 'CZK', 'country' => 'CZ']);
     $partners = app(PartnerService::class);
     $partner = $partners->approve($partners->apply($org->fresh(), ['model' => 'share'], CommandContext::system('test')), CommandContext::system('test'));
     PartnerCommission::query()->create(['partner_id' => $partner->id, 'organization_id' => $org->id, 'invoice_id' => 'inv-'.uniqid(), 'period' => now()->format('Y-m'), 'kind' => 'share', 'base_minor' => 1000000, 'rate_pct' => 20, 'amount_minor' => 200000, 'currency' => 'CZK', 'state' => 'payable', 'invoice_paid_at' => now()->subDay()]);

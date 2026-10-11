@@ -29,6 +29,7 @@
         "loyalty",
         "marketplace",
         "bank",
+        "comgate",
         "dunning",
         "withdrawals",
         "sla_credits",
@@ -41,6 +42,7 @@
         "lifecycle",
         "templates",
         "content",
+        "content_editor",
         "security_incidents",
         "abuse",
         "data_requests",
@@ -71,6 +73,7 @@
         "operations",
         "bulk",
         "chargebacks",
+        "comgate",
         "approvals"
     ],
     "network_admin": [
@@ -90,6 +93,7 @@
         "registrars",
         "operations",
         "bulk",
+        "comgate",
         "approvals"
     ],
     "domain_dns_admin": [
@@ -121,6 +125,7 @@
         "operations",
         "bulk",
         "chargebacks",
+        "comgate",
         "approvals"
     ],
     "managed_hosting_admin": [
@@ -140,6 +145,7 @@
         "operations",
         "bulk",
         "chargebacks",
+        "comgate",
         "approvals"
     ],
     "apps_platform_admin": [
@@ -160,6 +166,7 @@
         "operations",
         "bulk",
         "chargebacks",
+        "comgate",
         "approvals"
     ],
     "cloud_vps_admin": [
@@ -180,6 +187,7 @@
         "operations",
         "bulk",
         "chargebacks",
+        "comgate",
         "approvals"
     ],
     "game_admin": [
@@ -200,6 +208,7 @@
         "operations",
         "bulk",
         "chargebacks",
+        "comgate",
         "approvals"
     ],
     "mail_admin": [
@@ -219,6 +228,7 @@
         "operations",
         "bulk",
         "chargebacks",
+        "comgate",
         "approvals"
     ],
     "database_admin": [
@@ -255,6 +265,7 @@
         "registrars",
         "operations",
         "bulk",
+        "comgate",
         "approvals"
     ],
     "sre": [
@@ -279,6 +290,7 @@
         "registrars",
         "operations",
         "bulk",
+        "comgate",
         "sla_credits",
         "reports",
         "approvals"
@@ -428,6 +440,7 @@
         "bulk",
         "renewals",
         "chargebacks",
+        "comgate",
         "approvals"
     ],
     "sales": [
@@ -442,6 +455,7 @@
     "marketing_content": [
         "dash",
         "content",
+        "content_editor",
         "approvals"
     ],
     "product_manager": [
@@ -455,6 +469,7 @@
         "lifecycle",
         "templates",
         "content",
+        "content_editor",
         "approvals"
     ],
     "auditor_read_only": [

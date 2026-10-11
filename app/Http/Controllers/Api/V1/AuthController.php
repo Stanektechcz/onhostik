@@ -16,11 +16,14 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
 use Onhost\Domain\Identity\ApiAccessRevocation;
 use Onhost\Domain\Identity\Authorization\TokenScopes;
+use Onhost\Domain\Identity\EmailVerificationGuard;
 use Onhost\Domain\Identity\Models\EmailVerificationToken;
 use Onhost\Domain\Identity\Models\PersonalAccessToken;
+use Onhost\Domain\Identity\Models\ServiceAccount;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Identity\Notifications\PasswordResetNotification;
 use Onhost\Domain\Identity\Notifications\VerifyEmailNotification;
+use Onhost\Domain\Identity\ServiceAccounts\ServiceAccountView;
 use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Loyalty\ReferralService;
 use Onhost\Domain\Organizations\Models\Organization;
@@ -137,6 +140,10 @@ final class AuthController extends ApiController
 
     public function me(Request $request): JsonResponse
     {
+        $principal = $request->user();
+        if ($principal instanceof ServiceAccount) {
+            return $this->serviceAccountMe($request, $principal);
+        }
         $user = $this->api->user($request);
         $memberships = OrganizationMembership::query()->with('organization')->where('user_id', $user->id)->current()->get();
         $current = $this->api->organization($request, false);
@@ -148,6 +155,32 @@ final class AuthController extends ApiController
             'organization' => $current ? Presenters::organization($current, $memberships->firstWhere('organization_id', $current->id)?->role_key) : null,
             'step_up' => $grant ? ['method' => $grant->method, 'expires_at' => $grant->expires_at?->toIso8601String()] : null,
             'surface' => $user->is_staff ? 'admin' : 'panel',
+            'type' => 'person', // F12a: which of the two answers this is (a service account's token gets the other one)
+        ]]);
+    }
+
+    /**
+     * F12a (TASK-0106): a pipeline asks who its token is, the way a person's token may — it was told `person_required`. The answer
+     * is the account, ITS organization (id and name: the account acts there, it does not read the billing identity here), its role
+     * and the token's scopes, never another token of the account and never a secret. ApiContext::organization refuses a disabled
+     * account (401) and another organization named (403) as on every route.
+     */
+    private function serviceAccountMe(Request $request, ServiceAccount $account): JsonResponse
+    {
+        $organization = $this->api->organization($request);
+        $token = $account->currentAccessToken();
+        if (! $token instanceof PersonalAccessToken || $organization === null) {
+            throw new DomainError('unauthenticated', 'Sign in to continue.', 401);
+        }
+        $view = ServiceAccountView::token($token);
+
+        return response()->json(['data' => [
+            'type' => 'service_account',
+            'account' => ['id' => (string) $account->getKey(), 'name' => $account->name],
+            'organization' => ['id' => $organization->id, 'name' => $organization->name],
+            'role' => ServiceAccountView::role($account), // the binding alone, not the account's whole token list
+            'scopes' => $view['scopes'],
+            'token' => ['id' => $view['id'], 'expires_at' => $view['expires_at']],
         ]]);
     }
 
@@ -230,7 +263,8 @@ final class AuthController extends ApiController
             throw new DomainError('reset_token_invalid', 'Odkaz pro obnovu hesla je neplatný nebo vypršel.', 422, ['field' => 'token']);
         }
         $user = User::query()->findOrFail($row->user_id);
-        $user->forceFill(['password' => $data['password'], 'password_changed_at' => now(), 'failed_login_attempts' => 0, 'locked_until' => null, 'remember_token' => Str::random(60)])->save();
+        // the mailed link proves the mailbox; an e-mail-change flow must therefore void outstanding reset tokens (EmailVerificationGuard::issue)
+        $user->forceFill(['email_verified_at' => $user->email_verified_at ?? now(), 'password' => $data['password'], 'password_changed_at' => now(), 'failed_login_attempts' => 0, 'locked_until' => null, 'remember_token' => Str::random(60)])->save();
         $row->forceFill(['used_at' => now()])->save();
         $stepUp->revokeAll($user);
         $revoked = $revocation->revokePersonalTokens($user); // a reset always ends every personal API token (no switch: whoever lost the password lost it)
@@ -248,8 +282,22 @@ final class AuthController extends ApiController
         return response()->json(['data' => ['reset' => true, 'signed_in' => true, 'user' => Presenters::user($user), 'surface' => $user->is_staff ? 'admin' : 'panel']]);
     }
 
+    /** R5: the person asks for the verification mail again (once a minute, five an hour; a verified address has nothing to resend). */
+    public function resendVerification(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        if (! $user instanceof User) {
+            throw new DomainError('unauthenticated', 'Přihlaste se.', 401);
+        }
+        EmailVerificationGuard::resend($user);
+
+        return response()->json(['data' => ['sent' => true]]);
+    }
+
     public function verifyEmail(Request $request): JsonResponse
     {
+        // NOTE (R5 review): a future e-mail-change flow must reset email_verified_at and void the outstanding verify/reset tokens
+        // (see EmailVerificationGuard::issue); a token minted for the old address would otherwise verify the new one.
         $data = $request->validate(['token' => ['required', 'string']]);
         $row = EmailVerificationToken::query()->where('token_hash', hash('sha256', $data['token']))->where('purpose', 'verify')->whereNull('used_at')->where('expires_at', '>', now())->first();
         if ($row === null) {

@@ -12,11 +12,14 @@ beforeEach(fn () => $this->seed(ContentSeeder::class));
 
 it('serves the prototype content in the shapes onhost-data.js and onhost-content.js expect', function () {
     $posts = $this->getJson('/v1/posts')->assertOk();
-    expect($posts->json('data'))->toHaveCount(12)->and($posts->json('data.0'))->toHaveKeys(['slug', 'cat', 'title', 'excerpt', 'date', 'read', 'author', 'featured']);
-    $cs = $this->getJson('/v1/posts/pue-118')->assertOk();
-    $en = $this->getJson('/v1/posts/pue-118?locale=en')->assertOk();
-    expect($cs->json('data.title'))->toBe('Jak jsme dostali PUE v Praze na 1,18')->and($en->json('data.title'))->toBe('How we got Prague PUE down to 1.18')->and(count($cs->json('data.body')))->toBeGreaterThanOrEqual(4);
+    expect($posts->json('data'))->toHaveCount(3)->and(collect($posts->json('data'))->pluck('slug')->all())->not->toContain('migrace-z-cloudu')->and($posts->json('data.0'))->toHaveKeys(['slug', 'cat', 'title', 'excerpt', 'date', 'read', 'author', 'featured']);
+    // I-R17: the honest starter posts; the prototype's posts with invented figures are archived
+    $cs = $this->getJson('/v1/posts/odstoupeni-a-kredit')->assertOk();
+    $en = $this->getJson('/v1/posts/odstoupeni-a-kredit?locale=en')->assertOk();
+    expect($cs->json('data.title'))->toBe('Odstoupení od smlouvy a kredit: jak to u nás funguje')->and($en->json('data.title'))->toBe('Withdrawal and credit: how it works here')->and(count($cs->json('data.body')))->toBeGreaterThanOrEqual(4);
+    $this->getJson('/v1/posts/pue-118')->assertNotFound();
     $this->getJson('/v1/posts/neexistuje')->assertNotFound();
+    $this->getJson('/v1/posts/migrace-z-cloudu')->assertNotFound(); // I-R11: the invented customer case study is withheld
 
     $kb = $this->getJson('/v1/kb?q=ssh')->assertOk();
     expect($kb->json('data.0.slug'))->toBe('ssh-klic')->and($this->getJson('/v1/kb')->json('data'))->toHaveCount(12);
@@ -28,7 +31,7 @@ it('serves the prototype content in the shapes onhost-data.js and onhost-content
     expect($this->getJson('/v1/locations')->assertOk()->json('data.0'))->toBe(['PRG', 'Praha', 'Česko', '4 ms', 1]);
     expect($this->getJson('/v1/locations?locale=en')->json('data.2.2'))->toBe('Germany');
     $stock = $this->getJson('/v1/stock')->assertOk();
-    expect($stock->json('data'))->toHaveCount(5)->and($stock->json('data.0.0'))->toBe('EPYC 9354')->and($stock->json('data.0.4'))->toBe('24 kusů skladem')->and($stock->json('data.0.5'))->toBe('ok')->and($stock->json('data.3.4'))->toBe('dodání 5 dnů');
+    expect($stock->json('data'))->toHaveCount(3)->and($stock->json('data.0.0'))->toBe('EPYC 9354')->and($stock->json('data.0.4'))->toBe('24 kusů skladem')->and($stock->json('data.0.5'))->toBe('ok'); // I-R16: no GPU rows
     expect($this->getJson('/v1/reseller/tiers')->assertOk()->json('data.0.m'))->toBe('20 %');
 });
 

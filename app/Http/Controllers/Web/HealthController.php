@@ -16,6 +16,7 @@ use Onhost\Domain\Domains\Models\RegistrarCreditSnapshot;
 use Onhost\Domain\Domains\RegistrarPricing;
 use Onhost\Domain\Incidents\Models\SlaProbe;
 use Onhost\Domain\Incidents\OnCallRota;
+use Onhost\Domain\Platform\OutboxDeadLetters;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Provisioning\Models\IntegrationHealth;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
@@ -82,6 +83,10 @@ final class HealthController extends Controller
         $emit('onhost_http_request_avg_ms', 'gauge', 'Average request duration since process start', $latency);
         $emit('onhost_outbox_pending_oldest_seconds', 'gauge', 'Age of the oldest unpublished outbox message', [[[], $this->outboxLagSeconds()]]);
         $emit('onhost_outbox_pending_total', 'gauge', 'Unpublished outbox messages', [[[], (int) DB::table('outbox_messages')->whereNull('published_at')->count()]]);
+        // G7 (TASK-0115): the messages the relay gave up on, apart — the lag above no longer counts them (the relay cannot fix them)
+        $dead = app(OutboxDeadLetters::class)->measure();
+        $emit('onhost_outbox_dead_letters', 'gauge', 'Outbox messages the relay gave up on (OutboxDeadLetters)', [[[], $dead['count']]]);
+        $emit('onhost_outbox_dead_letter_oldest_seconds', 'gauge', 'Age of the oldest outbox dead letter', [[[], $dead['oldest_seconds']]]);
 
         $ops = DB::table('operations')->selectRaw('state, count(*) as n')->groupBy('state')->pluck('n', 'state');
         $emit('onhost_operations_total', 'gauge', 'Provisioning operations by state', array_map(fn ($state, $n) => [['state' => $state], (int) $n], array_keys($ops->all()), $ops->all()) ?: [[['state' => 'none'], 0]]);
@@ -137,7 +142,8 @@ final class HealthController extends Controller
 
     private function outboxLagSeconds(): int
     {
-        $oldest = DB::table('outbox_messages')->whereNull('published_at')->min('available_at');
+        // a dead letter is not lag: the relay stopped trying it (OutboxDeadLetters), and counting it kept /healthz and the lag alert red for ever
+        $oldest = DB::table('outbox_messages')->whereNull('published_at')->where('attempts', '<', OutboxDeadLetters::MAX_ATTEMPTS)->min('available_at');
 
         return $oldest === null ? 0 : max(0, (int) now()->diffInSeconds(Carbon::parse($oldest), true));
     }

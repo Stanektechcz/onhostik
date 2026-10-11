@@ -343,14 +343,14 @@ it('refuses a HIGH action through a token even when the person has stepped up', 
 
     $plain = tokenScopeBearer($owner, $org, ['services:read', 'services:power']);
     $this->withToken($plain)->postJson("/v1/services/{$service->id}/terminate", [], ['X-Organization' => $org->id, 'Idempotency-Key' => 'tok-terminate'])
-        ->assertForbidden()->assertJsonPath('error', 'step_up_required');
+        ->assertForbidden()->assertJsonPath('error', 'approval_required');
     expect($service->fresh()->terminate_at)->toBeNull();
 
     // round 1: an Origin of a stateful domain made Sanctum start a session for the bearer request, the session id then
     // replaced `token:<id>` and the session-less grant matched — a token is a token whatever headers it sends
     app('auth')->forgetGuards();
     $this->withToken($plain)->postJson("/v1/services/{$service->id}/terminate", [], ['X-Organization' => $org->id, 'Idempotency-Key' => 'tok-terminate-origin', 'Origin' => 'http://localhost', 'Referer' => 'http://localhost/'])
-        ->assertForbidden()->assertJsonPath('error', 'step_up_required');
+        ->assertForbidden()->assertJsonPath('error', 'approval_required');
     expect($service->fresh()->terminate_at)->toBeNull();
 
     // the same person in the portal, with the same grant, may
@@ -538,14 +538,14 @@ it('refuses a restore through a token even when the person has stepped up — th
     // ways a restore is asked for through a token have to meet it, not only terminate
     // (1) the archive of a cancelled service onto a live one (ServiceArchiveCommand op=restore, HIGH)
     $this->withToken($plain)->postJson("/v1/services/archives/{$backup->id}/restore", ['service_id' => $target->id], $headers + ['Idempotency-Key' => 'tok-archive-restore'])
-        ->assertForbidden()->assertJsonPath('error', 'step_up_required');
+        ->assertForbidden()->assertJsonPath('error', 'approval_required');
     // (2) a restore of the service itself (ServiceActionCommand restore → backup.restore, HIGH), short route and generic endpoint
     app('auth')->forgetGuards();
     $this->withToken($plain)->postJson("/v1/services/{$target->id}/restore", ['params' => ['backup_id' => $backup->id]], $headers + ['Idempotency-Key' => 'tok-restore'])
-        ->assertForbidden()->assertJsonPath('error', 'step_up_required');
+        ->assertForbidden()->assertJsonPath('error', 'approval_required');
     app('auth')->forgetGuards();
     $this->withToken($plain)->postJson("/v1/services/{$target->id}/actions", ['action' => 'rollback_snapshot', 'params' => ['snapshot' => 'before-update']], $headers + ['Idempotency-Key' => 'tok-rollback'])
-        ->assertForbidden()->assertJsonPath('error', 'step_up_required');
+        ->assertForbidden()->assertJsonPath('error', 'approval_required');
 
     expect(Operation::query()->count())->toBe($operations)
         ->and(Backup::query()->findOrFail($backup->id)->state)->toBe('completed')
@@ -575,7 +575,7 @@ it('refuses deleting a backup through a token even when the person has stepped u
 
     $response = $this->withToken($plain)->postJson("/v1/services/{$web->id}/actions", ['action' => 'backup.delete', 'params' => ['remote_id' => $backup->id]], ['X-Organization' => $org->id, 'Idempotency-Key' => 'tok-backup-delete']);
     expect($response->status())->toBe(403, "backup.delete: {$response->status()} {$response->json('message')}")
-        ->and($response->json('error'))->toBe('step_up_required')
+        ->and($response->json('error'))->toBe('approval_required') // H0 (H-R1): a token's HIGH action waits for the owner's approval; a person's step-up never carries over
         ->and(Backup::query()->findOrFail($backup->id)->state)->toBe('completed')
         ->and(Operation::query()->where('service_id', $web->id)->exists())->toBeFalse();
     unset($_ENV['AAPANEL_MANAGED01_API_KEY']);

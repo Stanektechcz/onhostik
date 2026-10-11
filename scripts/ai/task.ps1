@@ -22,8 +22,8 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 
-# powershell -File hands "a,b" over as one string: accept both forms.
-$Paths = @($Paths | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+# powershell -File hands "a,b" over as one string and brain.ps1 can hand it over as "a b": accept every form.
+$Paths = @(ConvertTo-OnhostPathList $Paths)
 # Scopes are repository-relative; '..' or '.' segments would let a scope slip past the overlap check.
 $badScope = @($Paths | Where-Object { ($_ -replace '\\', '/') -match '(^|/)\.\.?(/|$)' -or $_ -match '^([A-Za-z]:|/|\\)' })
 if ($badScope.Count -gt 0) { Write-Error ("Paths must be repository-relative without '.' or '..' segments: {0}" -f ($badScope -join ', ')); exit 1 }
@@ -78,8 +78,10 @@ function Get-Locks {
 function Find-Overlaps {
     param([string[]] $Wanted, [string] $ExceptId)
     $hits = @()
+    $Wanted = @(ConvertTo-OnhostPathList $Wanted)
     foreach ($lock in (Get-Locks | Where-Object { $_.id -ne $ExceptId })) {
-        foreach ($held in $lock.paths) {
+        # A lock written by the old tool may hold several paths in one string: judge each path separately.
+        foreach ($held in @(ConvertTo-OnhostPathList $lock.paths)) {
             $h = ConvertTo-ScopePath $held
             foreach ($want in $Wanted) {
                 $w = ConvertTo-ScopePath $want
@@ -211,7 +213,7 @@ switch ($Action) {
         Assert-NoOverlap $Paths $Id
         $file = Join-Path $locksDir "$Id.json"
         $lock = if (Test-Path -LiteralPath $file) { Get-Content -LiteralPath $file -Raw | ConvertFrom-Json } else { $null }
-        $merged = @(@($(if ($lock) { $lock.paths } else { @() })) + $Paths | Select-Object -Unique)
+        $merged = @(ConvertTo-OnhostPathList (@($(if ($lock) { $lock.paths } else { @() })) + $Paths))
         # -Worktree records work that happens elsewhere (e.g. uncommitted work in the main checkout); default: here.
         $where = if ($Worktree) { (Resolve-Path -LiteralPath $Worktree).Path } elseif ($lock) { $lock.worktree } else { $here }
         # One task worktree belongs to one lock; the main checkout may carry several claims (it is never removed by finish).

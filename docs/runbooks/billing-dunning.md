@@ -62,8 +62,9 @@ development is work outside the plan and needs a price the customer approved:
 ## Bank transfers (proformas and top-ups)
 
 Transfers have no webhook. Incoming statement lines are matched by variable symbol + amount to the pending bank
-intent (`PaymentService::matchBankLine`); a match settles the intent, pays the proforma (fulfilment starts) or credits
-the wallet, and issues the receipt. Sources of lines:
+intent (`PaymentService::matchBankLine`); a match settles the intent, pays the proforma (fulfilment starts), pays an issued
+invoice or credits the wallet, and issues the payment's document — none for an issued invoice (it is the tax document, see
+"Only the invoice is a tax document" below). Sources of lines:
 
 | Source | How |
 | --- | --- |
@@ -78,6 +79,87 @@ reconciliation item instead of paying, a symbol nobody waits for stays `unmatche
 `finance.reconciliation.mismatch` means the bank statement import does not match ledger postings. Compare the
 statement line with `ledger_transactions` (idempotency key `payment:<intent>`), never edit postings; post a
 correcting transaction with a reference to the statement line.
+
+## Only the invoice is a tax document (G1, owner decision G-R1, 2026-10-05)
+
+One sale, one tax document. Every card or bank payment used to be credited to the wallet **with a receipt that stated VAT** and
+then spent on the invoice it was made for — so the invoice and the receipt were both tax documents (`CzkTaxStatement::TYPES`) for
+the same sale and the VAT was stated twice on documents (the ledger booked it once). The document of a payment is now chosen
+in `PaymentService::document()`:
+
+| Payment | Document |
+| --- | --- |
+| an issued invoice (`purpose: invoice`, the invoice still open), by card, transfer — or from credit (`POST /v1/invoices/{id}/pay` `wallet`) | **none** — the payment is matched to the invoice (`SettleInvoicePayment`) |
+| more than the invoice still owes (a credit note was written meanwhile), or the invoice was paid/credited before the money came | the rest stays as credit and gets a top-up document |
+| an order (gateway or bank), a proforma | `receipt` — the sale's one tax document (the order's `statement` is none) |
+| a top-up by a taxable person or legal entity (`InvoiceService::taxablePerson`: a company, `b2b`, or an IČO/DIČ/VAT ID — VAT payer or not, domestic or foreign) | `receipt`; the tax engine decides the rate, reverse charge (`AE`) or OSS |
+| a top-up by a consumer (a person without any business number) | `confirmation` — *Potvrzení o přijetí platby*, no VAT (`tax_summary` empty, line category `O`), not a tax document; a receipt on request is not built yet |
+| **any** of the above while the seller is no VAT payer (`InvoiceService::sellerIsVatPayer`: the legal entity's `vat_payer` and the tax rules' `supplier.vat_payer`) | `confirmation` — a non-payer issues no tax document (§ 29) |
+
+The rule follows the seller, not the customer's registration (security review of PR #103): a taxable person that is not a VAT
+payer still gets the receipt (§ 28 (2)); only a consumer does not need one.
+
+The PDF says what a document is: *Daňový doklad k přijaté platbě*, *Vyúčtování z kreditu (není daňový doklad)*, *Zálohová faktura
+(není daňový doklad)*, *Potvrzení o přijetí platby (není daňový doklad)*. While the seller is no VAT payer no title says
+"daňový doklad": *Faktura*, *Opravná faktura*, *Potvrzení o přijetí platby*, and the PDF states that the document is no tax
+document. A payment confirmation has no structured form: `GET /v1/invoices/{id}/ubl` answers 409 `document_not_exportable` (it
+would be imported as a commercial invoice, type 380). A referral is still settled by a paid confirmation, and `collections`
+counts it as issued, like the receipt it replaces.
+
+**Payments that meet on one invoice.** `SettleInvoicePayment` locks the invoice and reads what it still owes inside the
+transaction: of two payments for one invoice (two tabs, a card and a transfer) one is applied, the other stays credit with a
+top-up document. When the payment could not be applied at all (a listener failed: reconciliation item `paid_but_not_applied`),
+the money is credit too and gets its top-up document at once.
+
+**Open question for the accountant (owner question).** Whether ONhost credit is a multi-purpose voucher (§ 10a–10c of the VAT
+act). If it is, a top-up is no taxable supply and no receipt is due at all — VAT arises when the credit is spent, which is
+how the ledger already books it. Until that is answered a taxable person's top-up keeps its receipt.
+
+**Known residual.** A taxable person's top-up gets a receipt with VAT; when that credit later pays an issued invoice (`POST
+/v1/invoices/{id}/pay` `wallet`), the invoice states the same VAT again — receipt and invoice are two tax documents for that
+money, and on the documents (not in the ledger, which books the VAT once, when the credit is spent) the VAT is stated twice.
+The credit is fungible, so the report below cannot attribute a receipt to an invoice. The answer to the voucher question above
+decides the fix (no receipt for top-ups, or the invoice deducting the advance).
+
+**Existing data** — read only, nothing is marked, voided or deleted (documents are append-only; the correction is the
+accountant's decision, e.g. a credit note of the receipt or an adjustment of the VAT return):
+
+```
+php artisan onhost:billing:double-tax-report [--organization=<id>] [--since=YYYY-MM-DD] [--json]
+```
+
+It lists every invoice whose own payment (an intent `purpose: invoice` for that invoice) also got a `receipt`: the invoice and
+receipt numbers, the receipt's VAT and totals per currency ("VAT stated twice"). Not listed: the residual above (a top-up receipt
+whose credit later paid an invoice). `--since` takes a date `YYYY-MM-DD`; anything else is refused (exit 1), never guessed.
+
+**A top-up is never refunded to its source** (owner decision G-R4): `PaymentService::refund` refuses a payment with purpose
+`topup` (422 `topup_not_refundable`) before the gateway is asked — credit is spent on services, never paid back in money. Order
+and invoice payments are refunded as before; the old link to a wallet refund (`payment_refunds.wallet_refund_id`) is no longer
+written.
+
+Tests: `tests/Feature/Billing/G1OnlyInvoiceTest.php`, `tests/Feature/E2E/BillingDunningFlowTest.php`.
+
+## VAT payer mode, proformas and the final invoice (G2, owner decision G-R1, 2026-10-05)
+
+The platform runs as a VAT payer or as a seller who is not one; the mode is configuration (`ONHOST_VAT_PAYER`) written to the
+legal entity by finance with a step-up and a second person (`POST /v1/staff/tax/vat-payer-mode`, CommandBus, CRITICAL), shown by
+`onhost:doctor` (row **VAT payer mode**, with the remedy when the two disagree). Switching never changes an issued document — each froze its seller. A non-payer
+charges no VAT (the tax engine decides `E`), issues no tax document and its EUR invoice has **no CZK VAT recap** (the open G1
+issue: it carried a zero "VAT in CZK" and entered the recap).
+
+A bank-transfer order of a VAT payer: proforma `PF` (no tax document) → the transfer arrives → **tax document for the received
+payment** `PP`, one line per VAT rate with the order's base and VAT, DUZP = the bank's booking day → the order is paid → **final
+invoice** `FV` (`type invoice`, `meta.advances`) that deducts the advance (*Zúčtování zálohy*: the receipt's number, the base and
+VAT deducted per rate, the difference, *Zbývá uhradit 0*). The advance is corrected by a credit note of the receipt. A
+non-payer's advance gets a payment confirmation and the order its credit statement, as before. A card order keeps G1 (receipt +
+statement).
+
+Every tax document of a payer carries the § 29 particulars incl. the DUZP and the VAT summary per rate, in Czech and English;
+VAT is rounded to the haléř half away from zero (§ 37, `VatRounding`, `meta.rounding`) — also when it is extracted from a top-up
+(the base used to be truncated). KH/SH drafts for the accountant: `php artisan onhost:vat:export kh|sh --period=YYYY-MM|YYYY-Qn
+--format=csv|xml` (read only).
+
+Details, the accountant's open questions: [vat-payer-mode.md](vat-payer-mode.md). Tests: `tests/Feature/Tax/G2VatPayerTest.php`.
 
 ## Reports
 
@@ -177,9 +259,39 @@ Tests: `tests/Feature/Finance/InvoiceTest.php`, `tests/Feature/Finance/AutoTopup
 period and a refunded marketplace order were booked as `DR asset:bank:chargeback|marketplace / CR wallet` — money arriving
 at a bank that does not exist — and as *purchased* credit: a service bought with bonus credit and then given back became
 cash that could be paid out. A return is now taken from what the correction takes back (revenue + VAT, or the receivable),
-the wallet row is `source=return`, `bucket=returned`, `refundable=false`, and `refundableBalance()` — purchased top-ups
-minus refunds — does not grow. The event stays `wallet.topup.completed` (`purpose: return`), so a past-due renewal waiting
+the wallet row is `source=return`, `bucket=returned`, `refundable=false`, and it is not purchased credit in the spend
+order (`RefundableCredit`). The event stays `wallet.topup.completed` (`purpose: return`), so a past-due renewal waiting
 for money is retried.
+
+**Credit is never paid out in cash** (owner decision G-R4, TASK-0112). The wallet has no refund: `WalletService::refund()`
+and `refundableBalance()` were removed (neither had a caller), no route, staff screen or console command pays credit out,
+and the webhook `wallet.refund.requested` left the catalogue. Credit that comes back — a cancelled service, a credit note
+of a paid document, an SLA credit, a withdrawal the consumer agreed to take as credit — stays on the account to be spent.
+The terms (`resources/legal/terms.md` art. 2.3) and the knowledge-base article say so. `wallet_refunds` keeps its history.
+A staff `WalletService::adjust` (billing.credit.adjust) is a correction of the balance, never a payout: a negative
+adjustment books against `expense:adjustment` and sends no money anywhere — never use it to "pay out" credit by hand.
+
+The one statutory exception is not a payout of credit: a consumer who withdraws within 14 days and does **not** agree to the
+refund to the credit is owed the **payment** for that contract back the way it was paid (§ 1831 OZ) — a card payment of the
+order back to the card through `PaymentService::refund`. Whether an unused top-up can be withdrawn to the card is an open
+owner/counsel question (ROZHODNUTI.md G-R4); until it is decided, top-ups are not refunded and `PaymentService::refund`
+refuses a `purpose = topup` payment (`422 topup_not_refundable`, G1 #103). The order path is not wired yet (G6); until it is, finance
+refunds it by hand. The § 1831 OZ reading needs counsel confirmation. Decision and open questions:
+`docs/audit/2026-10-full-readiness/ROZHODNUTI.md`, G-R4.
+
+**Spend order: purchased credit first** (owner decision G-R3, TASK-0099, `RefundableCredit`). The main wallet is one ledger
+account, so the purchased part is replayed from its postings in the order the money moved, with one spend order for the
+whole wallet (the bonus wallet already follows it — bonus credit is pulled in only for what purchased credit cannot cover):
+**purchased credit is spent first**, then returned, bonus-moved-in and staff credit; what neither covers is a debt that
+later credit pays first. 1 000 bought, 800 spent and 800 returned leaves 200 of purchased credit unspent, not 1 000.
+`RefundableCredit::replay` is that rule and stays unchanged; `RefundableCredit::of` is no longer a payout cap — nothing
+shows or pays it — but it is what the open statutory question (an unused top-up withdrawn within 14 days) would be capped by.
+
+What is "purchased" is read from the ledger entry, not from a `wallet_topups` row whose state could change: a credit to
+the main wallet is purchased when its transaction is a `topup` (bonus top-ups credit the promo account) or reverses a
+`refund` booked before G-R4. A reversed top-up is a debit and takes purchased credit first — its own money, not another
+top-up's. **A reversed spend** (a capture or charge taken back) **is not purchased credit.** The replay is one grouped scan
+of the one wallet account's postings (index `ledger_postings.account_id`).
 
 **The return of an unused period is computed from what was paid** (`ChargebackService::estimate`). It was
 `subscription.amount_minor × unused share`: the list price of ONE period without VAT. Twelve months paid in advance
@@ -234,8 +346,9 @@ Tests: `tests/Feature/Billing/DunningEnforcementTest.php` (both holes proven aga
 A tax document issued in EUR has to state its VAT **in CZK** (§ 29 (1) l) of the Czech VAT act), converted at the rate of the
 Czech National Bank valid for the day the tax is due (§ 4). It carried neither the rate nor the amount.
 
-* **Which documents:** `invoice`, `receipt` (the tax document of a top-up) and `credit_note`. A proforma is a request to pay
-  and a statement only lists what the credit paid for — neither is a tax document.
+* **Which documents:** `invoice`, `receipt` (the tax document of a paid order or of a VAT payer's top-up) and `credit_note`. A
+  proforma is a request to pay, a statement only lists what the credit paid for and a payment confirmation (`confirmation`)
+  only confirms money received as credit — none of them is a tax document.
 * **Which rate:** the list valid for the document's supply day (`CnbRates::rateFor`): the latest stored list that is not
   younger than the day and not older than `ONHOST_FX_MAX_AGE_DAYS` (7). The bank publishes at 14:30 on working days; before
   that, and over a weekend, the previous list is the valid one — the document prints the date of the list it used.
@@ -320,14 +433,28 @@ on the server — until then the doctor row "consumer withdrawal reviewed by a l
 - **Until when:** 14 days from the order day (`orders.placed_at`, accounting day), to the end of the 14th day. The day the
   notice was **sent** decides. A registered domain is never withdrawn (`withdrawal_not_applicable`, `why=domain_registered`);
   the cart says so (`withdrawal_notice` in the quote). An add-on goes with its service; a carried site has no contract.
-- **Panel:** `GET /v1/services/{id}/withdrawal` (eligibility, deadline, estimate); `POST` with
-  `confirm_refund_to_credit: true` (the consumer's express agreement to a refund to the credit, recorded as a consent),
-  `service.delete`, HIGH, fresh step-up. A paid order nothing of which was delivered: `GET/POST /v1/orders/{id}/withdrawal`
+- **Panel:** `GET /v1/services/{id}/withdrawal` (eligibility, deadline, estimate); `POST` (optional
+  `confirm_refund_to_credit: true` — the consumer's VOLUNTARY agreement to a refund to the credit, recorded as a consent;
+  without it the money goes back the way it was paid, L-06), `service.delete`, HIGH, fresh step-up. A paid order nothing of which was delivered: `GET/POST /v1/orders/{id}/withdrawal`
   (the order is cancelled, every line credited, the reserved credit freed).
 - **Letter or e-mail:** finance records it with the day it was sent: `POST /v1/staff/withdrawals`
-  (`organization_id`, `service_id` or `order_id`, `sent_at`, `refund_to_credit_agreed`, `reason`), `billing.refund.execute`,
-  step-up and a second person. Without the consumer's agreement to a credit refund the old manual path stands: a refund by
-  the original payment method through the finance tools.
+  (`organization_id`, `service_id` or `order_id`, `sent_at`, optional `refund_to_credit_agreed`, `reason`), `billing.refund.execute`,
+  step-up and a second person.
+- **Refund method (L-06, TASK-0144):** `refund_method = credit` only with the agreement; otherwise `source`: what the
+  withdrawn order's own payment (purpose `order`, a card or a transfer) brought is returned to the credit by the credit notes
+  as before and **held there** (wallet hold `withdrawal_payout`, no expiry), the withdrawal ends in state `payout_due`
+  (event `withdrawal.payout_due`, finance inbox, hot, with the deadline = notice + 14 days) and finance pays it out:
+  `POST /v1/staff/withdrawals/{id}/payout` `{reason}` (`PaymentRefundCommand` `refund.withdrawal_payout`, step-up, four eyes
+  from the refund approval threshold). The hold is released, the amount leaves the credit for
+  `liability:refund_payable:<provider>` and the gateway refund (or a bank payout finance confirms) empties it. What was paid
+  from the credit stays credit — the credit was the means of payment.
+- **Other statutory money (L-09):** a consumer's price reduction or refund for a defect, the provider's termination without
+  the customer's breach, or a paid order that cannot be delivered goes back to the order's payment:
+  `POST /v1/staff/payments/{payment}/refund-statutory` `{amount, basis: defect|provider_termination|undeliverable, reason,
+  ticket_id, credit_note_id?}`. Without `credit_note_id` the order's document gets a credit note paid out to the source (as
+  G6); with it, money that credit note already put on the credit moves to the source — never more than it returned, nor
+  than the credit still has. Consumers only, a ticket of the customer as evidence, services of the lines ended (except a
+  `defect` price reduction). A top-up is never refunded.
 - **What happens, in this order:** the service is suspended (hold `withdrawal`), then a credit note for exactly the unused
   part of each paid line (prorated by days, the notice day counts as used; add-on lines included; an unpaid invoice is
   reduced instead of money being paid out) goes back to the credit with `returnToCredit`, then the service is cancelled

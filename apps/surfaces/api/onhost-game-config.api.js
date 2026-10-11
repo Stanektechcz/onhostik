@@ -8,6 +8,9 @@
  * (value − default) × unit price from `window.ONHOST_DATA.gameConfig(cs)`; the cart line carries the SKU with
  * `config: {egg, version, environment, options}`. */
 (function () {
+  /* a count with its noun in the right Czech form (1 den, 2 dny, 5 dní) — G8 item 7 */
+  function cn(n, cs, en, lang) { var I = window.OnhostI18n; return I ? I.cn(n, cs, en, lang) : n + ' ' + (lang === 'en' ? (n === 1 ? en[0] : en[1]) : (n === 1 ? cs[0] : (n >= 2 && n <= 4 ? cs[1] : cs[2]))); }
+  function cq(_, n, cs, en) { return _(cn(n, cs, en, 'cs'), cn(n, cs, en, 'en')); }
   if (window.OnhostGameConfig) return; // the prototype runtime executes helmet scripts twice
   var ACC = 'var(--acc,#ec3013)', FG = 'var(--fg,#201e1d)', LINE = 'color-mix(in srgb,var(--fg,#201e1d) 22%,transparent)';
   var TILE_ART = { // games without artwork get a drawn tile
@@ -90,7 +93,7 @@
       return {
         label: x.label, note: x.note, cat: catLabel[x.category] || '', from: gross(cmp, x.from), fromLabel: _('Již od', 'From'), per: _('/měs', '/mo'),
         art: x.art || '', hasArt: !!x.art, noArt: !x.art, artStyle: artStyle(x), artText: ART_TEXT[x.key] || x.label,
-        badge: multi ? (x.eggs.length + _(' typů serveru', ' server types')) : '', hasBadge: multi,
+        badge: multi ? (cq(_, x.eggs.length, ['typ serveru', 'typy serveru', 'typů serveru'], ['server type', 'server types'])) : '', hasBadge: multi,
         cta: active ? _('Vybráno ✓', 'Selected ✓') : _('Konfigurovat', 'Configure'),
         ctaStyle: 'font-family:var(--font-heading);font-weight:800;font-size:13px;padding:8px 12px;white-space:nowrap;' + (active ? 'background:' + ACC + ';color:#f3f2f2' : 'border:2px solid ' + FG + ';color:' + FG),
         style: 'display:flex;flex-direction:column;text-decoration:none;color:' + FG + ';background:var(--bg,#f3f2f2);border:2px solid ' + (active ? ACC : LINE) + ';min-width:0',

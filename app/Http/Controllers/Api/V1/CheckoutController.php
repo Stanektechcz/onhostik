@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Onhost\Domain\Identity\EmailVerificationGuard;
 use Onhost\Domain\Identity\Models\EmailVerificationToken;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Identity\Notifications\GuestAccountNotification;
@@ -111,6 +112,16 @@ final class CheckoutController extends ApiController
             VatStanding::taxCustomer($organization),
             (int) ($data['commit_months'] ?? 1), $data['promo_code'] ?? null, $organization, $locale,
         );
+        try {
+            EmailVerificationGuard::assertMayPlaceOrder((int) $quote->total_minor, (string) $quote->currency, $context); // R5: a new account has not verified anything yet
+        } catch (DomainError $refused) {
+            try {
+                EmailVerificationGuard::issue($user, $organization->name); // the account stays; the link lets the person come back and order
+            } catch (DomainError) {
+                // the hourly cap on this address is reached: no further mail, the refusal below still stands
+            }
+            throw new DomainError('email_unverified', 'Objednávka nad 5 000 Kč vyžaduje ověřený e-mail. Účet jsme založili a poslali na váš e-mail ověřovací odkaz. Po ověření si na přihlašovací stránce zvolte Zapomenuté heslo, nastavte si heslo a objednávku dokončete přihlášeni.', 403, ['action' => 'order', 'resend' => EmailVerificationGuard::RESEND_PATH]);
+        }
         $result = (array) $this->bus->dispatch(new PlaceOrderCommand($organization->id, $key, ['quote_id' => $quote->id, 'consents' => $data['consents'], 'payment' => $data['payment'], 'source' => 'web']), $context);
         $order = Order::query()->findOrFail((string) $result['order_id']);
 

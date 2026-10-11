@@ -20,6 +20,7 @@ use Onhost\Domain\Identity\ServiceAccounts\ServiceAccountCommand;
 use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\OrganizationService;
+use Onhost\Domain\Services\Commands\ServiceActionCommand;
 use Onhost\Platform\Audit\AuditEvent;
 use Onhost\Platform\Commands\CommandBus;
 use Onhost\Platform\Commands\CommandContext;
@@ -214,18 +215,25 @@ it('gives an account only an organization role below the owner and documented sc
 
 it('never lets a service account token take a step-up action or act as a person', function () {
     [$owner, $org] = $this->customerWithOrganization();
-    $plain = (string) saApiCreate($this, $owner, $org, ['role' => 'org_admin', 'scopes' => ['services:read', 'tickets:write']])->assertCreated()->json('token');
+    $plain = (string) saApiCreate($this, $owner, $org, ['role' => 'org_admin', 'scopes' => ['services:read', 'services:power', 'tickets:write']])->assertCreated()->json('token');
 
-    // the person-only endpoints answer that they are for a person, not a 500 and not somebody else's data
-    saApiBearer($this, $plain, $org)->getJson('/v1/me')->assertForbidden()->assertJsonPath('error', 'person_required');
+    // the person-only endpoints answer that they are for a person, not a 500 and not somebody else's data; GET /v1/me answers
+    // who the account is (F12a)
+    saApiBearer($this, $plain, $org)->getJson('/v1/tickets')->assertForbidden()->assertJsonPath('error', 'person_required');
+    saApiBearer($this, $plain, $org)->getJson('/v1/me')->assertOk()->assertJsonPath('data.type', 'service_account')->assertJsonPath('data.role', 'org_admin');
     // it cannot step up (the route is no token's) …
     saApiBearer($this, $plain, $org)->postJson('/v1/auth/step-up', ['method' => 'password', 'password' => 'x'])->assertForbidden();
     // … so a HIGH command it sends is refused by the bus, even with the organization admin's role behind it
     $account = ServiceAccount::query()->sole();
     $tokenId = (string) PersonalAccessToken::query()->where('tokenable_id', $account->id)->value('id');
     $context = new CommandContext('service_account', $account->id, $org->id, null, '127.0.0.1', 'pest', 'token:'.$tokenId);
+    // (G7, TASK-0115: managing service accounts is no token's at all, so the bus says that before it asks for a step-up) …
     expect(fn () => app(CommandBus::class)->dispatch(new ServiceAccountCommand($org->id, 'sa-self-'.Str::ulid(), ['op' => 'create', 'name' => 'child', 'role' => 'viewer', 'scopes' => ['services:read']]), $context))
-        ->toThrow(DomainError::class, 'Service accounts cannot perform actions that require step-up');
+        ->toThrow(DomainError::class, 'This action is not available to API tokens');
+    // … and a HIGH action its scope does cover (a restore under services:power) cannot take a step-up: it waits for the owner's approval (H0, owner decision H-R1)
+    $web = featureWebService($org, 'aapanel');
+    expect(fn () => app(CommandBus::class)->dispatch(new ServiceActionCommand($org->id, 'sa-restore-'.Str::ulid(), ['service_id' => $web->id, 'project_id' => $web->project_id, 'action' => 'restore', 'params' => []]), $context))
+        ->toThrow(DomainError::class, 'needs the approval of the organization\'s owner');
     expect(ServiceAccount::query()->count())->toBe(1);
 });
 

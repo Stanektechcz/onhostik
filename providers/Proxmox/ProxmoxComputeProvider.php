@@ -15,6 +15,7 @@ use Onhost\Providers\Contracts\ActualState;
 use Onhost\Providers\Contracts\AsyncHandle;
 use Onhost\Providers\Contracts\AsyncStatus;
 use Onhost\Providers\Contracts\ComputeProvider;
+use Onhost\Providers\Contracts\CustomIsoCapable;
 use Onhost\Providers\Contracts\ExpiringBackups;
 use Onhost\Providers\Contracts\ProviderHealth;
 use Onhost\Providers\Contracts\ProviderResult;
@@ -31,10 +32,13 @@ use Throwable;
  * Idempotency: VMs are tagged `onhost;<service id>;idem-<hash>` and looked up
  * through /cluster/resources before any clone.
  */
-final class ProxmoxComputeProvider implements ComputeProvider, ExpiringBackups, RetainedBackups, SelfProbing
+final class ProxmoxComputeProvider implements ComputeProvider, CustomIsoCapable, ExpiringBackups, RetainedBackups, SelfProbing
 {
     /** The drive a rescue image is attached to; never used for anything else, so detaching it can never take a disk away. */
     private const RESCUE_DRIVE = 'ide2';
+
+    /** How a customer's own image is named on the hypervisor (`CustomIso::remoteFilename()`): never one of the rescue images (TASK-0110). */
+    private const CUSTOM_ISO_PREFIX = 'onhost-ciso-';
 
     /** The highest number Proxmox accepts for a guest. */
     private const VMID_CEILING = 999_999_999;
@@ -684,10 +688,12 @@ final class ProxmoxComputeProvider implements ComputeProvider, ExpiringBackups, 
         $out = [];
         foreach ((array) $this->api->get("/nodes/{$node}/storage/{$storage}/content", ['content' => 'iso'], 'storage.content.iso') as $row) {
             $volume = (string) ($row['volid'] ?? '');
-            if ($volume === '') {
+            $name = basename(str_replace('\\', '/', $volume));
+            // a customer's own image is never somebody else's rescue image, even where the operator keeps both on one storage (TASK-0110)
+            if ($volume === '' || str_starts_with($name, self::CUSTOM_ISO_PREFIX)) {
                 continue;
             }
-            $out[] = ['volume' => $volume, 'name' => basename(str_replace('\\', '/', $volume)), 'size_bytes' => (int) ($row['size'] ?? 0)];
+            $out[] = ['volume' => $volume, 'name' => $name, 'size_bytes' => (int) ($row['size'] ?? 0)];
         }
         usort($out, fn (array $a, array $b) => strcmp($a['name'], $b['name']));
 
@@ -715,6 +721,93 @@ final class ProxmoxComputeProvider implements ComputeProvider, ExpiringBackups, 
         }
 
         return ProviderResult::completed($vm, ['iso' => $volume, 'boot' => $bootOrder]);
+    }
+
+    /**
+     * TASK-0110: the storage customers' own images go to (`custom_iso_storage`). No default on purpose: the rescue storage holds
+     * images every customer may boot, so a customer's image is never written there by accident — without the option the feature is
+     * off on this instance.
+     */
+    public function customIsoStorage(): ?string
+    {
+        $storage = trim((string) $this->instance->option('custom_iso_storage', ''));
+
+        return preg_match('/^[A-Za-z][A-Za-z0-9._-]{0,63}$/', $storage) === 1 ? $storage : null;
+    }
+
+    public function customIsoVolume(string $filename): string
+    {
+        return $this->requireCustomIsoStorage().':iso/'.self::customIsoFilename($filename);
+    }
+
+    public function hasCustomIso(string $node, string $volume): bool
+    {
+        $storage = $this->requireCustomIsoStorage();
+        foreach ((array) $this->api->get("/nodes/{$node}/storage/{$storage}/content", ['content' => 'iso'], 'storage.content.custom_iso') as $row) {
+            if ((string) ($row['volid'] ?? '') === $volume) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public function uploadCustomIso(string $node, string $filename, $stream, string $sha256): ProviderResult
+    {
+        $storage = $this->requireCustomIsoStorage();
+        $filename = self::customIsoFilename($filename);
+        if (preg_match('/^[a-f0-9]{64}$/', $sha256) !== 1) {
+            throw new ProviderException('proxmox', ProviderErrorCode::VALIDATION, 'An image is uploaded only with its SHA-256');
+        }
+        // the hypervisor checks the checksum itself: a file that arrived damaged is refused there, never attached
+        $upid = $this->api->upload("/nodes/{$node}/storage/{$storage}/upload", ['content' => 'iso', 'checksum' => $sha256, 'checksum-algorithm' => 'sha256'], $filename, $stream, 'storage.upload.custom_iso');
+        $volume = "{$storage}:iso/{$filename}";
+        if (is_string($upid) && str_starts_with($upid, 'UPID')) {
+            return ProviderResult::accepted(new AsyncHandle('pve_task', $upid, $node, ['volume' => $volume], 10, max(60, (int) config('onhost.custom_iso.upload_timeout_seconds', 3600))), null, ['volume' => $volume]);
+        }
+
+        return ProviderResult::completed(null, ['volume' => $volume]);
+    }
+
+    public function deleteCustomIso(string $node, string $volume): ProviderResult
+    {
+        $storage = $this->requireCustomIsoStorage();
+        // only a customer image of the custom storage, by the platform's own name: never a rescue image, never another storage
+        if (preg_match('~^'.preg_quote($storage, '~').':iso/'.self::CUSTOM_ISO_PREFIX.'[a-z0-9_]+\.iso$~', $volume) !== 1) {
+            throw new ProviderException('proxmox', ProviderErrorCode::VALIDATION, 'Only a customer image of the custom ISO storage is deleted here');
+        }
+        // Proxmox answers a volume that is not there with a 500 of its own words: asked first, so "already gone" is success
+        if (! $this->hasCustomIso($node, $volume)) {
+            return ProviderResult::completed(null, ['volume' => $volume, 'deleted' => false]);
+        }
+        try {
+            $upid = $this->api->delete("/nodes/{$node}/storage/{$storage}/content/".rawurlencode($volume), [], 'storage.content.delete');
+        } catch (ProviderException $e) {
+            if ($e->errorCode === ProviderErrorCode::NOT_FOUND) {
+                return ProviderResult::completed(null, ['volume' => $volume, 'deleted' => false]); // gone in between: deleted
+            }
+            throw $e;
+        }
+        if (is_string($upid) && str_starts_with($upid, 'UPID')) {
+            return ProviderResult::accepted(new AsyncHandle('pve_task', $upid, $node, ['volume' => $volume], 3, 600), null, ['volume' => $volume]);
+        }
+
+        return ProviderResult::completed(null, ['volume' => $volume, 'deleted' => true]);
+    }
+
+    private function requireCustomIsoStorage(): string
+    {
+        return $this->customIsoStorage() ?? throw new ProviderException('proxmox', ProviderErrorCode::VALIDATION, 'No custom ISO storage is configured on this instance (custom_iso_storage)');
+    }
+
+    /** The platform's own file name, checked once more: a name a customer typed never reaches the storage. */
+    private static function customIsoFilename(string $filename): string
+    {
+        if (preg_match('/^'.self::CUSTOM_ISO_PREFIX.'[a-z0-9_]{1,60}\.iso$/', $filename) !== 1) {
+            throw new ProviderException('proxmox', ProviderErrorCode::VALIDATION, 'A custom image is stored only under the platform\'s own name');
+        }
+
+        return $filename;
     }
 
     /** What this cluster really answers (SelfProbing): a backup storage is configured and its content can be listed — every backup and final snapshot is found there. */

@@ -929,7 +929,7 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider, 
         });
         if (! in_array($host, (array) $known, true)) {
             $this->cache->forget("onhost:pterodactyl:daemons:{$this->instance->id}"); // a node added a minute ago is found on the next try
-            throw new ProviderException('pterodactyl', ProviderErrorCode::PROVIDER_BUG, "The panel returned a transfer link to {$host}, which is not one of its daemons; nothing was transferred");
+            throw new ProviderException('pterodactyl', ProviderErrorCode::PROVIDER_BUG, 'The panel returned a transfer link that is not one of its daemons; nothing was transferred', null, ['host' => $host]); // the host is for the log, not for the customer who triggered the download (E5)
         }
     }
 

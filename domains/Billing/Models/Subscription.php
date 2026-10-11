@@ -27,7 +27,7 @@ final class Subscription extends Model
     protected function casts(): array
     {
         return [
-            'amount_minor' => 'integer', 'auto_renew' => 'boolean', 'cancel_at_period_end' => 'boolean', 'renewal_failures' => 'integer',
+            'amount_minor' => 'integer', 'auto_renew' => 'boolean', 'auto_renew_before_cancel' => 'boolean', 'cancel_at_period_end' => 'boolean', 'renewal_failures' => 'integer',
             'current_period_start' => 'datetime', 'current_period_end' => 'datetime', 'next_renewal_at' => 'datetime', 'last_renewed_at' => 'datetime',
         ];
     }

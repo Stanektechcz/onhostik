@@ -78,8 +78,9 @@ it('lets staff create a Spigot server for a customer without an order, from the 
     expect(Operation::query()->where('service_id', $service->id)->value('kind'))->toBe('provision.game');
     $this->withHeader('Idempotency-Key', 'qc-2')->postJson("/v1/staff/customers/{$org->id}/services", ['product_key' => 'nope'])->assertNotFound();
     $this->withHeader('Idempotency-Key', 'qc-3')->postJson("/v1/staff/customers/{$org->id}/services", ['product_key' => 'game', 'plan_key' => 'game-999'])->assertNotFound();
-    $this->actingAs($this->staff('support_agent'), 'sanctum');
-    $this->withHeader('Idempotency-Key', 'qc-4')->postJson("/v1/staff/customers/{$org->id}/services", ['product_key' => 'game', 'plan_key' => 'game-8'])->assertStatus(403);
+    // a real staff role that sees the customer but manages no service: the answer is the permission, not the staff guard (F12a)
+    $this->actingAs($this->staff('support_l1'), 'sanctum');
+    $this->withHeader('Idempotency-Key', 'qc-4')->postJson("/v1/staff/customers/{$org->id}/services", ['product_key' => 'game', 'plan_key' => 'game-8'])->assertStatus(403)->assertJsonPath('message', 'Missing permission staff.service.manage');
 
     // the terminal twin: the organization by owner e-mail, the same command on the bus
     expect(Artisan::call('onhost:game:create', ['organization' => 'hrac@firma.cz', '--plan' => 'game-16', '--egg' => 'minecraft-spigot', '--game-version' => '1.21.8', '--label' => 'Spigot druhý']))->toBe(0);

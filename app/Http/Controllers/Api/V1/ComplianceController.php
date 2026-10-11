@@ -71,7 +71,10 @@ final class ComplianceController extends ApiController
     public function requestData(Request $request): JsonResponse
     {
         $organization = $this->api->organization($request);
-        $data = $request->validate(['kind' => ['required', 'in:export,deletion,switching'], 'reason' => ['nullable', 'string', 'max:250']]);
+        $data = $request->validate(['kind' => ['required', 'in:export,deletion,switching'], 'reason' => ['nullable', 'string', 'max:250'], 'credit_forfeit_acknowledged' => ['sometimes', 'boolean']]);
+        if (array_key_exists('credit_forfeit_acknowledged', $data)) {
+            $data['credit_forfeit_acknowledged'] = (bool) $data['credit_forfeit_acknowledged']; // H0 (H-R5)
+        }
 
         return $this->dispatch(new DataRequestCommand($organization->id, $this->requestKey($request, 'data-request:'.$data['kind']), ['op' => 'request'] + $data),
             $this->api->context($request, $organization, $data['reason'] ?? null), 202);
@@ -88,6 +91,18 @@ final class ComplianceController extends ApiController
         $header = $request->headers->get('Idempotency-Key');
 
         return is_string($header) && $header !== '' ? $this->idempotencyKey($request, $prefix) : $prefix.':'.Str::uuid()->toString();
+    }
+
+    /**
+     * H0 (owner decision H-R5): what erasing the account would do, before the owner asks for it — what blocks it, the grace period
+     * and the credit that is forfeited with the account. The owner's question (`organization.close`), read only.
+     */
+    public function deletionPreview(Request $request, ComplianceService $compliance): JsonResponse
+    {
+        $organization = $this->api->organization($request);
+        $this->api->authorize($request, 'organization.close', CommandScope::organization($organization->id));
+
+        return response()->json(['data' => $compliance->deletionPreview($organization)]);
     }
 
     /** Stopping a scheduled erasure while its grace period runs. */

@@ -7,6 +7,9 @@
  * of every service. Views keep the prototype's generic shape (crumb/title/stats/form/cols/rows/side/advice). */
 (function () {
   'use strict';
+  /* a count with its noun in the right Czech form (1 den, 2 dny, 5 dní) — G8 item 7 */
+  function cn(n, cs, en, lang) { var I = window.OnhostI18n; return I ? I.cn(n, cs, en, lang) : n + ' ' + (lang === 'en' ? (n === 1 ? en[0] : en[1]) : (n === 1 ? cs[0] : (n >= 2 && n <= 4 ? cs[1] : cs[2]))); }
+  function cq(_, n, cs, en) { return _(cn(n, cs, en, 'cs'), cn(n, cs, en, 'en')); }
   if (window.OnhostPanelPages) return;
   var S = { busy: {}, err: {} };
 
@@ -304,18 +307,16 @@
       A().all('/services').then(function (r) {
         var targets = (r.data || []).filter(function (x) { return x.family === a.family && (x.state === 'ACTIVE' || x.state === 'DEGRADED'); });
         if (!targets.length) { flash(cmp, _('Není kam obnovit', 'Nothing to restore into'), _('Objednejte si novou službu stejného typu — obnova do ní je zdarma.', 'Order a new service of the same kind — restoring into it is free.')); return; }
-        var target = targets[0];
-        if (targets.length > 1) {
-          var menu = targets.map(function (x, i) { return (i + 1) + ') ' + (x.label || x.name); }).join('\n');
-          var pick = window.prompt(_('Do které služby archiv obnovit? Zadejte číslo:\n', 'Which service should the archive go into? Enter the number:\n') + menu, '1');
-          var idx = Number(pick) - 1;
-          if (!pick || !(idx >= 0 && idx < targets.length)) return;
-          target = targets[idx];
-        }
+        var chosen = targets.length > 1
+          ? window.OnhostDialog.form({ title: _('Do které služby archiv obnovit?', 'Which service should the archive go into?'), confirm: _('Pokračovat', 'Continue'), fields: [{ key: 'target', label: _('Služba', 'Service'), type: 'select', value: targets[0].id, options: targets.map(function (x) { return [x.id, x.label || x.name]; }) }] }).then(function (v) { return v ? targets.filter(function (x) { return x.id === v.target; })[0] || null : null; })
+          : Promise.resolve(targets[0]);
+        return chosen.then(function (target) {
+        if (!target) return null;
         if (!window.confirm(_('Obnova přepíše soubory a databáze služby ', 'The restore overwrites the files and databases of ') + (target.label || target.name) + _('. Je zdarma. Pokračovat?', '. It is free. Continue?'))) return;
         var body = { service_id: target.id };
         return A().post('/services/archives/' + encodeURIComponent(a.id) + '/restore', body, A().key('archive.restore:' + a.id, body))
           .then(function () { flash(cmp, _('Obnova běží', 'The restore is running'), _('Sledujte ji v operacích služby.', 'Follow it in the service operations.')); reload(cmp, ['archives']); });
+        });
       }).catch(function (e) { fail(cmp, _, e); });
     };
   }
@@ -335,7 +336,7 @@
     return {
       crumb: _('Provoz', 'Operations'), title: _('Zálohy', 'Backups'),
       stats: [
-        H.stat(_('Zálohy', 'Backups'), String(rows.length), ok.length + _(' dokončených', ' completed'), 5, Math.min(100, rows.length * 4), 12, 'ok'),
+        H.stat(_('Zálohy', 'Backups'), String(rows.length), cq(_, ok.length, ['dokončená', 'dokončené', 'dokončených'], ['completed', 'completed']), 5, Math.min(100, rows.length * 4), 12, 'ok'),
         H.stat(_('Služeb se zálohou', 'Services with a backup'), String(latest.length), '', 9, Math.min(100, latest.length * 20), 10, 'ok'),
         H.stat(_('Objem', 'Volume'), bytes(size), _('offsite, šifrované', 'off-site, encrypted'), 13, 60, 8, 'ok'),
         H.stat(_('Poslední', 'Latest'), rows[0] ? when(rows[0].finished_at || rows[0].started_at, cs) : '—', rows[0] && rows[0].service ? rows[0].service.label : '', 17, rows[0] ? 90 : 5, 8, 'ok'),

@@ -32,7 +32,7 @@
     <thead><tr><th>Dokument</th><th>Verze</th><th>Účinnost</th></tr></thead>
     <tbody>
     @foreach ($documents as $doc)
-      <tr><td><a href="/dokumenty/{{ $doc['slug'] }}">{{ $doc['title'] }}</a></td><td>{{ $doc['version'] }}</td><td>{{ $doc['effective_from']?->format('j. n. Y') }}</td></tr>
+      <tr><td><a href="/dokumenty/{{ $doc['slug'] }}">{{ $doc['title'] }}</a>@if ($doc['earlier'] !== [])<br><small>Předchozí verze: @foreach ($doc['earlier'] as $old)<a href="/dokumenty/{{ $doc['slug'] }}/{{ $old['version'] }}">{{ $old['version'] }}</a> @endforeach</small>@endif</td><td>{{ $doc['version'] }}</td><td>{{ $doc['effective_from']?->format('j. n. Y') }}</td></tr>
     @endforeach
     </tbody>
   </table>

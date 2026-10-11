@@ -37,6 +37,7 @@ use Onhost\Providers\IpGeo\NullIpGeoProvider;
 use Onhost\Providers\IspConfig\IspConfigWebProvider;
 use Onhost\Providers\Kubernetes\KubernetesAppsProvider;
 use Onhost\Providers\Pbs\PbsBackupProvider;
+use Onhost\Providers\Penpot\PenpotDockerProvider;
 use Onhost\Providers\PowerDns\PowerDnsProvider;
 use Onhost\Providers\Proxmox\ProxmoxComputeProvider;
 use Onhost\Providers\Pterodactyl\PterodactylGameProvider;
@@ -62,6 +63,7 @@ final class PlatformServiceProvider extends ServiceProvider
         'wedos_zone' => WedosZoneDnsProvider::class,
         'subreg' => SubregRegistrarProvider::class,
         'kubernetes' => KubernetesAppsProvider::class,
+        'penpot' => PenpotDockerProvider::class, // TASK-0123: Penpot stacks on a dedicated Docker node
     ];
 
     public function register(): void

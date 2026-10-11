@@ -81,9 +81,18 @@ final class ServiceController extends ApiController
         $model = $this->resolve($request, $service);
         $manages = $this->api->can($request, 'service.manage', CommandScope::resource($model->id, $model->organization_id, $model->project_id)); // a secret a run generated is shown to whoever manages the service, never to a reader
         $operations = Operation::query()->where('service_id', $model->id)->orderByDesc('queued_at')->limit(10)->get()->map(fn (Operation $o) => Presenters::operation($o, false, $manages))->all();
-        $bindings = array_map(fn (ProviderBinding $b) => ['type' => $b->remote_type, 'node' => $b->remote_node, 'adapter_version' => $b->adapter_version, 'last_reconciled_at' => $b->last_reconciled_at?->toIso8601String()], $model->bindings()->get()->all());
+        $bindings = array_map(fn (ProviderBinding $b) => ['type' => self::publicBindingType((string) $b->remote_type), 'adapter_version' => $b->adapter_version, 'last_reconciled_at' => $b->last_reconciled_at?->toIso8601String()], $model->bindings()->get()->all());
 
         return response()->json(['data' => Presenters::service($model) + ['operations' => $operations, 'bindings' => $bindings, 'actual' => $model->actual_spec, 'summary' => app(ServiceSummary::class)->for($model)]]);
+    }
+
+    /**
+     * What a customer is told a binding is. The platform's own record keeps the hypervisor's word (`qemu`, `lxc`) — the adapters and the
+     * identity check compare it — but a customer is never told which technology or vendor is under their service (G8 item 5).
+     */
+    private static function publicBindingType(string $remoteType): string
+    {
+        return ['qemu' => 'vm', 'lxc' => 'container'][$remoteType] ?? $remoteType;
     }
 
     /** Generic action endpoint plus the shorthand routes (power/resize/backup/…) mapped onto it. */
@@ -171,9 +180,12 @@ final class ServiceController extends ApiController
 
     public function consoleToken(Request $request, string $service): JsonResponse
     {
+        // one request, one key: a console token is single-use and secret, so it is never an answer replayed by the bus. The key used to be
+        // the service and the SECOND — two requests of one person in the same second (a double click, the browser and a script) got
+        // the first one's answer back with the token and the VNC password masked, and a console that could not be opened (E4).
         $model = $this->resolve($request, $service, 'service.console'); // asked of the person and the token before anything else (C13-H2c)
 
-        return $this->dispatch(new IssueConsoleTokenCommand($model->organization_id, 'console:'.$model->id.':'.now()->timestamp, ['service_id' => $model->id, 'project_id' => $model->project_id]), $this->api->context($request, Organization::query()->find($model->organization_id)));
+        return $this->dispatch(new IssueConsoleTokenCommand($model->organization_id, 'console:'.$model->id.':'.Str::lower((string) Str::ulid()), ['service_id' => $model->id, 'project_id' => $model->project_id]), $this->api->context($request, Organization::query()->find($model->organization_id)));
     }
 
     public function usage(Request $request, ServiceService $services, string $service): JsonResponse
@@ -292,9 +304,11 @@ final class ServiceController extends ApiController
     public function requestWithdrawal(Request $request, string $service): JsonResponse
     {
         $model = $this->resolve($request, $service, 'service.delete');
-        $data = $request->validate(['confirm_refund_to_credit' => ['accepted'], 'statement' => ['nullable', 'string', 'max:2000']]);
+        // L-06: the agreement to a refund to the credit is voluntary; without it the money goes back the way it was paid
+        $data = $request->validate(['confirm_refund_to_credit' => ['nullable', 'boolean'], 'statement' => ['nullable', 'string', 'max:2000']]);
+        $method = ! empty($data['confirm_refund_to_credit']) ? Withdrawal::METHOD_CREDIT : Withdrawal::METHOD_SOURCE;
 
-        return $this->dispatch(new WithdrawalCommand($model->organization_id, $this->idempotencyKey($request, "withdrawal:{$model->id}"), ['op' => 'service', 'service_id' => $model->id, 'statement' => $data['statement'] ?? null]), $this->api->context($request, Organization::query()->find($model->organization_id)), 202);
+        return $this->dispatch(new WithdrawalCommand($model->organization_id, $this->idempotencyKey($request, "withdrawal:{$model->id}"), ['op' => 'service', 'service_id' => $model->id, 'statement' => $data['statement'] ?? null, 'refund_method' => $method]), $this->api->context($request, Organization::query()->find($model->organization_id)), 202);
     }
 
     /** The customer moves a scheduled migration inside the window staff gave (audit §5h-3). */
@@ -404,7 +418,7 @@ final class ServiceController extends ApiController
             return $service;
         }
         // ── end TASK-0039 P0-16 re-check ──
-        $this->api->authorize($request, $permission, CommandScope::resource($service->id, $service->organization_id, $service->project_id), $tokenPermission); // a project role covers the services of that project
+        $this->api->authorizeOrNotFound($request, $permission, CommandScope::resource($service->id, $service->organization_id, $service->project_id), 'service', $tokenPermission); // a stranger: 404 (TASK-0098); a project role covers the services of that project
 
         return $service;
     }

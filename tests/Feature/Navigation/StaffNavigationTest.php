@@ -161,7 +161,8 @@ it('authorizes each system settings page like its navigation item (P1-4)', funct
     $this->get('/sprava/nastaveni/schvalovani')->assertOk(); // every member of staff watches the requests they opened
 
     $this->actingAs($this->staff('marketing_content'));
-    $this->get('/sprava/nastaveni/integrace')->assertRedirect('/sprava/nastaveni/schvalovani');
+    $this->get('/sprava/nastaveni/integrace')->assertRedirect('/sprava/nastaveni/obsah'); // I-R17: the blog and references editor is their first page
+    $this->get('/sprava/nastaveni/obsah')->assertOk();
     $this->get('/sprava/nastaveni/tarify')->assertForbidden();
     $this->get('/sprava/nastaveni/zivotni-cyklus')->assertForbidden();
 

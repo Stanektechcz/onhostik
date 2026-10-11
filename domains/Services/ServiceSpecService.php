@@ -180,16 +180,12 @@ final class ServiceSpecService
             $command = new ServiceActionCommand($service->organization_id, $key, ['service_id' => $service->id, 'project_id' => $service->project_id, 'action' => $action, 'params' => $params]);
             $decision = $this->authorizer->authorize($command, $context);
             if (! $decision->allowed) {
-                $out['skipped'][] = ['section' => $section, 'reason' => ($decision->requirement === 'step_up' ? 'step_up_required' : 'forbidden').':'.$action];
-
-                return;
-            }
-            // PUT /spec is in the token's `services` family and is checked as `service.manage`, which `services:power` covers; the
-            // bus never sees token scopes, so each step on a token session asks the token's own scope for its permission — the
-            // one map the /actions path asks (TokenScopes, TASK-0030 C13-H2c; replaced TASK-0029's console-only refusal at the
-            // 0029–0031 integration). A console step needs `services:console`, a step the map does not open is refused
-            if (! $this->tokenMay($context, $command->permission())) {
-                $out['skipped'][] = ['section' => $section, 'reason' => 'token_scope:'.$action];
+                // PUT /spec is in the token's `services` family and is checked as `service.manage`, which `services:power` covers; each step
+                // on a token session needs the token's own scope for its permission — the one map the /actions path asks (TokenScopes,
+                // TASK-0030 C13-H2c), which the bus itself asks since G7 (TASK-0115). A step refused for the scope of a token that is
+                // still valid is reported as such: a console step without `services:console` is `token_scope`, not a missing permission
+                $reason = $decision->requirement === 'step_up' ? 'step_up_required' : ($this->tokenLacksScope($context, $command->permission()) ? 'token_scope' : 'forbidden');
+                $out['skipped'][] = ['section' => $section, 'reason' => $reason.':'.$action];
 
                 return;
             }
@@ -474,15 +470,15 @@ final class ServiceSpecService
     }
 
     /**
-     * Whether the API token behind `$context` carries the scope `$permission` needs (TokenScopes). The portal's own session is
-     * not a token and is decided by the bus alone. Fails closed: a token session whose token is gone, or a permission the map
-     * does not open to tokens, is refused — the same answer ApiContext::assertTokenScope gives on the /actions path.
+     * Whether the API token behind `$context` still exists and lacks the scope `$permission` needs (TokenScopes) — only the label of
+     * a step the bus refused (G7: the bus asks the token itself). The portal's own session is no token; a token that is gone is the
+     * bus's `forbidden`, as before.
      */
-    private function tokenMay(CommandContext $context, ?string $permission): bool
+    private function tokenLacksScope(CommandContext $context, ?string $permission): bool
     {
         $session = (string) $context->sessionId;
         if (! str_starts_with($session, 'token:')) {
-            return true;
+            return false;
         }
         // the key is a bigint: anything but digits is a token that does not exist (PostgreSQL refuses to compare it and the
         // whole spec apply answered 500 instead of skipping the step)
@@ -490,7 +486,7 @@ final class ServiceSpecService
         $token = ctype_digit($id) ? PersonalAccessToken::query()->find((int) $id) : null;
         $needed = TokenScopes::for($permission);
 
-        return $token instanceof PersonalAccessToken && $needed !== null && $token->can($needed);
+        return $token instanceof PersonalAccessToken && ($needed === null || ! $token->can($needed));
     }
 
     /** @param  list<array<string,mixed>>  $a @param  list<array<string,mixed>>  $b */

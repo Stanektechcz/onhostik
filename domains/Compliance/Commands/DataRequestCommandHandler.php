@@ -30,7 +30,7 @@ final class DataRequestCommandHandler implements CommandHandler
         }
 
         return ['data' => Presenters::dataRequest(match ($command->op()) {
-            'request' => $this->compliance->requestData($organization, (string) $command->get('kind', ''), $context, is_string($reason) ? $reason : null),
+            'request' => $this->compliance->requestData($organization, (string) $command->get('kind', ''), $context, is_string($reason) ? $reason : null, $command->get('credit_forfeit_acknowledged') === true),
             'cancel' => $this->compliance->cancelDataRequest(
                 DataRequest::query()->where('organization_id', $organization->id)->find((string) $command->get('data_request_id', '')) ?? throw DomainError::notFound('data_request'),
                 $context,

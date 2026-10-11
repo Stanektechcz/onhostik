@@ -34,13 +34,21 @@ final class CatalogRevise extends Command
         }
         if ($pending === []) {
             $this->info('Nothing pending: every catalogue revision is applied.');
+            if ($id === null && CatalogRevisions::proposals() !== []) { // prepared for the owner, applied only by their id (TASK-0110)
+                $this->line('Proposals waiting for the owner\'s decision (preview with the id): '.implode(', ', CatalogRevisions::proposals()));
+            }
 
             return self::SUCCESS;
         }
         $plans = []; // target => [from, how many revisions change it]
+        $blocked = [];
         foreach (array_keys($pending) as $revision) {
             $rows = $revisions->preview($revision);
             $this->printPreview($revision, $rows);
+            foreach ($revisions->blockers($revision) as $blocker) { // owner decision I-R9: what the installation cannot deliver yet
+                $this->warn("  not ready (I-R9): {$blocker}");
+                $blocked[$revision] = true;
+            }
             foreach ($rows as $row) {
                 if ($row['kind'] === 'plan') {
                     $plans[$row['target']] = [$plans[$row['target']][0] ?? (int) $row['from'], ($plans[$row['target']][1] ?? 0) + 1];
@@ -59,6 +67,11 @@ final class CatalogRevise extends Command
 
             return self::SUCCESS;
         }
+        if ($blocked !== []) { // refused before anyone is asked: the installation cannot deliver what the revision would sell
+            $this->error('Not ready: '.implode(', ', array_keys($blocked)).' — finish the steps named above first (docs/runbooks/custom-iso.md). Nothing was published.');
+
+            return self::FAILURE;
+        }
         if (! $this->option('yes') && ! $this->confirm('Publish these new plan versions now?', false)) {
             $this->warn('Nothing was published.');
 
@@ -74,7 +87,18 @@ final class CatalogRevise extends Command
         $this->line("Revision {$revision}: ".(string) CatalogRevisions::REVISIONS[$revision]['reason']);
         foreach ($rows as $row) {
             if ($row['kind'] === 'create') { // a product the code defines and this catalogue does not have yet
-                $this->line("  create product {$row['target']} ({$row['definition']['family']}, {$row['definition']['name']['cs']}): no plan and no price of its own; four eyes in the console, the system actor here");
+                $priced = array_filter((array) ($row['definition']['plans'] ?? []), fn ($plan) => ! empty($plan['prices']));
+                $this->line("  create product {$row['target']} ({$row['definition']['family']}, {$row['definition']['name']['cs']}): ".($priced === [] ? 'no plan and no price of its own' : 'with its plan(s) at the defined monthly prices ('.implode('; ', array_map(fn (string $plan, array $definition) => $plan.' '.json_encode($definition['prices']), array_keys($priced), $priced)).', a year = 12 months), state '.($row['definition']['state'] ?? 'draft')).'; four eyes in the console, the system actor here');
+
+                continue;
+            }
+            if ($row['kind'] === 'priced') { // the untouched draft of an older proposal (H-R7)
+                $this->line("  price product {$row['target']} (still a draft at zero prices): new plan version(s) at ".json_encode($row['prices']).' a month, then on sale');
+
+                continue;
+            }
+            if ($row['kind'] === 'offer') {
+                $this->line('  write the Penpot rules per web hosting tariff ('.count((array) ($row['rules']['plans'] ?? [])).' tariff(s), every one includes Penpot; a tariff added later follows the same default)');
 
                 continue;
             }
@@ -91,7 +115,7 @@ final class CatalogRevise extends Command
             }
             $changes = array_merge(
                 $row['drop'] === [] ? [] : ['− '.implode(', ', array_map(fn (string $key, string $bag) => "{$bag}.{$key}", array_keys($row['drop']), $row['drop']))],
-                array_map(fn (string $key, array $set) => "{$key} {$set['from']} → {$set['to']}", array_keys($row['set']), $row['set']),
+                array_map(fn (string $key, array $set) => $key.' '.self::shown($set['from']).' → '.self::shown($set['to']), array_keys($row['set']), $row['set']),
             );
             $this->line("  {$row['target']} v{$row['from']} → v{$row['to']}: ".implode('; ', $changes));
             $this->line("    {$row['services']} service(s) and {$row['subscriptions']} subscription(s) keep v{$row['from']}; prices carried over unchanged");
@@ -102,6 +126,12 @@ final class CatalogRevise extends Command
                 $this->warn("    a features line still says „{$line}“ — edit it in Nastavení systému → Tarify a verze");
             }
         }
+    }
+
+    /** A value as the preview names it: a word as it is, a number, a switch or nothing (a key the plan never had, TASK-0110) as JSON. */
+    private static function shown(mixed $value): string
+    {
+        return is_string($value) ? $value : (string) json_encode($value);
     }
 
     /** @param list<array<string,mixed>> $done */
@@ -119,6 +149,8 @@ final class CatalogRevise extends Command
                 'plan' => "  published {$row['target']} v{$row['from']} → v{$row['to']}",
                 'create' => "  created product {$row['target']}",
                 'option' => "  withdrew option {$row['target']}",
+                'priced' => "  priced and put on sale {$row['target']}",
+                'offer' => "  wrote {$row['target']}",
                 default => "  described product {$row['target']}",
             });
         }

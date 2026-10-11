@@ -696,7 +696,7 @@ it; the site stays down and S4b–S7 are the only next steps (nothing else may r
 QUEUES='default mails' REF=<STAGING_SHA> EXPECTED_SHA=<STAGING_SHA> START_UNITS=0 bash /root/onhost-install.sh
 cd $APP && $AS_WWW $P artisan onhost:provisioning:freeze "staging phase 1 - no panels"
 touch $STATE/expect-freeze
-# staff console → Integrations: wedos-main (created by InfrastructureSeeder) → state "disabled" (a staff-view signal; its credentials are empty, O4)
+# staff console → Integrations: wedos-main (created by InfrastructureSeeder) shows state "disabled" — seeded so while its credentials are empty (O4, F12b); nothing to switch
 ```
 
 Verify: `$STATE/installed` exists; `cat $STATE/expected-units` = the scheduler, `default`, `mails`; the doctor JSON has
@@ -802,9 +802,13 @@ site is in the maintenance S3 set, which the deployer leaves in place); the Path
 lanes and runs the same command a second time.
 
 ```bash
-REF=<STAGING_SHA> EXPECTED_SHA=<STAGING_SHA> DEPLOY_OPERATOR=<name> PHP_FPM_RELOAD='<reload command from S0>' \
+PHP="$P" REF=<STAGING_SHA> EXPECTED_SHA=<STAGING_SHA> DEPLOY_OPERATOR=<name> PHP_FPM_RELOAD='<reload command from S0>' \
   /usr/local/sbin/onhost-deploy; echo rc=$?
 ```
+
+`PHP=` is the site's PHP. Without it the deployer uses its default, `/www/server/php/83/bin/php`, which is the wrong PHP
+on a staging that runs 8.5 (set `P=/www/server/php/85/bin/php` in the constants above; `infra/aapanel/staging.sh deploy`
+passes it itself, see `staging-aapanel.md`).
 
 Verify:
 

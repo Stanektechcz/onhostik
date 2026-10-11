@@ -202,7 +202,7 @@ final class DomainController extends ApiController
         if ($domain === null) {
             throw DomainError::notFound('domain');
         }
-        $this->api->authorize($request, 'domain.read', CommandScope::organization($domain->organization_id));
+        $this->api->authorizeOrNotFound($request, 'domain.read', CommandScope::organization($domain->organization_id), 'domain'); // a stranger: 404, names are public (TASK-0098)
 
         return $domain;
     }
