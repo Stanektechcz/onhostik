@@ -226,6 +226,34 @@ DPH)“ a „Celkem k platbě (s DPH)“; s nastaveným účtem CDN se doplněk 
 `app/Http/Support/SurfaceRenderer.php` (`checkoutCopySeams`), `apps/surfaces/api/onhost-cart.api.js`, `domains/Services/CdnAvailability.php`;
 automaticky `tests/Feature/Web/LegalPageClaimsTest.php`, `tests/Feature/Web/CheckoutCopyTest.php`, `tests/Feature/Orders/CdnAvailabilityTest.php`.
 
+## Scénář F1.8 — Stránky služeb a konfigurátor her jen s čísly SLA a VOP (N1)
+
+**Předpoklady:** veřejný web mimo demo režim; provozovatel není plátce DPH; dokumenty v platnosti 2026-09 (`/dokumenty`).
+
+**Kroky**
+
+1. Otevřete stránku služby VPS (`#/sluzba/vps`). Nadtitulek je „AMD EPYC · NVMe“ (bez „root do 55 s“), pod titulkem nejsou ukazatele
+   „55 s“, „0 % přeprodej CPU“ ani „99,99 % dostupnost 2025“. Pás SLA uvádí „99,9 % měsíční dostupnost (Standard, SLA)“ a „4 h reakce na
+   incident (Standard)“ a větu o kompenzaci podle třídy služby — ne 99,99 %, „< 15 min“ ani „kredit automaticky“.
+2. Otevřete stránku Managed servery (`#/sluzba/managed`). Ukazatele nenesou „15 min“ ani „99,99 % s kreditem“; úrovně Základ a Plná
+   správa říkají „Reakce na incident podle SLA“ a Plná správa „SLA s kompenzací kreditem“; srovnání má u reakce „podle SLA“ a u SLA
+   „99,9 %“ / „podle třídy služby“; místo grafu „Onhost — reakce na P1 15 min“ je věta „Standard do 4 hodin, Business do 1 hodiny“.
+3. Na libovolné stránce služby sjeďte k častým otázkám a na konec: úvod FAQ zní „Napište nám přes zákaznický panel nebo e-mailem“ (ne
+   „technik odpovídá do deseti minut“); závěrečný blok „Měsíčně nebo ročně, výpověď ke konci období.“ a „Spotřebitel může od smlouvy
+   odstoupit do 14 dnů podle VOP …“ (ne „Zkuste to 14 dní. Bez karty, bez závazku.“).
+4. Na stránce herních serverů vyberte hru v konfigurátoru („Vyberte hru“). Souhrn ukazuje cenu s „/ měsíc“ a pod ní žádný řádek „bez
+   DPH …“; výhody jsou „Anti-DDoS ochrana v ceně“, „Konzole, SFTP a plánované restarty“, „Podpora přes panel a e-mail“ (ne „Servery
+   v Praze, podpora 24/7“).
+
+**Očekávaný výsledek:** kroky 1–4 bez rozdílu; v anglické verzi totéž (např. „Monthly or yearly, notice for the end of the period.“).
+
+**Negativní varianty:** v demo režimu (`ONHOST_UI_DEMO=true`) stránky ukazují původní texty prototypu; plátce DPH vidí v konfigurátoru
+her „/ měsíc s DPH“ a řádek „bez DPH …“.
+
+**Kde hledat při selhání:** `app/Http/Support/ServicePageClaimsSeam.php` (`replacements()`, `pageCopySwaps()`),
+`app/Http/Support/SurfaceRenderer.php`, `apps/surfaces/api/onhost-game-config.api.js`; automaticky
+`tests/Feature/Content/ServicePageCopyClaimsTest.php` a `tests/js/game-config-copy.harness.mjs`.
+
 ## Pokrytí E2E testem
 
 Automatický test `tests/Feature/E2E/SignupToWebTest.php` prochází stejné kroky bez prohlížeče:
