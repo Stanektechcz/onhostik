@@ -195,7 +195,7 @@ final class StaffNavigation
             ], all: ['partner.manage']),
             // ── finance ──
             new N('bank', 'finance', 10, 'bank', ['cs' => 'Bankovní platby', 'en' => 'Bank payments'], N::SCREEN_PAGE, '/sprava/nastaveni/integrace', [
-                N::get('staff/payments/bank', 'billing.reconcile'),
+                N::get('staff/payments/bank', 'billing.reconcile'), N::write('post', 'staff/payments/bank/statements', 'billing.reconcile'), // J-R7 (M3): ČS statement import
             ], all: ['billing.reconcile']),
             // H-R8: the Comgate gateway check (credentials present?, mode, connection, 1 Kč test payment) in the settings page
             new N('comgate', 'finance', 15, 'bank', ['cs' => 'Platební brána Comgate', 'en' => 'Comgate gateway'], N::SCREEN_PAGE, '/sprava/nastaveni/integrace', [

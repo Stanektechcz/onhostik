@@ -10,6 +10,7 @@ use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Payments\Models\BankStatementLine;
 use Onhost\Domain\Payments\Models\PaymentIntent;
 use Onhost\Domain\Payments\Models\PaymentStateMachineStates as S;
+use Onhost\Domain\Payments\Statements\BankStatementFile;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
@@ -115,6 +116,36 @@ final class BankStatementImporter
             }
         }
         $this->audit->record($context, 'payment.bank_sync', 'succeeded', $stats, 'bank_account', $account ?? 'fio');
+
+        return $stats;
+    }
+
+    /**
+     * J-R7 option B (M3): a statement file from Česká spořitelna's internet banking (camt.053 or ABO/GPC, BankStatementFile) —
+     * every credit line through record() with its `cs:` id, so a second upload of the same file (or an overlapping period) records
+     * nothing new and pays nothing twice; lines without a match wait in the manual list (`unmatched`, `no_symbol`). The command bus
+     * runs this in one transaction: a file that fails half-way records nothing.
+     *
+     * @return array{format:string, account:?string, lines:int, recorded:int, duplicates:int, matched:int, amount_mismatch:int, unmatched:int, no_symbol:int, skipped:int, sha256:string}
+     */
+    public function importFile(string $content, string $filename, CommandContext $context): array
+    {
+        $parsed = BankStatementFile::parse($content);
+        $stats = [
+            'format' => $parsed['format'], 'account' => $parsed['account'], 'lines' => count($parsed['lines']), 'recorded' => 0, 'duplicates' => 0,
+            'matched' => 0, 'amount_mismatch' => 0, 'unmatched' => 0, 'no_symbol' => 0, 'skipped' => $parsed['skipped'], 'sha256' => hash('sha256', $content),
+        ];
+        foreach ($parsed['lines'] as $line) {
+            $outcome = $this->record($line, $context);
+            if (! $outcome['created']) {
+                $stats['duplicates']++;
+
+                continue;
+            }
+            $stats['recorded']++;
+            $stats[in_array($outcome['result'], ['matched', 'amount_mismatch', 'no_symbol'], true) ? $outcome['result'] : 'unmatched']++;
+        }
+        $this->audit->record($context, 'payment.bank_statement.import', 'succeeded', $stats + ['filename' => mb_substr($filename, 0, 120), 'bytes' => strlen($content)], 'bank_account', $parsed['account'] ?? 'statement');
 
         return $stats;
     }

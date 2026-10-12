@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api\V1\Staff;
 use App\Http\Controllers\Api\V1\ApiController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Validation\Rule;
 use Onhost\Domain\Payments\BankStatementImporter;
 use Onhost\Domain\Payments\Commands\BankCommand;
@@ -16,6 +17,7 @@ use Onhost\Domain\Payments\Models\PaymentRefund;
 use Onhost\Domain\Payments\OrderPaymentRefunds;
 use Onhost\Domain\Payments\PaymentService;
 use Onhost\Domain\Payments\RefundsNotPaidOut;
+use Onhost\Domain\Payments\Statements\BankStatementFile;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Money\Money;
 
@@ -51,6 +53,23 @@ final class PaymentsController extends ApiController
         $data = $request->validate(['from' => ['nullable', 'date_format:Y-m-d'], 'to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:from']]);
 
         return $this->dispatch(new BankCommand($this->idempotencyKey($request, 'bank.sync'), ['op' => 'bank.sync', 'from' => $data['from'] ?? null, 'to' => $data['to'] ?? null]), $this->api->context($request));
+    }
+
+    /**
+     * J-R7 option B (M3): upload a statement file from Česká spořitelna's internet banking (camt.053 XML or ABO/GPC, at most
+     * 2 MB / 5000 lines). The permission is checked before the file is read; the file is parsed inside the command, never stored.
+     */
+    public function importBankStatement(Request $request): JsonResponse
+    {
+        $this->api->authorize($request, 'billing.reconcile', CommandScope::global());
+        $request->validate(['file' => ['required', 'file', 'max:'.intdiv(BankStatementFile::MAX_BYTES, 1024)]]);
+        $file = $request->file('file');
+        $content = $file instanceof UploadedFile ? (string) $file->get() : '';
+
+        return $this->dispatch(new BankCommand($this->idempotencyKey($request, 'bank.statement.import'), [
+            'op' => 'bank.statement.import', 'statement' => $content, 'filename' => $file instanceof UploadedFile ? $file->getClientOriginalName() : '',
+            'statement_sha256' => hash('sha256', $content), 'bytes' => strlen($content),
+        ]), $this->api->context($request));
     }
 
     /** G6: refunds of payments, newest first; `state=pending` are the bank payouts finance still has to send and confirm. */
