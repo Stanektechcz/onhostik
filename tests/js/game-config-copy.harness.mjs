@@ -1,6 +1,6 @@
 /* Harness for N1 (phase N): the game configurator's summary says "/ měsíc s DPH" and "bez DPH …" only to the customers of a VAT
  * payer (a non-payer's price is final: ONHOST_DATA.vatPayer() === false, vat() 0), and its perks name no location ("v Praze") and
- * no support hours ("24/7") that no document in force states. The module runs in a sandbox with a one-game catalogue; no browser.
+ * no support hours ("24/7") that no document in force states, and (O1) no "Anti-DDoS included" nothing documents. The module runs in a sandbox with a one-game catalogue; no browser.
  *   node tests/js/game-config-copy.harness.mjs
  * Prints JSON {failures: [...], seen: {...}}; exit code 0 = all checks passed (run by tests/Feature/Content/ServicePageCopyClaimsTest.php). */
 import fs from 'node:fs';
@@ -50,6 +50,8 @@ for (const [name, data] of Object.entries(cases)) {
   for (const out of [cs, en]) {
     const perks = (out.perks || []).join(' | ');
     if (/Praze|Prague|24\/7/.test(perks)) failures.push(`${name}: perks still claim ${perks}`);
+    // O1: no node configuration, runbook or upstream contract documents a DDoS mitigation, so it is no perk "in the price"
+    if (/DDoS/i.test(perks)) failures.push(`${name}: perks still claim ${perks}`);
   }
   if (name === 'nonPayer') {
     if (cs.unit !== '/ měsíc' || en.unit !== '/ month') failures.push(`non-payer: unit ${cs.unit} / ${en.unit}`);

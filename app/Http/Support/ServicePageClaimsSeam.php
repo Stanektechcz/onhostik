@@ -26,6 +26,10 @@ namespace App\Http\Support;
  * (resources/legal/terms.md čl. 2 bod 2, čl. 5 bod 3 and čl. 8 bod 1 — paid in advance for a month or a year, notice for the end of
  * the prepaid period, a consumer withdraws within 14 days). The 99,99 % class of SLA 2026-09 is "by individual contract", never a
  * plan's promise.
+ *
+ * O1 (phase O): the compute SLA band's "2× N+1" and "10 Gbit/s", the VPS sold as "not oversold" with a public steal-time figure
+ * (the catalogue sells it on shared cores), "SLA 99,99 %" in the plans and tables of pages no catalogue product overlays (inference,
+ * vector database, object storage, the solution pages) and the home page's free trial (`homeCopySwaps`).
  */
 final class ServicePageClaimsSeam
 {
@@ -34,6 +38,14 @@ final class ServicePageClaimsSeam
 
     /** N1: a managed-server plan answers an incident within the time its SLA class sets (SLA 2026-09, čl. 2). */
     private const RESPONSE_PER_SLA = "_('Reakce na incident podle SLA', 'Incident response per the SLA')";
+
+    /** O1: SLA 2026-09 knows 99,99 % only "by individual contract" — never as the promise of a plan. */
+    private const SLA_BY_CONTRACT = "_('SLA podle individuální smlouvy', 'SLA by individual contract')";
+
+    /** O1: the comparison row of a page the catalogue does not overlay — Standard and Business as SLA 2026-09 states them. */
+    private const SLA_ROW_OLD = "['SLA', '99,9 %', '99,95 %', '99,99 %']";
+
+    private const SLA_ROW_NEW = "['SLA', '99,9 %', '99,95 %', _('podle smlouvy', 'per contract')]";
 
     private const PUE_NOTE_CS = 'Účinnost (PUE) zveřejníme, až ji doložíme měřením.';
 
@@ -176,6 +188,17 @@ LEGAL_PAGE_NEW;
                 // N1: VPS — "root in 55 s", "0 % CPU oversubscription" and "99,99 % uptime in 2025" were never measured
                 "kicker: _('AMD EPYC · NVMe · root do 55 s', 'AMD EPYC · NVMe · root in 55 s')," => "kicker: _('AMD EPYC · NVMe', 'AMD EPYC · NVMe'),",
                 "kpis: [['55 s', _('od objednávky k rootu', 'from order to root')], ['0 %', _('přeprodej CPU', 'CPU oversubscription')], ['99,99 %', _('dostupnost 2025', 'uptime in 2025')]]," => 'kpis: [],',
+                // O1: the SLA band's "2× N+1 power and cooling" and "10 Gbit/s as standard" — no document states either
+                "      { k: '2× N+1', v: _('napájení a chlazení', 'power and cooling') },\n      { k: '10 Gbit/s', v: _('konektivita v základu', 'connectivity as standard') }\n" => '',
+                // O1: VPS — the catalogue sells it on shared cores (cpu_class `shared`, Compute 8/16 `performance`); dedicated (pinned)
+                // cores are the VDS. No "not oversold", no steal time "under 0,5 %, measured publicly"; title and lead from the catalogue
+                "title: _('VPS s dedikovanými jádry, ne s přeprodaným výkonem', 'A VPS with dedicated cores, not oversold capacity')," => "title: _('VPS na KVM s hodinovým účtováním a měsíčním stropem', 'A KVM VPS billed by the hour with a monthly cap'),",
+                "lead: _('Jádra AMD EPYC vyhrazená jen vám, NVMe v RAID10, snapshoty po hodinách a plný root. Konfiguraci měníte za provozu a platíte po hodinách.', 'AMD EPYC cores reserved for you alone, NVMe in RAID10, hourly snapshots and full root. Resize live and pay by the hour.')," => "lead: _('Virtuální server na KVM (Proxmox VE) s NVMe, snapshoty a plným rootem. Platíte po hodinách s měsíčním stropem, IPv6 je v ceně.', 'A virtual server on KVM (Proxmox VE) with NVMe, snapshots and full root. Billed by the hour with a monthly cap, IPv6 included.'),",
+                "['01', _('Jádra jen pro vás', 'Cores only for you'), _('Nepřeprodáváme CPU. Steal time držíme pod 0,5 %, a měříme to veřejně.', 'We do not oversell CPU. Steal time stays under 0.5%, and we publish the measurement.')]," => "['01', _('Třída CPU podle tarifu', 'CPU class by plan'), _('Menší tarify běží na sdílených jádrech, větší ve výkonnější třídě. Vyhrazená jádra má VDS.', 'Smaller plans run on shared cores, larger ones in a performance class. Dedicated cores come with a VDS.')],",
+                // O1: inference and the vector database (no catalogue product, so nothing overlays plans or table): no 99,99 % plan
+                "_('Vlastní domény endpointů', 'Custom endpoint domains'), 'SLA 99,99 %'" => "_('Vlastní domény endpointů', 'Custom endpoint domains'), ".self::SLA_BY_CONTRACT,
+                "['SLA', '—', '99,95 %', '99,99 %']" => "['SLA', '—', '99,95 %', _('podle smlouvy', 'per contract')]",
+                "_('GPU indexace', 'GPU indexing'), 'SLA 99,99 %'" => "_('GPU indexace', 'GPU indexing'), ".self::SLA_BY_CONTRACT,
             ],
             'onhost-svc-dev.js' => [
                 // N1: managed servers — no 15- or 60-minute response, no 99,99 % and no measured median: the SLA class decides
@@ -186,6 +209,9 @@ LEGAL_PAGE_NEW;
                 "['SLA', '99,9 %', '99,99 %', _('na míru', 'bespoke')]" => "['SLA', '99,9 %', _('podle třídy služby', 'by service class'), _('na míru', 'bespoke')]",
                 "        { label: _('Onhost — reakce na P1', 'Onhost — P1 response'), pct: 100, note: '15 min' },\n        { label: _('Externí správce (typicky)', 'External admin (typical)'), pct: 25, note: '~2 h' },\n        { label: _('Vlastní admin na telefonu', 'In-house admin on call'), pct: 45, note: '~45 min' }\n" => '',
                 "benchNote: _('Medián doby od alertu k prvnímu zásahu člověka, 12měsíční okno.', 'Median time from alert to first human action, 12-month window.')," => "benchNote: _('Dobu reakce na incident stanoví SLA podle třídy služby: Standard do 4 hodin, Business do 1 hodiny.', 'The SLA sets the incident response by service class: Standard within 4 hours, Business within 1 hour.'),",
+                // O1: object storage (draft product, no overlay) — the Archive plan and the comparison row
+                "_('Export na disk poštou', 'Disk export by post'), _('SLA 99,99 %', '99.99% SLA')" => "_('Export na disk poštou', 'Disk export by post'), ".self::SLA_BY_CONTRACT,
+                self::SLA_ROW_OLD => self::SLA_ROW_NEW,
             ],
             'onhost-svc-corp.js' => [
                 // the SLA band: the share of renewables (K8b); then (L3 / M1) what the SLA in force says — 99,9 % and a 4-hour incident
@@ -228,6 +254,20 @@ LEGAL_PAGE_NEW;
             ],
             'onhost-svc-more.js' => [
                 "_('Odpadní teplo z našich sálů ohřívá dvě sousední budovy v Praze.', 'Waste heat from our halls warms two neighbouring Prague buildings.')" => "_('Odpadní teplo z našich sálů ohřívá sousední budovy v Praze.', 'Waste heat from our halls warms neighbouring Prague buildings.')",
+                // O1: the solution pages have no catalogue product behind them — their band, KPIs, plans and tables state the SLA
+                // 2026-09 classes, and 99,99 % only "by individual contract"
+                "{ k: '99,99 %', v: _('dostupnost s kreditem', 'uptime, credited') }," => "{ k: '99,9 %', v: _('měsíční dostupnost (Standard, SLA)', 'monthly availability (Standard, SLA)') },",
+                "_('Privátní síť', 'Private networking'), _('SLA 99,99 %', '99.99% SLA')" => "_('Privátní síť', 'Private networking'), ".self::SLA_BY_CONTRACT,
+                "['RBAC', '—', '✓', '✓'],\n          ".self::SLA_ROW_OLD => "['RBAC', '—', '✓', '✓'],\n          ".self::SLA_ROW_NEW,
+                "['99,99 %', _('dostupnost s pokutou', 'uptime with penalties')], " => '',
+                "_('SLA 99,99 % s pokutou', '99.99% SLA with penalties')" => self::SLA_BY_CONTRACT,
+                "['SLA', '99,9 %', '99,99 %', _('na míru', 'bespoke')]" => "['SLA', '99,9 %', _('podle smlouvy', 'per contract'), _('na míru', 'bespoke')]",
+                "_('Prioritní fronta', 'Priority queue'), _('SLA 99,99 %', '99.99% SLA')" => "_('Prioritní fronta', 'Priority queue'), ".self::SLA_BY_CONTRACT,
+                "_('podle klienta', 'per client')],\n          ".self::SLA_ROW_OLD => "_('podle klienta', 'per client')],\n          ".self::SLA_ROW_NEW,
+                "_('Dohled během kampaně', 'Campaign war room'), _('SLA 99,99 %', '99.99% SLA')" => "_('Dohled během kampaně', 'Campaign war room'), ".self::SLA_BY_CONTRACT,
+                "_('na vyžádání', 'on request'), '✓'],\n          ".self::SLA_ROW_OLD => "_('na vyžádání', 'on request'), '✓'],\n          ".self::SLA_ROW_NEW,
+                "_('GPU na vyžádání', 'GPU on demand'), _('SLA 99,99 %', '99.99% SLA')" => "_('GPU na vyžádání', 'GPU on demand'), ".self::SLA_BY_CONTRACT,
+                "_('rezervace', 'reserved')],\n          ".self::SLA_ROW_OLD => "_('rezervace', 'reserved')],\n          ".self::SLA_ROW_NEW,
             ],
         ];
     }
@@ -260,6 +300,26 @@ LEGAL_PAGE_NEW;
             "      faqLead: cs ? 'Nenašli jste odpověď? Napište na chat, technik odpovídá do deseti minut.' : 'No answer here? Ping the chat — an engineer replies within ten minutes.',\n" => "      faqLead: cs ? 'Nenašli jste odpověď? Napište nám přes zákaznický panel nebo e-mailem.' : 'No answer here? Write to us through the customer panel or by e-mail.',\n",
             "      endTitle: p.endTitle || (cs ? 'Zkuste to 14 dní. Bez karty, bez závazku.' : 'Try it for 14 days. No card, no commitment.'),\n" => "      endTitle: p.endTitle || (cs ? 'Měsíčně nebo ročně, výpověď ke konci období.' : 'Monthly or yearly, notice for the end of the period.'),\n",
             "      endLead: p.endLead || (cs ? 'Když to nesedne, zrušíte to jedním klikem a nic neplatíte. Migraci uděláme za vás.' : 'If it does not fit, cancel in one click and pay nothing. We handle the migration.')\n" => "      endLead: p.endLead || (cs ? 'Spotřebitel může od smlouvy odstoupit do 14 dnů podle VOP. S přechodem z jiného hostingu pomůžeme, termín domluvíme předem.' : 'A consumer may withdraw from the contract within 14 days under the terms. We help you move from another host; the timing is agreed in advance.')\n",
+        ];
+    }
+
+    /**
+     * O1: the home page's closing block and the sign-up form of `Onhost.dc.html` offered "the first 14 days free … cancel in one
+     * click and pay nothing" ("Prvních 14 dní zdarma", "Vytvořit účet a začít 14 dní zdarma", "14 dní zdarma, bez rizika"). There is
+     * no trial: services are paid in advance for a month or a year (VOP čl. 2 bod 2), notice runs to the end of the period (čl. 5 bod
+     * 3) and a consumer withdraws within 14 days (čl. 8 bod 1) — the same words the service pages' closing block uses since N1.
+     *
+     * @return array<string, string> needle => replacement in the public surface
+     */
+    public static function homeCopySwaps(): array
+    {
+        return [
+            "      ctaTitle: 'Prvních 14 dní zdarma. Migraci uděláme za vás.', ctaSub: 'Postavte si server za dvě minuty. Když to nesedne, zrušíte to jedním klikem a nic neplatíte.',\n" => "      ctaTitle: 'Měsíčně nebo ročně, výpověď ke konci období.', ctaSub: 'Spotřebitel může od smlouvy odstoupit do 14 dnů podle VOP. S přechodem z jiného hostingu pomůžeme, termín domluvíme předem.',\n",
+            "      ctaTitle: 'First 14 days free. We do the migration.', ctaSub: 'Spin up a server in two minutes. If it does not fit, cancel in one click and pay nothing.',\n" => "      ctaTitle: 'Monthly or yearly, notice for the end of the period.', ctaSub: 'A consumer may withdraw from the contract within 14 days under the terms. We help you move from another host; the timing is agreed in advance.',\n",
+            "authRegBtn: 'Vytvořit účet a začít 14 dní zdarma'," => "authRegBtn: 'Vytvořit účet',",
+            "authRegBtn: 'Create account and start 14 days free'," => "authRegBtn: 'Create account',",
+            "authProofTitle: '14 dní zdarma, bez rizika'," => "authProofTitle: 'Bez závazku, výpověď ke konci období',",
+            "authProofTitle: '14 days free, no risk'," => "authProofTitle: 'No lock-in, notice for the end of the period',",
         ];
     }
 
