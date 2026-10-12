@@ -781,3 +781,28 @@ php 8.5, e2e smoke, security).
   99,99 %“ v tarifech inference, vektorové databáze a úložiště a v tabulkách VPS/dedikovaných serverů (dokud je nepřekryje katalog);
   na hlavní stránce `ctaTitle` „Prvních 14 dní zdarma“, `authRegBtn` „… začít 14 dní zdarma“ a `authProofTitle` „14 dní zdarma, bez
   rizika“ (zkušební doba neexistuje, VOP čl. 2 bod 2).
+
+## Stav po fázi O (2026-10-12)
+
+Stav nad `origin/development` po sloučení PR #173 (O1, TASK-0177), #175 (oprava košíku z kontroly na stagingu, TASK-0178) a tohoto
+zápisu (O8, TASK-0180). **Na stagingu ani v produkci se ve fázi O nic nespustilo**: O3 (kontrola v prohlížeči na stagingu) a O4
+(zbytek generálky) nemají „ano“ vlastníka. O0: CI na `development` po #170, #171 a #172 (`62e76c44`, protokol stagingu TASK-0176
+jiné relace) bylo zelené (tests včetně pest-postgres a php 8.5, e2e smoke, security).
+
+### Sloučená práce fáze O
+
+| PR | Úkol | Obsah |
+|---|---|---|
+| #173 | O1, TASK-0177 | Další nedoložené texty (J-R2, L-03): pás SLA compute bez „2× N+1“ a „10 Gbit/s“; VPS bez „nepřeprodáváme“ a „steal time pod 0,5 %“ (katalog: sdílená jádra, vyhrazená má VDS); „SLA 99,99 %“ v tarifech a tabulkách bez katalogu (inference, vektorová DB, object storage, stránky řešení) → „podle individuální smlouvy“; úvodní stránka a registrace bez „14 dní zdarma“; konfigurátor her bez „Anti-DDoS ochrana v ceně“ (nic ji nedokládá). Prototypy i demo režim beze změny. |
+| #175 | TASK-0178 | Kontrola na stagingu 2026-10-13, B2: řádek „VPS Standard“ v košíku opravilo už L2 (TASK-0164, po vydání `fa2ea75d`); doplněk `backup-plus`, který webhosting prodává záměrně, se jmenoval „Zálohy VPS (PBS)“ — teď „Rozšířené zálohy“ (seeder + migrace `001160`, změněný název týmem zůstává). |
+| — | O8, TASK-0180 | Tento zápis, J-R2 doplněné o O1, ruční test F1.9 (a F1.8 bez perku Anti-DDoS). |
+
+### Co zůstává
+
+* O2 podporní hodiny (vstup 4): „zásahy 24/7“ u správy serverů, „30 min reakce podpory 24/7“ v pásu stránek řešení, `tbHours`.
+* O3 a O4 (staging) — jen s „ano“ vlastníka ke každému kroku a jen když staging nevede jiná relace; O5 výpis ČS (J-R7), O6 právní
+  texty po advokátovi (J-R8), O7 Comgate po zřízení účtu (J-R4/J-R9).
+* Ostatní texty o DDoS (vstup 8): KPI „1,2 Tbps anti-DDoS“, profily „pro každou hru“, „detekce do tří sekund“
+  (`onhost-svc-other.js`, stránka herních komunit v `onhost-svc-more.js`), `gmBadge` „Anti-DDoS 1,2 Tbps · 24/7“, řádky menu a
+  vyhledávání „anti-DDoS v ceně“, karta „Ochrana proti DDoS na hraně“, odrážka katalogu „Anti-DDoS upstream L3/L4“ u herních tarifů.
+* Benchmarky VPS (Geekbench „1 842 pts“, „VPS s přeprodanými jádry“) a „2N napájení, chlazení N+1“ u colocation.

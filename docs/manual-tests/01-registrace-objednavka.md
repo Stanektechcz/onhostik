@@ -242,8 +242,8 @@ automaticky `tests/Feature/Web/LegalPageClaimsTest.php`, `tests/Feature/Web/Chec
    „technik odpovídá do deseti minut“); závěrečný blok „Měsíčně nebo ročně, výpověď ke konci období.“ a „Spotřebitel může od smlouvy
    odstoupit do 14 dnů podle VOP …“ (ne „Zkuste to 14 dní. Bez karty, bez závazku.“).
 4. Na stránce herních serverů vyberte hru v konfigurátoru („Vyberte hru“). Souhrn ukazuje cenu s „/ měsíc“ a pod ní žádný řádek „bez
-   DPH …“; výhody jsou „Anti-DDoS ochrana v ceně“, „Konzole, SFTP a plánované restarty“, „Podpora přes panel a e-mail“ (ne „Servery
-   v Praze, podpora 24/7“).
+   DPH …“; výhody jsou „Konzole, SFTP a plánované restarty“ a „Podpora přes panel a e-mail“ (ne „Servery
+   v Praze, podpora 24/7“ ani — od O1 — „Anti-DDoS ochrana v ceně“).
 
 **Očekávaný výsledek:** kroky 1–4 bez rozdílu; v anglické verzi totéž (např. „Monthly or yearly, notice for the end of the period.“).
 
@@ -253,6 +253,33 @@ her „/ měsíc s DPH“ a řádek „bez DPH …“.
 **Kde hledat při selhání:** `app/Http/Support/ServicePageClaimsSeam.php` (`replacements()`, `pageCopySwaps()`),
 `app/Http/Support/SurfaceRenderer.php`, `apps/surfaces/api/onhost-game-config.api.js`; automaticky
 `tests/Feature/Content/ServicePageCopyClaimsTest.php` a `tests/js/game-config-copy.harness.mjs`.
+
+## Scénář F1.9 — Bez zkušební doby, bez 99,99 % v tarifech a doplněk záloh podle služby (O1, TASK-0178)
+
+**Předpoklady:** veřejný web mimo demo režim; katalog po migraci `0001_01_01_001160`.
+
+**Kroky**
+
+1. Úvodní stránka: závěrečný blok zní „Měsíčně nebo ročně, výpověď ke konci období.“ a „Spotřebitel může od smlouvy odstoupit do
+   14 dnů podle VOP …“ (ne „Prvních 14 dní zdarma. Migraci uděláme za vás.“ ani „… zrušíte to jedním klikem a nic neplatíte.“).
+2. Registrace (`#/registrace`): tlačítko „Vytvořit účet“ (ne „Vytvořit účet a začít 14 dní zdarma“).
+3. Stránka VPS (`#/sluzba/vps`): titulek „VPS na KVM s hodinovým účtováním a měsíčním stropem“ (ne „… ne s přeprodaným výkonem“);
+   úvod bez „jádra vyhrazená jen vám“; první výhoda „Třída CPU podle tarifu“ (ne „Steal time pod 0,5 %, měříme to veřejně“); pás SLA
+   má jen „99,9 %“ a „4 h“ (ne „2× N+1“ ani „10 Gbit/s v základu“).
+4. Stránky Inference API, Vektorová databáze, Object storage a stránky řešení (Pro vývojáře, Energetika, Pro agentury, Pro e-shopy,
+   Pro startupy): žádné „SLA 99,99 %“ — nejvyšší tarif „SLA podle individuální smlouvy“, v tabulce srovnání „podle smlouvy“; pás
+   stránek řešení „99,9 % měsíční dostupnost (Standard, SLA)“.
+5. Ceník `#/ceny`: na kartě „Standard“ klikněte na objednání. V košíku je řádek „Webhosting Standard“ (ne „VPS Standard“) a nabídka
+   doplňků k němu jmenuje „Rozšířené zálohy“ (ne „Zálohy VPS (PBS)“); totéž ve shrnutí pokladny.
+
+**Očekávaný výsledek:** kroky 1–5 bez rozdílu; v anglické verzi totéž („Create account“, „Extended backups“).
+
+**Negativní varianty:** v demo režimu (`ONHOST_UI_DEMO=true`) ukazují stránky původní texty prototypu; název doplňku, který tým
+změnil v ceníku, migrace nepřepíše.
+
+**Kde hledat při selhání:** `app/Http/Support/ServicePageClaimsSeam.php` (`replacements()`, `homeCopySwaps()`),
+`database/seeders/CatalogSeeder.php`, `database/migrations/0001_01_01_001160_backup_addon_named_for_every_parent.php`;
+automaticky `tests/Feature/Content/ServicePageCopyClaimsTest.php` a `tests/Feature/Web/CartLineAddonNamesTest.php`.
 
 ## Pokrytí E2E testem
 
