@@ -57,7 +57,7 @@ const PUC_B6_CHANGES = [
  *
  * @var array<string, string>
  */
-const PUC_ACTIONS_ADDED = ['iso.attach' => 'service.console', 'iso.detach' => 'service.manage', 'iso.delete' => 'service.manage'];
+const PUC_ACTIONS_ADDED = ['iso.attach' => 'service.console', 'iso.detach' => 'service.manage', 'iso.delete' => 'service.manage', 'restore.verify' => 'service.manage'];
 
 /** @return array{roles: array<string, list<string>>, actions: array<string, string>} the base, with the B6 changes and later actions applied */
 function pucBefore(): array
