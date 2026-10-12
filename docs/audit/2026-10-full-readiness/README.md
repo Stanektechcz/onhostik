@@ -689,3 +689,36 @@ Stav nad `origin/development` po sloučení PR #116 až #121 (úkoly TASK-0121 a
 * Resize aaPanelu (známý limit).
 * Rozšířit `ExistenceOracleTest`.
 * Nestabilní testy: #74 (Discord) a #96 (`LexiconCoverageTest`), věc jiných relací.
+
+## Stav po fázi J a K (2026-10-12)
+
+Stav nad `origin/development` po sloučení PR #146 až #158 (fáze J: TASK-0151 až TASK-0156; fáze K: TASK-0157 až TASK-0163). Fáze I
+(PR #126–#145) má svůj zápis v `ROZHODNUTI.md` (I-R1 … I-R19). Rozhodnutí vlastníka J-R1, J-R2, J-R3 jsou v `ROZHODNUTI.md`. **Na
+stagingu ani v produkci se ve fázích J a K nic nespustilo** (staging stále `e711b7c7`); kroky čekají na „ano“ vlastníka podle
+`GENERALKA-K-A-C-deploy-prikazy-2026-10-12.md` (zmrazený cíl `fa2ea75d`, nahrazuje dokument J) a `GENERALKA-Penpot-D-G-prikazy.md`.
+
+### Sloučená práce fází J a K
+
+| PR | Úkol | Obsah |
+|---|---|---|
+| #146 | J0, TASK-0151 | Zelené CI, generátory bez driftu, nový job `php85` (Pest SQLite + deployer na PHP 8.5). |
+| #147 | J8, TASK-0152 | J-R1: příběh „první rok“, eko čísla a sklad EPYC staženy z `#/technika` a `#/ceny-a-sla`. |
+| #148 | J9, TASK-0153 | Plán produkčního spuštění `docs/runbooks/production-plan-2026-10.md`, kostra `PRODUKCE-prikazy` (nespouštět). |
+| #150 | J2, TASK-0154 | Uzel Penpot bez skupiny docker, `local_certs`, idempotence skriptu (chyba porovnání módů), papírový rodič `onhost:penpot:paper-parent`. |
+| #151 | J4, TASK-0155 | Patička s identitou a ČOI, karta jen s funkční bránou, `payment_card_unavailable` 409. |
+| #152 | J1, TASK-0156 | Preflight cíle deploye a protokol `staging-rehearsal-2026-10-11.md`. |
+| #153 | K0, TASK-0157 | `CatalogCompatibilityTest` vybíral „cizí“ produkt neseřazeně (PostgreSQL vybral Penpot). |
+| #154 | K0b, TASK-0159 | Odhad vratky (chargeback) k danému okamžiku počítal den v UTC, ne účetní den — CI červené 22–24 UTC a o den vyšší odhad. |
+| #155 | K5, TASK-0158 | Storno jedné provize (I-R6, J-R3): migrace 000949 odloží novější řádek před 000950, příkaz `partner.commission.cancel_duplicate` (HIGH, step-up, čtyři oči). |
+| #156 | K8b, TASK-0160 | J-R2: eko čísla a sklad/sestavy EPYC staženy ze stránek služeb; GPU bez „7 / 24 volných karet“ (I-R16). |
+| #157 | K7, TASK-0161 | Kontrola v prohlížeči (lokální sandbox): zjištění K7-1 … K7-7. |
+| #158 | K7-1, TASK-0162 | Karty ceníku (`#/ceny`) končily v košíku jako nespárovaná „VPS Standard“. |
+| — | K12, TASK-0163 | Tento zápis, J-R2/J-R3, ruční testy (karta bez brány, papírový rodič, dvojí provize), řádky 6 a 12 Comgate, cíl generálky. |
+
+### Co zůstává (podrobně v `PROMPT-faze-L-2026-10-12.md` na ploše vlastníka)
+
+* Generálka na stagingu (K3): A–C, `--legal`, D–G Penpot, R3–R24, R25, G2 — každý krok s „ano“ vlastníka.
+* Kontrola v prohlížeči na stagingu (po C) a vady K7-2 … K7-7 (ceník, stránka „Podmínky, GDPR a cookies“, texty pokladny, drobnosti).
+* Rozhodnutí vlastníka 2–10 (`ROZHODNUTI-podklady-J-2026-10-11.md`): prostředí pro Comgate, vlastní ISO, zálohy compute/PBS, výpisy ČS
+  (K6), advokát (K10), provozní vstupy, Penpot, produkce, úklid stagingu.
+* Nestabilní testy: #96 (`LexiconCoverageTest`, jiná relace); `DeployGateTest` pod paralelní zátěží lokálně (samostatně projde).

@@ -105,6 +105,7 @@ zavolání bránou stejné platby nic nezmění (odpověď `duplicate`). Událos
 | Callback nedorazil | Zaplatit, ale zablokovat zpětné volání | Platbu lze znovu ověřit u brány (`POST /v1/payments/{intent}/sync`); bez toho zůstane objednávka čekat na platbu |
 | Dvojklik na Potvrdit | Odeslat dvakrát | Jediná objednávka (Idempotency-Key), druhý požadavek dostane tutéž odpověď |
 | Platba z kreditu bez kreditu | Zvolit „Z kreditu“ s nulovým zůstatkem | Odmítnuto s textem o nedostatku kreditu, nabídka převodu nebo karty |
+| Brána bez údajů (J4, TASK-0155) | Prostředí bez přihlašovacích údajů Comgate; v pokladně jako host i přihlášený | Krok Platba nabízí jen „Bankovní převod — QR platba, zálohová faktura“. Karta vnucená přímo do API (`POST /v1/checkout/guest` nebo `POST /v1/orders` s platbou kartou) skončí `409 payment_card_unavailable` s českou větou, která jmenuje převod; účet hosta nevznikne a brána se nevolá. Převod projde a objednávka čeká na platbu (číslo účtu, IBAN, VS). Ověřeno lokálně v K7 (TASK-0161) |
 
 **Kde hledat při selhání**
 

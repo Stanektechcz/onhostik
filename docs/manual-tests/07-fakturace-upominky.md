@@ -479,6 +479,29 @@ portálu, jednou s cizí doménou (`https://example.com/…`).
 
 ---
 
+## F7-18 Dvojí provize: odložení před 000950 a storno se čtyřma očima (I-R6, J-R3, TASK-0158)
+
+**Jen na testovací databázi** (staging nebo lokální kopie) s ručně připravenou dvojicí provizí ke stejné faktuře; v produkci
+jen podle runbooku `partner-commission-grace.md`.
+
+**Kroky**
+
+1. Deploy (migrace `000949` před `000950`) vypíše `partner_commissions: N newer row(s) of a double commission set aside (I-R6) … <id>`.
+2. Staff detail partnera (`GET /v1/staff/partners/{partner}`, pole `duplicates`) ukáže odložený řádek ve stavu `duplicate`.
+3. Finance (BillingFinanceAdmin) pošle `POST /v1/staff/partners/commissions/{commission}/cancel-duplicate` s důvodem (10–500 znaků):
+   nejdřív `step_up_required`, po ověření `approval_required` s `approval_id`.
+4. Druhá osoba žádost schválí ve frontě schválení (`GET /v1/staff/approvals`, `POST /v1/staff/approvals/{approval}/decision`);
+   finance zopakuje požadavek s `approval_ids`.
+
+**Očekávaný výsledek:** odložený řádek je `cancelled`, vznikne nový řádek `reversal` se zápornou částkou (`cancels_id`), částka
+původního řádku se nezmění; partner dostane oznámení „Zdvojená provize opravena: faktura …“ (událost
+`partner.commission.duplicate_cancelled`); v auditu `partner.commission.cancel_duplicate` s důvodem, step-upem a schválením.
+Řádek, který už byl vyplacený, zůstane `paid` a reverze je mínus na příští výplatě.
+
+**Negativní varianty:** žadatel schvaluje sám sebe → odmítnuto; druhé storno téhož řádku → `409 commission_already_cancelled`;
+storno platného (staršího) řádku → `422 commission_not_duplicate`; novější řádek v otevřené výplatě → migrace `000949` se zastaví
+dřív, než cokoli změní (výplatu dokončit nebo zamítnout, deploy znovu).
+
 ## Pokrytí E2E testem
 
 | Případ | Test v `BillingDunningFlowTest` |
@@ -492,3 +515,4 @@ portálu, jednou s cizí doménou (`https://example.com/…`).
 | F7-08b | `LoyaltyRedeemFlowTest`: „redeems points in the cart, spends them with the card payment, shows them on the document and gives them back with a credit note“ |
 | F7-13, F7-14 | mimo E2E; viz `PaidInvoiceWordingTest`, `ReinstateDoctorTest` (G6) |
 | F7-15, F7-16, F7-17 | mimo E2E; viz `RefundsNotPaidOutTest`, `RefundEstimateTest`, `ComgateReturnUrlTest`, `QuoteLinesAllowListTest` (H3) |
+| F7-18 | mimo E2E; viz `CommissionDuplicateTest` (K5) |
