@@ -36,6 +36,7 @@ recorded in the hash-chained audit log. Never edit rows in the database during a
 | [staging-rehearsal-2026-10.md](staging-rehearsal-2026-10.md) | The go-live rehearsal on staging (H6): numbered steps R0–R24 with precondition, command, expected result, doctor rows, rollback and the owner's yes per step, plus the protocol table to fill in — prepared, not executed |
 | [staging-rehearsal-2026-10-07.md](staging-rehearsal-2026-10-07.md) | Protocol of the rehearsal (phase I, I6): header, step log R0–R24 with the owner's yes per step, the R1/R23 doctor rows, outputs only (no secrets) — skeleton, no step run yet |
 | [staging-rehearsal-2026-10-11.md](staging-rehearsal-2026-10-11.md) | Protocol of the phase J rehearsal (J3): frozen deploy target and gate prediction of J1, step log A–C, `--legal`, Penpot D–G, R3–R24, R25, G2 with the owner's yes per step — opened, no step run yet |
+| [staging-rehearsal-2026-10-12.md](staging-rehearsal-2026-10-12.md) | Protocol of the 2026-10-12 run: A–C deploy of `fa2ea75d` (gate pass, 82 migrations), `--legal`, Penpot stopped at D0 (`wedos-main` instance), R3–R25 (R23: 0 FAIL, 29 WARN; skipped steps with reasons), G2; what is left for the owner |
 
 On-call rotation, escalation contacts and SLA classes are in `docs/sre/` and `config/onhost.php` (`sla`).
 

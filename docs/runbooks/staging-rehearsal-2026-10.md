@@ -489,7 +489,7 @@ the disk** while no plan sells custom ISO; steps R15–R17 are therefore verifie
   an unexpected `onhost-queue@*` unit is running.
 * **Command:**
   ```bash
-  echo 'onhost-queue@webhooks' >> $S/expected-units          # the deployer's list; root's decision, not the target's
+  echo 'onhost-queue@webhooks.service' >> $S/expected-units  # the deployer's list (only onhost-queue@<lane>.service names); root's decision
   systemctl enable --now onhost-queue@webhooks
   systemctl status onhost-queue@webhooks --no-pager | head -5
   # the owner may set ONHOST_WEBHOOK_SECRET_OVERLAP_MINUTES (0-1440, default 60) and then: art config:cache
