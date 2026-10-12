@@ -107,7 +107,8 @@ it('finds every legal-page needle exactly once in the byte-identical prototype',
     foreach (ServicePageClaimsSeam::anchorCounts($source, 'onhost-svc-corp.js') as $needle => $hits) {
         expect($hits)->toBe(1, mb_substr($needle, 0, 100));
     }
-    expect(trim((string) shell_exec('git -C '.escapeshellarg(base_path()).' status --porcelain -- apps/surfaces')))->toBe('');
+    // the prototypes only: the bridge modules in api/ are code and may change
+    expect(trim((string) shell_exec('git -C '.escapeshellarg(base_path()).' status --porcelain -- apps/surfaces '.escapeshellarg(':(exclude)apps/surfaces/api'))))->toBe('');
 });
 
 it('opens the document a row names instead of swallowing the click', function () {
