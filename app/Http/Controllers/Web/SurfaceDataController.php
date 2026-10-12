@@ -442,6 +442,7 @@ final class SurfaceDataController extends Controller
     private function skuIndex(string $locale): array
     {
         $index = [];
+        $pricingProduct = (string) config('onhost.content.plans_product', 'web-hosting'); // the product planRows() shows on the pricing page
         foreach ($this->catalog->publicCatalog($locale, 'CZK') as $product) {
             $plans = (array) ($product['plans'] ?? []);
             $cheapest = null;
@@ -455,6 +456,12 @@ final class SurfaceDataController extends Controller
                         if ($price !== null) {
                             $index[$prefix.mb_strtolower((string) $plan['name']).'|'.$price] = $entry;
                         }
+                    }
+                }
+                if ($product['key'] === $pricingProduct) { // the pricing page's cards (`ONHOST_DATA.plans`) add to the cart as "VPS <plan>" (prototype label; K7-1, TASK-0162)
+                    $index['vps '.mb_strtolower((string) $plan['name'])] = $entry;
+                    if ($price !== null) {
+                        $index['vps '.mb_strtolower((string) $plan['name']).'|'.$price] = $entry;
                     }
                 }
                 $index[mb_strtolower((string) $product['name'].' '.$plan['name'])] = $entry;
