@@ -155,7 +155,8 @@ final class CatalogSeeder extends Seeder
         $this->product('ipv4', 'addon', 'proxmox', 'subscription', ['cs' => 'Dedikovaná IPv4', 'en' => 'Dedicated IPv4'], ['cs' => 'IPv4 je vzácný zdroj; IPv6 je v ceně každé služby.', 'en' => 'IPv4 is a scarce resource; IPv6 is included with every service.'], 200, ['scarce' => true], [
             ['ipv4-1', ['cs' => '1× IPv4', 'en' => '1× IPv4'], 4900, 49000, 199, 1990, false, 'standard', ['addresses' => 1, 'rdns' => true], []],
         ]);
-        $this->product('backup-plus', 'addon', 'pbs', 'subscription', ['cs' => 'Zálohy VPS (PBS)', 'en' => 'VPS backups (PBS)'], ['cs' => 'Denní zálohy na Proxmox Backup Server s offsite kopií a restore testem.', 'en' => 'Daily backups to Proxmox Backup Server with offsite copy and restore test.'], 201, [], [
+        // sold with web hosting and with a VPS (meta addon_products): named for both, not "VPS (PBS)" (staging check B2, TASK-0178, migration 001160)
+        $this->product('backup-plus', 'addon', 'pbs', 'subscription', ['cs' => 'Rozšířené zálohy', 'en' => 'Extended backups'], ['cs' => 'Denní zálohy s delší historií a kopií mimo server.', 'en' => 'Daily backups with a longer history and an off-site copy.'], 201, [], [
             ['backup-7', ['cs' => '7 denních + 4 týdenní', 'en' => '7 daily + 4 weekly'], 4900, 49000, 199, 1990, true, 'standard', ['daily' => 7, 'weekly' => 4, 'monthly' => 0, 'offsite' => true, 'restore_test' => 'monthly'], []],
             ['backup-30', ['cs' => '30 denních + 6 měsíčních', 'en' => '30 daily + 6 monthly'], 12900, 129000, 519, 5190, false, 'standard', ['daily' => 30, 'weekly' => 4, 'monthly' => 6, 'offsite' => true, 'restore_test' => 'monthly'], []],
         ]);
