@@ -34,6 +34,8 @@
   function vatRate() { var D = window.ONHOST_DATA, r = D && typeof D.vat === 'function' ? D.vat() : null; return typeof r === 'number' ? r : 0.21; }
   function gross(cmp, v) { var k = 1 + vatRate(); return cmp && typeof cmp.czk === 'function' ? cmp.czk(Math.round(v * k) / k) : (Math.round(v * k).toLocaleString('cs-CZ') + ' Kč'); }
   function net(cmp, v) { return cmp && typeof cmp.mny === 'function' ? cmp.mny(v) : (Math.round(v).toLocaleString('cs-CZ') + ' Kč'); }
+  /* N1: a seller who charges no VAT (ONHOST_DATA.vatPayer() === false, L-10) shows final prices — no "s DPH", no "bez DPH" line */
+  function nonPayer() { var D = window.ONHOST_DATA; return !!(D && typeof D.vatPayer === 'function' && D.vatPayer() === false); }
   function snap(o, v) {
     var step = Number(o.step) || 1, min = o.min != null ? Number(o.min) : 0, max = o.max != null ? Number(o.max) : Infinity;
     v = min + Math.ceil(Math.max(0, Number(v) - min) / step) * step;
@@ -115,11 +117,11 @@
       searchPh: _('Hledat hru…', 'Search games…'), q: st.q || '', onSearch: function (e) { update(cmp, { q: e.target.value }); },
       tiles: tiles, noTiles: tiles.length === 0, noTilesText: _('Takovou hru zatím nenabízíme. Napište nám, přidáme ji.', 'We do not offer that game yet. Tell us and we will add it.'),
       sliders: [], rows: [], versions: [], inputs: [], variants: [], presets: [], hasVariants: false, hasVersions: false, hasInputs: false,
-      summary: _('Váš server', 'Your server'), unit: _('/ měsíc s DPH', '/ month incl. VAT'),
+      summary: _('Váš server', 'Your server'), unit: nonPayer() ? _('/ měsíc', '/ month') : _('/ měsíc s DPH', '/ month incl. VAT'),
       note: _('Parametry změníte kdykoli v panelu, účtujeme měsíčně a bez závazku. Počet hráčů je orientační.', 'Change the parameters any time in the panel; billed monthly with no commitment. Player count is indicative.'),
       cta: _('Přidat do košíku', 'Add to cart'), change: _('← Změnit hru', '← Change game'),
       onChange: function (e) { stop(e); scrollTo('game-offer'); },
-      perks: [_('Anti-DDoS ochrana v ceně', 'Anti-DDoS included'), _('Konzole, SFTP a plánované restarty', 'Console, SFTP and scheduled restarts'), _('Servery v Praze, podpora 24/7', 'Servers in Prague, 24/7 support')]
+      perks: [_('Anti-DDoS ochrana v ceně', 'Anti-DDoS included'), _('Konzole, SFTP a plánované restarty', 'Console, SFTP and scheduled restarts'), _('Podpora přes panel a e-mail', 'Support through the panel and e-mail')] // N1: no location or hours a document states
     };
     if (!g) { out.price = ''; out.net = ''; return out; }
 
@@ -167,7 +169,7 @@
         on: function (e) { var next = Object.assign({}, state(cmp).env || {}); next[i.env] = String(e.target.value || '').trim(); update(cmp, { group: group.key, egg: g.key, env: next }); } });
     });
     out.hasInputs = out.inputs.length > 0; out.inputsLabel = _('Údaje, které hra potřebuje', 'What the game needs');
-    out.price = gross(cmp, total); out.net = _('bez DPH ', 'excl. VAT ') + net(cmp, total);
+    out.price = gross(cmp, total); out.net = nonPayer() ? '' : _('bez DPH ', 'excl. VAT ') + net(cmp, total);
     out.blocked = missing.length ? _('Před objednáním doplňte: ', 'Fill in before ordering: ') + missing.join(', ') : '';
     out.ctaStyle = 'display:block;text-align:center;font-size:16px;padding:16px 22px;' + (missing.length ? 'opacity:.45;pointer-events:none' : '');
     out.buy = function (e) {
