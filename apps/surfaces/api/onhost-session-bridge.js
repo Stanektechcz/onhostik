@@ -338,7 +338,24 @@
       });
       return stepUpPending;
     }
+    /* K7-7 (L5): whether the server's staff navigation (ONHOST.user.nav — the items this person may open, each with the reads
+     * the server already narrowed to their permissions) lists a call. A console module asks before it reads, so a role never
+     * fires a request it would be refused (403). Without a navigation (customers, partners, the public site) nothing changes. */
+    function navPath(p) { return String(p || '').split('?')[0].replace(/^\/?(v1\/)?/, '').replace(/\/+$/, ''); }
+    function reads(p, method) {
+      var nav = B.user && Array.isArray(B.user.nav) && B.user.staff ? B.user.nav : null;
+      if (nav === null) return true;
+      var m = String(method || 'GET').toUpperCase(), target = navPath(p);
+      return nav.some(function (it) {
+        return (it.api || []).some(function (a) {
+          if (String(a.method || 'GET').toUpperCase() !== m) return false;
+          var re = new RegExp('^' + navPath(a.path).replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\{[^}]+\}/g, '[^/]+') + '$');
+          return re.test(target);
+        });
+      });
+    }
     return {
+      reads: reads,
       base: base,
       stepUp: stepUpDialog,
       get: function (p, extra) { return call('GET', p, undefined, extra); }, // extra: headers such as X-Organization for a staff read of a customer's service
