@@ -18,7 +18,7 @@ function spcWithdrawn(): array
 {
     return [
         'onhost-svc-compute.js' => ['7 / 24', 'volných karet H100', 'H100 cards free', 'H100 v Praze. Vaše data', 'EPYC 9354', 'skladem do 24 hodin', 'in stock within 24 hours', 'dodání ze skladu', 'delivery from stock', 'Dodání do 24 h', 'Delivered within 24 h', 'PUE 1,18', "'1,18'", 'PUE 1,55', 'PUE 2,4', "'62 %'"],
-        'onhost-svc-corp.js' => ["'1,18'", '~1,55', '~1,9', '214 dní', '214 days', "'2 budovy'", "'2 buildings'", 'dvě budovy', 'two neighbouring buildings', 'průměrné PUE v Praze', 'Roční průměr PUE za 2025'],
+        'onhost-svc-corp.js' => ["'62 %'", "'1,18'", '~1,55', '~1,9', '214 dní', '214 days', "'2 budovy'", "'2 buildings'", 'dvě budovy', 'two neighbouring buildings', 'průměrné PUE v Praze', 'Roční průměr PUE za 2025'],
         'onhost-svc-other.js' => ['1,18', "'62 %'", '2,4 GWh', '2.4 GWh', '1 640 MWh', "'164 '", '840 kWp', "'2 MWh'", "'90 %'", 'dvě sousední budovy', 'two neighbouring buildings', 'PUE 1,40', 'PUE 2,40'],
         'onhost-svc-more.js' => ['dvě sousední budovy', 'two neighbouring Prague buildings'],
     ];

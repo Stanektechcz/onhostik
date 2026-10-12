@@ -48,6 +48,9 @@ final class ServicePageClaimsSeam
                 "benchNote: _('PUE měřené za 12 měsíců včetně chlazení a rozvodů; nižší je lepší, sloupec ukazuje účinnost.', 'PUE measured over 12 months including cooling and distribution; lower is better, the bar shows efficiency.')," => $pueNote,
             ],
             'onhost-svc-corp.js' => [
+                // the SLA band: the share of renewables
+                "      { k: '6', v: _('lokalit v Evropě', 'European locations') },
+      { k: '62 %', v: _('energie z obnovitelných zdrojů', 'energy from renewables') }" => "      { k: '6', v: _('lokalit v Evropě', 'European locations') }",
                 // a prototype customer quote (never rendered outside demo mode since I-R14, but served): its number goes too
                 "text: _('Odvod tepla z jejich datacentra ohřívá dvě sousední budovy. Tohle je infrastruktura, jak má být.', 'Waste heat from their data centre warms two neighbouring buildings. This is how infrastructure should work.')" => "text: _('Odvod tepla z jejich datacentra ohřívá sousední budovy. Tohle je infrastruktura, jak má být.', 'Waste heat from their data centre warms the neighbouring buildings. This is how infrastructure should work.')",
                 // data centres: PUE, free-cooling days, "two buildings"
