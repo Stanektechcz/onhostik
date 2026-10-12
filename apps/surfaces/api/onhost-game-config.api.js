@@ -121,7 +121,7 @@
       note: _('Parametry změníte kdykoli v panelu, účtujeme měsíčně a bez závazku. Počet hráčů je orientační.', 'Change the parameters any time in the panel; billed monthly with no commitment. Player count is indicative.'),
       cta: _('Přidat do košíku', 'Add to cart'), change: _('← Změnit hru', '← Change game'),
       onChange: function (e) { stop(e); scrollTo('game-offer'); },
-      perks: [_('Anti-DDoS ochrana v ceně', 'Anti-DDoS included'), _('Konzole, SFTP a plánované restarty', 'Console, SFTP and scheduled restarts'), _('Podpora přes panel a e-mail', 'Support through the panel and e-mail')] // N1: no location or hours a document states
+      perks: [_('Konzole, SFTP a plánované restarty', 'Console, SFTP and scheduled restarts'), _('Podpora přes panel a e-mail', 'Support through the panel and e-mail')] // N1: no location or hours a document states; O1: no "Anti-DDoS included" — no node configuration or contract documents a mitigation
     };
     if (!g) { out.price = ''; out.net = ''; return out; }
 
