@@ -722,3 +722,37 @@ stagingu ani v produkci se ve fázích J a K nic nespustilo** (staging stále `e
 * Rozhodnutí vlastníka 2–10 (`ROZHODNUTI-podklady-J-2026-10-11.md`): prostředí pro Comgate, vlastní ISO, zálohy compute/PBS, výpisy ČS
   (K6), advokát (K10), provozní vstupy, Penpot, produkce, úklid stagingu.
 * Nestabilní testy: #96 (`LexiconCoverageTest`, jiná relace); `DeployGateTest` pod paralelní zátěží lokálně (samostatně projde).
+
+## Stav po fázi L a M (2026-10-12)
+
+Stav nad `origin/development` po sloučení PR #161 až #168 (fáze L: TASK-0164 až TASK-0167; fáze M: TASK-0168 až TASK-0173).
+Rozhodnutí vlastníka J-R4 … J-R12 jsou v `ROZHODNUTI.md`, provedení J-R7 a J-R9 je tam doplněné. **Na stagingu ani v produkci se ve
+fázích L a M z této práce nic nespustilo**; staging vede jiná relace (`staging-rehearsal-2026-10-11.md`). Návod
+`GENERALKA-Penpot-D-G-prikazy.md` na ploše vlastníka nově toleruje instanci registrátora bez přihlašovacích údajů (`wedos-main`) v D0/F0
+(pokyn vlastníka 2026-10-12; plánovač Penpot umisťuje jen na uzel role `penpot` instance `penpot`).
+
+### Sloučená práce fází L a M
+
+| PR | Úkol | Obsah |
+|---|---|---|
+| #161 | TASK-0165 | Protokol generálky na stagingu 2026-10-12 (Path A). |
+| #162 | L2, TASK-0164 | Ceník `#/ceny` z katalogu (srovnávací tabulka, roční cena, FAQ podle VOP/SLA), košík „Webhosting Standard“. |
+| #163 | L5, TASK-0166 | Staff konzole čte jen to, co navigace dovolí (`OnhostApi.reads()`). |
+| #164 | L12a, TASK-0167 | Rozhodnutí J-R4 … J-R12. |
+| #165 | M1, TASK-0168 | Stránka „Podmínky, GDPR a cookies“ ukazuje dokumenty v platnosti (`PublicLegalLinks::documents`, `ONHOST_DATA.legalDocs`), řádek otevře dokument; pás SLA 99,9 % / 4 h. |
+| #166 | M3, TASK-0170 | J-R7: import výpisu České spořitelny (camt.053, ABO/GPC), idempotence, ochrana před XXE, oprávnění `billing.reconcile`. |
+| #167 | M2, TASK-0171 | J-R9: texty pokladny (karta jen s bránou, DPH podle režimu, bez bonusu k dobití, tlačítko podle košíku, „49,00 CZK“), obrázek hry bez dotazu na `{{ gcx.gameArt }}`. |
+| #168 | M2b, TASK-0172 | Doplněk „CDN a WAF“ jen s nastaveným účtem CDN (R4), jinak „Připravujeme“ a `cdn_unavailable` 409. |
+| — | M8, TASK-0173 | Tento zápis, ROZHODNUTI J-R7/J-R9, ruční testy F1.7 a F7-19, řádky 1/3/12 Comgate. |
+
+### Co zůstává
+
+* M4 kontrola v prohlížeči na stagingu (po C) a M5 zbytek generálky — jen s „ano“ vlastníka ke každému kroku, a jen když staging
+  nevede jiná relace.
+* M6 právní texty po advokátovi (J-R8), M7 Comgate po zřízení účtu (J-R4/J-R9) — čekají na vstupy.
+* Vstup ke J-R7: vzorový výpis ČS (ověřit, kde ČS v camt.053 nese VS, a pozice GPC); CSV z George se nepodporuje.
+* Účet CDN (Cloudflare), pokud se má doplněk „CDN a WAF“ prodávat.
+* Stejná nedoložená čísla na dalších stránkách služeb: 99,99 % a 15 min v `onhost-svc-compute.js` a `onhost-svc-dev.js`, obecné
+  „technik odpovídá do deseti minut“ a „Zkuste to 14 dní. Bez karty“ stránek služeb, „Servery v Praze, podpora 24/7“ a „/ měsíc s DPH“
+  v konfigurátoru her.
+* Lokální stroj: běhy testů padají na „stránkovací soubor příliš malý“, když běží jiné relace — důkazem je matice CI.

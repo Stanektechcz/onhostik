@@ -200,6 +200,32 @@ veřejný web neslibuje nic, co dokumenty nedávají.
 `domains/Orders/LegalDocuments.php`; automaticky `tests/Feature/Legal/LegalDraftVersionsTest.php` a
 `tests/Feature/Http/LegalClaimSeamTest.php`.
 
+## Scénář F1.7 — Stránka dokumentů a texty pokladny podle skutečnosti (M1, M2)
+
+**Předpoklady:** veřejný web mimo demo režim; brána Comgate bez přihlašovacích údajů (karta nedostupná); provozovatel není plátce
+DPH; účet CDN nenastavený.
+
+**Kroky**
+
+1. Otevřete `#/sluzba/legal` („Podmínky, GDPR a cookies“). Seznam dokumentů má přesně položky a verze jako `/dokumenty`
+   (dnes 2026-09), bez „VOP v4.2“, ISO 27001, NIS2, „cookie lišty“ a srovnání počtu stran; řádek „Otevřít →“ otevře
+   `/dokumenty/vop` apod. Pás SLA uvádí 99,9 % a 4 h (Standard).
+2. Vložte do košíku Webhosting Standard a otevřete `/kosik`. Pás pod hlavičkou říká „Platba převodem“, ne „Karta, převod nebo faktura“;
+   nadpis doplňků je „Doplňky“ (bez „ceny bez DPH“); předplacený kredit nemá „+ 100 Kč“ apod.; mezi doplňky není „CDN a WAF“.
+3. Dokončete objednávku převodem. Tlačítko je „Zaplatit objednávku“; potvrzení ukazuje „Celkem k platbě“ (bez „s DPH“) a „Částka
+   převodu“ ve tvaru „49,00 CZK“.
+4. Vložte do košíku VPS (nebo herní server): tlačítko zní „Zaplatit a spustit server“.
+
+**Očekávaný výsledek:** kroky 1–4 bez rozdílu; v konzoli prohlížeče žádný požadavek na `/%7B%7B%20gcx.gameArt%20%7D%7D`.
+
+**Negativní varianty:** s nastavenou bránou (`CardPayments`) pás nabízí „Kartou nebo převodem“; plátce DPH vidí „Doplňky (ceny bez
+DPH)“ a „Celkem k platbě (s DPH)“; s nastaveným účtem CDN se doplněk nabízí; bez něj `POST /v1/cart/quote` s CDN v košíku vrátí
+`409 cdn_unavailable`.
+
+**Kde hledat při selhání:** `app/Http/Support/ServicePageClaimsSeam.php`, `app/Http/Support/PublicLegalLinks.php`,
+`app/Http/Support/SurfaceRenderer.php` (`checkoutCopySeams`), `apps/surfaces/api/onhost-cart.api.js`, `domains/Services/CdnAvailability.php`;
+automaticky `tests/Feature/Web/LegalPageClaimsTest.php`, `tests/Feature/Web/CheckoutCopyTest.php`, `tests/Feature/Orders/CdnAvailabilityTest.php`.
+
 ## Pokrytí E2E testem
 
 Automatický test `tests/Feature/E2E/SignupToWebTest.php` prochází stejné kroky bez prohlížeče:
