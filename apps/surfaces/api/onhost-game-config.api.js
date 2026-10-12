@@ -85,6 +85,9 @@
     var g = group ? (byEgg[st.egg] && group.eggs.indexOf(st.egg) >= 0 ? byEgg[st.egg] : byEgg[group.eggs[0]]) : null;
     var catLabel = {}; (d.categories || []).forEach(function (c) { catLabel[c.key] = c.label; });
     var artStyle = function (x) { return 'position:relative;aspect-ratio:460/215;overflow:hidden;display:flex;align-items:flex-end;' + (x.art ? 'background:#1a1918;' : (TILE_ART[x.key] || 'background:linear-gradient(135deg,#1a1918,#4a4644);')); };
+    /* K7-6 (M2): the art as a background of its box, so the browser never fetches "{{ … }}" before the template is filled in;
+     * only a plain URL (no quote, bracket or space) reaches the style */
+    var artImg = function (x) { var u = String(x.art || ''); return /^[A-Za-z0-9_\-.\/:%?=&~+]+$/.test(u) ? 'position:absolute;inset:0;width:100%;height:100%;background:center / cover no-repeat url("' + u + '")' : 'display:none'; };
 
     var tiles = (d.groups || []).filter(function (x) {
       return (cat === 'all' || x.category === cat) && (!q || (x.label + ' ' + x.note).toLowerCase().indexOf(q) >= 0);
@@ -92,7 +95,7 @@
       var active = !!(group && group.key === x.key), multi = x.eggs.length > 1;
       return {
         label: x.label, note: x.note, cat: catLabel[x.category] || '', from: gross(cmp, x.from), fromLabel: _('Již od', 'From'), per: _('/měs', '/mo'),
-        art: x.art || '', hasArt: !!x.art, noArt: !x.art, artStyle: artStyle(x), artText: ART_TEXT[x.key] || x.label,
+        art: x.art || '', hasArt: !!x.art, noArt: !x.art, artStyle: artStyle(x), artImg: artImg(x), artText: ART_TEXT[x.key] || x.label,
         badge: multi ? (cq(_, x.eggs.length, ['typ serveru', 'typy serveru', 'typů serveru'], ['server type', 'server types'])) : '', hasBadge: multi,
         cta: active ? _('Vybráno ✓', 'Selected ✓') : _('Konfigurovat', 'Configure'),
         ctaStyle: 'font-family:var(--font-heading);font-weight:800;font-size:13px;padding:8px 12px;white-space:nowrap;' + (active ? 'background:' + ACC + ';color:#f3f2f2' : 'border:2px solid ' + FG + ';color:' + FG),
@@ -120,7 +123,7 @@
     };
     if (!g) { out.price = ''; out.net = ''; return out; }
 
-    out.gameTitle = group.label; out.gameNote = group.note; out.gameArt = group.art || ''; out.gameHasArt = !!group.art; out.gameNoArt = !group.art; out.gameArtStyle = artStyle(group) + 'width:168px;flex:0 0 auto;';
+    out.gameTitle = group.label; out.gameNote = group.note; out.gameArt = group.art || ''; out.gameHasArt = !!group.art; out.gameNoArt = !group.art; out.gameArtStyle = artStyle(group) + 'width:168px;flex:0 0 auto;'; out.gameArtImg = artImg(group);
     if (group.eggs.length > 1) {
       out.hasVariants = true;
       out.variants = group.eggs.map(function (k) {

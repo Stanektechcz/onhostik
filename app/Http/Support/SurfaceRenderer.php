@@ -38,6 +38,12 @@ final class SurfaceRenderer
      */
     public const NON_PAYER_JS = "(window.ONHOST_DATA && typeof window.ONHOST_DATA.vatPayer === 'function' && window.ONHOST_DATA.vatPayer() === false)";
 
+    /**
+     * J-R9 (M2): true only while a card gateway can take a payment (ONHOST_DATA.cardPayments() from CardPayments::available()); the
+     * checkout offers the card only then. Unknown (no data) counts as no card.
+     */
+    public const CARD_JS = "(window.ONHOST_DATA && typeof window.ONHOST_DATA.cardPayments === 'function' && window.ONHOST_DATA.cardPayments() === true)";
+
     /** The panel's copy (window.ONHOST_PANEL.vat_payer from SurfaceDataController::panelPricing). */
     public const PANEL_NON_PAYER_JS = '(window.ONHOST_PANEL && window.ONHOST_PANEL.vat_payer === false)';
 
@@ -675,6 +681,7 @@ HTML;
             $html = self::cartSeams($html);
             $html = self::priceSeams($html, $surface); // audit P1-6: currencies with a fresh CNB rate, VAT from the tax rules
             $html = self::checkoutSeams($html);
+            $html = self::checkoutCopySeams($html); // M2 (K7-4/5, J-R9): card only with a gateway, VAT words by the VAT mode, no top-up bonus, server-only button
             $html = self::legalClaimSeams($html); // TASK-0142: no promise the legal documents do not make (money-back, badges, bonus)
             $html = self::publicClaimSeams($html); // L-03 (TASK-0146): no factual claim the operator cannot document
             $rows = ServicePageClaimsSeam::documentRowSwaps(); // L3 (M1): a document row of a service page opens its document
@@ -1509,6 +1516,41 @@ HTML;
     }
 
     /**
+     * M2 (= L4, K7-4 … K7-5, owner decision J-R9): the checkout's promises follow what the installation does. "Platba dle vás —
+     * Karta, převod nebo faktura se splatností 14 dní" names the card only while a gateway can take it (CardPayments) and no invoice
+     * on credit (none exists); the add-on heading says "bez DPH" only to a VAT payer's customers (a non-payer's prices are final,
+     * the footer says "Nejsme plátci DPH, ceny jsou konečné"); the credit tiers carry no "+10 %" (a top-up credits exactly what
+     * arrived — BankImportTest); the pay button promises a server start only when the cart holds a server (OnhostCart.payLabel).
+     */
+    public static function checkoutCopySeams(string $html): string
+    {
+        $card = self::CARD_JS;
+        $nonPayer = self::NON_PAYER_JS;
+
+        return self::swap(
+            [
+                "coRe4: 'Platba dle vás', coRe4d: 'Karta, převod nebo faktura se splatností 14 dní pro firmy a instituce.',",
+                "coRe4: 'Pay your way', coRe4d: 'Card, bank transfer, or a 14-day invoice for companies and public bodies.',",
+                "coAddons: 'Doplňky (ceny bez DPH)',",
+                "coAddons: 'Add-ons (excl. VAT)',",
+                "coPay: 'Zaplatit a spustit server',",
+                "coPay: 'Pay and launch the server',",
+                "        bonus: v ? '+ ' + this.mny(v * 0.1) : '',\n        bonusStyle: v ? 'font-size:11px;color:var(--accDeep,#ae1800);letter-spacing:.06em' : 'display:none',\n",
+            ],
+            [
+                "coRe4: ({$card} ? 'Kartou nebo převodem' : 'Platba převodem'), coRe4d: ({$card} ? 'Kartou přes platební bránu, nebo převodem podle zálohové faktury s QR platbou.' : 'Převodem podle zálohové faktury s QR platbou. Platbu kartou zatím nenabízíme.'),",
+                "coRe4: ({$card} ? 'Card or transfer' : 'Bank transfer'), coRe4d: ({$card} ? 'By card through the payment gateway, or by transfer against a pro forma invoice with a QR code.' : 'By transfer against a pro forma invoice with a QR code. Card payment is not offered yet.'),",
+                "coAddons: ({$nonPayer} ? 'Doplňky' : 'Doplňky (ceny bez DPH)'),",
+                "coAddons: ({$nonPayer} ? 'Add-ons' : 'Add-ons (excl. VAT)'),",
+                "coPay: (window.OnhostCart && window.OnhostCart.payLabel) ? window.OnhostCart.payLabel(this.state, true) : 'Zaplatit objednávku',",
+                "coPay: (window.OnhostCart && window.OnhostCart.payLabel) ? window.OnhostCart.payLabel(this.state, false) : 'Pay for the order',",
+                "        bonus: '',\n        bonusStyle: 'display:none',\n",
+            ],
+            $html,
+        );
+    }
+
+    /**
      * Seam #24 (checkout): the confirmation reflects the real order (awaiting a bank transfer → the payment instructions
      * and the total, paid → provisioning), the details step collects the company name and the billing address the
      * invoice needs, and both reach the guest account.
@@ -1846,7 +1888,7 @@ HTML;
       <sc-for list="{{ gcx.tiles }}" as="gt" hint-placeholder-count="8">
         <a href="#" onClick="{{ gt.on }}" style="{{ gt.style }}" style-hover="border-color:var(--acc,#ec3013)">
           <div style="{{ gt.artStyle }}">
-            <sc-if value="{{ gt.hasArt }}" hint-placeholder-val="{{ false }}"><img src="{{ gt.art }}" alt="{{ gt.label }}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block" /></sc-if>
+            <sc-if value="{{ gt.hasArt }}" hint-placeholder-val="{{ false }}"><div role="img" aria-label="{{ gt.label }}" style="{{ gt.artImg }}"></div></sc-if>
             <sc-if value="{{ gt.noArt }}" hint-placeholder-val="{{ true }}"><span style="position:relative;padding:12px 14px;font-family:var(--font-heading);font-weight:800;font-size:20px;letter-spacing:.08em;line-height:1.05;color:#fff;text-shadow:0 2px 0 rgba(0,0,0,.35)">{{ gt.artText }}</span></sc-if>
             <sc-if value="{{ gt.hasBadge }}" hint-placeholder-val="{{ false }}"><span style="position:absolute;top:10px;right:10px;background:var(--ink,#1a1918);color:#f3f2f2;font-size:11px;font-weight:600;letter-spacing:.04em;padding:4px 8px">{{ gt.badge }}</span></sc-if>
           </div>
@@ -1872,7 +1914,7 @@ HTML;
       <div style="min-width:0">
         <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:26px">
           <div style="{{ gcx.gameArtStyle }}">
-            <sc-if value="{{ gcx.gameHasArt }}" hint-placeholder-val="{{ false }}"><img src="{{ gcx.gameArt }}" alt="{{ gcx.gameTitle }}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block" /></sc-if>
+            <sc-if value="{{ gcx.gameHasArt }}" hint-placeholder-val="{{ false }}"><div role="img" aria-label="{{ gcx.gameTitle }}" style="{{ gcx.gameArtImg }}"></div></sc-if>
           </div>
           <div style="min-width:0;flex:1">
             <a href="#" onClick="{{ gcx.onChange }}" style="font-size:13px;font-weight:600">{{ gcx.change }}</a>
