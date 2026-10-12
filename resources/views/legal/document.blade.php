@@ -21,6 +21,11 @@
   article p, article li { max-width: 78ch; }
   article table { border-collapse: collapse; font-size: 14px; margin: 12px 0; }
   article th, article td { text-align: left; padding: 6px 10px; border-bottom: 1px solid color-mix(in srgb, var(--color-text, #201e1d) 18%, transparent); vertical-align: top; }
+  .annex { margin-top: 40px; }
+  .annex .scroll { overflow-x: auto; }
+  .annex h2 { font-size: 18px; margin: 0 0 6px; letter-spacing: .02em; }
+  .annex table { border-collapse: collapse; font-size: 14px; margin: 12px 0; }
+  .annex th, .annex td { text-align: left; padding: 6px 10px; border-bottom: 1px solid color-mix(in srgb, var(--color-text, #201e1d) 18%, transparent); vertical-align: top; }
   .others { margin-top: 48px; padding-top: 18px; border-top: 2px solid var(--color-text, #201e1d); font-size: 13.5px; }
   .others a { margin-right: 18px; color: inherit; }
   footer { max-width: 900px; margin: 0 auto; padding: 0 24px 40px; color: var(--color-neutral-700, #605d5d); font-size: 12.5px; }
@@ -41,6 +46,20 @@
   <div class="meta"><strong>Toto je dřívější verze.</strong> Platnou verzi {{ $superseded->version }} najdete na <a href="/dokumenty/{{ $slug }}">/dokumenty/{{ $slug }}</a>.</div>
   @endif
   <article>{!! $html !!}</article>
+  @if (($cookies ?? []) !== [])
+  <section class="annex" id="cookies">
+    <h2>Seznam cookies</h2>
+    <p class="meta">Příloha k oddílu o cookies: přehled cookies, které návštěvník webu a panelu může dostat. Není součástí textu dokumentu výše a mění se podle skutečného nastavení webu.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Název</th><th>Kdo ji nastavuje</th><th>Účel</th><th>Platnost</th></tr></thead>
+      <tbody>
+      @foreach ($cookies as $cookie)
+        <tr><td><code>{{ $cookie['name'] }}</code></td><td>{{ $cookie['source'] }}</td><td>{{ $cookie['purpose'] }}</td><td>{{ $cookie['lifetime'] }}</td></tr>
+      @endforeach
+      </tbody>
+    </table></div>
+  </section>
+  @endif
   @if ($earlier !== [])
   <div class="others">
     <strong>Předchozí verze:</strong>
