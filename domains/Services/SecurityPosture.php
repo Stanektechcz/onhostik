@@ -283,7 +283,14 @@ final class SecurityPosture
         $cadence = app(RestoreTest::class)->cadenceDays($service) ?? 35;
         $assessment = Freshness::assess('restore_test', (string) $test['last_at'], $cadence * 2 * 1440);
         $ok = ($test['outcome'] ?? null) === 'ok';
-        $evidence = [$this->evidence('restore_test', $assessment['observed_at'], $assessment['state'], $ok ? 'restored in a test' : 'the test did not pass')];
+        $verified = ($test['kind'] ?? null) === 'verified'; // W2-4: restored into an isolated copy of the site, checked and removed
+        $detail = match (true) {
+            ! $ok => 'the test did not pass',
+            $verified && ($test['verdict'] ?? null) === 'passed' => 'verified restore: restored into an isolated copy, the copy answered HTTP 200',
+            $verified => 'verified restore: restored into an isolated copy; the copy was not requested over HTTP',
+            default => 'restored in a test',
+        };
+        $evidence = [$this->evidence($verified ? 'verified_restore' : 'restore_test', $assessment['observed_at'], $assessment['state'], $detail)];
         if ($assessment['state'] !== Freshness::CURRENT) {
             return $this->result(self::UNKNOWN, $evidence, null, $this->notCurrent($assessment['state'], $assessment['observed_at']));
         }

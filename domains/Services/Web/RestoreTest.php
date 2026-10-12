@@ -53,22 +53,31 @@ final class RestoreTest
         private readonly ServiceService $services,
         private readonly FinalArchive $archives,
         private readonly OutboxPublisher $outbox,
+        private readonly VerifiedRestore $verified,
     ) {}
 
     /**
      * Ask for a test on every service whose plan promises one and has not had one lately.
      *
-     * @return array{checked:int, started:int, skipped:int, errors:int}
+     * W2-4: a service with the verified restore add-on (`verified_restore` on its entitlements) gets the verified run instead —
+     * restored into an isolated copy, checked over HTTP, measured and removed again (VerifiedRestore) — on the add-on's cadence;
+     * the database-only test is not asked for it as well.
+     *
+     * @return array{checked:int, started:int, skipped:int, errors:int, verified:int}
      */
     public function tick(int $limit = 20): array
     {
-        $stats = ['checked' => 0, 'started' => 0, 'skipped' => 0, 'errors' => 0];
+        $stats = ['checked' => 0, 'started' => 0, 'skipped' => 0, 'errors' => 0, 'verified' => 0];
         $context = CommandContext::system('restore test');
+        $this->tickVerified($limit, $context, $stats);
         $services = Service::query()->whereIn('family', ['web', 'managed'])
             ->whereIn('state', [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED])
             ->whereNotNull('provider_instance_id')->orderBy('id')->limit($limit)->get();
         foreach ($services as $service) {
             $stats['checked']++;
+            if ($this->verified->cadence($service) !== null && VerifiedRestore::eligible($service)) {
+                continue; // looked at by tickVerified
+            }
             try {
                 $backup = $this->due($service);
                 if ($backup === null) {
@@ -89,13 +98,44 @@ final class RestoreTest
         return $stats;
     }
 
-    /** How often the plan promises a test, or null when it promises none. */
+    /**
+     * The services with the verified restore add-on whose cadence asks for a run (VerifiedRestore::due). A refusal — another run
+     * on the service, the platform's limit of parallel runs — is a skip: the next tick asks again.
+     *
+     * @param  array{checked:int, started:int, skipped:int, errors:int, verified:int}  $stats
+     */
+    private function tickVerified(int $limit, CommandContext $context, array &$stats): void
+    {
+        $services = Service::query()->whereIn('family', ['web', 'managed'])
+            ->whereIn('state', [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED])->whereNotNull('provider_instance_id')
+            ->whereNotNull('entitlements->'.VerifiedRestore::ENTITLEMENT)->orderBy('id')->limit($limit * 5)->get();
+        foreach ($services as $service) {
+            if (! $this->verified->due($service)) {
+                continue;
+            }
+            $stats['checked']++;
+            try {
+                $this->services->requestAction($service, VerifiedRestore::ACTION, $context, 'verified-restore:'.$service->id.':'.now()->format('Ymd'));
+                $stats['verified']++;
+                $stats['started']++;
+            } catch (DomainError) {
+                $stats['skipped']++;
+            } catch (Throwable $e) {
+                $stats['errors']++;
+                report($e);
+            }
+        }
+    }
+
+    /** How often the plan promises a test, or null when it promises none (the verified restore add-on counts: it restores too). */
     public function cadenceDays(Service $service): ?int
     {
         $policy = BackupPolicy::query()->where('service_id', $service->id)->first();
         $cadence = (string) ($policy?->restore_test['cadence'] ?? '');
+        $days = array_key_exists($cadence, self::CADENCE_DAYS) ? (int) self::CADENCE_DAYS[$cadence] : null;
+        $verified = $this->verified->cadenceDays($service);
 
-        return array_key_exists($cadence, self::CADENCE_DAYS) ? (int) self::CADENCE_DAYS[$cadence] : null;
+        return $days === null ? $verified : ($verified === null ? $days : min($days, $verified));
     }
 
     /** The set this service should have tested by now, or null when none is owed. */

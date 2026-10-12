@@ -135,10 +135,38 @@ final class MonthlyCustomerReport
         }
         $at = CarbonImmutable::parse((string) $test['last_at']);
         $ok = ($test['outcome'] ?? null) === 'ok';
+        if (($test['kind'] ?? null) === 'verified') { // W2-4: the verified restore add-on — facts and the two measured times, no verdict beyond them
+            $label = $en ? 'Verified restore' : 'Ověřená obnova';
+            $result = match (true) {
+                ! $ok => $en ? 'the restore into an isolated copy did not pass' : 'obnova do oddělené kopie neprošla',
+                ($test['verdict'] ?? null) === 'passed' => $en ? 'restored into an isolated copy, the copy answered HTTP 200' : 'obnoveno do oddělené kopie, kopie odpověděla HTTP 200',
+                default => $en ? 'restored into an isolated copy, the site was not requested over HTTP' : 'obnoveno do oddělené kopie, web nebyl přes HTTP dotázán',
+            };
+            $times = [];
+            if (is_numeric($test['rpo_seconds'] ?? null)) {
+                $times[] = 'RPO '.self::duration((int) $test['rpo_seconds']);
+            }
+            if (is_numeric($test['rto_seconds'] ?? null)) {
+                $times[] = 'RTO '.self::duration((int) $test['rto_seconds']);
+            }
+
+            return "{$label}: {$result}".($times === [] ? '' : ' · '.implode(', ', $times)).' ('.$this->checked($at, $en).')';
+        }
         $label = $en ? 'Backup restore test' : 'Test obnovy zálohy';
         $result = $ok ? ($en ? 'the backup was restored in a test' : 'záloha se v testu podařilo obnovit') : ($en ? 'the test did not pass' : 'test neprošel');
 
         return "{$label}: {$result} (".$this->checked($at, $en).')';
+    }
+
+    /** A measured time as the report prints it: minutes below two hours, hours below two days, days above. */
+    public static function duration(int $seconds): string
+    {
+        return match (true) {
+            $seconds < 120 => $seconds.' s',
+            $seconds < 7200 => intdiv($seconds, 60).' min',
+            $seconds < 172800 => intdiv($seconds, 3600).' h',
+            default => intdiv($seconds, 86400).' d',
+        };
     }
 
     private function unverified(string $label, string $state, ?string $observedAt, bool $en): string

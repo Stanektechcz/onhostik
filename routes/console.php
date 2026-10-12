@@ -1000,8 +1000,8 @@ Artisan::command('onhost:nodes:qualify {--accept= : the id or name of the node t
 // databases of its own, compared by a round trip; the test databases are removed whatever happens.
 Artisan::command('onhost:services:restore-test {--limit=20 : how many services to look at}', function (RestoreTest $tests) {
     $stats = $tests->tick(max(1, (int) $this->option('limit')));
-    $this->info(sprintf('services looked at: %d · tests started: %d · not owed: %d · errors: %d', $stats['checked'], $stats['started'], $stats['skipped'], $stats['errors']));
-})->purpose('Restore the newest backup of every service whose plan promises a restore test, into databases of its own');
+    $this->info(sprintf('services looked at: %d · tests started: %d (verified restores: %d) · not owed: %d · errors: %d', $stats['checked'], $stats['started'], $stats['verified'], $stats['skipped'], $stats['errors']));
+})->purpose('Restore the newest backup of every service whose plan promises a restore test, into databases of its own (verified restore add-on: into an isolated copy, W2-4)');
 
 /*
  * Jobs scheduled before the body was confined are still the node's root scripts (H438). They are recognised by their

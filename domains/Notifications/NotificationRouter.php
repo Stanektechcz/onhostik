@@ -13,6 +13,7 @@ use Onhost\Domain\Organizations\GrantPolicy;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Services\Metering\WebDiskTotal;
+use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\UsageWatch;
 use Onhost\Domain\Tax\VatNumber;
 use Onhost\Platform\Money\Money;
@@ -103,7 +104,8 @@ final class NotificationRouter
             'cdn.enabled', 'cdn.activated', 'cdn.disabled' => $this->customer($m, 'service', match ($m->name) {
                 'cdn.enabled' => 'CDN zapnuto', 'cdn.activated' => 'CDN je aktivní', default => 'CDN vypnuto'
             }, (string) ($p['domain'] ?? '').($m->name === 'cdn.enabled' && empty($p['nameservers_switched']) ? ' · nastavte nameservery u registrátora' : ''), '/panel/sluzby'),
-            'service.activated' => $this->customer($m, 'service', 'Služba je aktivní', $this->access($p), '/panel/sluzby', 'info', $email, 'service-activated', ['sluzba' => $p['product_key'] ?? '', 'pristup' => $this->access($p), 'url' => "{$portal}/panel/sluzby"]),
+            // W2-4: the isolated copy a verified restore makes and removes again is no service of the customer's: no "active" mail every month
+            'service.activated' => self::isRestoreCopy($m) ? null : $this->customer($m, 'service', 'Služba je aktivní', $this->access($p), '/panel/sluzby', 'info', $email, 'service-activated', ['sluzba' => $p['product_key'] ?? '', 'pristup' => $this->access($p), 'url' => "{$portal}/panel/sluzby"]),
             'service.failed' => $this->both($m, 'service', 'Zřizování služby selhalo', (string) ($p['reason'] ?? ''), 'Zřizování služby se nezdařilo — řešíme', 'Naši technici byli upozorněni, ozveme se v tiketu.', '/sprava/sluzby', '/panel/sluzby', 'hot'),
             'service.plan_changed' => ! empty($p['period_change']) && ($p['from_plan'] ?? null) === ($p['to_plan'] ?? null)
                 // the same plan billed per the other period: a new period started now, the unused rest of the old one was credited
@@ -156,6 +158,8 @@ final class NotificationRouter
             'service.terminated' => $this->customer($m, 'service', 'Služba byla ukončena', 'Zálohy držíme po dobu retenční lhůty.', '/panel/sluzby', 'warn'),
             // the deletion lifecycle (audit §5ab): deactivation, the restore window, the removal and the archive
             'service.restore_test.failed' => $this->customerAndStaff($m, $p, 'Záloha se nepodařilo obnovit na zkoušku', 'Pravidelný test obnovy u služby '.($p['label'] ?? '').' neprošel: '.($p['problem'] ?? '').' Vaše data ani databáze jsme nijak nezměnili — test běží stranou. Díváme se na to.'),
+            // W2-4: the verified restore add-on — the copy did not come back or did not answer; production was not touched
+            'service.verified_restore.failed' => $this->customerAndStaff($m, $p, 'Ověřená obnova zálohy neprošla', 'Pravidelná ověřená obnova služby '.($p['label'] ?? '').' neprošla: '.($p['problem'] ?? '').' Obnova běžela v oddělené kopii webu; váš web ani jeho data jsme nezměnili. Protokol je u služby. Díváme se na to.'),
             'service.database.import.failed' => $this->customerAndStaff($m, $p, 'Import databáze se nedokončil', 'Import do databáze '.($p['database'] ?? '').' ('.($p['label'] ?? '').') se nedokončil'.(($p['restored'] ?? false) ? ' a vrátili jsme ji do stavu těsně před importem.' : '. Kopii z doby těsně před importem máme uloženou.').' Důvod: '.($p['reason'] ?? '')),
             'service.backup.schedule.paused' => $this->customerAndStaff($m, $p, 'Plánování záloh jsme zastavili', 'Zálohy služby '.($p['label'] ?? '').' selhaly '.(int) ($p['failures'] ?? 0).'× po sobě ('.($p['reason'] ?? '').'), tak jsme plán zastavili, aby se pokusy neopakovaly donekonečna. Hotové zálohy zůstávají. Plán se rozeběhne, jakmile ho znovu nastavíte.'),
             'service.backup.schedule.stalled' => $this->customerAndStaff($m, $p, 'Plánovaná záloha se nespustila', 'Zálohu služby '.($p['label'] ?? '').' se nepodařilo spustit '.(int) ($p['missed'] ?? 0).'× po sobě ('.($p['reason'] ?? '').'). Díváme se na to; poslední hotová záloha zůstává k dispozici.'),
@@ -336,7 +340,7 @@ final class NotificationRouter
             // a plan version decides what new customers get and pay (H01): finance hears about it, it is not an alarm
             'catalog.plan.version_published', 'catalog.plan.version_activated' => $this->internal($m, 'finance', self::internalTitle($m->name, $p), 'Změněno: '.implode(', ', array_merge((array) ($p['changed']['entitlements'] ?? []), (array) ($p['changed']['limits'] ?? []), (array) ($p['changed']['prices'] ?? []))).' · důvod: '.($p['reason'] ?? ''), '/sprava/fakturace', 'warn'),
             'platform.mail.failing', 'platform.mail.recovered',
-            'node.blocklisted', 'service.name_unproved', 'service.certificate.problem', 'service.resume.incomplete', 'service.suspend.incomplete', 'service.purge.leftover', 'service.termination.failed',
+            'node.blocklisted', 'service.name_unproved', 'service.certificate.problem', 'service.resume.incomplete', 'service.suspend.incomplete', 'service.purge.leftover', 'service.termination.failed', 'service.verified_restore.cleanup_failed',
             'registrar.credit.low', 'integration.down', 'integration.maintenance.lifted', 'integration.maintenance.overdue', 'security.ssh_key.revocation.stuck', 'platform.load_shedding.started', 'platform.load_shedding.ended', 'platform.queue.stalled', 'platform.queue.backlog', 'node.drained', 'node.resumed', 'node.qualified', 'node.disk.low', 'service.integrity.suspicious', 'node.synthetic.leftover', 'service.relocated', 'capacity.unavailable', 'ipam.exhausted', 'ipam.threshold', 'ipam.rdns.unpublished', 'ipam.rdns.failed', 'provisioning.drift.detected', 'operation.failed', 'finance.reconciliation.mismatch', 'registrar.notification.dead', 'domain.reconcile.missing_remote', 'domain.reconcile.unknown_remote', 'payment.orphan_callback', 'security.incident.opened', 'abuse.case.opened', 'compliance.timer.due', 'compliance.timer.missed', 'sla.burn_rate', 'sla.budget.exhausted', 'maintenance.unapproved' => $this->internal($m, self::internalKind($m->name), self::internalTitle($m->name, $p), self::internalBody($p), self::internalSurface($m->name), 'hot'),
             // marketplace (audit §5j-1): the partner gets the brief, the customer the delivery; disputes reach support and the partner
             'marketplace.ordered' => $this->customer($m, 'order', 'Objednávka z marketplace: '.($p['title'] ?? ''), 'Partner dostal zadání; dodání do '.self::when($p['due_at'] ?? null).'. Zaplaceno z kreditu ('.$money($p['total'] ?? null).').', '/panel/nastaveni', 'info'),
@@ -667,6 +671,12 @@ final class NotificationRouter
      *
      * @param  array<string,mixed>  $p
      */
+    /** W2-4: a copy made for one verified restore (StagingService::createRestoreTarget), removed by the same run. */
+    private static function isRestoreCopy(OutboxMessage $m): bool
+    {
+        return $m->aggregate_type === 'service' && data_get(Service::query()->whereKey((string) $m->aggregate_id)->value('tags'), 'restore_target_of') !== null;
+    }
+
     private function customerAndStaff(OutboxMessage $m, array $p, string $title, string $body): void
     {
         $this->internal($m, self::internalKind($m->name), self::internalTitle($m->name, $p), self::internalBody($p), self::internalSurface($m->name), 'hot');
@@ -917,6 +927,8 @@ final class NotificationRouter
             'service.backup.schedule.paused' => 'Plánování záloh se zastavilo po opakovaném selhání',
             'service.database.import.failed' => 'Import databáze se nedokončil',
             'service.restore_test.failed' => 'Test obnovy ze zálohy neprošel',
+            'service.verified_restore.failed' => 'Ověřená obnova ze zálohy neprošla',
+            'service.verified_restore.cleanup_failed' => 'Zkušební kopie ověřené obnovy služby '.($p['label'] ?? '').' ('.($p['domain'] ?? '').') zůstala na uzlu: '.($p['problem'] ?? '').' — odstraňte ji ručně',
             'ipam.exhausted' => 'Došly IP adresy '.($p['region'] ?? '').'/'.($p['purpose'] ?? ''),
             'ipam.rdns.unpublished' => 'Reverzní zónu pro adresu platforma nespravuje',
             'ipam.rdns.failed' => 'Reverzní záznam se nepodařilo publikovat',

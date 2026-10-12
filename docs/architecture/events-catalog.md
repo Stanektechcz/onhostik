@@ -170,6 +170,8 @@ Message envelope: `id`, `name`, `aggregate_type`, `aggregate_id`, `organization_
 | `service.backup.schedule.paused` | service | five scheduled backups failed in a row, so the schedule stopped itself and waits for a person | customer + operator |
 | `service.database.import.failed` | service | a SQL import did not finish; says whether the copy taken before it was put back | customer + operator |
 | `service.restore_test.failed` | service | the periodic restore test did not bring the archive back as a database | customer + operator |
+| `service.verified_restore.failed` | service | W2-4: a verified restore (the newest complete set restored into an isolated copy of the site, checked over HTTP) did not pass (`run_id`, `label`, `problem`: the first failed step); production was not touched — the protocol is at `GET /v1/services/{service}/verified-restores` | customer + operator |
+| `service.verified_restore.cleanup_failed` | service | W2-4: the isolated copy of a verified restore, or a database of it, is still on the node after the run (`run_id`, `target_service_id`, `domain`, `problem`) | operator |
 | `node.qualified` | node | a node passed its qualification and was put into the offer (with the exception knowingly accepted, if any) | operator |
 | `node.synthetic.leftover` | node | a throw-away resource made to qualify a node could not be removed; it names what is left | operator |
 | `service.relocated` | service | a VM moved to another node (HA after a node failure, or by hand) and proved to be this service's (`proof`: service tag or name); the reconciler moved its binding, VM record and node with it (`from`, `to`) | operator |

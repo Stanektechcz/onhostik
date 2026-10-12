@@ -45,6 +45,7 @@ use Onhost\Domain\Provisioning\Workflows\ProvisionWebsiteWorkflow;
 use Onhost\Domain\Provisioning\Workflows\ServiceActionWorkflow;
 use Onhost\Domain\Provisioning\Workflows\SiteWorkflow;
 use Onhost\Domain\Provisioning\Workflows\StagingWorkflow;
+use Onhost\Domain\Provisioning\Workflows\VerifiedRestoreWorkflow;
 use Onhost\Domain\Provisioning\Workflows\WordPressWorkflow;
 use Onhost\Domain\Services\Access\OwnerOnlyActions;
 use Onhost\Domain\Services\Commands\ServiceActionCommand;
@@ -63,6 +64,7 @@ use Onhost\Domain\Services\Web\CustomDirectives;
 use Onhost\Domain\Services\Web\PlanAllowance;
 use Onhost\Domain\Services\Web\ServiceSites;
 use Onhost\Domain\Services\Web\SiteNames;
+use Onhost\Domain\Services\Web\VerifiedRestore;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
@@ -545,7 +547,9 @@ final class ServiceService
             LimitRaises::assertCanEnd($service); // a raise the service already uses is not ended by hand; an unpaid one ends anyway (system)
         }
         // one thing at a time per service — except a declarative apply, which deliberately queues several steps; the queue runs them one after another (RunOperation is WithoutOverlapping per service)
-        if (! $chained && Operation::query()->where('service_id', $service->id)->whereIn('state', [Operation::PENDING, Operation::RUNNING, Operation::WAITING])->exists()) {
+        // W2-4: a verified restore holds no lock on the service (its operation is not bound to it, VerifiedRestoreWorkflow) — one run
+        // per service is held by VerifiedRestore::assertCanStart below
+        if (! $chained && $action !== VerifiedRestore::ACTION && Operation::query()->where('service_id', $service->id)->whereIn('state', [Operation::PENDING, Operation::RUNNING, Operation::WAITING])->exists()) {
             throw new DomainError('operation_in_progress', 'Another operation is still running on this service; wait for it to finish.', 409);
         }
         if ($this->freeze->isFrozen() && ! in_array($action, ['power', 'backup', 'snapshot'], true)) {
@@ -620,6 +624,9 @@ final class ServiceService
                 throw new DomainError('backup_not_restorable', 'Only a finished backup can be restored.', 409, ['state' => $backup->state]);
             }
         }
+        if ($action === VerifiedRestore::ACTION) {
+            $params = $this->verifiedRestoreParams($service, $context, $params);
+        }
         if ($action === 'backup' && (string) ($params['kind'] ?? 'manual') === 'manual' && in_array($service->family, ['web', 'managed'], true)) {
             ServiceBackups::assertRoomForManual($service); // they live on the platform's backup disk
         }
@@ -647,7 +654,7 @@ final class ServiceService
             // one the caller could not even read after the 409 — SQLite forgives it, which is why only pest-postgres saw this.
             // TASK-0039 (P0-08, program §3 "staffMode persisted"): a run started as staff says so on the operation itself — written by
             // OperationService::start from $context alone, whatever `staff_mode` the parameters carry (review round 1)
-            $operation = DB::transaction(fn () => $this->operations->start(self::actionWorkflowFor($action), $idempotencyKey, array_merge($params, ['action' => $action, 'service_id' => $service->id], OperationKey::desired($requestHash)), $context, $service->id, $service->organization_id, null, $service->provider_instance_id, authorizedPermission: $authorizedPermission, authorizedScope: $authorizedScope));
+            $operation = DB::transaction(fn () => $this->operations->start(self::actionWorkflowFor($action), $idempotencyKey, array_merge($params, ['action' => $action, 'service_id' => $service->id], OperationKey::desired($requestHash)), $context, $action === VerifiedRestore::ACTION ? null : $service->id, $service->organization_id, null, $service->provider_instance_id, authorizedPermission: $authorizedPermission, authorizedScope: $authorizedScope));
         } catch (UniqueConstraintViolationException) {
             // TASK-0036 review round 1: two copies of one request passed the look-up above at the same moment. The unique key of
             // `operations` lets exactly one of them in; the other is told so (409) instead of a 500. The surrounding bus
@@ -694,6 +701,7 @@ final class ServiceService
         $families = match ($action) {
             'backup', 'restore' => ['web', 'managed', 'cloud', 'data', 'game', 'penpot'], // penpot: its database dump + assets on its node (TASK-0123)
             'restore.test' => ['web', 'managed'], // a set of database dumps is what can be restored into a copy and compared
+            VerifiedRestore::ACTION => ['web', 'managed'], // W2-4: a site restored into an isolated copy and asked for its home page
             'snapshot', 'rollback_snapshot' => ['cloud', 'data'],
             'power' => ['cloud', 'data', 'game'],
             'mailbox.backup_retention' => ['mail'], // a mail plan's mailbox backups (TASK-0024)
@@ -712,6 +720,7 @@ final class ServiceService
             'terminate' => [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED, ServiceStateMachine::SUSPENDED, ServiceStateMachine::FAILED],
             'purge' => [ServiceStateMachine::SUSPENDED, ServiceStateMachine::FAILED, ServiceStateMachine::TERMINATING],
             'backup', 'restore', 'restore.test' => [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED, ServiceStateMachine::SUSPENDED],
+            VerifiedRestore::ACTION => [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED],
             default => [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED], // feature actions (php, databases, ftp, cron, ssl, mail …)
         };
     }
@@ -734,6 +743,7 @@ final class ServiceService
     {
         return match (true) {
             str_starts_with($action, 'staging.') => StagingWorkflow::class,
+            $action === VerifiedRestore::ACTION => VerifiedRestoreWorkflow::class, // W2-4
             str_starts_with($action, 'deploy.') => DeployWorkflow::class,
             str_starts_with($action, 'wp.') => WordPressWorkflow::class,
             $action === 'import.run' => ImportWorkflow::class,
@@ -743,6 +753,34 @@ final class ServiceService
             $action === 'ssl.wildcard' => CertificateWorkflow::class,
             default => ServiceActionWorkflow::class,
         };
+    }
+
+    /**
+     * W2-4: the parameters of a verified restore are the platform's, never a caller's — the set is the newest COMPLETE one
+     * (VerifiedRestore::pick, incomplete newer sets are named in the protocol) unless staff name another complete set of this very
+     * service. A service with no complete set still gets its run: the protocol then says so and the failure is told.
+     *
+     * @param  array<string,mixed>  $params
+     * @return array<string,mixed>
+     */
+    private function verifiedRestoreParams(Service $service, CommandContext $context, array $params): array
+    {
+        $verified = app(VerifiedRestore::class);
+        $verified->assertCanStart($service, $context);
+        $picked = $verified->pick($service);
+        $asked = (string) ($params['backup_id'] ?? '');
+        if ($asked !== '' && $asked !== $picked['backup']?->id) {
+            $backup = Backup::query()->where('service_id', $service->id)->find($asked);
+            if ($backup === null) {
+                throw DomainError::notFound('backup');
+            }
+            if (! $backup->restorableOnto($service) || data_get($backup->meta, 'incomplete') !== null || ! FinalArchive::isSet($backup)) {
+                throw new DomainError('backup_not_restorable', 'Ověřit lze jen úplnou dokončenou sadu záloh platformy.', 409, ['backup_id' => $asked]);
+            }
+            $picked = ['backup' => $backup, 'skipped' => []];
+        }
+
+        return ['backup_id' => $picked['backup']?->id, 'skipped_sets' => $picked['skipped']] + array_intersect_key($params, ['reason' => true]);
     }
 
     /**

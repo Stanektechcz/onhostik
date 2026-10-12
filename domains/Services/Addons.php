@@ -12,6 +12,7 @@ use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\Web\BackupScheduler;
 use Onhost\Domain\Services\Web\ServiceSites;
+use Onhost\Domain\Services\Web\VerifiedRestore;
 use Onhost\Platform\Errors\DomainError;
 
 /**
@@ -49,7 +50,7 @@ final class Addons
     /** Add-on products the platform delivers. Anything else is not sellable — see the class comment. */
     public static function handled(): array
     {
-        return ['ipv4', 'backup-plus', 'backup-hourly', 'mail-hosting', 'cdn', LimitRaises::PRODUCT, self::CUSTOM_ISO];
+        return ['ipv4', 'backup-plus', 'backup-hourly', 'mail-hosting', 'cdn', LimitRaises::PRODUCT, self::CUSTOM_ISO, VerifiedRestore::ADDON];
     }
 
     /**
@@ -106,6 +107,9 @@ final class Addons
         self::assertSellable((string) $addon->product_key);
         if ($addon->product_key === self::CUSTOM_ISO && $parent->family !== 'cloud') {
             throw new DomainError('addon_parent_mismatch', 'Vlastní ISO jde koupit jen k cloudovému serveru (VPS, VDS).', 422, ['addon' => $addon->product_key, 'family' => $parent->family]);
+        }
+        if ($addon->product_key === VerifiedRestore::ADDON && ! VerifiedRestore::eligible($parent)) { // W2-4: a site restored into a copy of itself
+            throw new DomainError('addon_parent_mismatch', 'Ověřenou obnovu jde koupit jen k webovému hostingu (ne ke stagingu ani k přidruženému webu).', 422, ['addon' => $addon->product_key, 'family' => $parent->family]);
         }
         $entitlements = (array) $addon->entitlements;
         $patch = $this->patch($parent, (string) $addon->product_key, $entitlements);
@@ -248,6 +252,8 @@ final class Addons
                 CustomIsoPolicy::FEATURE => true,
                 CustomIsoPolicy::MAX_MB => max((int) ($current[CustomIsoPolicy::MAX_MB] ?? 0), (int) ($ent[CustomIsoPolicy::MAX_MB] ?? 0) ?: (int) config('onhost.custom_iso.default_max_mb', 4096)),
             ],
+            // W2-4: the cadence of the verified restores (RestoreTest::tick asks VerifiedRestore::due); the plan's word, monthly when it says none
+            VerifiedRestore::ADDON => [VerifiedRestore::ENTITLEMENT => array_key_exists((string) ($ent[VerifiedRestore::ENTITLEMENT] ?? ''), VerifiedRestore::CADENCE_DAYS) ? (string) $ent[VerifiedRestore::ENTITLEMENT] : 'monthly'],
             default => [], // the backup add-ons deliver through the policy, not through the parent's entitlements
         };
     }

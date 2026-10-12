@@ -167,6 +167,9 @@ final class Lexicon
         '× po sobě (' => ' times in a row (', '). Díváme se na to; poslední hotová záloha zůstává k dispozici.' => '). We are looking into it; the last finished backup is still there.',
         'Záloha se nepodařilo obnovit na zkoušku' => 'A backup could not be restored in a test', 'Pravidelný test obnovy u služby ' => 'The regular restore test of ', ' neprošel: ' => ' did not pass: ',
         ' Vaše data ani databáze jsme nijak nezměnili — test běží stranou. Díváme se na to.' => ' Your data and databases were not touched — the test runs to one side. We are looking into it.',
+        // W2-4 verified restore
+        'Ověřená obnova zálohy neprošla' => 'A verified restore of a backup did not pass', 'Pravidelná ověřená obnova služby ' => 'The regular verified restore of ', ' neprošla: ' => ' did not pass: ',
+        ' Obnova běžela v oddělené kopii webu; váš web ani jeho data jsme nezměnili. Protokol je u služby. Díváme se na to.' => ' The restore ran in a separate copy of the site; your site and its data were not changed. The protocol is with the service. We are looking into it.',
         'Import databáze se nedokončil' => 'The database import did not finish', 'Import do databáze ' => 'The import into the database ',
         ' se nedokončil a vrátili jsme ji do stavu těsně před importem.' => ' did not finish, so we put it back the way it was just before it started.',
         ' se nedokončil. Kopii z doby těsně před importem máme uloženou.' => ' did not finish. We have the copy from just before it started.', ' Důvod: ' => ' Reason: ',

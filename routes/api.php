@@ -363,6 +363,8 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
     Route::get('services/{service}/features', [ServiceController::class, 'features']);
     Route::get('services/{service}/health', [ServiceController::class, 'health']); // one-pass check from the platform's records (ServiceHealthCheck)
     Route::get('services/{service}/security-posture', [ServiceController::class, 'securityPosture']); // W2-1: 22 security controls, each pass|fail|unknown|not_applicable with its evidence; read-only, no verdict (SecurityPosture)
+    Route::get('services/{service}/verified-restores', [ServiceController::class, 'verifiedRestores']); // W2-4: protocols of the verified restores (VerifiedRestore); read-only
+    Route::get('services/{service}/verified-restores/{run}/pdf', [ServiceController::class, 'verifiedRestorePdf']); // W2-4: one finished protocol as PDF; another service's run is 404
     Route::get('services/{service}/penpot', [PenpotController::class, 'show']); // TASK-0123: the Penpot card (address, login, limits, backups)
     Route::post('services/{service}/penpot/owner-password', [PenpotController::class, 'ownerPassword']); // TASK-0123: HIGH + step-up
     Route::get('services/{service}/penpot-offer', [PenpotController::class, 'offer']); // H-R7: what a Penpot costs next to this service

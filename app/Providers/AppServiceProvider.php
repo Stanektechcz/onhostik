@@ -13,6 +13,8 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Onhost\Domain\Identity\Models\PersonalAccessToken;
 use Onhost\Domain\Platform\QueueLaneHeartbeat;
+use Onhost\Domain\Services\Web\RestoreTarget;
+use Onhost\Domain\Services\Web\StagingRestoreTarget;
 use Onhost\Platform\Dns\RecordResolver;
 use Onhost\Platform\Dns\SystemRecordResolver;
 use Onhost\Platform\Http\DnsHostResolver;
@@ -29,6 +31,7 @@ final class AppServiceProvider extends ServiceProvider
         $this->app->bind(CertificateReader::class, PeerCertificateReader::class); // what a node really serves for a site (CertificateWatch)
         $this->app->singleton(SurfaceRenderer::class, fn () => new SurfaceRenderer((string) config('onhost.ui.surfaces_path', base_path('apps/surfaces'))));
         $this->app->singleton(QueueLaneHeartbeat::class); // one per worker process: it remembers when it last stamped each lane (TASK-0045)
+        $this->app->bind(RestoreTarget::class, StagingRestoreTarget::class); // where a verified restore puts a backup: an isolated staging copy (W2-4)
     }
 
     public function boot(): void

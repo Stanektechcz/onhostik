@@ -274,6 +274,32 @@ service that is owed one. The test:
   `service.restore_test.failed` when the archive did not come back whole. A passing test is read in the panel — a
   monthly "it worked" mail would be noise.
 
+### Verified restore (W2-4, add-on `verified-restore`)
+
+The paid step after the restore test. The add-on sets `verified_restore: monthly|quarterly` on the web service it was bought
+for (`Addons`, taken back on cancellation); the same nightly `onhost:services:restore-test` asks for a `restore.verify` run
+when the cadence is up (at most `ONHOST_VERIFIED_RESTORE_MAX_PARALLEL`, default 2, at once). Staff can ask for one through
+`POST /v1/staff/services/{service}/actions` (`action: restore.verify`); customers cannot (`operator_only`). A run:
+
+1. picks the newest **complete** platform set (`meta.incomplete` sets are passed over and named in the protocol);
+2. makes an isolated copy of the site with the staging facility (`StagingService::createRestoreTarget`: a site of its own on
+   the production node, `…-rv<4>.<staging suffix>`, no StagingLink, tag `restore_target_of`) — never the live site;
+3. restores files and every dump into databases made for the copy, compares the tables (round trip as above), and for
+   WordPress points wp-config at the copy's databases, sets `DISABLE_WP_CRON` and `WP_HTTP_BLOCK_EXTERNAL`, drops a
+   must-use plugin answering `pre_wp_mail` with false and rewrites the URLs. What it cannot suppress is written down:
+   PHP `mail()` and plugins that bypass the WordPress HTTP API; a non-WordPress application with databases is **not
+   requested at all** (its configuration still names the production databases);
+4. requests the copy's home page (HTTP 200) and logs in only with a configured test identity (else "nebylo ověřeno");
+5. removes the copy's databases and site, removes its DNS, and asks the panel whether it is gone;
+6. writes the protocol (`verified_restore_runs`: steps pass/fail/not_verified with timestamps, RPO = age of the set at the
+   start, RTO = start → checks done) and the same `tags.restore_test` record (`kind: verified`), which the security posture
+   (`backup-restore`) and the monthly report read. A failed restore publishes `service.verified_restore.failed` (customer +
+   staff), a copy left on the node `service.verified_restore.cleanup_failed` (staff).
+
+The run's operation is not bound to the service (`service_id` null, `desired.service_id` names it): it waits for a site to be
+made and removed, and a service lock held that long would refuse the customer's own backups. Customers read the protocols
+at `GET /v1/services/{service}/verified-restores` and download the PDF at `…/verified-restores/{run}/pdf`.
+
 Worth knowing: a part of a set is named `database-<slug>.sql` whatever it holds, and aaPanel hands out `.sql.gz`, so
 `RestoreTest::tablesIn()` decides how to read it from the first two bytes and not from the extension.
 

@@ -102,6 +102,16 @@ final class CatalogRevisions
             'price_defined' => ['penpot'],
             'penpot_offer' => true,
         ],
+        // W2-4: the verified restore add-on is created as a DRAFT with zero prices (`admin_priced`): staff price both plans in the plan
+        // editor and put the product on sale (`product.state active` is refused while a price is zero), and map it onto the web products
+        // that offer it (pricing.addons). Nothing in code decides what it costs.
+        '2026-10-verified-restore' => [
+            'reason' => 'W2-4: doplněk Ověřená obnova (obnova poslední úplné zálohy do oddělené zkušební kopie webu, kontroly, RPO/RTO, protokol) — založen jako koncept bez ceny; cenu a zařazení do prodeje určí administrace.',
+            'plans' => [],
+            'rewrite' => [],
+            'products' => [],
+            'create' => ['verified-restore'],
+        ],
         '2026-09-honest-promises' => [
             'reason' => 'Rozhodnutí vlastníka 2/4/6/18 (2026-09-25): PITR, počet spojení, dedikovaná odchozí IP a dedikovaná databáze se neposkytují a interval záloh „1h“ se opravuje na „hourly“ — nové verze bez nich, ceny beze změny, stávající smlouvy beze změny.',
             'plans' => [
@@ -179,6 +189,28 @@ final class CatalogRevisions
                     'periods' => ['month', 'year'],
                     // monthly add-on price per currency (H-R7: 29 Kč; EUR at the catalogue's ratio of the other 29 Kč add-ons); a year is 12 months
                     'prices' => ['CZK' => 2900, 'EUR' => 119],
+                ],
+            ],
+        ],
+        // W2-4 "Ověřená obnova": an add-on of a web hosting (Addons: `verified_restore` on the parent, taken back on cancellation). The
+        // frequency is the plan (monthly / quarterly). No price here: created at zero, priced and published by staff (`admin_priced`).
+        'verified-restore' => [
+            'family' => 'addon', 'executor' => null, 'billing_model' => 'subscription', 'sort' => 206, 'state' => 'draft',
+            'name' => ['cs' => 'Ověřená obnova', 'en' => 'Verified restore'],
+            'description' => ['cs' => 'Pravidelně obnovíme poslední úplnou zálohu webu do oddělené zkušební kopie, ověříme databázi a odpověď webu, změříme stáří zálohy (RPO) a dobu obnovy (RTO), kopii odstraníme a vydáme protokol. Ověřuje tuto aplikaci, ne celé datacentrum.', 'en' => 'We regularly restore the latest complete backup of the site into a separate trial copy, check the database and the site\'s answer, measure the backup\'s age (RPO) and the restore time (RTO), remove the copy and issue a protocol. It verifies this application, not the whole data centre.'],
+            'meta' => ['admin_priced' => true, 'ordered_for_service' => true],
+            'plans' => [
+                'vr-monthly' => [
+                    'name' => ['cs' => 'Ověřená obnova měsíčně', 'en' => 'Verified restore monthly'], 'sla_class' => 'standard', 'highlighted' => true,
+                    'entitlements' => ['verified_restore' => 'monthly'],
+                    'features' => ['cs' => ['Obnova do oddělené kopie jednou za měsíc', 'Kontrola databáze a odpovědi webu', 'RPO a RTO v protokolu (PDF)'], 'en' => ['A restore into a separate copy once a month', 'Database and site answer checked', 'RPO and RTO in the protocol (PDF)']],
+                    'periods' => ['month', 'year'],
+                ],
+                'vr-quarterly' => [
+                    'name' => ['cs' => 'Ověřená obnova čtvrtletně', 'en' => 'Verified restore quarterly'], 'sla_class' => 'standard', 'highlighted' => false,
+                    'entitlements' => ['verified_restore' => 'quarterly'],
+                    'features' => ['cs' => ['Obnova do oddělené kopie jednou za čtvrtletí', 'Kontrola databáze a odpovědi webu', 'RPO a RTO v protokolu (PDF)'], 'en' => ['A restore into a separate copy once a quarter', 'Database and site answer checked', 'RPO and RTO in the protocol (PDF)']],
+                    'periods' => ['month', 'year'],
                 ],
             ],
         ],

@@ -61,6 +61,11 @@ return [
         // how long a site may hold a host name that nothing proves is its customer's before the operators hear (SiteClaim)
         'claim_grace_days' => (int) env('ONHOST_SITE_CLAIM_GRACE_DAYS', 30),
     ],
+    // W2-4 verified restore add-on: how many scheduled runs may hold a copy on the nodes at once, and how long the copy's home page may take
+    'verified_restore' => [
+        'max_parallel' => (int) env('ONHOST_VERIFIED_RESTORE_MAX_PARALLEL', 2),
+        'probe_timeout_seconds' => (int) env('ONHOST_VERIFIED_RESTORE_PROBE_TIMEOUT', 20),
+    ],
     'platform_backup' => [ // backups of the control plane itself: database dump + private file store (go-live checklist §1)
         'disk' => env('ONHOST_PLATFORM_BACKUP_DISK', 'local'),      // a filesystems.disks entry; S3-compatible and off the server in production
         'retention_days' => (int) env('ONHOST_PLATFORM_BACKUP_RETENTION_DAYS', 30),
