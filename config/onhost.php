@@ -694,6 +694,10 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
         'allow_ips' => array_filter(explode(',', (string) env('ONHOST_METRICS_ALLOW_IPS', '127.0.0.1,::1'))),
     ],
 
+    // TASK-0179: the cookie list under the privacy page (App\Http\Support\CookieInventory). The hosting's aaPanel WAF sets
+    // `server_session_<hash>` on every site it protects (staging 2026-10-13, B1); set false only on a host whose WAF cookie is off.
+    'privacy' => ['hosting_waf_cookie' => true],
+
     'content' => [
         'changelog_year' => 2026,
         // I-R18 (TASK-0149): customer references live in the database (content_references), edited in Nastavení → Blog a reference
