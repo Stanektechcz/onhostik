@@ -756,3 +756,28 @@ fázích L a M z této práce nic nespustilo**; staging vede jiná relace (`stag
   „technik odpovídá do deseti minut“ a „Zkuste to 14 dní. Bez karty“ stránek služeb, „Servery v Praze, podpora 24/7“ a „/ měsíc s DPH“
   v konfigurátoru her.
 * Lokální stroj: běhy testů padají na „stránkovací soubor příliš malý“, když běží jiné relace — důkazem je matice CI.
+
+## Stav po fázi N (2026-10-12)
+
+Stav nad `origin/development` po sloučení PR #170 (N1, TASK-0174) a tohoto zápisu (N7, TASK-0175). **Na stagingu ani v produkci se ve
+fázi N nic nespustilo**: N2 (kontrola v prohlížeči na stagingu, = M4) a N3 (zbytek generálky, = M5) nemají „ano“ vlastníka a staging
+vede jiná relace. N0: CI na `development` po sloučení #165 až #169 bylo zelené (merge #169 `cc207eb8`: tests včetně pest-postgres a
+php 8.5, e2e smoke, security).
+
+### Sloučená práce fáze N
+
+| PR | Úkol | Obsah |
+|---|---|---|
+| #170 | N1, TASK-0174 | Zbytek nedoložených čísel (J-R2, L-03): pás SLA stránek compute 99,99 % / „< 15 min“ → SLA 2026-09 Standard 99,9 % / 4 h; VPS bez „root do 55 s“, „0 % přeprodej CPU“, „99,99 % dostupnost 2025“; správa serverů bez 15/60 min a „SLA 99,99 % s kreditem“ (reakce podle třídy SLA, kompenzace kreditem); obecné texty stránek služeb bez „technik odpovídá do deseti minut“ a „Zkuste to 14 dní. Bez karty“ (výpověď ke konci období, 14 dní na odstoupení podle VOP); konfigurátor her bez „Servery v Praze, podpora 24/7“ a neplátci „/ měsíc“ bez „bez DPH“. Prototypy beze změny, demo režim beze změny. |
+| — | N7, TASK-0175 | Tento zápis, J-R2 doplněné o N1, ruční test F1.8. |
+
+### Co zůstává
+
+* N2 a N3 (staging) — jen s „ano“ vlastníka ke každému kroku a jen když staging nevede jiná relace.
+* N4 výpis ČS podle vzorku (J-R7), N5 právní texty po advokátovi (J-R8), N6 Comgate po zřízení účtu (J-R4/J-R9) — čekají na vstupy.
+* Další nedoložené texty, které seznam N1 nejmenoval (kandidáti pro další fázi, vzor `ServicePageClaimsSeam`): v pásu SLA stránek
+  compute „2× N+1 napájení a chlazení“ a „10 Gbit/s v základu“; titulek VPS „ne s přeprodaným výkonem“ a „Steal time pod 0,5 %, měříme
+  to veřejně“; u správy serverů „zásahy 24/7“ (podporní hodiny jsou otevřený vstup J-R9); perk her „Anti-DDoS ochrana v ceně“; „SLA
+  99,99 %“ v tarifech inference, vektorové databáze a úložiště a v tabulkách VPS/dedikovaných serverů (dokud je nepřekryje katalog);
+  na hlavní stránce `ctaTitle` „Prvních 14 dní zdarma“, `authRegBtn` „… začít 14 dní zdarma“ a `authProofTitle` „14 dní zdarma, bez
+  rizika“ (zkušební doba neexistuje, VOP čl. 2 bod 2).
