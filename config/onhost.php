@@ -700,11 +700,7 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
         'domain_page_tlds' => ['cz', 'com', 'eu'], // the TLDs the domain page leads with
         'game_product' => 'game',                 // the product the game configurator sells
         'plans_product' => 'web-hosting',
-        // marketing comparison table (prototype onhost-data.js compare(cs)); columns: parameter, start, pro, scale
-        'compare' => [
-            'cs' => [['vCPU', '2', '6', '16'], ['RAM', '4 GB', '16 GB', '64 GB'], ['NVMe disk', '80 GB', '320 GB', '1 TB'], ['Přenos dat', 'neomezeně', 'neomezeně', 'neomezeně'], ['Zálohy', '7 dní', '30 dní', '30 dní + replika'], ['CI/CD runner', '—', '1× shared', '2× dedikovaný'], ['Anti-DDoS', '100 Gbps', '600 Gbps', '1,2 Tbps'], ['SLA', '99,9 %', '99,95 %', '99,99 %'], ['Reakce podpory', '8 h', '30 min', '10 min / telefon']],
-            'en' => [['vCPU', '2', '6', '16'], ['RAM', '4 GB', '16 GB', '64 GB'], ['NVMe disk', '80 GB', '320 GB', '1 TB'], ['Transfer', 'unlimited', 'unlimited', 'unlimited'], ['Backups', '7 days', '30 days', '30 days + replica'], ['CI/CD runner', '—', '1× shared', '2× dedicated'], ['Anti-DDoS', '100 Gbps', '600 Gbps', '1.2 Tbps'], ['SLA', '99.9%', '99.95%', '99.99%'], ['Support response', '8 h', '30 min', '10 min / phone']],
-        ],
+        // the pricing page's comparison table is built from these plans (PricingPageSeam::compare, K7-2); the prototype's static VPS table is gone
         'tender_docs' => [
             'cs' => [
                 ['Technická specifikace', 'Konfigurace, lokality, parametry sítě a zálohování v podobě, kterou lze vložit do zadávací dokumentace.'],

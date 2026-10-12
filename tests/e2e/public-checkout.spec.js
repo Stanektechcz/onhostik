@@ -16,7 +16,7 @@ test('catalogue → cart → guest checkout → confirmation shows the server qu
 
   // the Standard plan goes into the cart monthly (no implicit yearly term); the drawer opens with the server quote
   const quote = page.waitForResponse((r) => r.url().includes('/v1/cart/quote') && r.request().method() === 'POST');
-  await page.getByText('Vyzkoušet zdarma →').nth(1).click();
+  await page.getByText('Objednat →', { exact: true }).nth(1).click(); // the plan card button (K7-2: no "free trial" is on offer)
   const quoted = (await (await quote).json()).data;
   const drawer = page.locator('text=měsíčně, bez závazku').first();
   await expect(drawer).toBeVisible();
