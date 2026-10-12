@@ -38,6 +38,10 @@ final class ServicePageClaimsSeam
                 "_('Dodání do 24 h', 'Delivered within 24 h')] }," => "_('Termín dodání potvrdíme předem', 'Delivery date confirmed up front')] },",
                 "specs: ['EPYC 9354, 32 c / 64 t'," => "specs: ['AMD EPYC, 32 c / 64 t',",
                 "{ label: _('EPYC 9354 (32 jader)', 'EPYC 9354 (32 cores)'), pct: 100, note: '14 900 pts' }," => "{ label: _('AMD EPYC (32 jader)', 'AMD EPYC (32 cores)'), pct: 100, note: '14 900 pts' },",
+                // GPU (I-R16: on the site as "coming", no stock and no delivery promise; found by the K7 browser check): the free-card
+                // count and the start time go, and the title no longer says the cards stand in Prague
+                "title: _('H100 v Praze. Vaše data zůstanou v Česku.', 'H100s in Prague. Your data stays in the country.')," => "title: _('GPU instance připravujeme', 'GPU instances are coming'),",
+                "kpis: [['7 / 24', _('volných karet H100', 'H100 cards free')], ['90 s', _('start instance', 'instance start')], ['0', _('přenosů dat mimo EU', 'transfers outside the EU')]]," => 'kpis: [],',
                 // colocation: PUE and the share of renewables
                 "kpis: [['1,18', 'PUE'], ['2N', _('napájení a UPS', 'power and UPS')], ['62 %', _('energie z obnovitelných zdrojů', 'energy from renewables')]]," => "kpis: [['2N', _('napájení a UPS', 'power and UPS')]],",
                 "        { label: _('Onhost Praha (BESS + obnovitelné)', 'Onhost Prague (BESS + renewables)'), pct: 100, note: 'PUE 1,18' },\n        { label: _('Průměrné evropské datacentrum', 'Average European data centre'), pct: 62, note: 'PUE 1,55' },\n        { label: _('Vlastní serverovna ve firmě', 'In-house company server room'), pct: 32, note: 'PUE 2,4' }\n" => '',
