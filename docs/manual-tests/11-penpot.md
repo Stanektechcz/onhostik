@@ -122,6 +122,24 @@ zřídit“ (událost `order.fulfilment_failed` s důvodem `penpot_unavailable`)
 oznámení o vrácení s částkou (událost `order.refunded`). U Penpotu v ceně tarifu oznámení říká, že se nic neúčtovalo.
 Anglická organizace dostane obojí anglicky. Technici mají interní řádek „problém při zřizování“.
 
+## H8-09 Papírový rodič pro E2E na stagingu (J2, TASK-0154)
+
+**Jen staging, jen sandboxová organizace, jen z příkazové řádky.** Postup je oddíl F2 dokumentu vlastníka `GENERALKA-Penpot-D-G-prikazy.md`
+(vlastní „ano“).
+
+**Kroky**
+
+1. Na stagingu: `php artisan onhost:penpot:paper-parent <slug sandboxové organizace> --reason="E2E Penpot"`. Vypíše id služby a `active (created)`.
+2. Spustit znovu se stejnými parametry: vypíše stejné id a `(already there)`.
+3. Objednat Penpot k této službě (H8-07) a po testu ho zrušit (H8-06).
+4. Ukončit rodiče: `php artisan onhost:penpot:paper-parent <slug> --end=<id služby> --reason="konec E2E"`.
+
+**Očekávaný výsledek:** vznikne jediný řádek služby (rodina web, štítek `penpot-e2e-parent`) bez instance, uzlu, objednávky a
+předplatného — nic se neúčtuje a nic se nezapíše do panelu; v auditu `penpot.paper_parent.create` a `penpot.paper_parent.end`.
+
+**Negativní varianty:** organizace, která není sandbox, produkt mimo webhosting nebo `APP_ENV=production` → odmítnuto a zapsáno
+do auditu; `--end` dřív, než je Penpot zrušený, odmítne; `--end` jiné služby odmítne.
+
 ## Kde hledat při selhání
 
 | Co | Kde |
@@ -140,3 +158,4 @@ Anglická organizace dostane obojí anglicky. Technici mají interní řádek �
 | H8-02 negativní, H8-04, H8-05, H8-06 | `tests/Feature/Penpot/PenpotLifecycleTest.php` |
 | H8-06 s rodičem, H8-07 tlačítko | `tests/Feature/Penpot/PenpotWithParentTest.php` |
 | H8-07 štítek, H8-08 | `tests/Feature/Penpot/PenpotLeftoversTest.php` |
+| H8-09 | `tests/Feature/Penpot/PaperParentTest.php` |

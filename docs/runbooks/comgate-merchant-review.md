@@ -26,13 +26,13 @@ The table in section 1 keeps the reasoning; this one is the current answer.
 | 3 | HAVE | VOP linked from the footer of every page (only the version in force) |
 | 4 | PARTIAL | The complaints rules exist as the `2026-10` draft (`complaints`, slug `reklamacni-rad`); the footer links them **automatically once published** — after the lawyer (decision 6, C-R10b) |
 | 5 | HAVE / lawyer | Linked from the footer; naming Comgate as processor is for the lawyer (draft texts) |
-| 6 | VERIFY | The cookie listing is part of J7 (browser) |
+| 6 | PARTIAL | Local browser listing (K7, TASK-0161): only `XSRF-TOKEN` and the session cookie (2 h, SameSite=Lax, the session HttpOnly), no other cookie and no banner — consistent with privacy section 4. Left: the `Secure` flag and the cookie names on the deployed site (staging after section C) |
 | 7 | HAVE | Withdrawal document linked from the footer |
 | 8 | HAVE | Unchanged (VOP 2.3, 8.1; statutory refunds to the original method, L-09) |
 | 9 | HAVE | Prices in Kč; the footer of every page says *Nejsme plátci DPH, ceny jsou konečné.* (L-10, TASK-0146). Left: the accountant's confirmation of the wording (decision 7) |
 | 10 | PARTIAL | The checkout says when the service runs (`OnhostCart.eta`); the product cards do not repeat it |
 | 11 | HAVE (logos: owner) | Only what is delivered: card through the gateway **only while the gateway has its credentials** (`ONHOST_DATA.cardPayments()`; without them the cart offers and starts on the bank transfer) and the bank transfer with a pro forma invoice. Left: official Comgate and card-scheme logos (decision 7, after the account) |
-| 12 | PARTIAL | A card order without gateway credentials is refused up front with a plain Czech sentence that names the bank transfer, before a guest account is created and without any request to the gateway (`CardPayments`, `payment_card_unavailable` 409; it used to create the account and come back as a provider error). Left: the walk-through as a stranger on the deployed site (J7), the reviewer's demo account (owner) |
+| 12 | PARTIAL | A card order without gateway credentials is refused up front with a plain Czech sentence that names the bank transfer, before a guest account is created and without any request to the gateway (`CardPayments`, `payment_card_unavailable` 409; it used to create the account and come back as a provider error). K7 (TASK-0161, local browser): step 3 offers only the bank transfer, a guest order ends with the order number, account, IBAN and VS; the pricing page's plan cards did not reach an order ("VPS Standard" unmatched) — fixed by TASK-0162. Left: the walk-through as a stranger on the deployed site, the checkout copy defects K7-4/K7-5 (card named in the top band, "bez DPH" / "s DPH" wording for a non-payer, top-up bonus tiers), the reviewer's demo account (owner) |
 | 13 | MISSING | Which environment Comgate reviews — decision 2 (recommended: the pre-launch variant of `production-plan-2026-10.md` §5) |
 | 14 | HAVE | Unchanged |
 | 15 | HAVE | Unchanged |
