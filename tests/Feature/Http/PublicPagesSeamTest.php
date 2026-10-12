@@ -6,6 +6,10 @@ use Database\Seeders\CatalogSeeder;
 use Illuminate\Support\Facades\Artisan;
 
 /** Public product pages and the web hosting landing sell the catalogue (seam #23): plans, specs, comparison and SKUs come from the data layer. */
+beforeEach(function () {
+    config(['onhost.cdn.cloudflare.secret_ref' => 'env://CLOUDFLARE']); // the CDN add-on is sold only with a CDN account (K7-5, TASK-0172)
+});
+
 it('generates catalogue-driven plans, comparison tables and SKUs for the public product pages', function () {
     $this->seed([CatalogSeeder::class]);
     $js = $this->get('/surfaces/onhost-data.js')->assertOk()->getContent();

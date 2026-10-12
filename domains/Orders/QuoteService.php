@@ -20,6 +20,7 @@ use Onhost\Domain\Provisioning\GameTemplates;
 use Onhost\Domain\Provisioning\Models\Region;
 use Onhost\Domain\Provisioning\Scheduling\CartCapacity;
 use Onhost\Domain\Provisioning\Scheduling\NodeScheduler;
+use Onhost\Domain\Services\CdnAvailability;
 use Onhost\Domain\Services\Limits\LimitRaises;
 use Onhost\Domain\Services\Limits\LimitRaiseWaiver;
 use Onhost\Domain\Services\Models\Service;
@@ -255,6 +256,9 @@ final class QuoteService
                 continue;
             }
 
+            if ($productKey === CdnAvailability::PRODUCT && ! CdnAvailability::configured()) {
+                throw CdnAvailability::unavailable(); // K7-5 / R4: before anybody pays — without a CDN account the add-on delivers nothing
+            }
             $planKey = (string) ($item['plan_key'] ?? '');
             $requestedPeriod = isset($item['period']) ? (string) $item['period'] : null;
             $period = $requestedPeriod ?? ($commitMonths >= 12 ? 'year' : 'month');

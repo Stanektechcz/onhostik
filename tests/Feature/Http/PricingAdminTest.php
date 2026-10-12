@@ -15,6 +15,7 @@ use Onhost\Platform\Money\Money;
 /* Staff set every discount, promo code, add-on mapping and option price in the settings; the public data script follows. */
 
 beforeEach(function () {
+    config(['onhost.cdn.cloudflare.secret_ref' => 'env://CLOUDFLARE']); // the CDN add-on is sold only with a CDN account (K7-5, TASK-0172)
     $this->seed([CatalogSeeder::class, TaxRuleSeeder::class, LegalEntitySeeder::class]);
 });
 

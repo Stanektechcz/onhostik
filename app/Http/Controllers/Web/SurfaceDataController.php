@@ -47,6 +47,7 @@ use Onhost\Domain\Provisioning\PlacementService;
 use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Provisioning\ServiceMigrationService;
 use Onhost\Domain\Services\AvailabilityWatch;
+use Onhost\Domain\Services\CdnAvailability;
 use Onhost\Domain\Services\ControlPlaneStatus;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
@@ -217,6 +218,9 @@ final class SurfaceDataController extends Controller
         }
         foreach (array_keys(self::COMING_PAGES) as $slug) {
             $out[$slug] ??= self::comingPage($cs);
+        }
+        if (! CdnAvailability::configured()) { // K7-5 / R4: without a CDN account the CDN page sells nothing (the cart would refuse it)
+            $out['cdn'] = self::comingPage($cs);
         }
 
         return $out;
