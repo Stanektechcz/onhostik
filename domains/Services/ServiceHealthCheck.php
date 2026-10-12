@@ -7,6 +7,7 @@ namespace Onhost\Domain\Services;
 use Carbon\CarbonImmutable;
 use Onhost\Domain\Dns\DnssecWatch;
 use Onhost\Domain\Dns\Models\DnsZone;
+use Onhost\Domain\Incidents\MaintenanceAudience;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Services\Mail\MailAuthWatch;
 use Onhost\Domain\Services\Models\Backup;
@@ -55,6 +56,7 @@ final class ServiceHealthCheck
         if (in_array($service->family, ['web', 'managed', 'mail'], true)) {
             $findings[] = $this->mailAuth($service);
         }
+        $findings[] = $this->maintenance($service);
         $findings[] = $this->suspensionLeft($service);
         $findings[] = $this->operations($service);
         $findings[] = $this->usage($service);
@@ -100,6 +102,24 @@ final class ServiceHealthCheck
             $service->state === ServiceStateMachine::FAILED => self::finding('state', 'bad', 'Poslední změna služby selhala a služba čeká na zásah.', 'The last change of the service failed and it waits for attention.'),
             default => self::finding('state', 'warn', "Služba je ve stavu {$service->state}.", "The service is {$service->state}."),
         };
+    }
+
+    /**
+     * W2-6: a planned maintenance window that is open right now and touches this service. Information only (level `ok`): it is added
+     * to the other findings and hides none of them — a real bad finding during a window is still reported as bad.
+     *
+     * @return array{key:string, level:'ok'|'warn'|'bad', cs:string, en:string, observed_at:string, state:string}|null
+     */
+    private function maintenance(Service $service): ?array
+    {
+        $window = MaintenanceAudience::activeFor($service)[0] ?? null;
+        if ($window === null) {
+            return null;
+        }
+        $until = $window->ends_at->format('j. n. Y H:i');
+
+        return Freshness::stamp(self::finding('maintenance', 'ok', "Probíhá plánovaná údržba {$window->number} (do {$until}); služba může být v tomto okně dočasně nedostupná.", "Planned maintenance {$window->number} is under way (until {$until}); the service may be briefly unavailable during the window."),
+            Freshness::assess('maintenance', now()));
     }
 
     /** @return array{key:string, level:'ok'|'warn'|'bad', cs:string, en:string}|null */

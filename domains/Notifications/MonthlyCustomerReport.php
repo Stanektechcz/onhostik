@@ -10,6 +10,7 @@ use Onhost\Domain\Services\Freshness;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Services\Oversight;
 use Onhost\Domain\Services\SecurityPosture;
 use Onhost\Domain\Services\ServiceHealthCheck;
 use Onhost\Domain\Services\Web\RestoreTest;
@@ -64,7 +65,11 @@ final class MonthlyCustomerReport
             if (($restore = $this->restoreLine($service, $en)) !== null) {
                 $lines[] = $restore;
             }
-            $lines[] = $this->postureLine($this->posture->run($service, $check)['summary'], $now, $en);
+            $posture = $this->posture->run($service, $check);
+            $lines[] = $this->postureLine($posture['summary'], $now, $en);
+            if (Oversight::active($service)) { // W2-5: the oversight add-on prints the controls themselves, not only their counts
+                array_push($lines, ...$this->oversightLines($service, $posture['controls'], $now, $en));
+            }
             $sections[(string) $check['name']] = $lines;
         }
         $sections[$en ? 'About this report' : 'K tomuto přehledu'] = [$en
@@ -108,6 +113,39 @@ final class MonthlyCustomerReport
         return $en
             ? "{$label}: {$summary['pass']} met, {$summary['fail']} not met, {$summary['unknown']} not verified (".$this->checked($now, $en).')'
             : "{$label}: {$summary['pass']} splněno, {$summary['fail']} nesplněno, {$summary['unknown']} neověřeno (".$this->checked($now, $en).')';
+    }
+
+    /**
+     * W2-5 "Dohled": which controls were not met, which could not be verified, and which findings are open right now — each as what
+     * was seen and the day it was seen, in the order of the catalog. No verdict and no promise: a control that is not listed as
+     * not met is not thereby shown to be fine (the counts above say how many were verified).
+     *
+     * @param  list<array<string,mixed>>  $controls
+     * @return list<string>
+     */
+    private function oversightLines(Service $service, array $controls, CarbonImmutable $now, bool $en): array
+    {
+        $lang = $en ? 'en' : 'cs';
+        $prefix = $en ? 'Oversight' : 'Dohled';
+        $lines = [];
+        foreach ($controls as $control) {
+            if ($control['status'] === SecurityPosture::FAIL) {
+                $lines[] = "{$prefix} · ".$control['title'][$lang].': '.($en ? 'not met' : 'nesplněno').' — '.($control['advice'][$lang] ?: ($en ? 'see the service' : 'podrobnosti jsou u služby')).' ('.$this->checked($now, $en).')';
+            }
+        }
+        $unknown = array_map(fn (array $c) => (string) $c['title'][$lang], array_filter($controls, fn (array $c) => $c['status'] === SecurityPosture::UNKNOWN));
+        if ($unknown !== []) {
+            $lines[] = "{$prefix} · ".($en ? 'not verified' : 'neověřeno').': '.implode(', ', $unknown).' ('.$this->checked($now, $en).')';
+        }
+        $open = Oversight::open($service);
+        $looked = Oversight::lastLook($service);
+        $lines[] = "{$prefix} · ".match (true) {
+            $looked === null => $en ? 'the first hourly look has not run yet' : 'první hodinový pohled ještě neproběhl',
+            $open === [] => ($en ? 'no finding was bad at the last look' : 'žádné zjištění nebylo při posledním pohledu ve špatném stavu').' ('.$this->checked($looked, $en).')',
+            default => ($en ? 'findings bad at the last look: ' : 'zjištění ve špatném stavu při posledním pohledu: ').implode(', ', array_keys($open)).' ('.$this->checked($looked, $en).')',
+        };
+
+        return $lines;
     }
 
     private function backupLine(Service $service, CarbonImmutable $now, bool $en): string

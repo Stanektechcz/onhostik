@@ -167,6 +167,11 @@ final class Lexicon
         '× po sobě (' => ' times in a row (', '). Díváme se na to; poslední hotová záloha zůstává k dispozici.' => '). We are looking into it; the last finished backup is still there.',
         'Záloha se nepodařilo obnovit na zkoušku' => 'A backup could not be restored in a test', 'Pravidelný test obnovy u služby ' => 'The regular restore test of ', ' neprošel: ' => ' did not pass: ',
         ' Vaše data ani databáze jsme nijak nezměnili — test běží stranou. Díváme se na to.' => ' Your data and databases were not touched — the test runs to one side. We are looking into it.',
+        // W2-6 planned maintenance
+        'Připomínka: plánovaná údržba' => 'Reminder: planned maintenance',
+        // W2-5 oversight
+        'Dohled zjistil problém' => 'Oversight found a problem', 'Při dohledu nad službou ' => 'While watching the service ', ' jsme zjistili: ' => ' we found: ',
+        ' Je to zjištění z posledního měření, ne předpověď. Naši technici o něm vědí a díváme se na to.' => ' It is a finding from the last measurement, not a forecast. Our technicians know about it and we are looking into it.',
         // W2-4 verified restore
         'Ověřená obnova zálohy neprošla' => 'A verified restore of a backup did not pass', 'Pravidelná ověřená obnova služby ' => 'The regular verified restore of ', ' neprošla: ' => ' did not pass: ',
         ' Obnova běžela v oddělené kopii webu; váš web ani jeho data jsme nezměnili. Protokol je u služby. Díváme se na to.' => ' The restore ran in a separate copy of the site; your site and its data were not changed. The protocol is with the service. We are looking into it.',

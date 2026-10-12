@@ -171,6 +171,7 @@ final class WebhookEvents
         'incident.updated' => self::INCIDENT,
         'incident.resolved' => self::INCIDENT,
         'maintenance.scheduled' => ['number', 'components', 'starts_at', 'ends_at', 'impact:code'],
+        'maintenance.reminder' => ['number', 'components', 'starts_at', 'ends_at', 'impact:code'],
         // ── web toolkit ──
         'monitoring.down' => ['monitor_id', 'url'],
         'monitoring.up' => ['monitor_id', 'url', 'minutes'],

@@ -7679,6 +7679,60 @@ paths:
         -
           session: []
       x-token-scope: null
+  /my/maintenance:
+    get:
+      operationId: getMyMaintenance
+      tags:
+        - status
+      summary: 'GET /my/maintenance'
+      parameters:
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        '422':
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+      x-token-scope: null
   /notifications:
     get:
       operationId: getNotifications
@@ -35901,6 +35955,44 @@ paths:
       tags:
         - status
       summary: 'GET /status/host-check'
+      parameters: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        '422':
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security: []
+      x-token-scope: []
+  /status/infrastructure:
+    get:
+      operationId: getStatusInfrastructure
+      tags:
+        - status
+      summary: 'GET /status/infrastructure'
       parameters: []
       responses:
         '200':

@@ -506,6 +506,7 @@ Schedule::command('onhost:orders:settle')->everyTenMinutes()->withoutOverlapping
 Schedule::command('onhost:services:release-stranded --apply --minutes=30')->everyTenMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:services:rescue-expire')->everyTenMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:isos:sweep')->hourly()->withoutOverlapping()->onOneServer(); // TASK-0110 review H2: dead custom ISO uploads
+Schedule::command('onhost:services:oversight')->hourlyAt(25)->withoutOverlapping()->onOneServer(); // W2-5: the Dohled add-on's hourly look at the services that carry it
 Schedule::command('onhost:services:restore-test')->dailyAt('04:20')->withoutOverlapping()->onOneServer(); // the cadence is per service; this only asks who is owed one
 Schedule::command('onhost:billing:meter')->hourlyAt(2)->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:billing:rate')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
@@ -553,8 +554,8 @@ Artisan::command('onhost:sla:evaluate', function (SlaService $sla) {
 })->purpose('Probe quorum, SLO windows, burn-rate alerts and auto-settlement of probe incidents');
 
 Artisan::command('onhost:maintenance:tick', function (MaintenanceService $maintenance) {
-    $this->table(['started', 'completed', 'unapproved'], [$maintenance->tick()]);
-})->purpose('Start/complete maintenance windows and flag unapproved ones');
+    $this->table(['started', 'completed', 'unapproved', 'reminded'], [$maintenance->tick()]);
+})->purpose('Start/complete maintenance windows, flag unapproved ones and send the reminder a day before a window (W2-6)');
 
 Artisan::command('onhost:compliance:timers', function (ComplianceService $compliance) {
     $this->table(['warned', 'missed'], [$compliance->tickTimers()]);
@@ -995,6 +996,13 @@ Artisan::command('onhost:nodes:qualify {--accept= : the id or name of the node t
 
     return 0;
 })->purpose('List the nodes waiting to be qualified, and put a node that passes into the offer');
+
+// W2-5 "Dohled": every service that carries the add-on gets the health check the customer sees; a finding that turned bad is told once and
+// raised to the on-call as one alert per service and finding (repeats are counted on it, nobody is paged twice).
+Artisan::command('onhost:services:oversight {--limit=200 : how many services to look at}', function (Oversight $oversight) {
+    $stats = $oversight->sweep(max(1, (int) $this->option('limit')));
+    $this->info(sprintf('services looked at: %d · findings newly bad: %d · still bad: %d · recovered: %d', $stats['checked'], $stats['opened'], $stats['repeated'], $stats['recovered']));
+})->purpose('Look at the services with the oversight add-on and raise findings that turned bad (W2-5)');
 
 // The plan sells "test obnovy měsíčně" and nothing ever tested one (H458). Each due service gets a restore into
 // databases of its own, compared by a round trip; the test databases are removed whatever happens.

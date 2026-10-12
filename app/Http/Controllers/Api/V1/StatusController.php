@@ -8,7 +8,10 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Onhost\Domain\Incidents\IncidentService;
 use Onhost\Domain\Incidents\IncidentStateMachine;
+use Onhost\Domain\Incidents\InfrastructureStatus;
+use Onhost\Domain\Incidents\MaintenanceAudience;
 use Onhost\Domain\Incidents\Models\Incident;
+use Onhost\Domain\Incidents\Models\Maintenance;
 use Onhost\Domain\Incidents\Models\SlaCredit;
 use Onhost\Domain\Incidents\Presenters;
 use Onhost\Domain\Incidents\SlaService;
@@ -20,6 +23,33 @@ final class StatusController extends ApiController
     public function status(IncidentService $incidents): JsonResponse
     {
         return response()->json(['data' => $incidents->publicStatus()]);
+    }
+
+    /** W2-6: the public view of the web infrastructure under aliases, each entry with the time of its last measurement; no customer data, no addresses; kept for a minute. */
+    public function infrastructure(InfrastructureStatus $status): JsonResponse
+    {
+        return response()->json(['data' => $status->snapshot()])->header('Cache-Control', 'public, max-age='.InfrastructureStatus::CACHE_SECONDS);
+    }
+
+    /** W2-6: approved or running maintenance windows that touch the calling organization's own services — and only those services are named. */
+    public function maintenance(Request $request): JsonResponse
+    {
+        $organization = $this->api->organization($request);
+        $en = ($organization->locale ?? 'cs') === 'en';
+        $out = [];
+        foreach (Maintenance::query()->whereIn('state', ['approved', 'in_progress'])->where('ends_at', '>=', now())->orderBy('starts_at')->limit(100)->get() as $window) {
+            $own = MaintenanceAudience::services($window, $organization->id);
+            if ($own->isEmpty()) {
+                continue;
+            }
+            $out[] = [
+                'number' => $window->number, 'title' => $window->title, 'text' => $window->textFor($en ? 'en' : 'cs'), 'impact' => $window->impact, 'state' => $window->state,
+                'starts_at' => $window->starts_at->toIso8601String(), 'ends_at' => $window->ends_at->toIso8601String(), 'sla_excluded' => $window->excludesFromSla(),
+                'services' => $own->map(fn ($s) => ['id' => $s->id, 'name' => (string) ($s->hostname ?: ($s->label ?: $s->name))])->values()->all(),
+            ];
+        }
+
+        return response()->json(['data' => $out]);
     }
 
     public function incidents(Request $request, IncidentService $incidents): JsonResponse

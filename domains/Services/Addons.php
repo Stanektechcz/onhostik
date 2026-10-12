@@ -12,6 +12,7 @@ use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\Web\BackupScheduler;
 use Onhost\Domain\Services\Web\ServiceSites;
+use Onhost\Domain\Services\Web\UptimeMonitor;
 use Onhost\Domain\Services\Web\VerifiedRestore;
 use Onhost\Platform\Errors\DomainError;
 
@@ -50,7 +51,7 @@ final class Addons
     /** Add-on products the platform delivers. Anything else is not sellable — see the class comment. */
     public static function handled(): array
     {
-        return ['ipv4', 'backup-plus', 'backup-hourly', 'mail-hosting', 'cdn', LimitRaises::PRODUCT, self::CUSTOM_ISO, VerifiedRestore::ADDON];
+        return ['ipv4', 'backup-plus', 'backup-hourly', 'mail-hosting', 'cdn', LimitRaises::PRODUCT, self::CUSTOM_ISO, VerifiedRestore::ADDON, Oversight::ADDON];
     }
 
     /**
@@ -111,6 +112,9 @@ final class Addons
         if ($addon->product_key === VerifiedRestore::ADDON && ! VerifiedRestore::eligible($parent)) { // W2-4: a site restored into a copy of itself
             throw new DomainError('addon_parent_mismatch', 'Ověřenou obnovu jde koupit jen k webovému hostingu (ne ke stagingu ani k přidruženému webu).', 422, ['addon' => $addon->product_key, 'family' => $parent->family]);
         }
+        if ($addon->product_key === Oversight::ADDON && ! Oversight::eligible($parent)) { // W2-5: the monitor and the checks are about a site of its own
+            throw new DomainError('addon_parent_mismatch', 'Dohled jde koupit jen k webovému hostingu (ne ke stagingu ani k přidruženému webu).', 422, ['addon' => $addon->product_key, 'family' => $parent->family]);
+        }
         $entitlements = (array) $addon->entitlements;
         $patch = $this->patch($parent, (string) $addon->product_key, $entitlements);
         $before = [];
@@ -128,6 +132,11 @@ final class Addons
         $applied = ['patch' => $patch, 'before' => $before, 'backup_policy' => $policy !== null];
         if ($addon->product_key === LimitRaises::PRODUCT) { // a raise adds to whatever the number is; its cancellation takes back exactly this much
             $applied['delta'] = self::raiseDelta($entitlements);
+        }
+        if ($addon->product_key === Oversight::ADDON) { // W2-5: the site is watched; a monitor the service has is used, and only one made here is remembered for the cancellation
+            $monitor = app(UptimeMonitor::class)->ensureForOversight($parent);
+            $applied['monitor_id'] = $monitor['created'] ? $monitor['monitor']->id : null;
+            $applied['monitor_reused'] = $monitor['created'] ? null : $monitor['monitor']->id;
         }
         $addon->forceFill(['tags' => array_replace((array) $addon->tags, ['addon' => $applied])])->save();
         $this->features->forget($parent);
@@ -179,13 +188,19 @@ final class Addons
             $restored[$key] = $was;
         }
         $parent->forceFill(['entitlements' => $entitlements])->save();
+        $monitorRemoved = null;
+        if ($addon->product_key === Oversight::ADDON) { // W2-5: the monitor this add-on made goes with it (never another one), and so do its open alerts
+            $monitorId = (string) ($applied['monitor_id'] ?? '');
+            $monitorRemoved = $monitorId !== '' ? app(UptimeMonitor::class)->removeCreated($parent, $monitorId) : false;
+            app(Oversight::class)->release($parent->fresh() ?? $parent);
+        }
         ServiceSites::spread($parent); // and what it took back leaves the carried sites with it
         $policy = false;
         if (($applied['backup_policy'] ?? false) === true) {
             // back to the schedule the parent's own plan sells (BackupScheduler falls back to the feature's options)
             $policy = (bool) BackupPolicy::query()->where('service_id', $parent->id)->where('product_key', $addon->product_key)->delete();
         }
-        $addon->forceFill(['tags' => array_replace((array) $addon->tags, ['addon' => array_replace($applied, ['revoked_at' => now()->toIso8601String(), 'restored' => $restored, 'kept' => $kept])])])->save();
+        $addon->forceFill(['tags' => array_replace((array) $addon->tags, ['addon' => array_replace($applied, ['revoked_at' => now()->toIso8601String(), 'restored' => $restored, 'kept' => $kept] + ($monitorRemoved !== null ? ['monitor_removed' => $monitorRemoved] : []))])])->save();
         $this->features->forget($parent);
 
         return ['restored' => $restored, 'kept' => $kept, 'backup_policy' => $policy];
@@ -254,6 +269,8 @@ final class Addons
             ],
             // W2-4: the cadence of the verified restores (RestoreTest::tick asks VerifiedRestore::due); the plan's word, monthly when it says none
             VerifiedRestore::ADDON => [VerifiedRestore::ENTITLEMENT => array_key_exists((string) ($ent[VerifiedRestore::ENTITLEMENT] ?? ''), VerifiedRestore::CADENCE_DAYS) ? (string) $ent[VerifiedRestore::ENTITLEMENT] : 'monthly'],
+            // W2-5: the switch the monthly report, the hourly look and the monitor read
+            Oversight::ADDON => [Oversight::ENTITLEMENT => true],
             default => [], // the backup add-ons deliver through the policy, not through the parent's entitlements
         };
     }

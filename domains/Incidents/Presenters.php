@@ -37,7 +37,7 @@ final class Presenters
     public static function maintenance(Maintenance $m): array
     {
         return [
-            'id' => $m->id, 'number' => $m->number, 'title' => $m->title, 'components' => $m->components, 'affected_services' => $m->affected_services, 'starts_at' => $m->starts_at->toIso8601String(), 'ends_at' => $m->ends_at->toIso8601String(),
+            'id' => $m->id, 'number' => $m->number, 'title' => $m->title, 'components' => $m->components, 'affected_services' => $m->affected_services, 'affected_nodes' => $m->affected_nodes, 'affected_families' => $m->affected_families, 'texts' => $m->texts, 'reminded_at' => $m->reminded_at?->toIso8601String(), 'starts_at' => $m->starts_at->toIso8601String(), 'ends_at' => $m->ends_at->toIso8601String(),
             'impact' => $m->impact, 'rollback' => $m->rollback, 'owner_id' => $m->owner_id, 'approved_by' => $m->approved_by, 'change_ticket' => $m->change_ticket, 'sla_treatment' => $m->sla_treatment, 'state' => $m->state,
             'started_at' => $m->started_at?->toIso8601String(), 'completed_at' => $m->completed_at?->toIso8601String(),
             'emergency' => (bool) $m->emergency, 'announced_at' => $m->announced_at?->toIso8601String(), 'lead_hours' => Maintenance::leadHours(), 'sla_excluded' => $m->excludesFromSla(),

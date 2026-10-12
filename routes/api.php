@@ -105,6 +105,7 @@ Route::middleware('throttle:public')->group(function (): void {
 
     // status page (`/stav`), DSA abuse notice form, external probe ingest
     Route::get('status', [StatusController::class, 'status']);
+    Route::get('status/infrastructure', [StatusController::class, 'infrastructure']); // W2-6: web nodes under aliases, state from the last measurement (stale = not verified), maintenance; cached 60 s
     Route::get('status/org/{slug}', [OrganizationStatusController::class, 'show']); // the organization's own status page (audit §5j-5)
     Route::get('status/host-check', [OrganizationStatusController::class, 'hostAllowed']); // on-demand TLS ask for the customers' status hosts (audit §5k-3)
     Route::post('probes/capacity/{capacityRequest}/ready', [CapacityController::class, 'ready'])->withoutMiddleware('throttle:public')->middleware('throttle:probes'); // a vendor node's bootstrap reports back (audit §5o-7)
@@ -137,6 +138,7 @@ Route::middleware('throttle:public')->group(function (): void {
 Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'throttle:api', 'idempotency'])->group(function (): void { // token.scope: a bearer token reaches only the route families its scopes name
     Route::get('me', [AuthController::class, 'me']);
     Route::get('my/incidents', [StatusController::class, 'mine']);
+    Route::get('my/maintenance', [StatusController::class, 'maintenance']); // W2-6: planned maintenance that touches the organization's own services
     Route::get('sla-credits', [StatusController::class, 'credits']);
     Route::get('abuse-cases', [ComplianceController::class, 'abuseCases']);
     Route::post('abuse-cases/{case}/appeal', [ComplianceController::class, 'appeal']);

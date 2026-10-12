@@ -120,6 +120,40 @@ final class UptimeMonitor
         return Monitor::query()->create(['service_id' => $service->id, 'organization_id' => $service->organization_id, 'url' => 'https://'.$this->siteDomain($service).'/', 'interval_seconds' => 300, 'expected_status' => 200, 'timeout_seconds' => 10, 'enabled' => true, 'notify' => true, 'state' => 'pending', 'consecutive_failures' => 0, 'next_check_at' => now()]);
     }
 
+    /**
+     * W2-5 "Dohled": the add-on watches the site's address. A monitor the service already has is reused as it is (the customer's
+     * own settings stay); only when there is none one is made — on the main address, the way `ensureDefault` makes it, but also
+     * for a customer who removed the default earlier (they have now paid for being watched). Says whether this call made it.
+     *
+     * @return array{monitor:Monitor, created:bool}
+     */
+    public function ensureForOversight(Service $service): array
+    {
+        $existing = Monitor::query()->where('service_id', $service->id)->orderBy('created_at')->first();
+        if ($existing !== null) {
+            return ['monitor' => $existing, 'created' => false];
+        }
+        $monitor = Monitor::query()->create(['service_id' => $service->id, 'organization_id' => $service->organization_id, 'url' => 'https://'.$this->siteDomain($service).'/', 'interval_seconds' => 300, 'expected_status' => 200, 'timeout_seconds' => 10, 'enabled' => true, 'notify' => true, 'state' => 'pending', 'consecutive_failures' => 0, 'next_check_at' => now()]);
+        $this->audit->record(CommandContext::system('oversight')->withScope($service->organization_id), 'service.monitoring.configure', 'succeeded', ['monitor_id' => $monitor->id, 'url' => $monitor->url, 'by' => 'oversight add-on'], 'service', $service->id);
+
+        return ['monitor' => $monitor, 'created' => true];
+    }
+
+    /** W2-5: takes back the one monitor the add-on made (never another one the service has). True when it was still there. */
+    public function removeCreated(Service $service, string $monitorId): bool
+    {
+        $monitor = Monitor::query()->where('service_id', $service->id)->find($monitorId);
+        if ($monitor === null) {
+            return false;
+        }
+        UptimeSample::query()->where('monitor_id', $monitor->id)->delete();
+        UptimeIncident::query()->where('monitor_id', $monitor->id)->delete();
+        $monitor->delete();
+        $this->audit->record(CommandContext::system('oversight')->withScope($service->organization_id), 'service.monitoring.delete', 'succeeded', ['monitor_id' => $monitorId, 'by' => 'oversight add-on ended'], 'service', $service->id);
+
+        return true;
+    }
+
     /** Run the checks that are due; returns how many ran. */
     public function checkDue(int $limit = 200): int
     {

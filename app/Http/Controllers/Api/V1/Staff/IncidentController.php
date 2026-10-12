@@ -114,7 +114,9 @@ final class IncidentController extends ApiController
     public function scheduleMaintenance(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'title' => ['required', 'string', 'max:250'], 'components' => ['required', 'array', 'min:1'], 'components.*' => ['string', 'max:40'], 'starts_at' => ['required', 'date'], 'ends_at' => ['required', 'date', 'after:starts_at'],
+            'title' => ['required', 'string', 'max:250'], 'components' => ['required_without_all:affected_nodes,affected_families', 'array'], 'components.*' => ['string', 'max:40'],
+            'affected_nodes' => ['nullable', 'array', 'max:50'], 'affected_nodes.*' => ['string', 'max:40'], 'affected_families' => ['nullable', 'array', 'max:10'], 'affected_families.*' => ['string', 'max:20'],
+            'text_cs' => ['nullable', 'string', 'max:2000'], 'text_en' => ['nullable', 'string', 'max:2000'], 'starts_at' => ['required', 'date'], 'ends_at' => ['required', 'date', 'after:starts_at'],
             'impact' => ['nullable', 'string', 'max:2000'], 'rollback' => ['required', 'string', 'max:4000'], 'affected_services' => ['nullable', 'array'], 'affected_services.*' => ['string'], 'change_ticket' => ['nullable', 'string', 'max:40'],
             'sla_treatment' => ['nullable', 'in:excluded,counted'], 'emergency' => ['nullable', 'boolean'],
         ]);

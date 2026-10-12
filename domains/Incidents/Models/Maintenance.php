@@ -15,6 +15,10 @@ use Onhost\Platform\Eloquent\Model;
  * @property string $title
  * @property list<string> $components
  * @property ?list<string> $affected_services
+ * @property ?list<string> $affected_nodes
+ * @property ?list<string> $affected_families
+ * @property ?array{cs?:string,en?:string} $texts
+ * @property ?Carbon $reminded_at
  * @property Carbon $starts_at
  * @property Carbon $ends_at
  * @property ?string $impact
@@ -40,7 +44,7 @@ final class Maintenance extends Model
     protected function casts(): array
     {
         return [
-            'components' => 'array', 'affected_services' => 'array',
+            'components' => 'array', 'affected_services' => 'array', 'affected_nodes' => 'array', 'affected_families' => 'array', 'texts' => 'array', 'reminded_at' => 'datetime',
             'starts_at' => 'datetime', 'ends_at' => 'datetime', 'started_at' => 'datetime', 'completed_at' => 'datetime', 'announced_at' => 'datetime', 'emergency' => 'boolean',
         ];
     }
@@ -63,6 +67,20 @@ final class Maintenance extends Model
     public static function leadHours(): int
     {
         return max(0, (int) config('onhost.status.maintenance_lead_hours', 48));
+    }
+
+    /** W2-6: the window names whom it touches (service ids, nodes or service families); without it only the status components say what it is about. */
+    public function isTargeted(): bool
+    {
+        return (array) $this->affected_services !== [] || (array) $this->affected_nodes !== [] || (array) $this->affected_families !== [];
+    }
+
+    /** The text the customer reads, in their language (falls back to the other one, then to nothing). */
+    public function textFor(string $locale): string
+    {
+        $texts = (array) $this->texts;
+
+        return trim((string) ($texts[$locale === 'en' ? 'en' : 'cs'] ?? $texts[$locale === 'en' ? 'cs' : 'en'] ?? ''));
     }
 
     public function isActiveAt(\DateTimeInterface $at): bool

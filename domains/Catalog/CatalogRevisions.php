@@ -112,6 +112,14 @@ final class CatalogRevisions
             'products' => [],
             'create' => ['verified-restore'],
         ],
+        // W2-5: the oversight add-on, created as a DRAFT with a zero price (`admin_priced`) like the verified restore: staff price the plan and put it on sale.
+        '2026-10-oversight' => [
+            'reason' => 'W2-5: doplněk Dohled (sledování dostupnosti webu, podrobný rozpis bezpečnostních kontrol v měsíčním přehledu, upozornění našich techniků, když se některé zjištění zhorší) — založen jako koncept bez ceny; cenu a zařazení do prodeje určí administrace.',
+            'plans' => [],
+            'rewrite' => [],
+            'products' => [],
+            'create' => ['oversight'],
+        ],
         '2026-09-honest-promises' => [
             'reason' => 'Rozhodnutí vlastníka 2/4/6/18 (2026-09-25): PITR, počet spojení, dedikovaná odchozí IP a dedikovaná databáze se neposkytují a interval záloh „1h“ se opravuje na „hourly“ — nové verze bez nich, ceny beze změny, stávající smlouvy beze změny.',
             'plans' => [
@@ -210,6 +218,22 @@ final class CatalogRevisions
                     'name' => ['cs' => 'Ověřená obnova čtvrtletně', 'en' => 'Verified restore quarterly'], 'sla_class' => 'standard', 'highlighted' => false,
                     'entitlements' => ['verified_restore' => 'quarterly'],
                     'features' => ['cs' => ['Obnova do oddělené kopie jednou za čtvrtletí', 'Kontrola databáze a odpovědi webu', 'RPO a RTO v protokolu (PDF)'], 'en' => ['A restore into a separate copy once a quarter', 'Database and site answer checked', 'RPO and RTO in the protocol (PDF)']],
+                    'periods' => ['month', 'year'],
+                ],
+            ],
+        ],
+        // W2-5 "Dohled": an add-on of a web hosting (Addons: `oversight` on the parent, the monitor it made taken back on cancellation). No price here:
+        // created at zero, priced and published by staff (`admin_priced`). It reports what it finds; it promises nothing about what will happen.
+        'oversight' => [
+            'family' => 'addon', 'executor' => null, 'billing_model' => 'subscription', 'sort' => 207, 'state' => 'draft',
+            'name' => ['cs' => 'Dohled', 'en' => 'Oversight'],
+            'description' => ['cs' => 'Zapneme sledování dostupnosti webu (pokud ho nemá), do měsíčního přehledu přidáme podrobný rozpis bezpečnostních kontrol a když se některé zjištění zhorší, dáme vědět vám i našim technikům. Dohled hlásí, co zjistí a kdy; nic neslibuje o tom, co se stane.', 'en' => 'We switch on uptime monitoring of the site (if it has none), add a detailed list of the security controls to the monthly report and, when a finding turns bad, tell you and our technicians. Oversight reports what it finds and when; it promises nothing about what will happen.'],
+            'meta' => ['admin_priced' => true, 'ordered_for_service' => true],
+            'plans' => [
+                'oversight-monthly' => [
+                    'name' => ['cs' => 'Dohled', 'en' => 'Oversight'], 'sla_class' => 'standard', 'highlighted' => true,
+                    'entitlements' => ['oversight' => true],
+                    'features' => ['cs' => ['Sledování dostupnosti webu', 'Podrobný rozpis kontrol v měsíčním přehledu', 'Upozornění vám i našim technikům, když se zjištění zhorší'], 'en' => ['Uptime monitoring of the site', 'A detailed list of controls in the monthly report', 'A notice to you and our technicians when a finding turns bad']],
                     'periods' => ['month', 'year'],
                 ],
             ],
