@@ -527,6 +527,7 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
         Route::get('payments/bank', [PaymentsController::class, 'bank']);
         Route::post('payments/bank/lines', [PaymentsController::class, 'recordBankLine']);
         Route::post('payments/bank/sync', [PaymentsController::class, 'syncBank']);
+        Route::post('payments/bank/statements', [PaymentsController::class, 'importBankStatement']); // J-R7 (M3): a statement file of Česká spořitelna
         Route::get('payments/comgate', [ComgateController::class, 'show']); // H-R8: credentials present?, mode, last check — never a secret
         Route::post('payments/comgate/check', [ComgateController::class, 'check']); // connection | 1 Kč test payment (step-up)
         Route::put('payments/comgate/test-mode', [ComgateController::class, 'setTestMode']); // four eyes

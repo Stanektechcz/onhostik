@@ -570,7 +570,9 @@ final class Doctor extends Command
         $this->add('payments', 'stored cards for automatic top-ups', app(AutoTopup::class)->supported(), app(AutoTopup::class)->supported() ? 'a gateway charges stored methods (recurring)' : 'no gateway charges stored methods — automatic top-ups only notify (COMGATE_MERCHANT + COMGATE_RECURRING)', false);
         $bank = (array) config('onhost.payments.bank');
         $this->add('payments', 'bank account for transfers', ($bank['iban'] ?? '') !== '' && ($bank['account_number'] ?? '') !== '', 'ONHOST_BANK_IBAN / ONHOST_BANK_ACCOUNT printed on proformas and top-up instructions');
-        $this->add('payments', 'bank statement import', ($bank['fio_token'] ?? '') !== '', ($bank['fio_token'] ?? '') !== '' ? 'Fio API token set — onhost:bank:sync runs every 5 minutes' : 'ONHOST_BANK_FIO_TOKEN missing — transfers must be recorded by hand in Nastavení → Bankovní platby');
+        // J-R7 (M3): without a Fio token the statement file of Česká spořitelna is imported in the console — not a missing piece any more
+        $this->add('payments', 'bank statement import', true, (($bank['fio_token'] ?? '') !== '' ? 'Fio API token set — onhost:bank:sync runs every 5 minutes' : 'no Fio API token')
+            .'; a statement file from Česká spořitelna (camt.053 or ABO/GPC) is imported in Nastavení → Bankovní platby, unmatched lines are assigned there by hand', false);
     }
 
     private function documents(): void
