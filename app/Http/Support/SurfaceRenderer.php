@@ -684,7 +684,8 @@ HTML;
             $html = self::checkoutCopySeams($html); // M2 (K7-4/5, J-R9): card only with a gateway, VAT words by the VAT mode, no top-up bonus, server-only button
             $html = self::legalClaimSeams($html); // TASK-0142: no promise the legal documents do not make (money-back, badges, bonus)
             $html = self::publicClaimSeams($html); // L-03 (TASK-0146): no factual claim the operator cannot document
-            $rows = ServicePageClaimsSeam::documentRowSwaps(); // L3 (M1): a document row of a service page opens its document
+            // L3 (M1): a document row of a service page opens its document; N1: the shared FAQ lead and closing block say what the VOP say
+            $rows = ServicePageClaimsSeam::documentRowSwaps() + ServicePageClaimsSeam::pageCopySwaps();
             $html = self::swap(array_keys($rows), array_values($rows), $html);
             $pricing = PricingPageSeam::swaps(); // K7-2 (L2): #/ceny — table and yearly price from the catalogue, honest FAQ, real cart line
             $html = self::swap(array_keys($pricing), array_values($pricing), $html);

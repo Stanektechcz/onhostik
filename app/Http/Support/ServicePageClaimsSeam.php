@@ -16,9 +16,25 @@ namespace App\Http\Support;
  * `onhost-svc-web.js` (SurfaceController). Each needle must land exactly once (`ServicePageClaimsTest` pins it against the
  * prototype, so a redesigned script cannot silently bring a figure back). A withdrawn figure is removed, never replaced by another
  * number: a KPI or a spec row disappears, a comparison chart of PUE keeps only an honest note, a sentence loses its number.
+ *
+ * N1 (phase N, the rest of the unsupported figures): the compute pages' SLA band (99,99 % "network and power uptime", a P1 response
+ * "< 15 min", credits "converted automatically"), the VPS "root in 55 s", "0 % CPU oversubscription" and "99,99 % uptime in 2025",
+ * the managed-server page's 15- and 60-minute responses, "SLA 99,99 % with credits" and its "measured" 15-minute median, and on every
+ * service page of Onhost.dc.html a chat engineer "within ten minutes" and a 14-day trial "without a card" (`pageCopySwaps`). Where a
+ * figure is replaced, the replacement is what a document in force says: SLA 2026-09 (resources/legal/sla.md čl. 2 and 4 — Standard
+ * 99,9 % with a response within 4 hours, Business 99,95 % within 1 hour, compensation claimed in the panel and credited) and the VOP
+ * (resources/legal/terms.md čl. 2 bod 2, čl. 5 bod 3 and čl. 8 bod 1 — paid in advance for a month or a year, notice for the end of
+ * the prepaid period, a consumer withdraws within 14 days). The 99,99 % class of SLA 2026-09 is "by individual contract", never a
+ * plan's promise.
  */
 final class ServicePageClaimsSeam
 {
+    /** N1: the SLA band of the compute pages, as the corporate pages' band says it since L3 / M1 (SLA 2026-09, čl. 2). */
+    private const SLA_BAND_NEW = "    lead: _('Smluvní SLA: dostupnost, reakce na incident a kompenzace podle třídy služby, jak je uvádí dokument SLA v platnosti.', 'A contractual SLA: availability, incident response and compensation by service class, as the SLA in force states them.'),\n    rows: [\n      { k: '99,9 %', v: _('měsíční dostupnost (Standard, SLA)', 'monthly availability (Standard, SLA)') },\n      { k: '4 h', v: _('reakce na incident (Standard)', 'incident response (Standard)') },\n";
+
+    /** N1: a managed-server plan answers an incident within the time its SLA class sets (SLA 2026-09, čl. 2). */
+    private const RESPONSE_PER_SLA = "_('Reakce na incident podle SLA', 'Incident response per the SLA')";
+
     private const PUE_NOTE_CS = 'Účinnost (PUE) zveřejníme, až ji doložíme měřením.';
 
     private const PUE_NOTE_EN = 'We will publish efficiency (PUE) once it is backed by measurement.';
@@ -154,6 +170,22 @@ LEGAL_PAGE_NEW;
                 "kpis: [['1,18', 'PUE'], ['2N', _('napájení a UPS', 'power and UPS')], ['62 %', _('energie z obnovitelných zdrojů', 'energy from renewables')]]," => "kpis: [['2N', _('napájení a UPS', 'power and UPS')]],",
                 "        { label: _('Onhost Praha (BESS + obnovitelné)', 'Onhost Prague (BESS + renewables)'), pct: 100, note: 'PUE 1,18' },\n        { label: _('Průměrné evropské datacentrum', 'Average European data centre'), pct: 62, note: 'PUE 1,55' },\n        { label: _('Vlastní serverovna ve firmě', 'In-house company server room'), pct: 32, note: 'PUE 2,4' }\n" => '',
                 "benchNote: _('PUE měřené za 12 měsíců včetně chlazení a rozvodů; nižší je lepší, sloupec ukazuje účinnost.', 'PUE measured over 12 months including cooling and distribution; lower is better, the bar shows efficiency.')," => $pueNote,
+                // N1: the SLA band of every compute page — 99,99 % and "< 15 min" are not the SLA in force, and a credit is claimed in
+                // the panel (SLA 2026-09 čl. 4), not converted automatically; the spare-hardware promise goes with the sentence
+                "    lead: _('Každá minuta nad limit se přepočítá na kredit automaticky. Hardware držíme v rezervě, takže výměna disku neznamená výpadek služby.', 'Every minute over the limit converts to credit automatically. We keep spare hardware, so a disk swap does not mean an outage.'),\n    rows: [\n      { k: '99,99 %', v: _('dostupnost sítě a napájení', 'network and power uptime') },\n      { k: '< 15 min', v: _('reakce na incident P1', 'P1 incident response') },\n" => self::SLA_BAND_NEW,
+                // N1: VPS — "root in 55 s", "0 % CPU oversubscription" and "99,99 % uptime in 2025" were never measured
+                "kicker: _('AMD EPYC · NVMe · root do 55 s', 'AMD EPYC · NVMe · root in 55 s')," => "kicker: _('AMD EPYC · NVMe', 'AMD EPYC · NVMe'),",
+                "kpis: [['55 s', _('od objednávky k rootu', 'from order to root')], ['0 %', _('přeprodej CPU', 'CPU oversubscription')], ['99,99 %', _('dostupnost 2025', 'uptime in 2025')]]," => 'kpis: [],',
+            ],
+            'onhost-svc-dev.js' => [
+                // N1: managed servers — no 15- or 60-minute response, no 99,99 % and no measured median: the SLA class decides
+                "kpis: [['15 min', _('reakce na incident 24/7', 'incident response, 24/7')], ['99,99 %', _('dostupnost s kreditem', 'uptime, credited')], [_('0 zásahů', 'zero touches'), _('měsíčně na vaší straně', 'a month on your side')]]," => "kpis: [[_('0 zásahů', 'zero touches'), _('měsíčně na vaší straně', 'a month on your side')]],",
+                "_('Reakce do 60 minut', '60-minute response')" => self::RESPONSE_PER_SLA,
+                "_('Reakce do 15 minut', '15-minute response'), _('SLA 99,99 % s kreditem', '99.99% SLA with credits')" => self::RESPONSE_PER_SLA.", _('SLA s kompenzací kreditem', 'SLA with compensation as credit')",
+                "[_('Reakce', 'Response'), '60 min', '15 min', _('podle smlouvy', 'per contract')]," => "[_('Reakce', 'Response'), _('podle SLA', 'per the SLA'), _('podle SLA', 'per the SLA'), _('podle smlouvy', 'per contract')],",
+                "['SLA', '99,9 %', '99,99 %', _('na míru', 'bespoke')]" => "['SLA', '99,9 %', _('podle třídy služby', 'by service class'), _('na míru', 'bespoke')]",
+                "        { label: _('Onhost — reakce na P1', 'Onhost — P1 response'), pct: 100, note: '15 min' },\n        { label: _('Externí správce (typicky)', 'External admin (typical)'), pct: 25, note: '~2 h' },\n        { label: _('Vlastní admin na telefonu', 'In-house admin on call'), pct: 45, note: '~45 min' }\n" => '',
+                "benchNote: _('Medián doby od alertu k prvnímu zásahu člověka, 12měsíční okno.', 'Median time from alert to first human action, 12-month window.')," => "benchNote: _('Dobu reakce na incident stanoví SLA podle třídy služby: Standard do 4 hodin, Business do 1 hodiny.', 'The SLA sets the incident response by service class: Standard within 4 hours, Business within 1 hour.'),",
             ],
             'onhost-svc-corp.js' => [
                 // the SLA band: the share of renewables (K8b); then (L3 / M1) what the SLA in force says — 99,9 % and a 4-hour incident
@@ -211,6 +243,23 @@ LEGAL_PAGE_NEW;
     {
         return [
             "        openLabel: cs ? 'Otevřít' : 'Open', pdfLabel: cs ? 'PDF' : 'PDF',\n        on: (e) => { if (e && e.preventDefault) e.preventDefault(); }\n" => "        openLabel: cs ? 'Otevřít' : 'Open', pdfLabel: cs ? 'PDF' : 'PDF',\n        on: (e) => { if (e && e.preventDefault) e.preventDefault(); if (d[5]) window.location.assign(d[5]); }\n",
+        ];
+    }
+
+    /**
+     * N1: the copy every service page of `Onhost.dc.html` shares. The FAQ lead sent people to a chat where "an engineer replies within
+     * ten minutes" (the only chat is the assistant; no reply time is documented) and the closing block promised "14 days, no card,
+     * no commitment … cancel in one click and pay nothing" (there is no trial: services are paid in advance for a month or a year,
+     * VOP čl. 2 bod 2). Only the defaults change: a page that brings its own `endTitle` / `endLead` keeps them.
+     *
+     * @return array<string, string> needle => replacement in the public surface
+     */
+    public static function pageCopySwaps(): array
+    {
+        return [
+            "      faqLead: cs ? 'Nenašli jste odpověď? Napište na chat, technik odpovídá do deseti minut.' : 'No answer here? Ping the chat — an engineer replies within ten minutes.',\n" => "      faqLead: cs ? 'Nenašli jste odpověď? Napište nám přes zákaznický panel nebo e-mailem.' : 'No answer here? Write to us through the customer panel or by e-mail.',\n",
+            "      endTitle: p.endTitle || (cs ? 'Zkuste to 14 dní. Bez karty, bez závazku.' : 'Try it for 14 days. No card, no commitment.'),\n" => "      endTitle: p.endTitle || (cs ? 'Měsíčně nebo ročně, výpověď ke konci období.' : 'Monthly or yearly, notice for the end of the period.'),\n",
+            "      endLead: p.endLead || (cs ? 'Když to nesedne, zrušíte to jedním klikem a nic neplatíte. Migraci uděláme za vás.' : 'If it does not fit, cancel in one click and pay nothing. We handle the migration.')\n" => "      endLead: p.endLead || (cs ? 'Spotřebitel může od smlouvy odstoupit do 14 dnů podle VOP. S přechodem z jiného hostingu pomůžeme, termín domluvíme předem.' : 'A consumer may withdraw from the contract within 14 days under the terms. We help you move from another host; the timing is agreed in advance.')\n",
         ];
     }
 

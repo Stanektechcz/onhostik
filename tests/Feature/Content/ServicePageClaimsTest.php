@@ -58,7 +58,8 @@ it('keeps the prototype copy in demo mode and leaves the prototype files untouch
 
     expect($served)->toContain('2,4 GWh')->toContain('PUE 1,18');
     // the prototypes stay byte-identical (the seam works on the served copy only)
-    expect(trim((string) shell_exec('git -C '.escapeshellarg(base_path()).' status --porcelain -- apps/surfaces')))->toBe('');
+    // (the API bridges under apps/surfaces/api are code, not prototypes)
+    expect(trim((string) shell_exec('git -C '.escapeshellarg(base_path()).' status --porcelain -- apps/surfaces '.escapeshellarg(':(exclude)apps/surfaces/api').' 2>&1')))->toBe('');
 });
 
 it('says honestly that PUE is not published yet instead of drawing an empty chart without a word', function () {
