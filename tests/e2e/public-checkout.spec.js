@@ -58,7 +58,7 @@ test('catalogue → cart → guest checkout → confirmation shows the server qu
   const consent = page.locator('input[type=checkbox]').last();
   if (!(await consent.isChecked())) await consent.check();
   const placed = page.waitForResponse((r) => r.url().includes('/v1/checkout/guest') && r.request().method() === 'POST');
-  await page.getByRole('button', { name: 'Zaplatit a spustit server' }).click();
+  await page.getByRole('button', { name: 'Zaplatit objednávku' }).click(); // M2 (K7-5): a web hosting order promises no server start
   const order = await (await placed).json();
   const totalMinor = order.total && typeof order.total === 'object' ? order.total.minor : Number(order.total);
   expect(order.number).toMatch(/^OH-\d{4}-\d+$/);
