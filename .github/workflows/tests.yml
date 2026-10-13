@@ -215,6 +215,11 @@ jobs:
       - name: Deployer end to end (A → B → A)
         run: PHP_BIN="$(command -v php)" COMPOSER_BIN="$(command -v composer)" bash infra/aapanel/ci/deploy-e2e.sh "$RUNNER_TEMP/deploy-e2e"
 
+      # Q4 (TASK-0190, P-R78): the staging spec of the deployer accepts the token switch on, off or unset (ST-6) and nothing else —
+      # the real write_expected_env of staging.sh against a staging-like app.env, held by the real deploy-gate.php env-assert
+      - name: Deployer spec accepts the operator switches (expected-env)
+        run: PHP_BIN="$(command -v php)" bash infra/aapanel/ci/expected-env-switches.sh "$RUNNER_TEMP/expected-env"
+
       # J2 (TASK-0154): provision-node.sh for real on this throw-away runner, as staging Path A runs it (shared host, Caddy on
       # loopback with local_certs, no docker group): the second run must report 0 changes and the user must stay out of docker
       - name: Penpot node provisioning, real run twice (idempotence)

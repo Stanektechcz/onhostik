@@ -698,6 +698,19 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
     // `server_session_<hash>` on every site it protects (staging 2026-10-13, B1); set false only on a host whose WAF cookie is off.
     'privacy' => ['hosting_waf_cookie' => true],
 
+    // P11 (P-R74, HS-1): Strict-Transport-Security is sent by the application only, as configured here (the aaPanel vhost's own
+    // header is switched off by the owner, docs/runbooks/hsts.md). `includeSubDomains` stays off until every subdomain of the
+    // apex has valid TLS; `preload` is sent only together with includeSubDomains and a max-age of at least one year (the preload
+    // list refuses anything else) and is a hard-to-undo commitment. The doctor row "HSTS is sent once and as configured" checks it.
+    'security' => [
+        'hsts' => [
+            'enabled' => (bool) env('ONHOST_HSTS_ENABLED', true),
+            'max_age' => (int) env('ONHOST_HSTS_MAX_AGE', 31536000),
+            'include_subdomains' => (bool) env('ONHOST_HSTS_INCLUDE_SUBDOMAINS', false),
+            'preload' => (bool) env('ONHOST_HSTS_PRELOAD', false),
+        ],
+    ],
+
     'content' => [
         'changelog_year' => 2026,
         // I-R18 (TASK-0149): customer references live in the database (content_references), edited in Nastavení → Blog a reference

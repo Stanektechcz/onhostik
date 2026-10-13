@@ -227,6 +227,8 @@ final class CatalogSeeder extends Seeder
     /**
      * Priced options of the web products: per-item add-ons of the fixed plans (extras on top of the plan) and the parameters
      * of the configurator product (absolute values, the base plan covers the minimum). Unit prices are what staff edit.
+     * No "priority support" (10-minute response, 24/7: support is Mon–Fri 8–17, P-R37) and no "WAF + CDN" (anycast cache: no CDN,
+     * H-R2/P-R46) — withdrawn by P-R76, a running catalogue loses them through migration 001180.
      */
     private function webOptions(): void
     {
@@ -237,20 +239,15 @@ final class CatalogSeeder extends Seeder
                 ['databases', 'slider', ['cs' => 'Databáze navíc', 'en' => 'Extra databases'], ['cs' => 'MariaDB databáze nad rámec tarifu', 'en' => 'MariaDB databases beyond the plan'], 'ks', 0, 20, 1, 0, ['CZK' => 1900, 'EUR' => 79], null],
                 ['staging', 'addon', ['cs' => 'Staging prostředí', 'en' => 'Staging environment'], ['cs' => 'kopie webu na testovací adrese', 'en' => 'a copy of the site on a test address'], null, null, null, null, null, ['CZK' => 4900, 'EUR' => 199], ['key' => 'staging', 'value' => true]],
                 ['ssh', 'addon', ['cs' => 'SSH a WP-CLI', 'en' => 'SSH and WP-CLI'], ['cs' => 'shell přístup k webu', 'en' => 'shell access to the site'], null, null, null, null, null, ['CZK' => 2900, 'EUR' => 119], ['key' => 'ssh', 'value' => true]],
-                ['waf_cdn', 'addon', ['cs' => 'WAF + CDN', 'en' => 'WAF + CDN'], ['cs' => 'firewall aplikací a anycast cache', 'en' => 'application firewall and anycast cache'], null, null, null, null, null, ['CZK' => 9900, 'EUR' => 399], ['key' => 'waf', 'value' => 'pro + CDN']],
                 ['dedicated_ipv4', 'addon', ['cs' => 'Dedikovaná IPv4', 'en' => 'Dedicated IPv4'], ['cs' => 'vlastní adresa pro TLS nebo mail', 'en' => 'your own address for TLS or mail'], null, null, null, null, null, ['CZK' => 4900, 'EUR' => 199], ['key' => 'ipv4', 'value' => 1]],
-                ['priority_support', 'addon', ['cs' => 'Prioritní podpora', 'en' => 'Priority support'], ['cs' => 'reakce do 10 minut, 24/7', 'en' => '10-minute response, 24/7'], null, null, null, null, null, ['CZK' => 14900, 'EUR' => 599], ['key' => 'support', 'value' => 'priority 10 min']],
             ],
             'wordpress' => [
                 ['nvme_gb', 'slider', ['cs' => 'Prostor navíc', 'en' => 'Extra storage'], ['cs' => 'NVMe nad rámec tarifu', 'en' => 'NVMe beyond the plan'], 'GB', 0, 500, 10, 0, ['CZK' => 300, 'EUR' => 12], null],
                 ['dedicated_ipv4', 'addon', ['cs' => 'Dedikovaná IPv4', 'en' => 'Dedicated IPv4'], ['cs' => 'vlastní adresa pro TLS nebo mail', 'en' => 'your own address for TLS or mail'], null, null, null, null, null, ['CZK' => 4900, 'EUR' => 199], ['key' => 'ipv4', 'value' => 1]],
-                ['waf_cdn', 'addon', ['cs' => 'WAF + CDN', 'en' => 'WAF + CDN'], ['cs' => 'firewall aplikací a anycast cache', 'en' => 'application firewall and anycast cache'], null, null, null, null, null, ['CZK' => 9900, 'EUR' => 399], ['key' => 'waf', 'value' => 'pro + CDN']],
-                ['priority_support', 'addon', ['cs' => 'Prioritní podpora', 'en' => 'Priority support'], ['cs' => 'reakce do 10 minut, 24/7', 'en' => '10-minute response, 24/7'], null, null, null, null, null, ['CZK' => 14900, 'EUR' => 599], ['key' => 'support', 'value' => 'priority 10 min']],
             ],
             'eshop' => [
                 ['nvme_gb', 'slider', ['cs' => 'Prostor navíc', 'en' => 'Extra storage'], ['cs' => 'NVMe nad rámec tarifu', 'en' => 'NVMe beyond the plan'], 'GB', 0, 1000, 10, 0, ['CZK' => 300, 'EUR' => 12], null],
                 ['dedicated_ipv4', 'addon', ['cs' => 'Dedikovaná IPv4', 'en' => 'Dedicated IPv4'], ['cs' => 'vlastní adresa pro TLS nebo platební bránu', 'en' => 'your own address for TLS or the payment gateway'], null, null, null, null, null, ['CZK' => 4900, 'EUR' => 199], ['key' => 'ipv4', 'value' => 1]],
-                ['priority_support', 'addon', ['cs' => 'Prioritní podpora', 'en' => 'Priority support'], ['cs' => 'reakce do 10 minut, 24/7', 'en' => '10-minute response, 24/7'], null, null, null, null, null, ['CZK' => 14900, 'EUR' => 599], ['key' => 'support', 'value' => 'priority 10 min']],
             ],
             'web-custom' => [
                 ['sites', 'slider', ['cs' => 'Weby', 'en' => 'Sites'], ['cs' => 'domény a weby v jednom účtu', 'en' => 'domains and sites in one account'], 'ks', 1, 50, 1, 1, ['CZK' => 2900, 'EUR' => 119], ['key' => 'sites', 'mode' => 'absolute']],
@@ -260,9 +257,7 @@ final class CatalogSeeder extends Seeder
                 ['backup_days', 'select', ['cs' => 'Zálohy', 'en' => 'Backups'], ['cs' => 'denní snapshoty souborů i databází', 'en' => 'daily file and database snapshots'], null, null, null, null, null, ['CZK' => 3900, 'EUR' => 159], ['key' => 'backup_days', 'values' => ['backup-7' => 7, 'backup-30' => 30, 'backup-90' => 90]]],
                 ['staging', 'addon', ['cs' => 'Staging prostředí', 'en' => 'Staging environment'], ['cs' => 'kopie webu na testovací adrese', 'en' => 'a copy of the site on a test address'], null, null, null, null, null, ['CZK' => 4900, 'EUR' => 199], ['key' => 'staging', 'value' => true]],
                 ['ssh', 'addon', ['cs' => 'SSH a WP-CLI', 'en' => 'SSH and WP-CLI'], ['cs' => 'shell přístup k webu', 'en' => 'shell access to the site'], null, null, null, null, null, ['CZK' => 2900, 'EUR' => 119], ['key' => 'ssh', 'value' => true]],
-                ['waf_cdn', 'addon', ['cs' => 'WAF + CDN', 'en' => 'WAF + CDN'], ['cs' => 'firewall aplikací a anycast cache', 'en' => 'application firewall and anycast cache'], null, null, null, null, null, ['CZK' => 9900, 'EUR' => 399], ['key' => 'waf', 'value' => 'pro + CDN']],
                 ['dedicated_ipv4', 'addon', ['cs' => 'Dedikovaná IPv4', 'en' => 'Dedicated IPv4'], ['cs' => 'vlastní adresa pro TLS nebo mail', 'en' => 'your own address for TLS or mail'], null, null, null, null, null, ['CZK' => 4900, 'EUR' => 199], ['key' => 'ipv4', 'value' => 1]],
-                ['priority_support', 'addon', ['cs' => 'Prioritní podpora', 'en' => 'Priority support'], ['cs' => 'reakce do 10 minut, 24/7', 'en' => '10-minute response, 24/7'], null, null, null, null, null, ['CZK' => 14900, 'EUR' => 599], ['key' => 'support', 'value' => 'priority 10 min']],
             ],
         ];
         foreach ($sets as $productKey => $rows) {

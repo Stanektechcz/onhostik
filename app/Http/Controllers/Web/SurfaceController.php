@@ -124,7 +124,7 @@ final class SurfaceController extends Controller
         // the public /api and /dokumentace pages (audit 2026-10 D3): the limits, headers, endpoints, errors, webhook retry and the
         // two API guides come from the routes, the config and the dispatcher; the prototype's story stays in demo mode only
         if (in_array($path, ['onhost-public.js', 'onhost-docs.js'], true) && ! config('onhost.ui.demo', false)) {
-            $original = (string) file_get_contents($file);
+            $original = ServicePageClaimsSeam::apply((string) file_get_contents($file), $path); // Q1: no DDoS capacity on the SLA page
             $js = $path === 'onhost-public.js' ? PublicApiDocs::publicScript($original) : (PublicApiDocs::docsModule($original) ?? $original);
 
             return response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=300', 'X-Content-Type-Options' => 'nosniff']);

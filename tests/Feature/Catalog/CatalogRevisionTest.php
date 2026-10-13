@@ -325,7 +325,7 @@ it('withdraws what the web plans sell and their server cannot deliver: e-shop ma
         ->and($v1->fresh()->entitlements)->toBe($sold) // the customer on v1 keeps what was sold
         ->and(catalogRevisionPlan('web-hosting', 'standard')->currentVersion()->id)->toBe($standard->id)
         ->and(ProductOption::query()->where('key', 'dedicated_ipv4')->count())->toBe(0)
-        ->and(ProductOption::query()->where('key', 'priority_support')->count())->toBe(4) // only the undeliverable option goes
+        ->and(ProductOption::query()->where('key', 'ssh')->count())->toBe(2) // only the undeliverable option goes (priority_support left the seed with P-R76)
         ->and(PlanPromises::undeliverableOnSale())->toBe([])
         ->and(app(CatalogRevisions::class)->pending('2026-10-deliverable-web-plans'))->toBe([]);
     // the bus, audited, four-eyes like every catalogue change (the CLI runs as the system actor)
