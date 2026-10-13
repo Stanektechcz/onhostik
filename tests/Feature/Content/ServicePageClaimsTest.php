@@ -47,8 +47,10 @@ it('serves the service scripts without the withdrawn figures outside demo mode',
     // nothing else of the page changed: the rest of the script is the prototype, line for line, minus the withdrawn parts (the corp
     // script also loses the invented body of its legal page, L3 / M1: LegalPageClaimsTest; O1 replaces the solution pages' "SLA 99,99 %"
     // with the longer "SLA podle individuální smlouvy", so onhost-svc-more.js may grow by a few hundred bytes)
+    // P1 (P-R37) replaces the invented support page of onhost-svc-other.js with a shorter, true one (about 8 % of the script)
+    $floor = ['onhost-svc-corp.js' => 0.85, 'onhost-svc-other.js' => 0.9][$script] ?? 0.95;
     $ceiling = $script === 'onhost-svc-more.js' ? (int) (strlen($prototype) * 1.02) : strlen($prototype) - 1;
-    expect(strlen($served))->toBeLessThanOrEqual($ceiling)->toBeGreaterThan((int) (strlen($prototype) * ($script === 'onhost-svc-corp.js' ? 0.85 : 0.95)));
+    expect(strlen($served))->toBeLessThanOrEqual($ceiling)->toBeGreaterThan((int) (strlen($prototype) * $floor));
 })->with(['onhost-svc-compute.js', 'onhost-svc-corp.js', 'onhost-svc-other.js', 'onhost-svc-more.js']);
 
 it('keeps the prototype copy in demo mode and leaves the prototype files untouched', function () {
