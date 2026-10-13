@@ -330,10 +330,10 @@ zapsán, provedení je krok vlastníka nebo krok se „ano“, **čeká** = chyb
 | P-R59 | PP-8 | J-R10 → **A**: dokud neexistuje produkční uzel Penpotu, v produkci se Penpot neprodává (B jen s uzlem). | P18 | plán: krok plánu produkce (revize katalogu se čtyřma očima), ne změna kódu; uzel čeká: PP-8 |
 | P-R60 | ST-1 | Staré výpisy DB na stagingu smazat (`shred -u`, režim Z1). | P5 | čeká: „ano“ ST-1 |
 | P-R61 | ST-2 | Sady záloh z generálky ponechat do příštího úspěšného cyklu A–C, pak smazat. | P5 | plán |
-| P-R62 | ST-3 | G2: forenzní dump a drop `onhost_staging_b_r2b5_failed` (a `…_r2b5a_failed`). | P5 | čeká: „ano“ G2 |
-| P-R63 | ST-4 | Odstranit `b3ac309d….parked`. | P5 | čeká: „ano“ ST-4 |
+| P-R62 | ST-3 | G2: forenzní dump a drop `onhost_staging_b_r2b5_failed` (a `…_r2b5a_failed`). | P5 | **hotovo** 2026-10-12 09:11 (forenzní dump + drop, `staging-rehearsal-2026-10-12.md`, krok G2; `…_r2b5a_failed` nikdy neexistovala; ověřeno čtením v `staging-rehearsal-2026-10-15.md`) |
+| P-R63 | ST-4 | Odstranit `b3ac309d….parked`. | P5 | **hotovo** 2026-10-12 17:44: přejmenováno na `….parked-20261012T174432Z.cleared` (`staging-rehearsal-2026-10-13.md`); smazání tohoto záznamu historie je volitelné a je krokem vlastníka |
 | P-R64 | ST-5 | R14 nácvik: právnická osoba stagingu z plátce na neplátce, s druhou osobou z PR-5. | P5 | čeká: ST-5 (krok vlastníka) |
-| P-R65 | ST-6 | R12 nácvik: `ONHOST_TOKEN_ORGANIZATION_REQUIRED=true` na stagingu + `config:cache`. | P5 | čeká: „ano“ ST-6 (dokument V) |
+| P-R65 | ST-6 | R12 nácvik: `ONHOST_TOKEN_ORGANIZATION_REQUIRED=true` na stagingu + `config:cache`. | P5 | čeká: „ano“ ST-6 (dokument V); **až po P-R78** (Q4 sloučené a nasazené na staging) |
 | P-R66 | ST-7 | R21: testovací ping webhooku na vlastní endpoint vlastníka. | P5 | čeká: ST-7 (endpoint) |
 | P-R67 | ST-8 | Kontrola v prohlížeči na stagingu (F1.7, F7-19, F1.8, F1.9) s přihlášením vlastníka. | P4 | čeká: ST-8 (termín, přihlášení) |
 | P-R68 | ST-9 | R15/R16 a R25 přeskočit: na stagingu není Proxmox (PX-1). | P5 | platí (přeskočeno s důvodem) |
@@ -344,3 +344,15 @@ zapsán, provedení je krok vlastníka nebo krok se „ano“, **čeká** = chyb
 | P-R73 | WF-2 | Log útoků aaPanel WAF: retence 7 dní, hlavičky neukládat nebo maskovat, přístup jen root 0600 — podle návrhu P10. Na hostitelích to provádí vlastník v aaPanelu. | P10 | plán; provedení čeká: WF-2 („ano“, krok vlastníka) |
 | P-R74 | HS-1 | HSTS posílá **jen aplikace**, z konfigurace; bez `preload`; `includeSubDomains` až po soupisu subdomén `onhost.cz` s platným TLS (do té doby vypnuto). HSTS na vhostu v aaPanelu vypne vlastník. | P11 | kód; krok aaPanel čeká: HS-1 (dokument V) |
 | P-R75 | RF-1 | `onhost_ref` → **C** do odpovědi advokáta: cookie vypnutá přepínačem, partner se atribuuje kódem z `?ref=` předvyplněným do registrace. Potom A nebo B. | P20 | kód; konečná volba čeká: LG-4 |
+
+## Rozhodnutí 2026-10-13 (fáze Q, zjištění kontroly stagingu)
+
+Kontrola stagingu 2026-10-13 (`docs/runbooks/staging-rehearsal-2026-10-15.md`, nálezy 1–3) našla tři rozpory s již přijatými
+rozhodnutími. Rozhodnuto výchozími hodnotami bez nového vstupu vlastníka (pokyn 2026-10-13 „Rozhodni a zapracuj všechny vstupy“);
+balíky Q2–Q4 v `PROMPT-faze-Q-2026-10-13.md`. Číslování pokračuje za P-R75 (SEZNAM je doplnil do své hlavičky).
+
+| Id | Zjištění | Rozhodnutí (výchozí) | Balík | Stav |
+|---|---|---|---|---|
+| P-R76 | `CatalogSeeder` dál nabízí v pokladně webhostingu volby `priority_support` („reakce do 10 minut, 24/7“; rozpor s P-R37) a `waf_cdn` („firewall aplikací a anycast cache“; rozpor s H-R2, M2b a P-R46). | Stáhnout obě volby z prodeje: seeder + datová migrace vzoru `001160` (mění jen nedržené verze a jen dokud tam stojí seedovaná slova/stav). Držená předplatná se nemění. | Q2 | kód (fáze Q) |
+| P-R77 | Tlačítko „Vyzkoušet zdarma“ v hlavičce (žádná zkušební doba neexistuje, VOP čl. 2) a čísla vektorové databáze (14 ms p95, 98,6 % recall) nejsou doložená. | Stáhnout přes seam (prototypy zůstávají byte-identické), demo režim beze změny. | Q3 | kód (fáze Q) |
+| P-R78 | `staging.sh` zapisuje do `expected-env` `ONHOST_TOKEN_ORGANIZATION_REQUIRED=false` a `deploy.sh` odmítne deploy (rc 2), když `app.env` drží jinou hodnotu; nácvik ST-6 (P-R65, `true`) by zablokoval každý další deploy. | Spec deployeru připustí `true` i `false` (pro produkci je `true` krok 8 plánu žádoucí); ověřeno skutečným během skriptu v CI. **ST-6 se neprovádí, dokud Q4 není sloučené a nasazené na staging.** | Q4 | kód (fáze Q); provedení ST-6 čeká: „ano“ |

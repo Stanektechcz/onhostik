@@ -819,7 +819,12 @@ je rozhodnuta na doporučeném výchozím jako **P-R1 … P-R75** v `ROZHODNUTI.
 | #180 | TASK-0184 (P1, P2, P3) | Podpora po–pá 8:00–17:00 přes panel a e-mail (P-R37) na celém veřejném webu včetně stránky podpory a pásů SLA; DDoS u her bez nedoložených čísel (P-R69) včetně odrážky katalogu (migrace `0001_01_01_001170`, jen nedržené verze); VPS benchmark a colocation 2N/N+1 staženy (P-R70). |
 | #181 | TASK-0185 | Přirážka EU 0 % (P-R29), stažení závěrečného archivu zdarma (P-R30); bezplatné stažení dál jen vlastník nebo fakturační správce. |
 
-**Nezměněno:** na stagingu ani v produkci se ve fázi P nic nespustilo (žádné nové „ano“). Staging je dál na `199071b8`.
+**Staging a produkce:** koordinátorská relace fáze P na stagingu ani v produkci nic nespustila. Jiná relace vlastníka provedla
+2026-10-13 s „ano ke stagingu“ jen čtecí běh (režim S) a kontrolu v prohlížeči jako host (protokol
+[`staging-rehearsal-2026-10-15.md`](../../runbooks/staging-rehearsal-2026-10-15.md), PR #183, TASK-0187): na hostitel se nic
+nezapsalo (jediný stav je anonymní košík hosta), nic se nenasadilo a staging je dál na `199071b8` (doctor 0 FAIL / 28 WARN).
+Nálezy protokolu vedly k rozhodnutím P-R76 … P-R78 (balíky Q2–Q4) a ke stavu „hotovo“ u P-R62 (G2) a P-R63 (ST-4).
+V produkci se nic nespustilo.
 
 **Zbývá (fáze Q, `PROMPT-faze-Q-2026-10-13.md` na ploše):** P11 HSTS z konfigurace (P-R74), P20 `onhost_ref` varianta C (P-R75),
 P10, P12–P19, zbytky textů (Q1), a balíky se vstupem P4–P8 podle SEZNAMu.
