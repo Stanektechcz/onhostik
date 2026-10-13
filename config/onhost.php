@@ -557,6 +557,10 @@ return [
     ],
 
     'partners' => [
+        // P20 (P-R75 / RF-1, variant C until the lawyer answers LG-4): the 30-day referral cookie `onhost_ref` needs consent unless it
+        // is strictly necessary, and there is no consent banner — off by default; the code of a `?ref=` link travels in the sign-up
+        // request instead. true = variant A (cookie set, read at sign-up, listed on the privacy page).
+        'referral_cookie' => (bool) env('ONHOST_PARTNERS_REFERRAL_COOKIE', false),
         // [tier, monthly paid volume threshold (minor units), revenue-share %] — prototype Onhost-partner.dc.html
         'tiers' => [['bronze', 0, 15], ['silver', 2500000, 18], ['gold', 5000000, 22], ['platinum', 12000000, 26]],
         'min_payout_minor' => 100000,

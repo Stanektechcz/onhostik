@@ -15,6 +15,7 @@ use Onhost\Domain\Orders\Models\ConsentDocument;
 
 it('lists the application cookies and the hosting firewall cookie under the privacy document', function () {
     $this->seed([LegalEntitySeeder::class]);
+    config()->set('onhost.partners.referral_cookie', true); // P20: the referral row only while the cookie is switched on
     config()->set('session.lifetime', 120);
     config()->set('session.expire_on_close', false);
     $document = ConsentDocument::current('privacy');
