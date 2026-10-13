@@ -199,6 +199,7 @@ final class StaffNavigation
             // ── finance ──
             new N('bank', 'finance', 10, 'bank', ['cs' => 'Bankovní platby', 'en' => 'Bank payments'], N::SCREEN_PAGE, '/sprava/nastaveni/integrace', [
                 N::get('staff/payments/bank', 'billing.reconcile'), N::write('post', 'staff/payments/bank/statements', 'billing.reconcile'), // J-R7 (M3): ČS statement import
+                N::get('staff/finance/exports/{kind}', 'billing.reconcile'), // R2 (P-R36): the month's documents and payments as CSV for the accountant
             ], all: ['billing.reconcile']),
             // H-R8: the Comgate gateway check (credentials present?, mode, connection, 1 Kč test payment) in the settings page
             new N('comgate', 'finance', 15, 'bank', ['cs' => 'Platební brána Comgate', 'en' => 'Comgate gateway'], N::SCREEN_PAGE, '/sprava/nastaveni/integrace', [
