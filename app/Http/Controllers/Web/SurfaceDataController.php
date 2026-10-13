@@ -74,6 +74,9 @@ final class SurfaceDataController extends Controller
 {
     private const CATEGORY = ['web' => 'web', 'managed' => 'firm', 'apps' => 'dev', 'cloud' => 'dev', 'game' => 'game', 'mail' => 'firm', 'addon' => 'firm', 'ai' => 'dev'];
 
+    /** The public site's status grid shows 30 days (`Onhost.dc.html`: `bars()`, `stRows`); `D.status()` must cover the same days. */
+    private const STATUS_GRID_DAYS = 30;
+
     public function __construct(private readonly CatalogService $catalog, private readonly ContentService $content, private readonly IncidentService $incidents, private readonly GameConfigurator $gameConfigurator) {}
 
     public function data(): Response
@@ -638,7 +641,9 @@ final class SurfaceDataController extends Controller
     private function statusRows(string $locale): array
     {
         $rows = [];
-        foreach ($this->incidents->publicStatus()['components'] as $component) {
+        // S2: the public site draws these as a grid of 30 days ("Posledních 30 dní", "/ 30 dní"); the default 90-day window put an
+        // outage from two months ago on a day of the last month and lowered the "30-day" uptime with it
+        foreach ($this->incidents->publicStatus(self::STATUS_GRID_DAYS)['components'] as $component) {
             $u = rtrim(rtrim(number_format((float) $component['u'], 3, '.', ''), '0'), '.');
             $rows[] = ['n' => $component['n'], 'u' => $locale === 'cs' ? str_replace('.', ',', $u).' %' : $u.'%', 'bad' => $component['bad'], 'state' => $component['state'], 'key' => $component['key']];
         }

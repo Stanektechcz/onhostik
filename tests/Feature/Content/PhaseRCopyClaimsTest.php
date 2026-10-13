@@ -5,6 +5,8 @@ declare(strict_types=1);
 use App\Http\Support\PhaseRCopySeam;
 use App\Http\Support\ServicePageClaimsSeam;
 use App\Http\Support\SurfaceRenderer;
+use Illuminate\Support\Facades\Cache;
+use Onhost\Domain\Incidents\Models\Incident;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\Process\ExecutableFinder;
 use Symfony\Component\Process\Process;
@@ -82,7 +84,7 @@ it('serves the DNS page without anycast in six locations or an unmeasured 9 ms',
     foreach (['Anycast v šesti lokalitách', 'anycast sítí v šesti lokalitách', 'Anycast v 6 lokalitách', 'Onhost anycast (Praha)', "['9 ms'", 'z deseti českých sítí, červen 2026'] as $claim) {
         expect(str_contains($served, $claim))->toBeFalse("still served: {$claim}");
     }
-    expect($served)->toContain('Odezvu DNS zveřejníme, až ji doložíme měřením.')->toContain("kicker: _('420+ koncovek · DNS v ceně'");
+    expect($served)->toContain('Odezvu DNS zveřejníme, až ji doložíme měřením.')->toContain("kicker: _('.cz .sk .eu .com · DNS v ceně'");
     prcNodeCheck($served);
 });
 
@@ -96,7 +98,7 @@ it('serves the public site without invented postmortems, credit steps, status fi
         expect($prototype)->toContain($claim)->and($live)->not->toContain($claim);
     }
     expect($live)->toContain('postmortems: [],')->toContain('Nárok uplatníte v zákaznickém panelu do 30 dnů od konce měsíce')
-        ->toContain("'DNSSEC, 420+ koncovek'")->toContain("pmKicker: cs ? 'Incidenty' : 'Incidents',");
+        ->toContain("'DNSSEC, .cz .sk .eu .com a další'")->toContain("pmKicker: cs ? 'Incidenty' : 'Incidents',");
 
     $anchors = collect(app(SurfaceRenderer::class)->anchorReport('public'));
     foreach (array_keys(PhaseRCopySeam::publicSwaps()) as $needle) {
@@ -120,4 +122,57 @@ it('keeps the prototype copy in demo mode and the prototypes byte-identical', fu
 
     $status = shell_exec('git -C '.escapeshellarg(base_path()).' status --porcelain -- apps/surfaces '.escapeshellarg(':(exclude)apps/surfaces/api').' 2>&1');
     expect(trim((string) $status))->toBe('');
+});
+
+/*
+ * S2 (phase S, the rest of R1): the mail page's "4,2 mil. zpráv" sample and 99,7 % catch rate, the SSL page's "medián za červen 2026"
+ * and 4-minute issuance, the CDN page (not sold, P-R46) with BGP anycast /24, 50 TB, a scrubbing centre and a 400 Gbps flood, "420+"
+ * TLDs (the catalogue registers 10), the 55-second server and the rest of the invented #/jak-fungujeme (a seven-day trial without a
+ * card, "not breached in twelve months", "two customers came back", an engineer answering at 3 a.m.), the PRG1 tours and the tender
+ * rows' automatic credit and night-time reply. Served as the documents in force say (VOP, SLA 2026-09, DPA); prototypes byte-identical.
+ */
+it('serves the mail, SSL, domain and CDN pages without unmeasured figures', function () {
+    config(['onhost.ui.demo' => false]);
+    $prototype = (string) file_get_contents(base_path('apps/surfaces/onhost-svc-web.js'));
+    $served = prcScriptServed($this, 'onhost-svc-web.js');
+
+    foreach (['Vzorek 4,2 mil. zpráv', "['99,7 %'", '0,02 %', 'antispam s 99,7% záchytem', 'medián za červen 2026', "['4 min'", "note: '4 min'", 'BGP anycast /24', '50 TB',
+        'Dedikované scrubbing centrum', '400 Gbps', 'ze čtrnácti PoP', 'Shield Max', "['420+'", '420+ koncovek', '420+ TLDs'] as $claim) {
+        expect(str_contains($prototype, $claim))->toBeTrue("the prototype carried {$claim}")->and(str_contains($served, $claim))->toBeFalse("still served: {$claim}");
+    }
+    expect($served)->toContain('Míru záchytu spamu zveřejníme, až ji doložíme měřením.')->toContain('Dobu vystavení zveřejníme, až ji doložíme měřením.')
+        ->toContain("kicker: _('CDN a WAF · připravujeme'")->toContain('.cz .sk .eu .com')
+        ->and(substr_count($served, "    'cdn': P({"))->toBe(1)->and(substr_count($served, "    'backup': P({"))->toBe(1);
+    prcNodeCheck($served);
+});
+
+it('serves the public site without the 55-second server, PRG1 tours, automatic credit or the invented rest of how we work', function () {
+    $prototype = (string) file_get_contents(base_path('apps/surfaces/Onhost.dc.html'));
+    $live = app(SurfaceRenderer::class)->transform($prototype, 'public', false);
+
+    foreach (['Server běží do 55 sekund', 'The server runs within 55 seconds', 'root do 55 sekund', 'Prohlídky PRG1', 'PRG1 tours', 'připisujeme ho sami, bez vaší žádosti',
+        'posted by us without you asking', 'Reakci máme v minutách', 'Our response is in minutes', 'dva zákazníci, kteří od nás odešli', 'two customers who left',
+        'Za dvanáct měsíců jsme prolomeni nebyli', 'We have not been breached in twelve months', 'Za tu cenu se nedá platit inženýr', 'That price cannot pay an engineer',
+        'Začít bez karty', 'Bez závazku a bez karty', 'Praha, Brno, Frankfurt a peering', 'I konfigurace, ne jen data', 'nejméně šest měsíců předem',
+        "state: cs ? 'v provozu' : 'operational', uptime"] as $claim) {
+        expect($prototype)->toContain($claim)->and($live)->not->toContain($claim);
+    }
+    expect($live)->toContain('nejpozději do 48 hodin od zjištění')->toContain('do 5 pracovních dnů')->toContain('Zkušební období bez platby nenabízíme.')
+        ->toContain('VOP čl. 5')->toContain('Standard do 4 hodin, Business do 1 hodiny')->toContain("'DNSSEC, .cz .sk .eu .com a další'")
+        ->toContain('Lokality, ve kterých služby provozujeme, uvádí stránka Datacentra.')
+        ->not->toContain('420+ koncovek')->not->toContain('420+ TLDs'); // the R1 menus said 420+, the catalogue registers 10
+});
+
+it('fills the 30-day status grid with the last 30 days, not 90 squeezed into 30 bars', function () {
+    config(['onhost.ui.demo' => false]);
+    Incident::query()->create(['number' => 'INC-S2-0001', 'title' => 'Výpadek', 'severity' => 'p1', 'state' => 'RESOLVED', 'visibility' => 'public',
+        'components' => ['cloud-cz1'], 'affected_services' => [], 'started_at' => now()->subDays(60), 'detected_at' => now()->subDays(60), 'resolved_at' => now()->subDays(60)->addHours(2), 'sla_relevant' => true]);
+    Cache::flush();
+
+    $js = (string) $this->get('/surfaces/onhost-data.js')->assertOk()->getContent();
+    expect(preg_match('/var D = (\{.*?\});\n/s', $js, $m))->toBe(1);
+    $row = collect(json_decode($m[1], true, 512, JSON_THROW_ON_ERROR)['cs']['status'])->firstWhere('key', 'cloud-cz1');
+
+    // an outage 60 days ago is outside the last 30 days: no red bar and full uptime for the 30 days the grid is labelled with
+    expect($row['bad'])->toBe([])->and($row['u'])->toBe('100 %')->and($row)->toHaveKey('state');
 });
