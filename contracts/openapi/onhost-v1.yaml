@@ -164,6 +164,9 @@ tags:
     name: staff-oncall
     description: 'Operations of the staff-oncall area.'
   -
+    name: staff-operations
+    description: 'Operations of the staff-operations area.'
+  -
     name: staff-orders
     description: 'Operations of the staff-orders area.'
   -
@@ -26325,6 +26328,60 @@ paths:
             schema:
               type: object
               additionalProperties: true
+  /staff/operations/overview:
+    get:
+      operationId: getStaffOperationsOverview
+      tags:
+        - staff-operations
+      summary: 'GET /staff/operations/overview'
+      parameters:
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        '422':
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+      x-token-scope: null
   /staff/orders:
     get:
       operationId: getStaffOrders

@@ -243,7 +243,7 @@ it('refuses a staff token the staff pages, and keeps them for the session (revie
     $service = featureWebService($customerOrg, 'aapanel');
     $staff = $this->staff('platform_owner');
     $plain = $staff->createToken('tpt-staff-pages', TokenScopes::ALL)->plainTextToken;
-    $pages = ['/sprava/nastaveni/integrace', '/sprava/nastaveni/provoz', '/sprava/nastaveni/hromadne-akce', '/sprava/nastaveni/zivotni-cyklus',
+    $pages = ['/sprava/nastaveni/integrace', '/sprava/nastaveni/provoz', '/sprava/nastaveni/provozni-prehled', '/sprava/nastaveni/hromadne-akce', '/sprava/nastaveni/zivotni-cyklus',
         '/sprava/nastaveni/schvalovani', '/sprava/nastaveni/tarify', "/sprava/konzole/{$service->id}"];
 
     foreach ($pages as $page) {

@@ -120,6 +120,7 @@ final class StaffReadAudit
         'v1/staff/oncall/alerts' => 'on-call alerts of the platform',
         'v1/staff/oncall/shifts' => 'staff on-call shifts',
         'v1/staff/oncall/shifts.ics' => 'staff on-call shifts (calendar)',
+        'v1/staff/operations/overview' => 'P16 shift overview: counts, states and times of the platform jobs, backups, nodes and panels; no customer data',
         'v1/staff/placements' => 'plan placement rules',
         'v1/staff/payments/comgate' => 'the Comgate gateway mode and its last check (H-R8): no customer, no secret',
         'v1/staff/pricing' => 'the price list',

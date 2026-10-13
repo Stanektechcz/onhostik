@@ -44,6 +44,7 @@ use App\Http\Controllers\Api\V1\Staff\CustomerController;
 use App\Http\Controllers\Api\V1\Staff\IncidentController as StaffIncidentController;
 use App\Http\Controllers\Api\V1\Staff\MarketplaceController as StaffMarketplaceController;
 use App\Http\Controllers\Api\V1\Staff\OnCallController;
+use App\Http\Controllers\Api\V1\Staff\OperationsOverviewController;
 use App\Http\Controllers\Api\V1\Staff\OwnerRecoveryController;
 use App\Http\Controllers\Api\V1\Staff\PartnerController as StaffPartnerController;
 use App\Http\Controllers\Api\V1\Staff\PaymentsController;
@@ -723,6 +724,11 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
         Route::put('content/changelog', [StaffContentController::class, 'upsertChangelog']);
         Route::put('content/stock', [StaffContentController::class, 'upsertStock']);
     });
+    // ── P16 (phase R): the read-only shift overview of the staff page "Provoz" (sections by permission, OperationsOverview) ──
+    Route::prefix('staff')->middleware('staff')->group(function (): void { // D2: staff guard (EnsureStaff)
+        Route::get('operations/overview', [OperationsOverviewController::class, 'show']);
+    });
+    // ── end P16 ──
     // ── TASK-0039 (permission program P0-08 IF-8, P0-14 IF-16): staff act as staff on /v1/staff only — the customer routes treat a
     // member of staff as the customer they act as there. The same controllers, in staff mode (ApiContext::staffMode): lifting
     // ONhost's holds, staff parameters of an action, a restore on the customer's behalf; the panel sign-on as a bus command ──

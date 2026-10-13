@@ -109,6 +109,7 @@ Route::get('overeni-emailu', [AuthPagesController::class, 'verifyEmail'])->name(
 Route::get('sprava/nastaveni', fn () => redirect('/sprava/nastaveni/integrace'));
 Route::get('sprava/nastaveni/integrace', [SystemSettingsController::class, 'integrations'])->middleware(['auth:sanctum', 'token.scope'])->name('settings.integrations');
 Route::get('sprava/nastaveni/provoz', [SystemSettingsController::class, 'operations'])->middleware(['auth:sanctum', 'token.scope'])->name('settings.operations');
+Route::get('sprava/nastaveni/provozni-prehled', [SystemSettingsController::class, 'overview'])->middleware(['auth:sanctum', 'token.scope'])->name('settings.overview'); // P16: the read-only shift overview
 Route::get('sprava/nastaveni/hromadne-akce', [SystemSettingsController::class, 'bulk'])->middleware(['auth:sanctum', 'token.scope'])->name('settings.bulk');
 Route::get('sprava/nastaveni/zivotni-cyklus', [SystemSettingsController::class, 'lifecycle'])->middleware(['auth:sanctum', 'token.scope'])->name('settings.lifecycle'); // audit §5ab
 Route::get('sprava/nastaveni/schvalovani', [SystemSettingsController::class, 'approvals'])->middleware(['auth:sanctum', 'token.scope'])->name('settings.approvals'); // four eyes: requests for a second person

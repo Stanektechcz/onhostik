@@ -24,46 +24,46 @@ Postranní menu konzole vzniká z `StaffNavigation`: položka se zobrazí, když
 
 | Role (klíč) | Název | Počet oprávnění | Položek menu |
 |---|---|---|---|
-| `platform_owner` | PlatformOwner / SuperAdmin | 114 | 48 |
+| `platform_owner` | PlatformOwner / SuperAdmin | 114 | 49 |
 | `iam_admin` | IAMAdmin | 9 | 4 |
-| `infrastructure_admin` | InfrastructureAdmin | 15 | 19 |
-| `network_admin` | NetworkAdmin | 6 | 18 |
-| `domain_dns_admin` | DomainDNSAdmin | 7 | 10 |
-| `shared_hosting_admin` | SharedHostingAdmin | 8 | 18 |
-| `managed_hosting_admin` | ManagedHostingAdmin | 8 | 18 |
-| `apps_platform_admin` | AppsPlatformAdmin | 8 | 19 |
-| `cloud_vps_admin` | CloudVPSAdmin | 9 | 19 |
-| `game_admin` | GameAdmin | 8 | 19 |
-| `mail_admin` | MailAdmin | 6 | 18 |
-| `database_admin` | DatabaseAdmin | 6 | 10 |
+| `infrastructure_admin` | InfrastructureAdmin | 15 | 20 |
+| `network_admin` | NetworkAdmin | 6 | 19 |
+| `domain_dns_admin` | DomainDNSAdmin | 7 | 11 |
+| `shared_hosting_admin` | SharedHostingAdmin | 8 | 19 |
+| `managed_hosting_admin` | ManagedHostingAdmin | 8 | 19 |
+| `apps_platform_admin` | AppsPlatformAdmin | 8 | 20 |
+| `cloud_vps_admin` | CloudVPSAdmin | 9 | 20 |
+| `game_admin` | GameAdmin | 8 | 20 |
+| `mail_admin` | MailAdmin | 6 | 19 |
+| `database_admin` | DatabaseAdmin | 6 | 11 |
 | `ai_platform_admin` | AIPlatformAdmin | 5 | 4 |
-| `backup_dr_admin` | BackupDRAdmin | 9 | 17 |
-| `sre` | SRE | 12 | 25 |
-| `incident_commander` | IncidentCommander | 8 | 14 |
+| `backup_dr_admin` | BackupDRAdmin | 9 | 18 |
+| `sre` | SRE | 12 | 26 |
+| `incident_commander` | IncidentCommander | 8 | 15 |
 | `security_soc` | SecuritySOC | 7 | 5 |
 | `abuse_trust_safety` | AbuseTrustSafety | 4 | 5 |
 | `compliance_legal` | ComplianceLegal | 6 | 8 |
-| `billing_finance_admin` | BillingFinanceAdmin | 19 | 18 |
-| `billing_operator` | BillingOperator | 8 | 8 |
-| `support_manager` | SupportManager | 14 | 20 |
-| `support_l1` | SupportL1 | 6 | 11 |
-| `support_l2` | SupportL2 | 13 | 14 |
-| `support_l3` | SupportL3 | 15 | 25 |
+| `billing_finance_admin` | BillingFinanceAdmin | 19 | 19 |
+| `billing_operator` | BillingOperator | 8 | 9 |
+| `support_manager` | SupportManager | 14 | 21 |
+| `support_l1` | SupportL1 | 6 | 12 |
+| `support_l2` | SupportL2 | 13 | 15 |
+| `support_l3` | SupportL3 | 15 | 26 |
 | `sales` | Sales | 3 | 7 |
 | `marketing_content` | MarketingContent | 2 | 4 |
 | `product_manager` | ProductManager | 6 | 12 |
-| `auditor_read_only` | AuditorReadOnly | 6 | 11 |
+| `auditor_read_only` | AuditorReadOnly | 6 | 12 |
 
 ### `platform_owner` PlatformOwner / SuperAdmin
 
 Break-glass only; never a daily account.
 
-**Očekávané menu konzole** (položek: 48):
+**Očekávané menu konzole** (položek: 49):
 
 - **Přehled**: Přehled
 - **Podpora**: Fronta tiketů, Detail tiketu
 - **Zákazníci**: Zákazníci, Poptávky
-- **Provoz**: Incidenty, Kalendář odstávek, Pohotovost (on-call), Sondy a komponenty, SLO a dostupnost
+- **Provoz**: Provoz, Incidenty, Kalendář odstávek, Pohotovost (on-call), Sondy a komponenty, SLO a dostupnost
 - **Infrastruktura**: Infrastruktura, Běhové úlohy, Automatizace, Odchylky a úklid, Herní uzly, Šablony her, Alokace a porty, Provisioning fronta, Kapacita a nákup uzlů, Integrace providerů, Umístění tarifů, Registrátoři domén, Provoz a operace, Hromadné akce
 - **Obchod**: Obnovy a expirace, Kredity a platby, Věrnost a kampaně, Marketplace
 - **Finance**: Bankovní platby, Platební brána Comgate, Upomínky a pohledávky, Odstoupení od smlouvy, SLA kredity, Partneři, Výplaty partnerům, Reporty a výhled
@@ -119,10 +119,11 @@ Odmítnuté akce (musí skončit chybou):
 
 Proxmox, resources, capacity, operations queue.
 
-**Očekávané menu konzole** (položek: 19):
+**Očekávané menu konzole** (položek: 20):
 
 - **Přehled**: Přehled
 - **Zákazníci**: Zákazníci
+- **Provoz**: Provoz
 - **Infrastruktura**: Infrastruktura, Běhové úlohy, Automatizace, Odchylky a úklid, Herní uzly, Šablony her, Alokace a porty, Provisioning fronta, Kapacita a nákup uzlů, Integrace providerů, Umístění tarifů, Registrátoři domén, Provoz a operace, Hromadné akce
 - **Obchod**: Kredity a platby
 - **Finance**: Platební brána Comgate
@@ -152,10 +153,11 @@ Odmítnuté akce (musí skončit chybou):
 
 IPAM/BGP/VLAN/firewall/rDNS.
 
-**Očekávané menu konzole** (položek: 18):
+**Očekávané menu konzole** (položek: 19):
 
 - **Přehled**: Přehled
 - **Zákazníci**: Zákazníci
+- **Provoz**: Provoz
 - **Infrastruktura**: Infrastruktura, Běhové úlohy, Automatizace, Odchylky a úklid, Herní uzly, Šablony her, Alokace a porty, Provisioning fronta, Kapacita a nákup uzlů, Integrace providerů, Umístění tarifů, Registrátoři domén, Provoz a operace, Hromadné akce
 - **Finance**: Platební brána Comgate
 - **Identita a schvalování**: Schvalování
@@ -181,10 +183,11 @@ Odmítnuté akce (musí skončit chybou):
 
 WAPI, PowerDNS, DNSSEC.
 
-**Očekávané menu konzole** (položek: 10):
+**Očekávané menu konzole** (položek: 11):
 
 - **Přehled**: Přehled
 - **Zákazníci**: Zákazníci
+- **Provoz**: Provoz
 - **Infrastruktura**: Infrastruktura, Běhové úlohy, Automatizace, Odchylky a úklid, Registrátoři domén, Provoz a operace, Hromadné akce
 - **Identita a schvalování**: Schvalování
 
@@ -210,10 +213,11 @@ Odmítnuté akce (musí skončit chybou):
 
 ISPConfig / web / db.
 
-**Očekávané menu konzole** (položek: 18):
+**Očekávané menu konzole** (položek: 19):
 
 - **Přehled**: Přehled
 - **Zákazníci**: Zákazníci
+- **Provoz**: Provoz
 - **Infrastruktura**: Infrastruktura, Běhové úlohy, Automatizace, Odchylky a úklid, Herní uzly, Šablony her, Alokace a porty, Provisioning fronta, Integrace providerů, Umístění tarifů, Registrátoři domén, Provoz a operace, Hromadné akce
 - **Obchod**: Kredity a platby
 - **Finance**: Platební brána Comgate
@@ -243,10 +247,11 @@ Odmítnuté akce (musí skončit chybou):
 
 aaPanel managed pool.
 
-**Očekávané menu konzole** (položek: 18):
+**Očekávané menu konzole** (položek: 19):
 
 - **Přehled**: Přehled
 - **Zákazníci**: Zákazníci
+- **Provoz**: Provoz
 - **Infrastruktura**: Infrastruktura, Běhové úlohy, Automatizace, Odchylky a úklid, Herní uzly, Šablony her, Alokace a porty, Provisioning fronta, Integrace providerů, Umístění tarifů, Registrátoři domén, Provoz a operace, Hromadné akce
 - **Obchod**: Kredity a platby
 - **Finance**: Platební brána Comgate
@@ -276,10 +281,11 @@ Odmítnuté akce (musí skončit chybou):
 
 RKE2/build/registry.
 
-**Očekávané menu konzole** (položek: 19):
+**Očekávané menu konzole** (položek: 20):
 
 - **Přehled**: Přehled
 - **Zákazníci**: Zákazníci
+- **Provoz**: Provoz
 - **Infrastruktura**: Infrastruktura, Běhové úlohy, Automatizace, Odchylky a úklid, Herní uzly, Šablony her, Alokace a porty, Provisioning fronta, Kapacita a nákup uzlů, Integrace providerů, Umístění tarifů, Registrátoři domén, Provoz a operace, Hromadné akce
 - **Obchod**: Kredity a platby
 - **Finance**: Platební brána Comgate
@@ -308,10 +314,11 @@ Odmítnuté akce (musí skončit chybou):
 
 VPS/VDS lifecycle.
 
-**Očekávané menu konzole** (položek: 19):
+**Očekávané menu konzole** (položek: 20):
 
 - **Přehled**: Přehled
 - **Zákazníci**: Zákazníci
+- **Provoz**: Provoz
 - **Infrastruktura**: Infrastruktura, Běhové úlohy, Automatizace, Odchylky a úklid, Herní uzly, Šablony her, Alokace a porty, Provisioning fronta, Kapacita a nákup uzlů, Integrace providerů, Umístění tarifů, Registrátoři domén, Provoz a operace, Hromadné akce
 - **Obchod**: Kredity a platby
 - **Finance**: Platební brána Comgate
@@ -341,10 +348,11 @@ Odmítnuté akce (musí skončit chybou):
 
 Pterodactyl/Wings.
 
-**Očekávané menu konzole** (položek: 19):
+**Očekávané menu konzole** (položek: 20):
 
 - **Přehled**: Přehled
 - **Zákazníci**: Zákazníci
+- **Provoz**: Provoz
 - **Infrastruktura**: Infrastruktura, Běhové úlohy, Automatizace, Odchylky a úklid, Herní uzly, Šablony her, Alokace a porty, Provisioning fronta, Kapacita a nákup uzlů, Integrace providerů, Umístění tarifů, Registrátoři domén, Provoz a operace, Hromadné akce
 - **Obchod**: Kredity a platby
 - **Finance**: Platební brána Comgate
@@ -374,10 +382,11 @@ Odmítnuté akce (musí skončit chybou):
 
 Mailboxes/relay/reputation.
 
-**Očekávané menu konzole** (položek: 18):
+**Očekávané menu konzole** (položek: 19):
 
 - **Přehled**: Přehled
 - **Zákazníci**: Zákazníci
+- **Provoz**: Provoz
 - **Infrastruktura**: Infrastruktura, Běhové úlohy, Automatizace, Odchylky a úklid, Herní uzly, Šablony her, Alokace a porty, Provisioning fronta, Integrace providerů, Umístění tarifů, Registrátoři domén, Provoz a operace, Hromadné akce
 - **Obchod**: Kredity a platby
 - **Finance**: Platební brána Comgate
@@ -406,10 +415,11 @@ Odmítnuté akce (musí skončit chybou):
 
 DBaaS.
 
-**Očekávané menu konzole** (položek: 10):
+**Očekávané menu konzole** (položek: 11):
 
 - **Přehled**: Přehled
 - **Zákazníci**: Zákazníci
+- **Provoz**: Provoz
 - **Infrastruktura**: Infrastruktura, Běhové úlohy, Automatizace, Odchylky a úklid, Provoz a operace, Hromadné akce
 - **Obchod**: Kredity a platby
 - **Identita a schvalování**: Schvalování
@@ -466,10 +476,11 @@ Odmítnuté akce (musí skončit chybou):
 
 PBS/restore/retention.
 
-**Očekávané menu konzole** (položek: 17):
+**Očekávané menu konzole** (položek: 18):
 
 - **Přehled**: Přehled
 - **Zákazníci**: Zákazníci
+- **Provoz**: Provoz
 - **Infrastruktura**: Infrastruktura, Běhové úlohy, Automatizace, Odchylky a úklid, Herní uzly, Šablony her, Alokace a porty, Provisioning fronta, Integrace providerů, Umístění tarifů, Registrátoři domén, Provoz a operace, Hromadné akce
 - **Finance**: Platební brána Comgate
 - **Identita a schvalování**: Schvalování
@@ -495,11 +506,11 @@ Odmítnuté akce (musí skončit chybou):
 
 Metrics/incidents/maintenance.
 
-**Očekávané menu konzole** (položek: 25):
+**Očekávané menu konzole** (položek: 26):
 
 - **Přehled**: Přehled
 - **Zákazníci**: Zákazníci
-- **Provoz**: Incidenty, Kalendář odstávek, Pohotovost (on-call), Sondy a komponenty, SLO a dostupnost
+- **Provoz**: Provoz, Incidenty, Kalendář odstávek, Pohotovost (on-call), Sondy a komponenty, SLO a dostupnost
 - **Infrastruktura**: Infrastruktura, Běhové úlohy, Automatizace, Odchylky a úklid, Herní uzly, Šablony her, Alokace a porty, Provisioning fronta, Kapacita a nákup uzlů, Integrace providerů, Umístění tarifů, Registrátoři domén, Provoz a operace, Hromadné akce
 - **Finance**: Platební brána Comgate, SLA kredity, Reporty a výhled
 - **Identita a schvalování**: Schvalování
@@ -528,11 +539,11 @@ Odmítnuté akce (musí skončit chybou):
 
 Temporary incident authority.
 
-**Očekávané menu konzole** (položek: 14):
+**Očekávané menu konzole** (položek: 15):
 
 - **Přehled**: Přehled
 - **Zákazníci**: Zákazníci
-- **Provoz**: Incidenty, Pohotovost (on-call), Sondy a komponenty
+- **Provoz**: Provoz, Incidenty, Pohotovost (on-call), Sondy a komponenty
 - **Infrastruktura**: Infrastruktura, Běhové úlohy, Automatizace, Odchylky a úklid, Kapacita a nákup uzlů, Provoz a operace, Hromadné akce
 - **Bezpečnost a compliance**: Bezpečnostní incidenty a lhůty
 - **Identita a schvalování**: Schvalování
@@ -651,11 +662,11 @@ Odmítnuté akce (musí skončit chybou):
 
 Invoice config/tax/reconciliation.
 
-**Očekávané menu konzole** (položek: 18):
+**Očekávané menu konzole** (položek: 19):
 
 - **Přehled**: Přehled
 - **Zákazníci**: Zákazníci
-- **Provoz**: SLO a dostupnost
+- **Provoz**: Provoz, SLO a dostupnost
 - **Obchod**: Kredity a platby, Věrnost a kampaně, Marketplace
 - **Finance**: Bankovní platby, Upomínky a pohledávky, Odstoupení od smlouvy, SLA kredity, Partneři, Výplaty partnerům, Reporty a výhled
 - **Produkt**: Ceník, slevy a doplňky, Tarify a verze, Navigace klientského panelu, Životní cyklus služeb
@@ -685,11 +696,11 @@ Odmítnuté akce (musí skončit chybou):
 
 Invoice ops; limited refunds.
 
-**Očekávané menu konzole** (položek: 8):
+**Očekávané menu konzole** (položek: 9):
 
 - **Přehled**: Přehled
 - **Zákazníci**: Zákazníci
-- **Provoz**: SLO a dostupnost
+- **Provoz**: Provoz, SLO a dostupnost
 - **Finance**: Bankovní platby, Upomínky a pohledávky, Odstoupení od smlouvy, Reporty a výhled
 - **Identita a schvalování**: Schvalování
 
@@ -717,12 +728,12 @@ Odmítnuté akce (musí skončit chybou):
 
 Queues/SLA/escalations.
 
-**Očekávané menu konzole** (položek: 20):
+**Očekávané menu konzole** (položek: 21):
 
 - **Přehled**: Přehled
 - **Podpora**: Fronta tiketů, Detail tiketu
 - **Zákazníci**: Zákazníci, Poptávky
-- **Provoz**: Incidenty, Pohotovost (on-call), Sondy a komponenty, SLO a dostupnost
+- **Provoz**: Provoz, Incidenty, Pohotovost (on-call), Sondy a komponenty, SLO a dostupnost
 - **Infrastruktura**: Infrastruktura, Běhové úlohy, Automatizace, Odchylky a úklid, Provoz a operace, Hromadné akce
 - **Obchod**: Obnovy a expirace, Kredity a platby
 - **Finance**: Reporty a výhled
@@ -753,11 +764,12 @@ Odmítnuté akce (musí skončit chybou):
 
 Read basics + safe actions.
 
-**Očekávané menu konzole** (položek: 11):
+**Očekávané menu konzole** (položek: 12):
 
 - **Přehled**: Přehled
 - **Podpora**: Fronta tiketů, Detail tiketu
 - **Zákazníci**: Zákazníci
+- **Provoz**: Provoz
 - **Infrastruktura**: Infrastruktura, Běhové úlohy, Automatizace, Odchylky a úklid, Provoz a operace, Hromadné akce
 - **Identita a schvalování**: Schvalování
 
@@ -784,11 +796,12 @@ Odmítnuté akce (musí skončit chybou):
 
 Deeper diagnostics + service actions.
 
-**Očekávané menu konzole** (položek: 14):
+**Očekávané menu konzole** (položek: 15):
 
 - **Přehled**: Přehled
 - **Podpora**: Fronta tiketů, Detail tiketu
 - **Zákazníci**: Zákazníci, Poptávky
+- **Provoz**: Provoz
 - **Infrastruktura**: Infrastruktura, Běhové úlohy, Automatizace, Odchylky a úklid, Provoz a operace, Hromadné akce
 - **Obchod**: Obnovy a expirace, Kredity a platby
 - **Identita a schvalování**: Schvalování
@@ -817,12 +830,12 @@ Odmítnuté akce (musí skončit chybou):
 
 Engineering escalation.
 
-**Očekávané menu konzole** (položek: 25):
+**Očekávané menu konzole** (položek: 26):
 
 - **Přehled**: Přehled
 - **Podpora**: Fronta tiketů, Detail tiketu
 - **Zákazníci**: Zákazníci, Poptávky
-- **Provoz**: Incidenty, Pohotovost (on-call), Sondy a komponenty
+- **Provoz**: Provoz, Incidenty, Pohotovost (on-call), Sondy a komponenty
 - **Infrastruktura**: Infrastruktura, Běhové úlohy, Automatizace, Odchylky a úklid, Herní uzly, Šablony her, Alokace a porty, Provisioning fronta, Integrace providerů, Umístění tarifů, Registrátoři domén, Provoz a operace, Hromadné akce
 - **Obchod**: Obnovy a expirace, Kredity a platby
 - **Finance**: Platební brána Comgate
@@ -942,11 +955,11 @@ Odmítnuté akce (musí skončit chybou):
 
 Immutable audit/evidence read.
 
-**Očekávané menu konzole** (položek: 11):
+**Očekávané menu konzole** (položek: 12):
 
 - **Přehled**: Přehled
 - **Zákazníci**: Zákazníci
-- **Provoz**: SLO a dostupnost
+- **Provoz**: Provoz, SLO a dostupnost
 - **Infrastruktura**: Infrastruktura, Běhové úlohy, Automatizace, Odchylky a úklid, Provoz a operace, Hromadné akce
 - **Finance**: Reporty a výhled
 - **Identita a schvalování**: Schvalování
