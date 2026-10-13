@@ -39,6 +39,13 @@ Add to the list only with proof (the same failure at the base revision), remove 
 - Tests that set `$_ENV`/`putenv()` credentials must remove them (`afterEach`), or later tests in the process change
   behaviour (see the RenewalGuardTest note in the baseline).
 - The app runs in UTC; after touching time-driven code run the suite once inside 00:00–06:00 UTC.
+- **Travel first, seed after** (TASK-0192): seeded prices are dated `now()->subDay()`, so a test that seeds and then travels to a
+  fixed day breaks once the real clock passes that day. `travelTo` is the first line of `beforeEach`. Sweep for such time bombs
+  with `ONHOST_TEST_CLOCK=2027-04-01 php artisan test --parallel` (tests/TestCase.php shifts the clock, still ticking). Known false
+  alarms of the sweep (TASK-0201, 2026-10-13: 16 of 3 163): code that mixes the shifted clock with a real one — database default
+  timestamps, file mtimes, `time()`, certificates signed by openssl, `travelBack()` inside `clockSweep()` — in CustomIso*,
+  DeployGate, IdempotencyScope, CertificateExpiry, MarketplaceSla, Partner*, PayoutSafety, PlanChange, CreditOrderApprovalStale,
+  LimitRaise/Withdrawal clock sweeps and RiskFloor. A new failure outside that list that names a fixed date is a time bomb.
 - SQLite hides PostgreSQL errors (VARCHAR widths, aborted transactions, `sum()` as string): CI `pest-postgres` decides.
 - ISPConfig actions are asynchronous: drive them with `driveOperation()`; tests call `relayPending()` for the outbox.
 
