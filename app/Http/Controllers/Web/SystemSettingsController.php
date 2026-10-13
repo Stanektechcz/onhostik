@@ -69,6 +69,12 @@ final class SystemSettingsController extends Controller
         return $this->page($request, '/sprava/nastaveni/provoz', 'admin.operations');
     }
 
+    /** P16 (phase R): Provoz — the read-only shift overview (`/v1/staff/operations/overview`, sections by permission). */
+    public function overview(Request $request): View|RedirectResponse
+    {
+        return $this->page($request, '/sprava/nastaveni/provozni-prehled', 'admin.ops-overview');
+    }
+
     /** @param (callable(User): array<string, mixed>)|null $extra */
     private function page(Request $request, string $path, string $view, ?callable $extra = null): View|RedirectResponse
     {
