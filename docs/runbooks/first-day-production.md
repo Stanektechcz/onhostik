@@ -21,6 +21,11 @@ check in the incident log of the day (`POST /v1/staff/incidents` for anything th
 * Deploy outside business hours: whether Comgate retries a payment callback that got a 503 during the maintenance window is
   **ASSUMED no** (staging-launch.md, question 12) — which is why the payment check below reconciles by hand.
 
+**Phase Q (2026-10-13) additions:** support and these checks follow the support hours Mon–Fri 08:00–17:00 (P-R37), so H0 falls on
+a working-day evening (P-R10) and H+1 … H+24 inside working hours. Two doctor rows are new: *HSTS is sent once and as configured*
+(P11 — WARN `2×` until the vhost's own HSTS is switched off, [hsts.md](hsts.md)) and *every scheduled job ran within its budget*
+(P14). From day two on, [day-2-operations.md](day-2-operations.md) is the routine.
+
 ## H0 to H+1 — it is up and it is what we released
 
 | When | Look at | How | Expected | If not |
