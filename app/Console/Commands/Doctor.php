@@ -34,6 +34,7 @@ use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\OrderStateMachine;
 use Onhost\Domain\Payments\ComgateCheck;
 use Onhost\Domain\Platform\GoLiveChecks;
+use Onhost\Domain\Platform\HstsHealth;
 use Onhost\Domain\Platform\IsolationChecks;
 use Onhost\Domain\Platform\QueueLaneHeartbeat;
 use Onhost\Domain\Provisioning\AutomationLedger;
@@ -136,6 +137,9 @@ final class Doctor extends Command
             $this->addChecked($check);
         }
         // ── end E11 ──
+        foreach (app(HstsHealth::class)->checks() as $check) { // P11 (P-R74): HSTS once, from the application, as configured
+            $this->addChecked($check);
+        }
 
         $fails = count(array_filter($this->rows, fn ($r) => $r['status'] === 'FAIL'));
         $warns = count(array_filter($this->rows, fn ($r) => $r['status'] === 'WARN'));
