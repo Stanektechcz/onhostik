@@ -12,6 +12,7 @@ use Illuminate\Console\Events\ScheduledTaskSkipped;
 use Illuminate\Console\Events\ScheduledTaskStarting;
 use Illuminate\Console\Scheduling\Event;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -31,6 +32,13 @@ final class ScheduleHealth
 {
     public const CHECK = 'every scheduled job ran within its budget';
 
+    public const BUDGETS_CACHE_KEY = 'onhost:schedule:budgets';
+
+    private const BUDGETS_REFRESH_SECONDS = 600;
+
+    /** Two days: a scheduler that stopped longer than that is reported by the doctor row and OnhostSchedulerDown anyway. */
+    private const BUDGETS_TTL_SECONDS = 172800;
+
     private const SLACK_SECONDS = 600;
 
     /** A fixed Monday: the budget is a property of the schedule, never of the hour the doctor runs. */
@@ -43,6 +51,29 @@ final class ScheduleHealth
     public static function starting(ScheduledTaskStarting $event): void
     {
         self::write($event->task, ['last_started_at' => now()]);
+        self::rememberBudgets();
+    }
+
+    /**
+     * S3: the schedule lives in routes/console.php, which only the console kernel loads. PHP-FPM serving `/metrics` never
+     * loads it, so its Schedule is empty and the metric said `command="none"` while jobs ran (staging, 2026-10-13). The
+     * scheduler is the one process that always has the schedule: on its ticks it leaves the budgets in the cache, at most
+     * every ten minutes, and a process without the schedule reads them from there.
+     */
+    private static function rememberBudgets(): void
+    {
+        try { // bookkeeping must never fail the job it describes
+            $cached = Cache::get(self::BUDGETS_CACHE_KEY);
+            if (is_array($cached) && now()->getTimestamp() - (int) ($cached['written_at'] ?? 0) < self::BUDGETS_REFRESH_SECONDS) {
+                return;
+            }
+            $budgets = app(self::class)->budgets();
+            if ($budgets !== []) {
+                Cache::put(self::BUDGETS_CACHE_KEY, ['written_at' => now()->getTimestamp(), 'budgets' => $budgets], now()->addSeconds(self::BUDGETS_TTL_SECONDS));
+            }
+        } catch (Throwable $e) {
+            Log::warning('schedule.health.budgets_not_cached', ['error' => mb_substr($e->getMessage(), 0, 200)]);
+        }
     }
 
     public static function finished(ScheduledTaskFinished $event): void
@@ -126,8 +157,14 @@ final class ScheduleHealth
     /** @return array<string, int> job => budget in seconds (the shorter budget when a job is scheduled more than once) */
     public function budgets(): array
     {
+        $events = app(Schedule::class)->events();
+        if ($events === []) { // a process without the schedule (PHP-FPM): what the scheduler last saw, or nothing before its first tick
+            $cached = Cache::get(self::BUDGETS_CACHE_KEY);
+
+            return is_array($cached) && is_array($cached['budgets'] ?? null) ? array_map('intval', $cached['budgets']) : [];
+        }
         $out = [];
-        foreach (app(Schedule::class)->events() as $event) {
+        foreach ($events as $event) {
             $key = self::key($event);
             $budget = self::budgetSeconds($event);
             $out[$key] = isset($out[$key]) ? min($out[$key], $budget) : $budget; // scheduled twice (fx:sync): either run counts
