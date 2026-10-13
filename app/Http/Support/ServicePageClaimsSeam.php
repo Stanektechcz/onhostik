@@ -335,8 +335,19 @@ ABOUT_PAGE_NEW;
     'partners': C({
 DATACENTERS_PAGE_NEW;
 
-    /** @return array<string, array<string, string>> script => [needle => replacement] */
+    /** @return array<string, array<string, string>> script => [needle => replacement] (R1: PhaseRCopySeam::scriptSwaps() merged in) */
     public static function replacements(): array
+    {
+        $all = self::claimSwaps();
+        foreach (PhaseRCopySeam::scriptSwaps() as $script => $swaps) {
+            $all[$script] = ($all[$script] ?? []) + $swaps;
+        }
+
+        return $all;
+    }
+
+    /** @return array<string, array<string, string>> script => [needle => replacement] (J-R2 … Q1) */
+    private static function claimSwaps(): array
     {
         $pueNote = "benchNote: _('".self::PUE_NOTE_CS."', '".self::PUE_NOTE_EN."'),";
 
@@ -587,14 +598,14 @@ DATACENTERS_PAGE_NEW;
      */
     public static function blocks(): array
     {
-        return [
+        return array_merge_recursive([
             'onhost-svc-other.js' => [
                 [self::SUPPORT_PAGE_FROM, self::SUPPORT_PAGE_TO, self::SUPPORT_PAGE_NEW],
                 [self::ENTERPRISE_PAGE_FROM, self::ENTERPRISE_PAGE_TO, self::ENTERPRISE_PAGE_NEW], // Q1
                 [self::ABOUT_PAGE_FROM, self::ABOUT_PAGE_TO, self::ABOUT_PAGE_NEW], // Q1
             ],
             'onhost-svc-corp.js' => [[self::DATACENTERS_PAGE_FROM, self::DATACENTERS_PAGE_TO, self::DATACENTERS_PAGE_NEW]], // Q1
-        ];
+        ], PhaseRCopySeam::scriptBlocks()); // R1: the status and careers pages
     }
 
     /**

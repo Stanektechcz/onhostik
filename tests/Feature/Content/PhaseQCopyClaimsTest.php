@@ -44,7 +44,7 @@ function pqcStated(): array
         'onhost-svc-compute.js' => ['Fyzický přístup k racku domlouváme předem.', 'Výkon vektorové databáze zveřejníme, až ho doložíme měřením.'],
         'onhost-svc-corp.js' => ['Kde konkrétní služba běží, vám sdělí podpora.', 'Účinnost (PUE) zveřejníme, až ji doložíme měřením.'],
         'onhost-svc-other.js' => ['Služby pro firmy podle smlouvy', "_('SLA podle individuální smlouvy', 'SLA by individual contract')", 'Kdo Onhost provozuje',
-            'Provozovatele (název, IČO a sídlo) uvádějí obchodní podmínky.', "specs: [_('Praha', 'Prague'), "],
+            'Provozovatele (název, IČO a sídlo) uvádějí obchodní podmínky.'], // R1 (phase R): the careers page with its NOC role is replaced whole (PhaseRCopyClaimsTest)
         'onhost-svc-more.js' => ['Povinnosti podle NIS2 nese provozovatel regulované služby.'],
         'onhost-svc-web.js' => ['Kompenzaci za nedodrženou dostupnost uplatníte v zákaznickém panelu', 'CDN a WAF · připravujeme'],
         'onhost-public.js' => ['Parametry ochrany proti DDoS (kapacitu, vrstvy a dobu reakce) uvedeme, až je doložíme.'],
