@@ -62,6 +62,10 @@ condition (*bank statement import* is OK since M3, J-R7) and one migration was a
 3. **`Strict-Transport-Security` is still sent twice** (app and nginx), as on 2026-10-13 B1. Harmless; noted again.
 4. **`onhost_ref`** (partner attribution, 30 days, only after a `?ref=` link) is now named on the privacy page; whether it counts
    as strictly necessary or needs consent is for the lawyer (TASK-0179 out of scope).
+5. **`development` CI turned red at 2026-10-12 22:30 UTC, after the freeze** (the deployed `199071b8` was green at 21:40 UTC): the
+   TASK-0159 test `RefundEstimateTest › counts the accounting day…` travelled to the fixed moment 2026-10-11 22:30 UTC, which lies
+   before the prices the seeders date `now()->subDay()` (`No year price in CZK for web-hosting/standard`). Test-only defect; the
+   released code is unaffected. Fixed by TASK-0182 (PR #178): the test travels to tomorrow 23:30 UTC and asserts the Prague day split.
 
 ## Left for the owner
 
