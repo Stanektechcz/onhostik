@@ -164,6 +164,23 @@ bash /root/onhost-staging.sh status
 
 `status` now also prints the current release, every parked release and the drop-ins.
 
+### Operator switches the deployer spec accepts (ST-6, P-R78)
+
+`write_expected_env` (run by every `setup`/`deploy` before the gate) pins most of `app.env`; `deploy.sh` stops with rc 2 when
+`app.env` holds anything else. **`ONHOST_TOKEN_ORGANIZATION_REQUIRED` is the exception**: the spec line is
+`ONHOST_TOKEN_ORGANIZATION_REQUIRED~=^(true|false)?$`, so the R9 switch of production-plan step 8 can be rehearsed on staging (ST-6)
+without stopping the next deploy. Until 2026-10-13 the line was `=false` and a `true` in `app.env` would have refused every deploy
+(protocol 2026-10-15, finding 1). The order on staging:
+
+1. deploy a release that contains TASK-0190 (its `deploy` rewrites `expected-env` with the new line — check with
+   `grep TOKEN_ORGANIZATION $S/expected-env`);
+2. `php artisan operator:tokens:unbound --dry-run` (0 tokens to tell);
+3. only then, with the owner's "ano" to ST-6: the `app.env` line `ONHOST_TOKEN_ORGANIZATION_REQUIRED=true`, `config:cache`, doctor
+   row *API tokens must name an organisation (R9)* OK; the next `deploy` must still pass `env-assert`.
+
+Rollback: the line back to `false`, `config:cache`. CI runs the real function against a staging-like `app.env` with the switch on,
+off, unset and misspelt (`infra/aapanel/ci/expected-env-switches.sh`, deploy-scripts job; `StagingExpectedEnvSwitchTest`).
+
 ## When a release is parked
 
 The script printed `✖ release <sha> PARKED (stage <stage>, rc <n>)` and the rollback command.
