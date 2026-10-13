@@ -134,6 +134,9 @@ tags:
     name: staff-dunning
     description: 'Operations of the staff-dunning area.'
   -
+    name: staff-finance
+    description: 'Operations of the staff-finance area.'
+  -
     name: staff-game
     description: 'Operations of the staff-game area.'
   -
@@ -22137,6 +22140,66 @@ paths:
             schema:
               type: object
               additionalProperties: true
+  '/staff/finance/exports/{kind}':
+    get:
+      operationId: getStaffFinanceExportsByKind
+      tags:
+        - staff-finance
+      summary: 'GET /staff/finance/exports/{kind}'
+      parameters:
+        -
+          name: kind
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        '422':
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+      x-token-scope: null
   /staff/game:
     get:
       operationId: getStaffGame

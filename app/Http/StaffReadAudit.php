@@ -58,6 +58,7 @@ final class StaffReadAudit
         'v1/staff/data-requests' => ['data_requests', null, null],
         'v1/staff/domains' => ['domains', null, null],
         'v1/staff/dunning' => ['dunning', null, null],
+        'v1/staff/finance/exports/{kind}' => ['accounting_export', null, null], // R2: every document's buyer and every payment of a month
         'v1/staff/integrations/{instance}' => ['integration', 'provider_instance', null], // the controller records it itself
         'v1/staff/leads' => ['leads', null, null], // a lead is a person's name and contact
         'v1/staff/marketplace/listings' => ['marketplace_listings', null, null],

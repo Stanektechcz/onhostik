@@ -34,6 +34,7 @@ use App\Http\Controllers\Api\V1\RewardsController;
 use App\Http\Controllers\Api\V1\ServiceAccessController;
 use App\Http\Controllers\Api\V1\ServiceAccountController;
 use App\Http\Controllers\Api\V1\ServiceController;
+use App\Http\Controllers\Api\V1\Staff\AccountingExportController;
 use App\Http\Controllers\Api\V1\Staff\ApprovalController;
 use App\Http\Controllers\Api\V1\Staff\ChargebackController;
 use App\Http\Controllers\Api\V1\Staff\ComgateController;
@@ -526,6 +527,7 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
         Route::put('placements', [ProvisioningController::class, 'upsertPlacement']);
         Route::delete('placements/{placement}', [ProvisioningController::class, 'deletePlacement']);
         Route::get('payments/bank', [PaymentsController::class, 'bank']);
+        Route::get('finance/exports/{kind}', [AccountingExportController::class, 'show']); // R2 (P-R36): CSV for the accountant
         Route::post('payments/bank/lines', [PaymentsController::class, 'recordBankLine']);
         Route::post('payments/bank/sync', [PaymentsController::class, 'syncBank']);
         Route::post('payments/bank/statements', [PaymentsController::class, 'importBankStatement']); // J-R7 (M3): a statement file of Česká spořitelna
