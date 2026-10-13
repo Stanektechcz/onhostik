@@ -159,6 +159,54 @@ LEGAL_PAGE_OLD;
       endLead: _('Napište nám přes zákaznický panel nebo e-mailem.', 'Write to us through the customer panel or by e-mail.')
 LEGAL_PAGE_NEW;
 
+    /** P1 (P-R37, OP-1): support answers Mon–Fri 08:00–17:00 Europe/Prague through the panel and e-mail. */
+    private const SUPPORT_HOURS_ROW = "{ k: _('po–pá 8–17', 'Mon–Fri 8–17'), v: _('podpora přes panel a e-mail', 'support via the panel and e-mail') }";
+
+    /** P2 (P-R69, DD-1): DDoS protection is not documented; only a documented figure may come back. */
+    private const DDOS_UNDOCUMENTED = "_('Parametry ochrany proti DDoS (kapacitu, vrstvy a dobu reakce) uvedeme, až je doložíme. Do té doby je neslibujeme.', 'We will state DDoS protection figures (capacity, layers and response time) once they are documented. Until then we do not promise them.')";
+
+    /** P1: the support page of onhost-svc-other.js (the last page of the module), from its key to the end of the module. */
+    private const SUPPORT_PAGE_FROM = "    'support': C({\n";
+
+    private const SUPPORT_PAGE_TO = "    })\n  };\n}";
+
+    /** P1 (P-R37, OP-1): what support is — channels, hours, the SLA's incident response — and nothing measured that was not. */
+    private const SUPPORT_PAGE_NEW = <<<'SUPPORT_PAGE_NEW'
+    'support': C({
+      panelsTitle: _('Jak podpora funguje', 'How support works'), panelsLead: _('Podpora odpovídá v pracovní dny přes zákaznický panel a e-mail.', 'Support answers on working days through the customer panel and e-mail.'),
+      panels: [
+        [_('Kanály a doby', 'Channels and hours'), _('Tiket v zákaznickém panelu nebo e-mail, po–pá 8:00–17:00 (Europe/Prague). Tikety a e-maily přijímáme i mimo tuto dobu a odpovíme v nejbližší pracovní době.', 'A ticket in the customer panel or e-mail, Mon–Fri 8:00–17:00 (Europe/Prague). Tickets and e-mails are received outside these hours too and answered in the next working hours.'), [[_('Pracovní doba', 'Hours'), _('po–pá 8–17', 'Mon–Fri 8–17')], [_('Tiket a e-mail', 'Ticket and e-mail'), '✓'], [_('Telefon', 'Phone'), _('výpadek v pracovní době', 'outage in working hours')]]],
+        [_('Incident podle SLA', 'Incidents per the SLA'), _('Dobu reakce na incident stanoví SLA podle třídy služby.', 'The SLA sets the incident response time by service class.'), [['Standard', '4 h'], ['Business', '1 h']]]
+      ],
+      cmp: null,
+      plansTitle: cs ? 'Podpora' : 'Support', plansNote: cs ? 'Podpora je u všech tarifů v ceně.' : 'Support is included with every plan.',
+      cat: _('Podpora', 'Support'), crumb: _('Kontakt a podpora', 'Contact and support'),
+      kicker: _('Po–pá 8:00–17:00 · panel a e-mail', 'Mon–Fri 8:00–17:00 · panel and e-mail'),
+      title: _('Kontakt a podpora', 'Contact and support'),
+      lead: _('Napište nám tiket v zákaznickém panelu nebo e-mail. Odpovídáme v pracovní dny 8:00–17:00; telefon slouží pro výpadek služby v pracovní době.', 'Open a ticket in the customer panel or send an e-mail. We answer on working days 8:00–17:00; the phone is for a service outage in working hours.'),
+      kpis: [],
+      chips: [_('Tikety v panelu', 'Tickets in the panel'), _('E-mail', 'Email'), _('Česky a anglicky', 'Czech and English')],
+      plans: [
+        { name: _('Standardní', 'Standard'), tag: _('V ceně', 'Included'), price: 0, priceLabel: _('V ceně', 'Included'), priceNote: _('u všech tarifů', 'on every plan'), ctaLabel: _('Napsat tiket', 'Open a ticket'), specs: [_('Tiket a e-mail', 'Ticket and e-mail'), _('Po–pá 8:00–17:00', 'Mon–Fri 8:00–17:00'), _('Reakce na incident podle SLA', 'Incident response per the SLA')] }
+      ],
+      feats: [
+        ['01', _('Tiket v panelu', 'A ticket in the panel'), _('Tiket i celou jeho historii najdete v zákaznickém panelu.', 'The ticket and its whole history are in the customer panel.')],
+        ['02', _('Reakce podle SLA', 'Response per the SLA'), _('Standard do 4 hodin, Business do 1 hodiny, jak uvádí SLA v platnosti.', 'Standard within 4 hours, Business within 1 hour, as the SLA in force states.')]
+      ],
+      tech: [_('Tikety', 'Tickets'), 'E-mail'],
+      bench: [],
+      benchNote: _('Dobu odpovědi zveřejníme, až ji doložíme měřením.', 'We will publish response times once they are backed by measurement.'),
+      cases: [],
+      faq: [
+        [_('Kdy podpora odpovídá?', 'When does support answer?'), _('V pracovní dny 8:00–17:00 (Europe/Prague). Tikety a e-maily přijímáme i mimo tuto dobu.', 'On working days 8:00–17:00 (Europe/Prague). Tickets and e-mails are received outside these hours too.')],
+        [_('Mluvíte česky?', 'Do you speak Czech?'), _('Ano. Anglicky také.', 'Yes. English too.')],
+        [_('Kde najdu telefon?', 'Where is the phone number?'), _('V patičce webu. Telefon slouží pro výpadek služby v pracovní době; ostatní dotazy prosím tiketem nebo e-mailem.', 'In the site footer. The phone is for a service outage in working hours; anything else by ticket or e-mail, please.')]
+      ]
+    })
+  };
+}
+SUPPORT_PAGE_NEW;
+
     /** @return array<string, array<string, string>> script => [needle => replacement] */
     public static function replacements(): array
     {
@@ -167,7 +215,9 @@ LEGAL_PAGE_NEW;
         return [
             'onhost-svc-compute.js' => [
                 // VPS: the benchmark row named one EPYC model
-                "{ label: _('Onhost VPS 4 (EPYC 9354)', 'Onhost VPS 4 (EPYC 9354)'), pct: 100, note: '1 842 pts' }," => "{ label: _('Onhost VPS 4', 'Onhost VPS 4'), pct: 100, note: '1 842 pts' },",
+                // P3 (P-R70, DD-2): the VPS Geekbench rows — 1 842 pts, a "global cloud" and "VPS with oversold cores" — were never measured
+                "        { label: _('Onhost VPS 4 (EPYC 9354)', 'Onhost VPS 4 (EPYC 9354)'), pct: 100, note: '1 842 pts' },\n        { label: _('Srovnatelný VPS u globálního cloudu', 'Comparable VPS at a global cloud'), pct: 71, note: '1 310 pts' },\n        { label: _('VPS s přeprodanými jádry', 'VPS with oversold cores'), pct: 43, note: '790 pts' }\n" => '',
+                "benchNote: _('Geekbench 6 multi-core, 4 vCPU, medián z deseti běhů v různých denních hodinách.', 'Geekbench 6 multi-core, 4 vCPU, median of ten runs across different times of day.')," => "benchNote: _('Výkon VPS zveřejníme, až ho doložíme měřením.', 'We will publish VPS performance once it is backed by measurement.'),",
                 // dedicated servers: stock and delivery-from-stock claims, EPYC 9354 builds
                 "lead: _('Vybraný hardware skladem do 24 hodin, nebo sestavíme na míru do pěti dnů. Můžete si ho pronajmout, splácet po 24 měsíců, nebo koupit a nechat u nás v racku.', 'Selected hardware in stock within 24 hours, or built to order in five days. Rent it, pay it off over 24 months, or buy it and keep it in our rack.')," => "lead: _('Sestavu domluvíme podle vaší potřeby a termín dodání potvrdíme předem. Můžete si ji pronajmout, splácet po 24 měsíců, nebo koupit a nechat u nás v racku.', 'We agree the build with you and confirm the delivery date up front. Rent it, pay it off over 24 months, or buy it and keep it in our rack.'),",
                 "kpis: [['24 h', _('dodání ze skladu', 'delivery from stock')], ['3 roky'," => "kpis: [['3 roky',",
@@ -179,7 +229,7 @@ LEGAL_PAGE_NEW;
                 "title: _('H100 v Praze. Vaše data zůstanou v Česku.', 'H100s in Prague. Your data stays in the country.')," => "title: _('GPU instance připravujeme', 'GPU instances are coming'),",
                 "kpis: [['7 / 24', _('volných karet H100', 'H100 cards free')], ['90 s', _('start instance', 'instance start')], ['0', _('přenosů dat mimo EU', 'transfers outside the EU')]]," => 'kpis: [],',
                 // colocation: PUE and the share of renewables
-                "kpis: [['1,18', 'PUE'], ['2N', _('napájení a UPS', 'power and UPS')], ['62 %', _('energie z obnovitelných zdrojů', 'energy from renewables')]]," => "kpis: [['2N', _('napájení a UPS', 'power and UPS')]],",
+                "kpis: [['1,18', 'PUE'], ['2N', _('napájení a UPS', 'power and UPS')], ['62 %', _('energie z obnovitelných zdrojů', 'energy from renewables')]]," => 'kpis: [],', // P3: no "2N" either
                 "        { label: _('Onhost Praha (BESS + obnovitelné)', 'Onhost Prague (BESS + renewables)'), pct: 100, note: 'PUE 1,18' },\n        { label: _('Průměrné evropské datacentrum', 'Average European data centre'), pct: 62, note: 'PUE 1,55' },\n        { label: _('Vlastní serverovna ve firmě', 'In-house company server room'), pct: 32, note: 'PUE 2,4' }\n" => '',
                 "benchNote: _('PUE měřené za 12 měsíců včetně chlazení a rozvodů; nižší je lepší, sloupec ukazuje účinnost.', 'PUE measured over 12 months including cooling and distribution; lower is better, the bar shows efficiency.')," => $pueNote,
                 // N1: the SLA band of every compute page — 99,99 % and "< 15 min" are not the SLA in force, and a credit is claimed in
@@ -199,6 +249,15 @@ LEGAL_PAGE_NEW;
                 "_('Vlastní domény endpointů', 'Custom endpoint domains'), 'SLA 99,99 %'" => "_('Vlastní domény endpointů', 'Custom endpoint domains'), ".self::SLA_BY_CONTRACT,
                 "['SLA', '—', '99,95 %', '99,99 %']" => "['SLA', '—', '99,95 %', _('podle smlouvy', 'per contract')]",
                 "_('GPU indexace', 'GPU indexing'), 'SLA 99,99 %'" => "_('GPU indexace', 'GPU indexing'), ".self::SLA_BY_CONTRACT,
+                // P3 (P-R70, DD-2): colocation "2N power, N+1 cooling", 2N UPS and "2N + generator" — no document states them
+                "kicker: _('TIER III · 2N napájení · 6 lokalit', 'TIER III · 2N power · 6 locations')," => "kicker: _('Colocation · prostor v racku', 'Colocation · rack space'),",
+                "_('Od jedné U po celý rack, s 2N napájením, chlazením N+1 a přístupem 24/7. " => "_('Od jedné U po celý rack, s přístupem 24/7. ",
+                "'From a single U to a whole rack, with 2N power, N+1 cooling and 24/7 access. " => "'From a single U to a whole rack, with 24/7 access. ",
+                "chips: ['TIER III', '2N UPS', " => "chips: ['TIER III', ",
+                "'2,5 kW', _('2N napájení', '2N power'), " => "'2,5 kW', ",
+                "'7 kW', _('2N + generátor', '2N + generator'), " => "'7 kW', ",
+                "          [_('Napájení', 'Power feeds'), '2×', '2N', _('2N + generátor', '2N + generator')],\n" => '',
+                "_('Dvě nezávislé trasy, UPS 2N, dieselagregát s palivem na 72 hodin.', 'Two independent feeds, 2N UPS, diesel generator with 72 hours of fuel.')" => "_('Dvě nezávislé napájecí trasy, UPS a dieselagregát.', 'Two independent feeds, UPS and a diesel generator.')",
             ],
             'onhost-svc-dev.js' => [
                 // N1: managed servers — no 15- or 60-minute response, no 99,99 % and no measured median: the SLA class decides
@@ -212,6 +271,10 @@ LEGAL_PAGE_NEW;
                 // O1: object storage (draft product, no overlay) — the Archive plan and the comparison row
                 "_('Export na disk poštou', 'Disk export by post'), _('SLA 99,99 %', '99.99% SLA')" => "_('Export na disk poštou', 'Disk export by post'), ".self::SLA_BY_CONTRACT,
                 self::SLA_ROW_OLD => self::SLA_ROW_NEW,
+                // P1 (P-R37, OP-1): support works Mon–Fri 08:00–17:00 — no "24/7 hands-on" and no night-time production on-call
+                "kicker: _('Updaty · monitoring · zásahy 24/7', 'Updates · monitoring · 24/7 hands-on')," => "kicker: _('Updaty · monitoring · zásahy podle SLA', 'Updates · monitoring · hands-on per the SLA'),",
+                "_('Zásahy 24/7 bez příplatku', '24/7 hands-on, no surcharge')" => "_('Zásahy bez příplatku', 'Hands-on, no surcharge')",
+                "{ t: _('Produkce s nočním provozem', 'Production that runs at night'), d: _('Zásahy 24/7 a ladění databáze místo interního on-call.', '24/7 hands-on and database tuning instead of internal on-call.')," => "{ t: _('Produkce bez vlastního admina', 'Production without an in-house admin'), d: _('Zásahy podle SLA a ladění databáze bez vlastního správce.', 'Hands-on per the SLA and database tuning without an admin of your own.'),",
             ],
             'onhost-svc-corp.js' => [
                 // the SLA band: the share of renewables (K8b); then (L3 / M1) what the SLA in force says — 99,9 % and a 4-hour incident
@@ -251,6 +314,22 @@ LEGAL_PAGE_NEW;
                 // "how Onhost works": the share of renewables; a location card: PUE
                 ", [_('OZE', 'Renewables'), '62 %']]]" => ']]',
                 "_('Odvod tepla do teplovodu', 'Heat into district loop'), 'PUE 1,18', " => "_('Odvod tepla do teplovodu', 'Heat into district loop'), ",
+                // P1 (P-R37, OP-1): the corporate SLA band of these pages — 99,99 % "with penalties" and a 15-minute P1 response "24/7"
+                "    lead: _('Smluvní SLA, jmenovaný kontakt a kredity vyplácené automaticky. Žádné výjimky psané malým písmem.', 'Contractual SLA, a named contact and credits paid automatically. No exceptions in small print.'),\n    rows: [\n      { k: '99,99 %', v: _('dostupnost s pokutou', 'uptime with penalties') },\n      { k: '15 min', v: _('reakce na P1 24/7', 'P1 response, 24/7') },\n" => self::SLA_BAND_NEW,
+                "kpis: [['99,99 %', _('smluvní dostupnost', 'contractual uptime')], ['15 min', _('reakce P1, 24/7', 'P1 response, 24/7')], " => 'kpis: [',
+                // P2 (P-R69, DD-1): the game pages' DDoS figures — 1,2 Tbps, detection "within three seconds", a profile "for every game"
+                "_('Přišel DDoS na 300 Gbps a hráči si toho nevšimli. Přesně za to platíme.', 'A 300 Gbps DDoS hit and players never noticed. That is exactly what we pay for.')" => "_('Hráči si ničeho nevšimli. Přesně za to platíme.', 'Players never noticed a thing. That is exactly what we pay for.')",
+                "    lead: _('Anti-DDoS profily ladíme pro každou hru zvlášť, restarty plánujeme mimo prime time a zálohy běží každou hodinu.', 'Anti-DDoS profiles are tuned per game, restarts are scheduled outside prime time and backups run hourly.'),\n" => "    lead: _('Restarty plánujeme mimo prime time a zálohy běží každou hodinu.', 'Restarts are scheduled outside prime time and backups run hourly.'),\n",
+                "      { k: '1,2 Tbps', v: _('kapacita mitigace', 'mitigation capacity') },\n      { k: '< 3 s', v: _('detekce útoku', 'attack detection') },\n" => '',
+                "kicker: _('Modpacky · Bedrock · Anti-DDoS', 'Modpacks · Bedrock · Anti-DDoS')," => "kicker: _('Modpacky · Bedrock', 'Modpacks · Bedrock'),",
+                "['40+', _('modpacků na klik', 'one-click modpacks')], ['1,2 Tbps', _('anti-DDoS', 'anti-DDoS')]]" => "['40+', _('modpacků na klik', 'one-click modpacks')]]",
+                "['8 ms', _('ping z ČR a SK', 'ping from CZ and SK')], ['1,2 Tbps', _('anti-DDoS', 'anti-DDoS')]]" => "['8 ms', _('ping z ČR a SK', 'ping from CZ and SK')]]",
+                "          [_('Anti-DDoS', 'Anti-DDoS'), '✓', '✓', _('Profil na míru', 'Custom profile')],\n" => '',
+                ",\n        ['06', _('Anti-DDoS ladený pro Minecraft', 'Anti-DDoS tuned for Minecraft'), _('Filtrujeme bot connecty a UDP flood, aniž bychom odřízli hráče.', 'We filter bot connects and UDP floods without cutting off players.')]" => '',
+                "konzole, plánované úlohy a anti-DDoS profil pro každý titul zvlášť.', " => "konzole a plánované úlohy.', ",
+                "console, scheduled tasks and an anti-DDoS profile per title.')" => "console and scheduled tasks.')",
+                "          [_('Anti-DDoS profil', 'Anti-DDoS profile'), _('Standardní', 'Standard'), _('Podle hry', 'Per game'), _('Na míru', 'Bespoke')],\n" => '',
+                "[_('Co když nás někdo bude DDoSovat?', 'What if we get DDoSed?'), _('Filtrujeme automaticky do tří sekund. U turnajů držíme technika po celou dobu.', 'We filter automatically within three seconds. During tournaments an engineer stands by.')]" => "[_('Chráníte servery proti DDoS?', 'Do you protect servers against DDoS?'), ".self::DDOS_UNDOCUMENTED.']',
             ],
             'onhost-svc-more.js' => [
                 "_('Odpadní teplo z našich sálů ohřívá dvě sousední budovy v Praze.', 'Waste heat from our halls warms two neighbouring Prague buildings.')" => "_('Odpadní teplo z našich sálů ohřívá sousední budovy v Praze.', 'Waste heat from our halls warms neighbouring Prague buildings.')",
@@ -268,6 +347,26 @@ LEGAL_PAGE_NEW;
                 "_('na vyžádání', 'on request'), '✓'],\n          ".self::SLA_ROW_OLD => "_('na vyžádání', 'on request'), '✓'],\n          ".self::SLA_ROW_NEW,
                 "_('GPU na vyžádání', 'GPU on demand'), _('SLA 99,99 %', '99.99% SLA')" => "_('GPU na vyžádání', 'GPU on demand'), ".self::SLA_BY_CONTRACT,
                 "_('rezervace', 'reserved')],\n          ".self::SLA_ROW_OLD => "_('rezervace', 'reserved')],\n          ".self::SLA_ROW_NEW,
+                // P1 (P-R37, OP-1): support hours instead of "30 min, 24/7", no 24/7 NOC, no 24/7 support tier
+                "      { k: '30 min', v: _('reakce podpory 24/7', 'support response, 24/7') },\n" => '      '.self::SUPPORT_HOURS_ROW.",\n",
+                "_('NOC 24/7 a eskalace', '24/7 NOC and escalation')" => "_('Eskalace podle SLA', 'Escalation per the SLA')",
+                "[_('Podpora', 'Support'), _('pracovní doba', 'business hours'), '24/7', _('24/7 + inženýr', '24/7 + engineer')]" => "[_('Podpora', 'Support'), _('pracovní doba', 'business hours'), _('pracovní doba', 'business hours'), _('podle smlouvy', 'per contract')]",
+                // P2 (P-R69, DD-1): the gaming communities page
+                "kicker: _('Anti-DDoS · sítě serverů · panel pro moderátory', 'Anti-DDoS · server fleets · moderator panel')," => "kicker: _('Sítě serverů · panel pro moderátory', 'Server fleets · moderator panel'),",
+                "práva pro moderátory bez sdílení hesla, anti-DDoS profil laděný pro každou hru a restarty naplánované mimo prime time.', 'Several servers under one account, moderator roles without sharing a password, an anti-DDoS profile tuned per game, and restarts scheduled outside prime time.')" => "práva pro moderátory bez sdílení hesla a restarty naplánované mimo prime time.', 'Several servers under one account, moderator roles without sharing a password, and restarts scheduled outside prime time.')",
+                "kpis: [['1,2 Tbps', _('kapacita mitigace', 'mitigation capacity')], ['20 TPS'," => "kpis: [['20 TPS',",
+                "'Palworld', _('Anti-DDoS', 'Anti-DDoS'), _('Moderátoři', 'Moderators')" => "'Palworld', _('Moderátoři', 'Moderators')",
+                "_('Anti-DDoS základní', 'Basic anti-DDoS'), " => '',
+                "_('Anti-DDoS Pro s L7', 'Anti-DDoS Pro with L7'), " => '',
+                "          ['Anti-DDoS', _('základní', 'basic'), 'Pro (L7)', 'Pro (L7)'],\n" => '',
+                "['02', _('Anti-DDoS laděný pro hru', 'Anti-DDoS tuned per game'), _('Filtr pro Minecraft se chová jinak než pro CS2. Nastavujeme ho my.', 'The Minecraft filter behaves differently to CS2. We set it up.')]" => "['02', _('Restarty mimo prime time', 'Restarts outside prime time'), _('Restarty a údržbu naplánujete v panelu na dobu, kdy nikdo nehraje.', 'You schedule restarts and maintenance in the panel for when nobody plays.')]",
+                "d: _('Čtyři servery, role pro deset moderátorů a anti-DDoS Pro.', 'Four servers, roles for ten moderators and anti-DDoS Pro.')" => "d: _('Čtyři servery a role pro deset moderátorů.', 'Four servers and roles for ten moderators.')",
+                "[_('Jak rychle reagujete na DDoS?', 'How fast do you react to a DDoS?'), _('Detekce do tří sekund, mitigace automaticky, bez vašeho zásahu.', 'Detection within three seconds, mitigation automatic, no action needed.')]" => "[_('Jak reagujete na DDoS?', 'How do you react to a DDoS?'), ".self::DDOS_UNDOCUMENTED.']',
+            ],
+            'onhost-svc-web.js' => [
+                // P1 (P-R37): the web hosting SLA band — a "measured" 99,98 %, a 10-minute 24/7 reply, a 10× credit and TIER III data centres
+                // in three cities, none documented — states SLA 2026-09 (Standard) and the support hours
+                "      { k: '99,98 %', v: _('měřená dostupnost za 12 měsíců', 'measured uptime over 12 months') },\n      { k: '< 10 min', v: _('první reakce podpory (24/7)', 'first support response (24/7)') },\n      { k: '10×', v: _('kredit za každou hodinu nad limit', 'credit for every hour over the limit') },\n      { k: 'TIER III', v: _('datacentra v Praze, Brně, Varšavě', 'data centres in Prague, Brno, Warsaw') }\n" => "      { k: '99,9 %', v: _('měsíční dostupnost (Standard, SLA)', 'monthly availability (Standard, SLA)') },\n      { k: '4 h', v: _('reakce na incident (Standard)', 'incident response (Standard)') },\n      ".self::SUPPORT_HOURS_ROW."\n",
             ],
         ];
     }
@@ -323,6 +422,58 @@ LEGAL_PAGE_NEW;
         ];
     }
 
+    /**
+     * P1 (P-R37): whole pages replaced from a start marker (exactly once) to the first end marker after it.
+     *
+     * @return array<string, list<array{0: string, 1: string, 2: string}>> script => [[from, to, replacement]]
+     */
+    public static function blocks(): array
+    {
+        return ['onhost-svc-other.js' => [[self::SUPPORT_PAGE_FROM, self::SUPPORT_PAGE_TO, self::SUPPORT_PAGE_NEW]]];
+    }
+
+    /**
+     * Phase P on the public surface (`Onhost.dc.html`): P1 (P-R37, OP-1) support hours instead of "24/7" in the menu, the stats and
+     * the promises table ("Co vám slibujeme"), which also states SLA 2026-09 and the VOP instead of a 15-minute 24/7 reply, an
+     * automatic credit, "nine probes", "no notice period" and credit refunded on request; P2 (P-R69, DD-1) no DDoS figure in the
+     * game badge, menu, search, game features or the network table (where it says "not documented", like its other honest rows).
+     *
+     * @return array<string, string> needle => replacement in the public surface
+     */
+    public static function phasePCopySwaps(): array
+    {
+        $hoursCs = "['Kontakt a podpora', 'Po–pá 8–17, panel a e-mail']";
+        $hoursEn = "['Contact and support', 'Mon–Fri 8–17, panel and e-mail']";
+
+        return [
+            "gmBadge: 'Anti-DDoS 1,2 Tbps · 24/7'," => "gmBadge: 'Herní servery s vlastním panelem',",
+            "gmBadge: 'Anti-DDoS 1.2 Tbps · 24/7'," => "gmBadge: 'Game servers with their own panel',",
+            "['CDN a DDoS ochrana', '1,2 Tbps, WAF, 14 PoP']" => "['CDN a DDoS ochrana', 'Připravujeme']",
+            "['CDN and DDoS protection', '1.2 Tbps, WAF, 14 PoPs']" => "['CDN and DDoS protection', 'Coming soon']",
+            ", ['Anti-DDoS pro hry', '1,2 Tbps, filtr na L7']" => '',
+            ", ['Anti-DDoS for games', '1.2 Tbps, L7 filtering']" => '',
+            "['Kontakt a podpora', 'Telefon, e-mail, chat 24/7']" => $hoursCs,
+            "['Contact and support', 'Phone, e-mail, chat 24/7']" => $hoursEn,
+            "['Kontakt a podpora', 'Praha, telefon, e-mail 24/7']" => $hoursCs,
+            "['Contact and support', 'Prague, phone, e-mail 24/7']" => $hoursEn,
+            "'Minecraft, CS2, Rust · anti-DDoS v ceně'" => "'Minecraft, CS2, Rust'",
+            "'Minecraft, CS2, Rust · anti-DDoS included'" => "'Minecraft, CS2, Rust'",
+            "['Herní servery', 'Anti-DDoS a sloty v ceně', 'game']" => "['Herní servery', 'Minecraft, CS2, Rust a další', 'game']",
+            "['Game servers', 'Anti-DDoS and slots included', 'game']" => "['Game servers', 'Minecraft, CS2, Rust and more', 'game']",
+            "['02', 'Anti-DDoS 1,2 Tbps', 'Profily ladíme zvlášť pro každou hru, ne jeden filtr na všechno.']," => "['02', 'Hráči podle RAM', 'Kolik hráčů server unese, určuje jeho RAM a hra, ne pevný počet slotů.'],",
+            "['02', 'Anti-DDoS 1.2 Tbps', 'Profiles tuned per game, not one filter for everything.']," => "['02', 'Players by RAM', 'How many players a server holds depends on its RAM and the game, not on a fixed slot count.'],",
+            "['Ochrana proti DDoS', 'na hraně', 'Filtrujeme na vstupu do sítě, ne až na vašem serveru. Provoz, který nemá projít, se k vám vůbec nedostane.']," => "['Ochrana proti DDoS', 'nedoloženo', 'Parametry ochrany proti DDoS (kapacitu, vrstvy a dobu reakce) uvedeme, až je doložíme. Do té doby ji neslibujeme.'],",
+            "['DDoS protection', 'at the edge', 'We filter at the network edge, not at your server. Traffic that should not arrive never reaches you.']," => "['DDoS protection', 'not documented', 'We will state DDoS protection figures (capacity, layers and response time) once they are documented. Until then we do not promise it.'],",
+            "{ v: '24/7', l: cs ? 'lidská podpora' : 'human support' }" => "{ v: cs ? 'po–pá 8–17' : 'Mon–Fri 8–17', l: cs ? 'lidská podpora' : 'human support' }",
+            "['NOC 24/7 na pozadí', " => "['Dohled na pozadí', ",
+            "['24/7 NOC behind you', " => "['Monitoring behind you', ",
+            "['Zvedneme to do 15 minut', 'U priority P1 (služba neběží) reagujeme do 15 minut, 24/7. Reakcí se rozumí odpověď člověka, nikoli automatické potvrzení.'],\n        ['Když to nestihneme, vrátíme kredit sami', 'Při nedodržení reakční doby připisujeme kredit automaticky, bez žádosti zákazníka, do 24 hodin od zjištění.'],\n        ['Dostupnost 99,9 % a výš', 'Měřeno měsíčně z devíti sond. Pod 99,9 % vracíme 10 % měsíční platby za službu, pod 99 % celou platbu.']," => "['Reagujeme podle SLA', 'Na incident reagujeme podle třídy služby: Standard do 4 hodin, Business do 1 hodiny (SLA v platnosti). Podpora odpovídá po–pá 8:00–17:00.'],\n        ['Kompenzace kreditem', 'Kompenzaci za nedodrženou dostupnost uplatníte v zákaznickém panelu a připíšeme ji jako kredit (SLA).'],\n        ['Dostupnost podle SLA', 'Standard 99,9 %, Business 99,95 % měsíčně. Za každou započatou hodinu nad limit náleží 5 % (Standard, nejvýše 50 %), resp. 10 % (Business, nejvýše 100 %) měsíční ceny.'],",
+            "['Smlouvu můžete kdykoli ukončit', 'Bez výpovědní doby a bez penále. Nevyčerpaný kredit vracíme na požádání, data exportujeme jedním kliknutím.']" => "['Výpověď ke konci období', 'Služby platíte předem na měsíc nebo rok, výpověď platí ke konci předplaceného období. Spotřebitel může od smlouvy odstoupit do 14 dnů (VOP).']",
+            "['We answer within 15 minutes', 'For P1 (service down) we respond within 15 minutes, 24/7. A response means a human reply, not an automated acknowledgement.'],\n        ['If we miss it, the credit comes without asking', 'On a missed response time we credit the account automatically, without a request, within 24 hours of discovery.'],\n        ['Uptime of 99.9% and above', 'Measured monthly from nine probes. Below 99.9% we return 10% of the monthly fee; below 99% the whole fee.']," => "['We respond per the SLA', 'Incident response by service class: Standard within 4 hours, Business within 1 hour (the SLA in force). Support answers Mon–Fri 8:00–17:00.'],\n        ['Compensation as credit', 'Compensation for missed availability is claimed in the customer panel and credited (SLA).'],\n        ['Availability per the SLA', 'Standard 99.9%, Business 99.95% a month. Each started hour over the limit earns 5% (Standard, at most 50%) or 10% (Business, at most 100%) of the monthly price.'],",
+            "['You can leave at any time', 'No notice period, no penalty. Unused credit is refunded on request and your data exports in one click.']" => "['Notice for the end of the period', 'Services are paid in advance for a month or a year; notice takes effect at the end of the prepaid period. A consumer may withdraw within 14 days (terms).']",
+        ];
+    }
+
     public static function covers(string $path): bool
     {
         return array_key_exists($path, self::replacements());
@@ -332,8 +483,16 @@ LEGAL_PAGE_NEW;
     public static function apply(string $script, string $path): string
     {
         $map = self::replacements()[$path] ?? [];
+        $script = $map === [] ? $script : str_replace(array_keys($map), array_values($map), $script);
+        foreach (self::blocks()[$path] ?? [] as [$from, $to, $replacement]) {
+            $start = strpos($script, $from);
+            $end = $start === false ? false : strpos($script, $to, $start);
+            if ($start !== false && $end !== false) {
+                $script = substr($script, 0, $start).$replacement.substr($script, $end + strlen($to));
+            }
+        }
 
-        return $map === [] ? $script : str_replace(array_keys($map), array_values($map), $script);
+        return $script;
     }
 
     /**

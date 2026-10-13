@@ -685,7 +685,7 @@ HTML;
             $html = self::legalClaimSeams($html); // TASK-0142: no promise the legal documents do not make (money-back, badges, bonus)
             $html = self::publicClaimSeams($html); // L-03 (TASK-0146): no factual claim the operator cannot document
             // L3 (M1): a document row of a service page opens its document; N1: the shared FAQ lead and closing block say what the VOP say
-            $rows = ServicePageClaimsSeam::documentRowSwaps() + ServicePageClaimsSeam::pageCopySwaps() + ServicePageClaimsSeam::homeCopySwaps(); // O1: no free trial on the home page
+            $rows = ServicePageClaimsSeam::documentRowSwaps() + ServicePageClaimsSeam::pageCopySwaps() + ServicePageClaimsSeam::homeCopySwaps() + ServicePageClaimsSeam::phasePCopySwaps(); // O1: no free trial on the home page; P1/P2: support hours, no DDoS figure
             $html = self::swap(array_keys($rows), array_values($rows), $html);
             $pricing = PricingPageSeam::swaps(); // K7-2 (L2): #/ceny — table and yearly price from the catalogue, honest FAQ, real cart line
             $html = self::swap(array_keys($pricing), array_values($pricing), $html);
@@ -1496,8 +1496,8 @@ HTML;
                 "heroBadge: 'Hosting, servers and domains in one panel',",
                 "dcTitle: 'Kde služby běží', dcCaption: 'Lokalitu služby uvádíme u tarifu a v objednávce.',",
                 "dcTitle: 'Where services run', dcCaption: 'The location of a service is stated with the plan and in the order.',",
-                "tbHours: 'Podpora přes panel a e-mail',",
-                "tbHours: 'Support through the panel and e-mail',",
+                "tbHours: 'Podpora po–pá 8–17 · panel a e-mail',", // P1 (P-R37, OP-1)
+                "tbHours: 'Support Mon–Fri 8–17 · panel and e-mail',",
                 "coRe2d: 'S přenosem webů, databází i e-mailů pomůžeme; termín a případnou odstávku domluvíme předem.',",
                 "coRe2d: 'We help move sites, databases and mailboxes; the timing and any downtime are agreed in advance.',",
                 "['ISO 27001', 'Certifikáty uvádíme jen doložené; bezpečnostní opatření popíšeme v nabídce na vyžádání.', 'na vyžádání', 0],",

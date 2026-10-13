@@ -136,7 +136,7 @@ final class SurfaceController extends Controller
             return response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=300', 'X-Content-Type-Options' => 'nosniff']);
         }
         if ($path === 'onhost-svc-web.js' && ! config('onhost.ui.demo', false)) { // customer surfaces never name a registrar vendor (seam #20); an SLA credit is credited, not refunded (G8 item 9)
-            $js = CreditClaimsSeam::apply(str_replace("'Hetzner', 'Wedos']", "'Hetzner', 'Forpsi']", (string) file_get_contents($file)), ['svc-web']);
+            $js = CreditClaimsSeam::apply(str_replace("'Hetzner', 'Wedos']", "'Hetzner', 'Forpsi']", ServicePageClaimsSeam::apply((string) file_get_contents($file), $path)), ['svc-web']); // P1: SLA band
 
             return response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=300', 'X-Content-Type-Options' => 'nosniff']);
         }
