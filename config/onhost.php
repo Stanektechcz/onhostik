@@ -70,7 +70,7 @@ return [
         'deletion' => [
             'grace_days' => (int) env('ONHOST_DELETE_GRACE_DAYS', 30),          // the customer may bring a deactivated service back within this window
             'identity_checks' => (int) env('ONHOST_DELETE_IDENTITY_CHECKS', 5), // identifiers that must match before anything is deleted
-            'download_fee_minor' => ['CZK' => (int) env('ONHOST_ARCHIVE_DOWNLOAD_FEE_CZK', 50000), 'EUR' => (int) env('ONHOST_ARCHIVE_DOWNLOAD_FEE_EUR', 2000)],
+            'download_fee_minor' => ['CZK' => (int) env('ONHOST_ARCHIVE_DOWNLOAD_FEE_CZK', 0), 'EUR' => (int) env('ONHOST_ARCHIVE_DOWNLOAD_FEE_EUR', 0)], // P-R30 (LG-6, Data Act): free from launch
         ],
     ],
     // a rescue session boots the server from an image of the operator's ISO storage and ends by itself (H233)
@@ -320,7 +320,7 @@ return [
     // regional pricing (audit §5j-8): country groups with a suggested currency and a percentage on the catalogue price (staff override the table in Nastavení → Ceny)
     'pricing' => ['regions' => [
         ['key' => 'sk', 'label' => 'Slovensko', 'countries' => ['SK'], 'currency' => 'EUR', 'adjust_pct' => 0],
-        ['key' => 'eu', 'label' => 'EU', 'countries' => ['DE', 'AT', 'PL', 'HU', 'SI', 'HR', 'NL', 'BE', 'FR', 'IT', 'ES', 'PT', 'IE', 'FI', 'SE', 'DK', 'EE', 'LV', 'LT', 'LU', 'RO', 'BG', 'GR', 'CY', 'MT'], 'currency' => 'EUR', 'adjust_pct' => (float) env('ONHOST_PRICING_EU_ADJUST', 5)],
+        ['key' => 'eu', 'label' => 'EU', 'countries' => ['DE', 'AT', 'PL', 'HU', 'SI', 'HR', 'NL', 'BE', 'FR', 'IT', 'ES', 'PT', 'IE', 'FI', 'SE', 'DK', 'EE', 'LV', 'LT', 'LU', 'RO', 'BG', 'GR', 'CY', 'MT'], 'currency' => 'EUR', 'adjust_pct' => (float) env('ONHOST_PRICING_EU_ADJUST', 0)], // P-R29 (LG-5, geo-blocking): no EU surcharge
     ]],
 
     // sandbox tenants (audit §5j-9): provisioning routed to lab instances (`options.sandbox`), a promo credit to test with, no loyalty, no commissions
