@@ -687,6 +687,12 @@ HTML;
             // L3 (M1): a document row of a service page opens its document; N1: the shared FAQ lead and closing block say what the VOP say
             $rows = ServicePageClaimsSeam::documentRowSwaps() + ServicePageClaimsSeam::pageCopySwaps() + ServicePageClaimsSeam::homeCopySwaps() + ServicePageClaimsSeam::phasePCopySwaps() + ServicePageClaimsSeam::phaseQCopySwaps(); // O1: no free trial on the home page; P1/P2: support hours, no DDoS figure; Q1/Q3: no trial button, no Anti-DDoS Pro
             $html = self::swap(array_keys($rows), array_values($rows), $html);
+            // R1 (phase R): no invented postmortems, status figures, credit steps or anycast DNS (PhaseRCopySeam)
+            $phaseR = PhaseRCopySeam::publicSwaps();
+            $html = self::swap(array_keys($phaseR), array_values($phaseR), $html);
+            foreach (PhaseRCopySeam::publicBlocks() as [$from, $to, $replacement]) {
+                $html = self::between($html, $from, $to, $replacement);
+            }
             $pricing = PricingPageSeam::swaps(); // K7-2 (L2): #/ceny — table and yearly price from the catalogue, honest FAQ, real cart line
             $html = self::swap(array_keys($pricing), array_values($pricing), $html);
             // TASK-0149: GPU only "připravujeme" (I-R16), the real team and contacts on #/lide (I-R19), no invented reply median
