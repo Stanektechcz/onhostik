@@ -45,3 +45,35 @@ it('covers the day-two runbook', function () {
         expect($used[$command] ?? [])->toContain('day-2-operations.md');
     }
 });
+
+/*
+ * P18 (phase R): the production plan and the documents the cutover follows name only scripts that are in the tree and switches the
+ * code reads — a renamed script or an environment switch nobody reads would only show on the production host.
+ */
+it('names only scripts and environment switches that exist in the cutover documents', function () {
+    $known = '';
+    foreach (array_merge(glob(base_path('config/*.php')) ?: [], glob(base_path('infra/aapanel/*.sh')) ?: [], glob(base_path('infra/aapanel/*.php')) ?: [], [base_path('.env.example'), base_path('tests/WidthGuard.php')]) as $file) {
+        $known .= is_file($file) ? (string) file_get_contents($file) : '';
+    }
+    $problems = [];
+    $switches = 0;
+    foreach (['production-plan-2026-10.md', 'go-live-checklist.md', 'first-day-production.md', 'release-and-rollback.md'] as $runbook) {
+        $text = (string) file_get_contents(base_path('docs/runbooks/'.$runbook));
+        preg_match_all('~\binfra/[A-Za-z0-9_./-]+\.(?:sh|php|yml|yaml|conf|json)\b~', $text, $paths);
+        foreach (array_unique($paths[0]) as $path) {
+            if (! file_exists(base_path($path))) {
+                $problems[] = "{$runbook}: {$path} does not exist";
+            }
+        }
+        preg_match_all('/\bONHOST_[A-Z0-9_]+\b/', $text, $names);
+        foreach (array_unique($names[0]) as $name) {
+            $switches++;
+            if (! str_contains($known, $name)) {
+                $problems[] = "{$runbook}: {$name} is read nowhere";
+            }
+        }
+    }
+    expect($switches)->toBeGreaterThan(5)->and($problems)->toBe([]);
+    expect((string) file_get_contents(base_path('docs/runbooks/production-plan-2026-10.md')))
+        ->toContain('restore-drill.sh')->toContain('ONHOST_PARTNERS_REFERRAL_COOKIE')->toContain('monitoring-setup.md')->toContain('aapanel-waf-log-privacy.md')->toContain('hsts.md');
+});
