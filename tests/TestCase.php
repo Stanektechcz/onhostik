@@ -7,6 +7,7 @@ namespace Tests;
 use Closure;
 use Database\Seeders\BaseSeeder;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Testing\TestResponse;
 use Onhost\Domain\Identity\Authorization\ApprovalService;
@@ -33,10 +34,26 @@ abstract class TestCase extends BaseTestCase
 
     protected function setUp(): void
     {
+        self::shiftClockForTimeBombSweep();
         parent::setUp();
         Cache::flush(); // the array store outlives the refreshed database: settings, ledgers and probes must not leak between tests
         FakeHostResolver::$hosts = [];
         $this->app->bind(HostResolver::class, FakeHostResolver::class); // customer-named destinations are resolved without touching the network
+    }
+
+    /**
+     * Time-bomb sweep (TASK-0201, opt-in): `ONHOST_TEST_CLOCK=2027-04-01` runs the suite as if the real clock already stood there,
+     * still ticking. A test that seeds first and then travels to a fixed day (prices are dated now()->subDay(), TASK-0192) fails
+     * under the sweep long before it fails in CI. Unset (the default and CI), nothing changes.
+     */
+    private static function shiftClockForTimeBombSweep(): void
+    {
+        $target = getenv('ONHOST_TEST_CLOCK');
+        if (! is_string($target) || $target === '') {
+            return;
+        }
+        $offset = (float) (new \DateTimeImmutable($target.' 12:00:00', new \DateTimeZone('UTC')))->format('U.u') - microtime(true);
+        Carbon::setTestNow(static fn () => Carbon::instance(new \DateTimeImmutable('@'.sprintf('%.6F', microtime(true) + $offset))));
     }
 
     protected function tearDown(): void
