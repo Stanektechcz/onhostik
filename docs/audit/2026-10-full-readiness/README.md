@@ -858,3 +858,27 @@ na stagingu **nejsou** (přijdou dalším cyklem A–C; řádek HSTS bude WARN `
 **Zbývá (fáze R, `PROMPT-faze-R-2026-10-13.md` na ploše):** P13 (cvičná obnova skriptem, CI na PostgreSQL), P15a/b (E2E cesty),
 P16 (staff stránka „Provoz“), P18 (cutover a `PRODUKCE-prikazy`), P19 (měření po spuštění), zbytky textů nalezené v Q1 (stavová
 stránka a postmortemy, DNS anycast, kariéra), a balíky se vstupem P4–P8 podle SEZNAMu.
+
+## Stav po fázi R (2026-10-13)
+
+Fáze R dokončuje balíky fází P/Q bez vstupu vlastníka (`PROMPT-faze-R-2026-10-13.md`). Nové rozhodnutí nepřibylo; odkazy jsou
+v `ROZHODNUTI.md`, oddíl *Fáze R*. Nové „ano“ ke stagingu nepřišlo, takže cyklus A–C (R3) **neproběhl**; na stagingu se jen četlo
+(režim S, 2026-10-13: `36009513`, doctor 0 FAIL / 27 WARN, vhost stále posílá HSTS).
+
+| PR | Úkol | Co se změnilo |
+|---|---|---|
+| #198 | TASK-0201 (R0) | #195/#196 sloučené, CI zelené; zametení časovaných bomb celou sadou s hodinami posunutými na 2027-04-01 (`ONHOST_TEST_CLOCK`): žádný test s pevným datem nepadá; 16 falešných poplachů zapsaných v `.ai/TESTING.md`. |
+| #197 | TASK-0202 (P13) | Cvičná obnova: `export-db`, `restore-drill.sh` (role aplikace, superuser odmítnut), `drill-record`, řádek doctoru, metriky, alerty; CI job `restore-drill` na skutečném PostgreSQL. |
+| #199 | TASK-0204 (R1) | Stavová stránka, postmortemy (46 200 Kč / 214 zákazníků), kroky kreditu, kariéra a DNS anycast podle SLA 2026-09. |
+| #200 | TASK-0203 (P16) | Staff stránka *Provoz* (`/sprava/nastaveni/provozni-prehled`), jen čtení, sekce podle oprávnění. |
+| #201 | TASK-0205 (P19) | Návrh `metering-after-launch.md`: 7 mezer, balíky M1–M5, harmonogram P-R24 s náhledy a rollbackem. |
+| #202 | TASK-0206 (P15) | E2E cesta webhostingu placeného převodem (camt.053 i GPC) od objednávky po obnovení; návrh pro staging. |
+| #203 | TASK-0207 (R2) | CSV dokladů a plateb za měsíc pro účetní (finance, ochrana proti vzorcům, záznam čtení). |
+| #204 | TASK-0208 (P18) | Plán produkce na cíl `fda0cedf`, `PRODUKCE-prikazy-2026-10-13.md` na ploše (NESPOUŠTĚT); test skriptů a přepínačů plánu. |
+
+**Zmrazený cíl fáze R:** `fda0cedf443a3c603ef2aeae1a6184fbaf7dfc6a` (merge #203). Dokument pro další cyklus stagingu:
+`GENERALKA-R-A-C-deploy-prikazy-2026-10-13.md` (krok B přidá 2 WARN řádky — HSTS a cvičná obnova; volitelný krok D = první cvičná
+obnova, heslo role zadává vlastník). **V produkci se nic nespustilo.**
+
+**Zbývá:** R3 (A–C `fda0cedf`, nové „ano“), kroky vlastníka z `GENERALKA-Q-V-HSTS-WAF-prikazy-2026-10-13.md`, balíky se vstupem
+P4–P8, metering M1 (aliasy, jedno čtení na stagingu), zbytky textů nalezené v R1 (seznam v úkolu TASK-0204).
