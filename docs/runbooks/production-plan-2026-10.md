@@ -1,4 +1,4 @@
-# Production launch plan (phase J, 2026-10-11)
+# Production launch plan (phase J, 2026-10-11; refreshed in phase R, 2026-10-13)
 
 **Prepared, not run. Nothing in this document has been executed on a production host, not even a read over SSH.** Every step
 below is the owner's action or needs the owner's explicit "ano" for that step (PROMPT-faze-J, *Pověření*): a deploy, a migration,
@@ -12,7 +12,32 @@ What this plan does **not** decide (owner decisions 2–10 of `ROZHODNUTI-podkla
 staging?), the maintenance window, the second person for four eyes or `ONHOST_FOUR_EYES=false`, DNS and TLS of the production domain,
 which environment Comgate reviews. Each step that depends on one names it.
 
-## 1. Preconditions (none of them is met on 2026-10-11)
+## 0. Phase R refresh (2026-10-13) — read this first
+
+**Target:** the frozen SHA of phase R, `<R-SHA>` (development after PR #203; docs-only commits after it do not change what is
+deployed). Staging runs `36009513` (phase Q) until the owner's next "ano" to an A–C cycle of `<R-SHA>`
+(`GENERALKA-R-A-C-deploy-prikazy-2026-10-13.md` on the owner's desktop); **P1 below is therefore not met for `<R-SHA>`** and no
+step of this plan may run in production before it is.
+
+What phase P–R added to the order (each row below is marked *P…*/*R…*; the owner's sheet is `PRODUKCE-prikazy-2026-10-13.md`,
+which replaces the 2026-10-11 skeleton):
+
+| Added | Where in §2 | Why |
+| --- | --- | --- |
+| Restore drill of the platform backup (P13) | step 2a | a backup that was never restored is not one; the doctor row *platform restore drill within 35 days* warns until it ran |
+| HSTS from the application only (P11, P-R74) | step 3a | the vhost of aaPanel must not send a second header; doctor *HSTS is sent once and as configured* |
+| Token switch rehearsed on staging (Q4, ST-6, R12) | step 8 | `ONHOST_TOKEN_ORGANIZATION_REQUIRED=true` passed the deployer spec and the doctor on staging (protocol 2026-10-16) |
+| Referral cookie stays off (P20, P-R75) | step 9a | `ONHOST_PARTNERS_REFERRAL_COOKIE=false` until the lawyer answers; the code from `?ref=` travels in the sign-up |
+| Monitoring VM (P12, P-R19 = PR-13, OP-4) | step 10 | the rules are unit-tested in CI (`monitoring` job); the VM, its address and the e-mail route are the owner's |
+| WAF attack log: 7 days, no cookies, root 0600 (P10, P-R73) | step 10a | the btwaf log kept request headers readable by every user |
+| The staff page *Provoz* (P16) and the accountant's CSV (R2) | first day / day 2 | read-only; nothing to switch |
+| Go/no-go, T-48 h TTL, DNS cutover, rollback commands | §8 | the cutover itself |
+
+Owner inputs this plan still waits for (SEZNAM codes): PR-1 (date), PR-2 (host), PR-4 (window), PR-5 (second person), PR-6 (staff
+e-mails), PR-7 (target IP), PR-8 (TLS e-mail), PR-9 (signing key), PR-10 (backup bucket), PR-11 (SMTP), PR-12 (Turnstile), PR-13
+(monitoring VM), PR-15 (products on sale on day one), PR-17 (WAPI allow-list), CG-1 … CG-6 (Comgate). Decided defaults: P-R2 … P-R23.
+
+## 1. Preconditions (none of them is met on 2026-10-11; on 2026-10-13 still none — P1 needs an A–C cycle of `<R-SHA>`)
 
 | # | Precondition | Why | State 2026-10-11 |
 | --- | --- | --- | --- |
@@ -31,14 +56,18 @@ retried another way without a new "ano"; its cause is written down and the fix b
 | --- | --- | --- | --- | --- | --- |
 | 1 | **B6 reinstatement audit** on the release that runs before the deploy (on a fresh install with no data it lists nothing — run it anyway and keep the output) | `php artisan onhost:billing:reinstatement-audit` (read only) | a list (or none) kept with the release record | none (read only) | step 0, B6 |
 | 2 | **Backup** of the database and of the deployer state, verified | `php artisan onhost:platform:backup && php artisan onhost:platform:backup:verify` (the deployer takes its own set too) | a verified set named in the release record | — | release-and-rollback.md |
+| 2a | *P13:* **Restore drill** of the newest platform backup on the host (a throw-away database, dropped again; the application's own DB role, its password typed) | `bash infra/aapanel/restore-drill.sh` as root with `PGHOST`/`PGUSER` (backups.md *Restore drill of the platform backup*) | exit 0; doctor *platform restore drill within 35 days* OK | nothing to undo (the drill drops its database; exit 1 = an incident: the backup does not restore) | go-live §1 |
 | 3 | **Deploy the owner's signed tag through the gate** | `REF=<tag> EXPECTED_SHA=<40-hex> DEPLOY_OPERATOR=<name> PHP_FPM_RELOAD='<reload>' /usr/local/sbin/onhost-deploy; echo rc=$?` | `rc=0`; doctor 0 FAIL except rows the tag's `Accept-Gate:` names (none expected); migrations `000949` + `000950` pass (B7: `000949` prints any newer row of a double commission it set aside — finance cancels each after the release through the bus; it stops only on a newer row in an open payout) | `REF=<last good> EXPECTED_SHA=<sha> … onhost-deploy` (the deployer refuses a downgrade of itself, not of the app) | step 17 gate, B7 |
+| 3a | *P11:* **HSTS from the application only** (P-R74): the vhost must not send its own | aaPanel → Website → <site> → SSL → untick *HSTS* → Save; `grep -n 'Strict-Transport-Security' /www/server/panel/vhost/nginx/<site>.conf`; `nginx -t` ([hsts.md](hsts.md)) | `curl -sI https://<site>/up` shows the header once; doctor *HSTS is sent once and as configured* OK | tick *HSTS* again | P-R74 |
 | 4 | **Legal entity into the database** (B2, G-2): the config defaults are the real data (I-R11, I-R15) | `php artisan onhost:production:prepare --legal` | doctor *legal entity …* rows OK; `onhost:vat:payer-mode` exits 0 (not a payer, H-R0) | the entity is data: correct with the same command and the right values before the first document; after it, only new documents change | step 11, G-1…G-3 |
 | 5 | **Staff authenticators** (B3): the owner enrols every staff account himself and types every code | `php artisan onhost:staff:totp <email>` then `… --code=<6 digits>` per account | *staff and demo accounts have an authenticator* OK (0 missing) | `--reset` for a lost device | step 6 |
 | 6 | **Catalogue revisions** (dry run, then apply; four eyes unless `ONHOST_FOUR_EYES=false`) | `php artisan onhost:catalog:revise`, then `--apply` per revision; **not** `2026-10-custom-iso` (I-R9: only after R15–R17; decision 3 B = launch without it) | *every catalogue revision is applied* OK except custom ISO (deliberately) | a new plan version, never an edit | steps 4, 13 |
 | 7 | **Exchange rates** | `php artisan onhost:fx:sync` | *exchange rates are fresh* OK | none (data) | step 5 |
-| 8 | **API tokens name an organisation** (R9): look, tell holders, then switch | `php artisan operator:tokens:unbound --dry-run`, then `ONHOST_TOKEN_ORGANIZATION_REQUIRED=true` + `config:cache` | *API tokens must name an organisation* OK | the switch back + `config:cache` | step 10 |
+| 8 | **API tokens name an organisation** (R9): look, tell holders, then switch — *rehearsed on staging (ST-6, protocol 2026-10-16; Q4 made the deployer spec accept `true`)* | `php artisan operator:tokens:unbound --dry-run`, then `ONHOST_TOKEN_ORGANIZATION_REQUIRED=true` + `config:cache` | *API tokens must name an organisation* OK | the switch back + `config:cache` | step 10 |
+| 8a | *P20:* **Referral cookie stays off** until the lawyer answers (P-R75) | `ONHOST_PARTNERS_REFERRAL_COOKIE=false` in `app.env` (the default; check it is not set to true) | the privacy page lists no `onhost_ref`; a `?ref=` link still credits the partner in the sign-up | — | P-R75 |
 | 9 | **Webhook lane and secret overlap** | `systemctl enable --now onhost-queue@webhooks`; `ONHOST_WEBHOOK_SECRET_OVERLAP_MINUTES` (default 60) | *rotated webhook secrets overlap only briefly* OK | stop the unit (default lane takes over) | step 15, G-11, G-12 |
-| 10 | **Dead letters are heard** (B12) | `promtool check rules infra/monitoring/slo-alerts.yml`, load into Prometheus, Alertmanager routes for `ticket` and `page` | `onhost_outbox_dead_letters` returned by a query; *no outbox dead letters* OK | remove the rule file | step 16, G-13 |
+| 10 | **Dead letters are heard** (B12) — *P12: on the monitoring VM of [monitoring-setup.md](monitoring-setup.md) (P-R19, PR-13/OP-4); the rules are unit-tested in CI* | `promtool check rules infra/monitoring/slo-alerts.yml`, load into Prometheus, Alertmanager routes for `ticket` and `page` | `onhost_outbox_dead_letters` returned by a query; *no outbox dead letters* OK | remove the rule file | step 16, G-13 |
+| 10a | *P10:* **WAF attack log**: 7 days, request headers not kept, root 0600 (P-R73) | the owner's steps of [aapanel-waf-log-privacy.md](aapanel-waf-log-privacy.md) (`/etc/cron.d/onhost-btwaf-log`) | counts before/after, `stat` 0600 root, a test block still logged | `rm /etc/cron.d/onhost-btwaf-log` | P-R73 |
 | 11 | **The rest of section 0**: PHP binary, shared cache store, capacity basis, Turnstile keys (B8, keys not procured yet), API base URL | checklist steps 1, 3, 7, 8, 9 | their rows OK, or WARN with the owner's decision | per row | steps 1, 3, 7, 8, 9 |
 | 12 | **Final doctor** | `php artisan onhost:doctor --json` into the release record | 0 FAIL; every WARN has a remedy and an owner decision | — | step 17 |
 | 13 | **First day** | [first-day-production.md](first-day-production.md) from H0 | as written there | its rollback triggers | — |
@@ -115,3 +144,40 @@ This **is a production deployment**: its own "ano", after P1 (staging proved the
 - the R14 run of `--legal` (proves step 4), R10 (TOTP, step 5), R6/R7 (revisions, step 6), R11 (rates), R12 (tokens), R21 (webhooks),
   R22 (dead letters);
 - the Penpot E2E result (decision 8) and what was skipped with its reason (R17–R19 without Proxmox, R25 read only).
+
+## 8. Go/no-go, DNS cutover and rollback (phase R)
+
+### Go/no-go (the owner signs it in `PRODUKCE-prikazy-2026-10-13.md` before step 3)
+
+| # | Condition | Evidence |
+| --- | --- | --- |
+| G1 | Staging ran A–C of `<R-SHA>`, gate passed, doctor without unexpected FAIL | protocol `staging-rehearsal-<date>.md` |
+| G2 | CI green on `<R-SHA>` (pest, pest-postgres, php85, monitoring, restore-drill, deploy-scripts, e2e smoke, security) | the run of the merge commit |
+| G3 | PR-1 … PR-17 answered or their step skipped with a reason | SEZNAM |
+| G4 | Signed tag on `<R-SHA>`, the owner's key in `allowed_signers` (PR-9) | `git tag -v <tag>` on the host |
+| G5 | Backup bucket configured off the server (PR-10) and one restore drill passed on the host (step 2a) | doctor rows *platform backup …* OK |
+| G6 | TTL of the records that change lowered to 300 s at least 48 h before (P-R13) | `dig +noall +answer onhost.cz` shows 300 |
+| G7 | Comgate: either the pre-launch for the review (§5) or the launch with transfers only (`PAYMENT_GATEWAY` without credentials) | the decision in the sheet |
+| G8 | A second person with TOTP for four eyes, or `ONHOST_FOUR_EYES=false` with the 24 h time lock (P-R11) | doctor *who decides approvals* |
+
+### DNS cutover (owner, WEDOS; P-R13)
+
+1. **T-48 h:** TTL 300 on `onhost.cz`, `www`, and the records that will point at the new host; nothing else changes.
+2. **T-0 (after step 12 is green on the host itself, through `--resolve`):** A (and AAAA only if the host answers on IPv6) to the
+   production address (PR-7); `curl -sI https://onhost.cz/up` from outside returns 200 and one HSTS header.
+3. **T+24 h:** TTL back to the usual value.
+Rollback: the previous records (written down at T-48 h in the sheet) — DNS is the only step that needs no deploy to undo.
+
+### Rollback
+
+The triggers and their time limits are [first-day-production.md](first-day-production.md) *Rollback triggers*; the commands are
+[release-and-rollback.md](release-and-rollback.md) *Rollback*:
+
+- **Code:** `REF=<last good tag> EXPECTED_SHA=<sha> DEPLOY_OPERATOR=<name> /usr/local/sbin/onhost-deploy` (backup not skipped).
+- **Database** (only a migration that corrupted data, owner's approval, units stopped): a fresh backup first
+  (`php artisan onhost:platform:backup && php artisan onhost:platform:backup:verify`), then `pg_restore --clean --if-exists` from the
+  pre-release set the deployer printed; reconcile with `php artisan onhost:provisioning:reconcile` and `php artisan onhost:bank:sync`.
+- **Stop the queues:** `systemctl stop onhost-scheduler.service 'onhost-queue@*'` (the site keeps answering; nothing runs behind it).
+- **Freeze provisioning:** `POST /v1/staff/provisioning/freeze` (staff console *Infrastruktura*), thaw after the fix.
+- **DNS:** the records written down at T-48 h.
+Money and audit rows are never rolled back; they are corrected with new documents and postings.
