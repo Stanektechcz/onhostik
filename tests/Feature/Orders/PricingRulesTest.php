@@ -123,5 +123,7 @@ it('prices the web hosting configurator from the option unit prices and turns th
     $web = Product::query()->with('options')->where('key', 'web-hosting')->firstOrFail();
     $start = $web->plans->firstWhere('key', 'start')->versions->first()->entitlements;
     $extended = (new ReflectionMethod(ServiceService::class, 'applyOptions'))->invoke(app(ServiceService::class), $start, ['nvme_gb' => 20, 'waf_cdn' => true, 'priority_support' => true, 'dedicated_ipv4' => true], $web);
-    expect($extended)->toMatchArray(['nvme_gb' => 30, 'waf' => 'pro + CDN', 'support' => 'priority 10 min', 'ipv4' => 1, 'sites' => 1]);
+    // P-R76 (TASK-0189): priority support and WAF + CDN are no longer sold, so the old switches change nothing on a new service
+    expect($extended)->toMatchArray(['nvme_gb' => 30, 'ipv4' => 1, 'sites' => 1])
+        ->and($extended['waf'] ?? null)->not->toBe('pro + CDN')->and($extended['support'] ?? null)->not->toBe('priority 10 min');
 });
