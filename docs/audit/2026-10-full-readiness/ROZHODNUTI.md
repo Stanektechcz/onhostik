@@ -297,15 +297,15 @@ zapsán, provedení je krok vlastníka nebo krok se „ano“, **čeká** = chyb
 | P-R26 | LG-2 | Zveřejnit den po odpovědi advokáta, účinnost za 30 dní (`--effective-from`). | P7 | čeká: LG-1, LG-2 |
 | P-R27 | LG-3 | Seznam zpracovatelů připraví vlastník (Comgate, WEDOS, SMTP, úložiště záloh, Cloudflare), advokát potvrdí „na vyžádání“. | – | čeká: LG-3 |
 | P-R28 | LG-4 | Jeden balík pro advokáta: `PRAVNI-TEXTY-pro-pravnika-2026-10-08.md` doplněný o RF-1 a WF-1 (a HS-1 jen informativně). | P9 | čeká: LG-4 (předání dělá vlastník) |
-| P-R29 | LG-5 | Regionální přirážka EU **0 %**: výchozí `ONHOST_PRICING_EU_ADJUST=0` (geo-blocking, nařízení (EU) 2018/302). | P-R29/30 (TASK-0187) | kód |
-| P-R30 | LG-6 | Poplatek za stažení závěrečného archivu **0 od spuštění**: výchozí `onhost.services.deletion.download_fee_minor` = 0 Kč / 0 €; doložení nákladů odpadá. | P-R29/30 (TASK-0187) | kód |
+| P-R29 | LG-5 | Regionální přirážka EU **0 %**: výchozí `ONHOST_PRICING_EU_ADJUST=0` (geo-blocking, nařízení (EU) 2018/302). | TASK-0185 (PR #181) | kód |
+| P-R30 | LG-6 | Poplatek za stažení závěrečného archivu **0 od spuštění**: výchozí `onhost.services.deletion.download_fee_minor` = 0 Kč / 0 €; doložení nákladů odpadá. | TASK-0185 (PR #181) | kód |
 | P-R31 | LG-7 | Asistent AI v produkci vypnutý (`ONHOST_AI_ENABLED=false`), dokud není DPA/SCC s dodavatelem. | – | platí (výchozí v `config/onhost.php`) |
 | P-R32 | LG-8 | Zákazníkem dodaný Windows bez licencí poskytovatele (SPLA) výslovně zakázat v AUP/VOP; advokát potvrdí. Text až s prodejem vlastního ISO (J-R5). | – | čeká: LG-4 (advokát); vlastní ISO se neprodává |
 | P-R33 | UC-1 | Věta o DPH zůstává „Nejsme plátci DPH, ceny jsou konečné.“ | – | platí (J-R9) |
 | P-R34 | UC-2 | Věrnostní body = sleva při prodeji, ne platba. | – | platí (G-R2) |
 | P-R35 | UC-3 | Doklady v EUR: kurz ČNB dne vystavení. | – | platí (`onhost:fx:sync`) |
 | P-R36 | UC-4 | Měsíční podklady pro účetní: CSV dokladů a plateb za měsíc. | P17 | plán (runbook den 2); export jako balík fáze Q |
-| P-R37 | OP-1 | Podpora po–pá 08:00–17:00 Europe/Prague (shodně s I-R13); mimo tuto dobu tiket nebo e-mail; telefon jen při výpadku služby v pracovní době. Web nesmí slibovat 24/7. | P1 | kód |
+| P-R37 | OP-1 | Podpora po–pá 08:00–17:00 Europe/Prague (shodně s I-R13); mimo tuto dobu tiket nebo e-mail; telefon jen při výpadku služby v pracovní době. Web nesmí slibovat 24/7. | P1, TASK-0184 (PR #180) | kód |
 | P-R38 | OP-2 | Reklamace vyřizuje Adrian Staněk, zakladatel. | P7 | plán (do reklamačního řádu po LG-1) |
 | P-R39 | OP-3 | `reklamace@` i `abuse@` čte osoba z OP-2; pošta přes PR-11. | – | čeká: OP-3 (schránky zřizuje vlastník) |
 | P-R40 | OP-4 | Provozní alerty dostává vlastník e-mailem, zástup = druhá osoba z PR-5. | P12 | plán; adresa čeká: PR-13, PR-5 |
@@ -337,8 +337,8 @@ zapsán, provedení je krok vlastníka nebo krok se „ano“, **čeká** = chyb
 | P-R66 | ST-7 | R21: testovací ping webhooku na vlastní endpoint vlastníka. | P5 | čeká: ST-7 (endpoint) |
 | P-R67 | ST-8 | Kontrola v prohlížeči na stagingu (F1.7, F7-19, F1.8, F1.9) s přihlášením vlastníka. | P4 | čeká: ST-8 (termín, přihlášení) |
 | P-R68 | ST-9 | R15/R16 a R25 přeskočit: na stagingu není Proxmox (PX-1). | P5 | platí (přeskočeno s důvodem) |
-| P-R69 | DD-1 | DDoS u herních serverů **nedoloženo → stáhnout vše** (1,2 Tbps, profily pro každou hru, detekce do tří sekund, `gmBadge`, menu a vyhledávání „anti-DDoS v ceně“, karta „Ochrana proti DDoS na hraně“, odrážka katalogu `ddos`). Vrátit se smí jen doložené číslo. | P2 | kód |
-| P-R70 | DD-2 | Benchmark VPS „1 842 pts“, „VPS s přeprodanými jádry“ a colocation „2N napájení, chlazení N+1“ stáhnout. | P3 | kód |
+| P-R69 | DD-1 | DDoS u herních serverů **nedoloženo → stáhnout vše** (1,2 Tbps, profily pro každou hru, detekce do tří sekund, `gmBadge`, menu a vyhledávání „anti-DDoS v ceně“, karta „Ochrana proti DDoS na hraně“, odrážka katalogu `ddos`). Vrátit se smí jen doložené číslo. | P2, TASK-0184 (PR #180) | kód |
+| P-R70 | DD-2 | Benchmark VPS „1 842 pts“, „VPS s přeprodanými jádry“ a colocation „2N napájení, chlazení N+1“ stáhnout. | P3, TASK-0184 (PR #180) | kód |
 | P-R71 | NM-1 | Název doplňku „Rozšířené zálohy“ platí. | – | platí (TASK-0178, migrace 001160) |
 | P-R72 | WF-1 | Cookie WAF `server_session_<hash>` ponechat a uvádět (`onhost.privacy.hosting_waf_cookie=true`); advokát potvrdí nezbytnost (LG-4). | – | platí; potvrzení čeká: LG-4 |
 | P-R73 | WF-2 | Log útoků aaPanel WAF: retence 7 dní, hlavičky neukládat nebo maskovat, přístup jen root 0600 — podle návrhu P10. Na hostitelích to provádí vlastník v aaPanelu. | P10 | plán; provedení čeká: WF-2 („ano“, krok vlastníka) |
