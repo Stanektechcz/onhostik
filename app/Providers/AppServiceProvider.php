@@ -6,6 +6,10 @@ namespace App\Providers;
 
 use App\Http\Support\SurfaceRenderer;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Console\Events\ScheduledTaskFailed;
+use Illuminate\Console\Events\ScheduledTaskFinished;
+use Illuminate\Console\Events\ScheduledTaskSkipped;
+use Illuminate\Console\Events\ScheduledTaskStarting;
 use Illuminate\Http\Request;
 use Illuminate\Queue\Events\Looping;
 use Illuminate\Support\Facades\Event;
@@ -13,6 +17,7 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Onhost\Domain\Identity\Models\PersonalAccessToken;
 use Onhost\Domain\Platform\QueueLaneHeartbeat;
+use Onhost\Domain\Platform\ScheduleHealth;
 use Onhost\Platform\Dns\RecordResolver;
 use Onhost\Platform\Dns\SystemRecordResolver;
 use Onhost\Platform\Http\DnsHostResolver;
@@ -34,6 +39,11 @@ final class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Event::listen(Looping::class, [QueueLaneHeartbeat::class, 'handle']); // every worker loop stamps its own lane (TASK-0045)
+        // P14: every scheduled job records its last start, success, failure and skip (ScheduleHealth, doctor row and /metrics)
+        Event::listen(ScheduledTaskStarting::class, [ScheduleHealth::class, 'starting']);
+        Event::listen(ScheduledTaskFinished::class, [ScheduleHealth::class, 'finished']);
+        Event::listen(ScheduledTaskFailed::class, [ScheduleHealth::class, 'failed']);
+        Event::listen(ScheduledTaskSkipped::class, [ScheduleHealth::class, 'skipped']);
         // API limits (blueprint §17.4): per token/user, public endpoints per IP, brute-force protection on auth.
         RateLimiter::for('api', function (Request $request) {
             $user = $request->user();
