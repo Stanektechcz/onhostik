@@ -114,6 +114,7 @@ use Onhost\Platform\Errors\ProviderException;
 use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Files\FileStore;
 use Onhost\Platform\Ops\PlatformBackup;
+use Onhost\Platform\Ops\RestoreDrill;
 use Onhost\Platform\Outbox\OutboxPublisher;
 use Onhost\Platform\Redaction\Redactor;
 use Onhost\Platform\Secrets\SecretStore;
@@ -440,6 +441,53 @@ Artisan::command('onhost:platform:backup:verify {set?}', function (PlatformBacku
 
     return $r['ok'] ? 0 : 1;
 })->purpose('Read the newest platform backup back and check it restores (sizes, checksums, dump integrity)');
+
+// P13 (phase R): the restore drill (infra/aapanel/restore-drill.sh) takes the dump through these two, so it works on any backup disk
+Artisan::command('onhost:platform:backup:export-db {set? : a set name, the newest by default} {--to= : a new local file (never overwritten)} {--json}', function (RestoreDrill $drill) {
+    $to = (string) $this->option('to');
+    if ($to === '') {
+        $this->error('--to=<new local file> is required');
+
+        return 2;
+    }
+    try {
+        $r = $drill->export($this->argument('set'), $to);
+    } catch (Throwable $e) {
+        $this->error('Export failed: '.$e->getMessage());
+
+        return 1;
+    }
+    $this->line($this->option('json') ? (string) json_encode($r, JSON_UNESCAPED_SLASHES) : "Exported {$r['set']} ({$r['driver']}, {$r['bytes']} bytes) to {$r['file']}");
+
+    return 0;
+})->purpose('Copy the database dump of a platform backup set to a local file, checked against its manifest (restore drill)');
+
+Artisan::command('onhost:platform:backup:drill-record {set} {--measured= : migrations=N,users=N,invoices=N,ledger_postings=N,ledger_imbalance=N,unbalanced_transactions=N} {--seconds=0} {--database=}', function (RestoreDrill $drill, AutomationLedger $ledger) {
+    $measured = [];
+    foreach (array_filter(explode(',', (string) $this->option('measured'))) as $pair) {
+        [$key, $value] = array_pad(explode('=', $pair, 2), 2, '');
+        if (! in_array($key, RestoreDrill::MEASURES, true) || preg_match('/^-?\d{1,18}$/', $value) !== 1) {
+            $this->error("not a measurement: {$pair}");
+
+            return 2;
+        }
+        $measured[$key] = (int) $value;
+    }
+    try {
+        $r = $drill->record((string) $this->argument('set'), $measured, (int) $this->option('seconds'), (string) $this->option('database'));
+    } catch (Throwable $e) {
+        $this->error('Not recorded: '.$e->getMessage());
+
+        return 2;
+    }
+    $ledger->record('platform.restore_drill', ['set' => $r['set'], 'ok' => $r['ok'], 'seconds' => $r['seconds']], $r['ok'] ? null : implode('; ', $r['problems']));
+    foreach ($r['problems'] as $p) {
+        $this->error($p);
+    }
+    $this->line(($r['ok'] ? 'OK ' : 'FAILED ').$r['set'].' restored into '.$r['database'].' in '.$r['seconds'].' s');
+
+    return $r['ok'] ? 0 : 1;
+})->purpose('Record the result of a restore drill against the backup set it restored (doctor row "platform restore drill within 35 days")');
 
 Artisan::command('onhost:support:sla', function (TicketService $tickets, WorkOfferService $offers) {
     $this->table(['breached', 'closed', 'offers_expired'], [$tickets->tick() + ['offers_expired' => $offers->expire()]]);

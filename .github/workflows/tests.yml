@@ -201,6 +201,50 @@ jobs:
       - name: Alert rules (promtool check + test) and Alertmanager config (amtool)
         run: bash infra/monitoring/ci/promtool.sh "$RUNNER_TEMP/monitoring"
 
+  # P13 (phase R): the restore drill for real — back up this tree's PostgreSQL with pg_dump, restore the newest set into a
+  # throw-away database through infra/aapanel/restore-drill.sh, measure it, drop it, and check the doctor row; an unbalanced
+  # ledger must fail the drill and a tampered dump must be refused (infra/aapanel/ci/restore-drill-ci.sh)
+  restore-drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: onhost_drill_ci
+          POSTGRES_USER: onhost
+          POSTGRES_PASSWORD: onhost
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U onhost"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_DATABASE: onhost_drill_ci
+      DB_USERNAME: onhost
+      DB_PASSWORD: onhost
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, intl, pgsql, pdo_pgsql, gd, bcmath, sodium
+          coverage: none
+          tools: composer
+
+      - name: PostgreSQL client tools (pg_dump, pg_restore, psql)
+        run: command -v pg_restore >/dev/null || { sudo apt-get update -q && sudo apt-get install -y -q postgresql-client; }
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Restore drill against a disposable PostgreSQL
+        run: bash infra/aapanel/ci/restore-drill-ci.sh "$RUNNER_TEMP/restore-drill"
+
   deploy-scripts:
     runs-on: ubuntu-latest
     timeout-minutes: 20

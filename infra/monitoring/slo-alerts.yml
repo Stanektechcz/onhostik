@@ -132,3 +132,14 @@ groups:
         for: 5m
         labels: { severity: page }
         annotations: { summary: "Less than 5 % free on the {{ $labels.path }} disk: backups, uploads and the database stop soon", runbook: docs/runbooks/day-2-operations.md }
+      # P13 (phase R): the monthly restore drill (infra/aapanel/restore-drill.sh). "Never ran" (0) is the doctor's row, not a page.
+      - alert: OnhostRestoreDrillOverdue
+        expr: onhost_platform_restore_drill_timestamp > 0 and time() - onhost_platform_restore_drill_timestamp > 35 * 86400
+        for: 1h
+        labels: { severity: ticket }
+        annotations: { summary: "The last platform restore drill is older than 35 days", runbook: docs/runbooks/backups.md }
+      - alert: OnhostRestoreDrillFailed
+        expr: onhost_platform_restore_drill_ok == 0 and onhost_platform_restore_drill_timestamp > 0
+        for: 15m
+        labels: { severity: ticket }
+        annotations: { summary: "The newest platform restore drill failed: the platform backups may not restore", runbook: docs/runbooks/backups.md }
