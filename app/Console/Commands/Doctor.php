@@ -73,6 +73,7 @@ use Onhost\Domain\Tax\VatPayerMode;
 use Onhost\Domain\WalletLedger\AutoTopup;
 use Onhost\Platform\Files\VirusScanner;
 use Onhost\Platform\Ops\PlatformBackup;
+use Onhost\Platform\Ops\RestoreDrill;
 use Onhost\Platform\Settings\SettingsStore;
 use Onhost\Providers\Payments\Comgate\ComgateMode;
 
@@ -456,6 +457,9 @@ final class Doctor extends Command
         $backup = app(PlatformBackup::class)->status(); // go-live §1: a verified backup younger than a day
         $verifiedAt = isset($backup['verified']['at']) ? CarbonImmutable::parse((string) $backup['verified']['at']) : null;
         $this->add('storage', 'platform backup verified within 26 h', $verifiedAt !== null && $verifiedAt->gt(now()->subHours(26)), $verifiedAt !== null ? 'set '.$backup['verified']['set'].' verified '.$verifiedAt->diffForHumans().' on disk '.$backup['disk'] : (isset($backup['last']['at']) ? 'last backup '.$backup['last']['at'].' not verified yet — onhost:platform:backup:verify' : 'no backup yet — onhost:platform:backup runs daily 02:15'), false);
+        foreach (app(RestoreDrill::class)->checks() as $check) { // P13: a restore that was really tried, within 35 days
+            $this->addChecked($check);
+        }
         $this->add('storage', 'platform backup disk off the server', ! $this->production || $backup['disk'] !== 'local', $backup['disk'].($backup['disk'] === 'local' ? ' (production: an S3-compatible disk — ONHOST_PLATFORM_BACKUP_DISK)' : ''), false);
         try {
             DB::select('select 1');

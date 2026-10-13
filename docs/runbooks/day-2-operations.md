@@ -47,7 +47,7 @@ art() { (cd "$APP" && HOME=/tmp setpriv --reuid=www --regid=www --init-groups --
 
 | Look at | How | Expected | If not |
 | --- | --- | --- | --- |
-| **Restore drill** | restore the newest platform backup set into a throw-away database and run the control queries ([backups.md](backups.md), *restore drill*; the scripted drill is package P13) | the drill succeeds; record date and duration | a backup that cannot be restored is not a backup: an incident |
+| **Restore drill** | as root: `bash infra/aapanel/restore-drill.sh` (the application's DB role in `PGUSER`, password typed) restores the newest platform backup set into a throw-away database, runs the control queries and drops it ([backups.md](backups.md), *Restore drill of the platform backup*) | exit 0; the doctor row *platform restore drill within 35 days* is OK | a backup that cannot be restored is not a backup: an incident |
 | **Customer backups restore test** | the doctor rows of `onhost:services:restore-test` (it runs nightly and asks who is owed one) | every service due had its test | [backups.md](backups.md) |
 | **Accounting documents** | CSV of the month's documents and payments for the accountant (P-R36; the export is a phase-R package — until then the staff reports) | sent by the 10th | — |
 | **Metering after launch** | `art onhost:metering:preview` before any switch of the harmonogram P-R24 (each switch has its own "ano") | the preview matches what the switch should do | do not switch |

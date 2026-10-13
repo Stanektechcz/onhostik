@@ -24,6 +24,7 @@ use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Files\VirusScanner;
 use Onhost\Platform\Ops\PlatformBackup;
+use Onhost\Platform\Ops\RestoreDrill;
 
 /**
  * Readiness (`/healthz`) for load balancers and the Prometheus exporter (`/metrics`) that feeds
@@ -145,6 +146,10 @@ final class HealthController extends Controller
         // operations the doctor checks by hand, as time series (go-live checklist §1): backups, the queue worker and scheduler heartbeats, the virus scanner, on-call
         $backup = app(PlatformBackup::class)->status();
         $emit('onhost_platform_backup_verified_timestamp', 'gauge', 'Unix time of the last verified platform backup (0 = none)', [[[], isset($backup['verified']['at']) ? Carbon::parse((string) $backup['verified']['at'])->getTimestamp() : 0]]);
+        // P13: the newest restore drill (infra/aapanel/restore-drill.sh) — its time and whether the restored copy passed
+        $drill = app(RestoreDrill::class)->latest();
+        $emit('onhost_platform_restore_drill_timestamp', 'gauge', 'Unix time of the newest platform restore drill (0 = none)', [[[], $drill !== null ? Carbon::parse((string) ($drill['at'] ?? '@0'))->getTimestamp() : 0]]);
+        $emit('onhost_platform_restore_drill_ok', 'gauge', 'The newest platform restore drill passed (1) or failed (0); 0 when none ran', [[[], ($drill['ok'] ?? false) === true ? 1 : 0]]);
         $live = app(AutomationLedger::class)->liveness();
         $emit('onhost_automation_alive', 'gauge', 'Scheduler and queue worker heartbeats seen recently (1 = alive)', [[['machine' => 'scheduler'], $live['scheduler']['alive'] ? 1 : 0], [['machine' => 'worker'], $live['worker']['alive'] ? 1 : 0]]);
         $scanner = app(VirusScanner::class);
