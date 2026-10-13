@@ -882,3 +882,23 @@ obnova, heslo role zadává vlastník). **V produkci se nic nespustilo.**
 
 **Zbývá:** R3 (A–C `fda0cedf`, nové „ano“), kroky vlastníka z `GENERALKA-Q-V-HSTS-WAF-prikazy-2026-10-13.md`, balíky se vstupem
 P4–P8, metering M1 (aliasy, jedno čtení na stagingu), zbytky textů nalezené v R1 (seznam v úkolu TASK-0204).
+
+## Stav po fázi S (2026-10-14)
+
+Fáze S (`PROMPT-faze-S-2026-10-13.md`): vlastník dal „ano R3“; cyklus A–C stagingu proběhl přes SSH a staging běží na
+**`fda0cedf`** (protokol `docs/runbooks/staging-rehearsal-2026-10-17.md`; doctor 0 FAIL / 122 OK / 29 WARN, migrace 86). Krok D
+(cvičná obnova, heslo role zadává vlastník) souhlas nemá a neproběhl. Odkazy na rozhodnutí: `ROZHODNUTI.md`, oddíl *Fáze S*.
+
+| PR | Úkol | Co se změnilo |
+|---|---|---|
+| #206 | TASK-0212 (S3) | `/metrics` pod PHP-FPM neznal žádnou plánovanou úlohu (`command="none"`, rozvrh je v `routes/console.php`); plánovač nechává rozpočty v cache, web je čte — alert `OnhostScheduledJobOverdue` může vystřelit. |
+| #207 | TASK-0210 (S1) | Aliasy pošty jsou limit tarifu (`alias.create`), počítají se jen řádky `type = alias` (ISPConfig vrací přesměrování i catch-all z téže tabulky); `alias.delete` s ID přesměrování odmítnut; `KNOWN_GAPS` 7 → 6. |
+| #208 | TASK-0211 (S2) | Zbytek textů R1 podle dokumentů v platnosti; stavová mřížka za 30 dní (dřív 90 dní ve 30 sloupcích). |
+| #209 | TASK-0213 (S9) | Protokol stagingu, tento oddíl, odkazy v `ROZHODNUTI.md`. |
+
+S0: CI na `development` zelené (`1c4853f5`), #204/#205 sloučené, zámky TASK-0201 … TASK-0209 uvolněné; zametení s hodinami
+2027-04-01 (`ONHOST_TEST_CLOCK`): 3 192 testů, 16 pádů — všechny ze seznamu falešných poplachů v `.ai/TESTING.md`, žádná nová
+časovaná bomba. **V produkci se nic nespustilo.** PR fáze S čekají na sloučení (sloučení bez review automatický režim odmítl;
+slučuje vlastník nebo koordinátor).
+
+**Zbývá:** D (DR-1), HS-2, balíky se vstupem P4–P8, měření M2–M5, zbytky textů nalezené v S2 (seznam v úkolu TASK-0211).
