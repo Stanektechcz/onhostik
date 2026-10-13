@@ -37,6 +37,7 @@ use Onhost\Domain\Platform\GoLiveChecks;
 use Onhost\Domain\Platform\HstsHealth;
 use Onhost\Domain\Platform\IsolationChecks;
 use Onhost\Domain\Platform\QueueLaneHeartbeat;
+use Onhost\Domain\Platform\ScheduleHealth;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Provisioning\Models\IntegrationHealth;
 use Onhost\Domain\Provisioning\Models\Node;
@@ -138,6 +139,9 @@ final class Doctor extends Command
         }
         // ── end E11 ──
         foreach (app(HstsHealth::class)->checks() as $check) { // P11 (P-R74): HSTS once, from the application, as configured
+            $this->addChecked($check);
+        }
+        foreach (app(ScheduleHealth::class)->checks() as $check) { // P14: every scheduled job within its age budget
             $this->addChecked($check);
         }
 

@@ -17,6 +17,7 @@ use Onhost\Domain\Domains\RegistrarPricing;
 use Onhost\Domain\Incidents\Models\SlaProbe;
 use Onhost\Domain\Incidents\OnCallRota;
 use Onhost\Domain\Platform\OutboxDeadLetters;
+use Onhost\Domain\Platform\ScheduleHealth;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Provisioning\Models\IntegrationHealth;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
@@ -95,6 +96,10 @@ final class HealthController extends Controller
         $emit('onhost_operations_backlog', 'gauge', 'Operations due for longer than the age limit, by queue (autoscaling signal)', array_map(fn ($queue, $n) => [['queue' => $queue], (int) $n], array_keys($backlog['by_queue']), $backlog['by_queue']) ?: [[['queue' => 'none'], 0]]);
         $emit('onhost_operations_backlog_threshold', 'gauge', 'Backlog size that raises platform.queue.backlog', [[[], (int) $backlog['threshold']]]);
         $emit('onhost_queue_jobs_failed_total', 'gauge', 'Failed jobs', [[[], (int) (DB::getSchemaBuilder()->hasTable('failed_jobs') ? DB::table('failed_jobs')->count() : 0)]]);
+        // P14: the age of every scheduled job's last success and its budget (the Prometheus alert compares the two; -1 = never)
+        $schedule = app(ScheduleHealth::class)->jobs();
+        $emit('onhost_schedule_last_success_seconds', 'gauge', 'Seconds since the last success (or skip) of a scheduled job, -1 when it never ran', array_map(fn (array $j) => [['command' => $j['command']], $j['age'] ?? -1], $schedule) ?: [[['command' => 'none'], -1]]);
+        $emit('onhost_schedule_budget_seconds', 'gauge', 'Age budget of a scheduled job (twice its longest gap plus slack)', array_map(fn (array $j) => [['command' => $j['command']], $j['budget']], $schedule) ?: [[['command' => 'none'], 0]]);
 
         $instances = ProviderInstance::query()->get()->keyBy('id');
         $health = IntegrationHealth::query()->get();
