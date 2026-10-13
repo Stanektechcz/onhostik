@@ -20,7 +20,8 @@ trait IspConfigMailTools
     {
         $out = [];
         foreach ((array) $this->api->call('mail_forward_get', ['primary_id' => ['source' => '%@'.$this->mailDomainName($domain)]]) as $row) {
-            if (is_array($row) && ! empty($row['forwarding_id'])) {
+            // the same table as the aliases (`mail_forwarding`): keep the rows of type forward (S1)
+            if (is_array($row) && ! empty($row['forwarding_id']) && ($row['type'] ?? 'forward') === 'forward') {
                 $out[] = ['remote_id' => (string) $row['forwarding_id'], 'source' => (string) $row['source'], 'destination' => (string) $row['destination'], 'active' => ($row['active'] ?? 'y') === 'y'];
             }
         }

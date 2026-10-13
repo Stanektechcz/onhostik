@@ -131,9 +131,9 @@ final class MetricRegistry
         ],
         'aliases' => [
             'entitlement' => ['aliases'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::HARD, 'families' => ['mail'],
-            'sources' => ['ispconfig' => null],
-            'interval_minutes' => null, 'drives_guard' => false, 'status' => self::GAP,
-            'reason' => 'ISPConfig has no limit_mailalias field, and ServiceService\'s alias.create action never calls the generic $limit() count check that mailbox.create/database.create use — a mail plan\'s "aliases" number is never read outside the price list.',
+            // S1 (phase S, P19 gap M1): was a GAP — ISPConfig has no limit_mailalias and alias.create counted nothing
+            'sources' => ['ispconfig' => 'ServiceFeatures puts the plan\'s aliases number on the "aliases" feature and alias.create runs ServiceService\'s generic $limit(\'aliases\',...) count check first (the queued step counts again via _limit when the panel was away); IspConfigWebProvider::listAliases() keeps only rows of type alias — ISPConfig\'s mail_alias_get returns forwards and the catch-all of the same mail_forwarding table too'],
+            'interval_minutes' => null, 'drives_guard' => false, 'status' => self::ENFORCED_ONLY, 'reason' => null,
         ],
         'dedicated_outbound_ip' => [
             'entitlement' => ['dedicated_outbound_ip'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::NONE, 'families' => ['mail'],

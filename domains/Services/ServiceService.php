@@ -952,7 +952,13 @@ final class ServiceService
                 return ['address' => $address, 'password' => $password(), 'name' => substr(trim((string) ($params['name'] ?? '')), 0, 80), 'quota_mb' => max(64, min(102400, (int) ($params['quota_mb'] ?? 2048)))];
             })(),
             'mailbox.update' => ['remote_id' => $remote(), 'changes' => array_filter(['password' => isset($params['password']) && $params['password'] !== '' ? $password() : null, 'name' => isset($params['name']) ? substr(trim((string) $params['name']), 0, 80) : null, 'quota_mb' => isset($params['quota_mb']) ? max(64, min(102400, (int) $params['quota_mb'])) : null], fn ($v) => $v !== null)],
-            'alias.create' => ['source' => MailAddresses::assertOwn($service, $need('source', '/^[^@\s]{1,64}@[^@\s]{3,253}$/', 'source must be an e-mail address'), 'source', $action), 'destination' => strtolower($need('destination', '/^[^@\s]{1,64}@[^@\s]{3,253}$/', 'destination must be an e-mail address'))],
+            'alias.create' => (function () use ($need, $limit, $service, $action) {
+                // like a mailbox: whose address it is first, then the plan's number of aliases (S1 — it was sold and never counted)
+                $source = MailAddresses::assertOwn($service, $need('source', '/^[^@\s]{1,64}@[^@\s]{3,253}$/', 'source must be an e-mail address'), 'source', $action);
+                $limit('aliases', 'aliases');
+
+                return ['source' => $source, 'destination' => strtolower($need('destination', '/^[^@\s]{1,64}@[^@\s]{3,253}$/', 'destination must be an e-mail address'))];
+            })(),
             'sending.set' => ['enabled' => filter_var($params['enabled'] ?? true, FILTER_VALIDATE_BOOLEAN)],
             'errpages.set' => ['enabled' => filter_var($params['enabled'] ?? true, FILTER_VALIDATE_BOOLEAN)],
             'directives.set' => (function () use ($params, $action, $service, $features) {

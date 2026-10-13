@@ -172,9 +172,10 @@ it('reports a registry key sold on a product family its row never verified', fun
 
 /*
  * Only is_int()/is_float() routed a numeric promise through the registry; a numeric *string* such as "500" fell
- * through to the generous text-scan rule meant for capability flags (QA finding, audit §5ad). "aliases" is a
- * MetricRegistry GAP (ISPConfig has no limit_mailalias), but the bare word "aliases" also appears elsewhere in the
- * codebase as an unrelated feature-flag key — exactly the false "read" the text scan used to produce.
+ * through to the generous text-scan rule meant for capability flags (QA finding, audit §5ad). "aliases" is kept only
+ * for the mail family (since S1, `alias.create` counts them), so on the web plan below it is still unkept — while the
+ * bare word "aliases" appears elsewhere in the codebase as an unrelated feature-flag key, exactly the false "read" the
+ * text scan used to produce.
  */
 it('routes a numeric-string promise through the registry exactly like an int, not the text scan', function () {
     $read = PlanPromises::readInSource();

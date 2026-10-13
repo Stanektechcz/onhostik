@@ -994,8 +994,10 @@ final class IspConfigWebProvider implements DatabaseSizeCapable, MailboxBackupRe
     public function listAliases(ResourceRef $domain): array
     {
         $out = [];
+        // ISPConfig keeps aliases, forwards, alias domains and the catch-all in one table (`mail_forwarding`, column `type`) and
+        // `mail_alias_get` filters only by the columns it is given — `source LIKE %@domain` returns every kind (S1)
         foreach ((array) $this->api->call('mail_alias_get', ['primary_id' => ['source' => '%@'.$this->mailDomainName($domain)]]) as $row) {
-            if (! is_array($row) || empty($row['forwarding_id'])) {
+            if (! is_array($row) || empty($row['forwarding_id']) || ($row['type'] ?? 'alias') !== 'alias') {
                 continue;
             }
             $out[] = ['remote_id' => (string) $row['forwarding_id'], 'source' => (string) $row['source'], 'destination' => (string) $row['destination'], 'active' => ($row['active'] ?? 'y') === 'y'];

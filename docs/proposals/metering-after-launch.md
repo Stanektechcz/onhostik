@@ -12,9 +12,9 @@ Sources of truth: `domains/Services/Metering/MetricRegistry.php` (every key a pl
 
 | What | State |
 | --- | --- |
-| `MetricRegistry::REGISTRY` | 41 keys: **5 measured** (`nvme_gb`, `traffic_gb`, `inodes`, `ram_mb`, `quota_mb`), **24 enforced** by the panel or the platform (e.g. `mailboxes`, `databases`, `domains`), **12 gap** rows |
+| `MetricRegistry::REGISTRY` | 41 keys: **5 measured** (`nvme_gb`, `traffic_gb`, `inodes`, `ram_mb`, `quota_mb`), **25 enforced** by the panel or the platform (e.g. `mailboxes`, `databases`, `domains`; `aliases` since S1), **11 gap** rows |
 | Gap rows not sold any more | `dedicated_outbound_ip`, `dedicated_db`, `connections`, `pitr_days` (owner decisions 2/4/6, revision `2026-09-honest-promises`; kept for the versions customers already hold), `products` (fair use, decision 5) |
-| `PlanPromises::KNOWN_GAPS` (sold and kept by nothing) | **7**: `php_workers`, `aliases`, `spam_filter`, `traffic_tb`, `bot_management`, `pids`, `backup_days` |
+| `PlanPromises::KNOWN_GAPS` (sold and kept by nothing) | **6** (7 until S1 closed `aliases`, TASK-0210): `php_workers`, `spam_filter`, `traffic_tb`, `bot_management`, `pids`, `backup_days` |
 | `usage.rotation` (automation rule, *Měření všech služeb*) | off (`default_off`); the usage watch measures only the first 200 services per run until it is on |
 | `ONHOST_METERING_ENFORCE_NEW_METRICS` | `false`: a metric that never drove anything on a family (e.g. RAM of a managed database) is only observed |
 | `ONHOST_LIMIT_RAISE_CUSTOMER_ORDERS` | `false`: staff place limit raises as assisted orders; customers cannot order one in the panel yet |
@@ -23,11 +23,11 @@ Sources of truth: `domains/Services/Metering/MetricRegistry.php` (every key a pl
 The ratchet: `KNOWN_GAPS` may only shrink. A gap that gets closed must leave the list in the same change (the guard fails
 otherwise), and a new unkept number fails the guard until it is named — it is never absorbed silently.
 
-## 2. The seven gaps and how each closes
+## 2. The seven gaps and how each closes (M1 closed in S1)
 
 | Gap | Sold on | What closes it | Needs a live panel? | Package |
 | --- | --- | --- | --- | --- |
-| `aliases` | mail plans (50 / 500) | `alias.create` runs the generic `$limit('aliases', …)` count check that `mailbox.create` uses. **Catch:** `IspConfigWebProvider::listAliases()` reads `mail_alias_get` by `source = %@domain`, which also returns forwards and the catch-all; the count must take rows of `type = alias` only, so the adapter has to return `type`. | Code and tests with the stateful ISPConfig fake; one read on staging that `mail_alias_get` returns `type` (mode S) | **M1** (code, fakes) — first, it is the only one without a decision |
+| `aliases` | mail plans (50 / 500) | `alias.create` runs the generic `$limit('aliases', …)` count check that `mailbox.create` uses. **Catch:** `IspConfigWebProvider::listAliases()` reads `mail_alias_get` by `source = %@domain`, which also returns forwards and the catch-all; the count must take rows of `type = alias` only, so the adapter has to return `type`. | Code and tests with the stateful ISPConfig fake; one read on staging that `mail_alias_get` returns `type` (mode S) | **M1 — closed in S1 (TASK-0210):** `alias.create` counts against the plan, `listAliases()` keeps `type = alias` and `listForwards()` `type = forward`. The `type` column was taken from ISPConfig's own source (`mail_forwarding.type` enum, `remoting_lib::getDataRecord` filters by the given columns only), not from a staging read: the staging mail server is shared with historical customers, and a listing there would read their rows |
 | `traffic_tb` | VPS/VDS, CDN add-on | Monthly transfer of a VM from Proxmox (`rrddata` netin/netout, summed per calendar month) into `UsageWatch` for the `cloud` family; warn at 85 %, never cut off (the price list says what happens above) | Code with Proxmox fakes; on staging: do counters survive a VM restart and a migration? | **M2** |
 | `pids` | game plans' limits bag | Pterodactyl has no per-server PID field (`memory/swap/disk/io/cpu/threads/oom_disabled`). Either the catalogue revision drops `pids` from the bag (honest, no panel), or a PID limit in the Wings configuration of each node (operator, applies to every server of the node; key name ASSUMED, check on the node) | Revision: no. Wings: yes | **M3** — recommended: revision |
 | `spam_filter` | mail plans ("rspamd" / "rspamd + policies") | A string, not a number: either a spam policy per tier written to the mailbox (`spamfilter_user` + policy id in ISPConfig) or the price list words it as a description (fair use) | Policy: yes (staging). Wording: no | **M4** — owner choice; default: wording |
