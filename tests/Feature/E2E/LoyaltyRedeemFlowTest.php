@@ -39,12 +39,12 @@ require_once __DIR__.'/../../Support/E2E/E2EHelpers.php';
  */
 
 beforeEach(function () {
+    $this->travelTo(Carbon::parse('2026-10-12 12:00:00', 'UTC')); // first: seeded prices are dated now()->subDay() (TASK-0192)
     e2eSeedPlatform();
     e2eWebInfrastructure();
     e2eComgateEnvironment();
     config()->set('onhost.dns.parking_ipv4', '89.187.160.1');
     Http::preventStrayRequests();
-    $this->travelTo(Carbon::parse('2026-10-12 12:00:00', 'UTC'));
 });
 
 const E2E_LOYALTY_VENDORS = ['ispconfig', 'comgate', 'wedos', 'proxmox', 'pterodactyl'];
