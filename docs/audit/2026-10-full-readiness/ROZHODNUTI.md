@@ -284,7 +284,7 @@ zapsán, provedení je krok vlastníka nebo krok se „ano“, **čeká** = chyb
 | P-R13 | PR-7 | Zónu `onhost.cz` (NS WEDOS) upravuje vlastník; TTL 300 nejméně 48 h před přepnutím; AAAA jen když hostitel má IPv6 a nginx na ní poslouchá. | P18 | plán; cílová IP čeká: PR-7 (po PR-2) |
 | P-R14 | PR-8 | TLS produkce: Let's Encrypt přes aaPanel, upozornění na e-mail vlastníka. | P18 | plán; e-mail čeká: PR-8 |
 | P-R15 | PR-9 | Podpisový klíč tagů = SSH klíč ed25519 vlastníka (jen veřejná část do `allowed_signers`), operátor deploye = vlastník. | P18 | čeká: PR-9 (veřejný klíč, jméno) |
-| P-R16 | PR-10 | Záloha platformy mimo server: S3-kompatibilní úložiště v EU, retence 30 dní, šifrování na straně úložiště; přístupové údaje ukládá vlastník. | P13 | plán; poskytovatel/bucket čeká: PR-10 |
+| P-R16 | PR-10 | Záloha platformy mimo server: S3-kompatibilní úložiště v EU, retence 30 dní, šifrování na straně úložiště; přístupové údaje ukládá vlastník. | P13, TASK-0202 (PR #197) | kód: cvičná obnova `restore-drill.sh` (CI na PostgreSQL), řádek doctoru a alerty; poskytovatel/bucket čeká: PR-10 |
 | P-R17 | PR-11 | Transakční e-mail z `onhost.cz` přes jednoho SMTP poskytovatele; DMARC nejdřív `p=none`; SPF/DKIM/DMARC vkládá vlastník. | P18 | čeká: PR-11 |
 | P-R18 | PR-12 | Cloudflare Turnstile zapnout (zdarma, s CDN nesouvisí); klíče ukládá vlastník. | P18 | čeká: PR-12 (klíče) |
 | P-R19 | PR-13 | Monitoring na malé samostatné VM mimo produkci; Alertmanager posílá na `POST /v1/webhooks/alertmanager` a e-mailem vlastníkovi. | P12 | plán; stroj a adresa čekají: PR-13 |
@@ -292,7 +292,7 @@ zapsán, provedení je krok vlastníka nebo krok se „ano“, **čeká** = chyb
 | P-R21 | PR-15 | V den spuštění se prodává jen produkt s ověřeným panelem a kvalifikovaným uzlem; ostatní „Připravujeme“ (R14, `qualifying`). | P18 | plán; tabulka produktů čeká: PR-15 |
 | P-R22 | PR-16 | Spustit jen s WEDOS; Subreg až po vyřešení `500.104`. | P18 | plán (Subreg se v produkci nekonfiguruje) |
 | P-R23 | PR-17 | Produkční IPv4 do povolených adres WAPI přidá vlastník po PR-2. | P18 | čeká: PR-17 |
-| P-R24 | PR-18 | Harmonogram měření: D+1 `usage.rotation` po `onhost:metering:preview`; D+30 po kontrole baseline `ONHOST_METERING_ENFORCE_NEW_METRICS`; navýšení limitu zákazníkem (`ONHOST_LIMIT_RAISE_CUSTOMER_ORDERS`) po prvním fakturačním cyklu. Každý krok s náhledem a „ano“. | P19 | plán; žádný přepínač nepřepnut |
+| P-R24 | PR-18 | Harmonogram měření: D+1 `usage.rotation` po `onhost:metering:preview`; D+30 po kontrole baseline `ONHOST_METERING_ENFORCE_NEW_METRICS`; navýšení limitu zákazníkem (`ONHOST_LIMIT_RAISE_CUSTOMER_ORDERS`) po prvním fakturačním cyklu. Každý krok s náhledem a „ano“. | P19, TASK-0205 (PR #201) | plán `docs/proposals/metering-after-launch.md` (balíky M1–M5, náhledy, rollback); žádný přepínač nepřepnut |
 | P-R25 | LG-1 | Spuštění na textech 2026-09 (I-R4 B); 2026-10 zveřejnit až po písemné odpovědi advokáta. | P7 | čeká: LG-1 (jméno advokáta, datum) |
 | P-R26 | LG-2 | Zveřejnit den po odpovědi advokáta, účinnost za 30 dní (`--effective-from`). | P7 | čeká: LG-1, LG-2 |
 | P-R27 | LG-3 | Seznam zpracovatelů připraví vlastník (Comgate, WEDOS, SMTP, úložiště záloh, Cloudflare), advokát potvrdí „na vyžádání“. | – | čeká: LG-3 |
@@ -304,7 +304,7 @@ zapsán, provedení je krok vlastníka nebo krok se „ano“, **čeká** = chyb
 | P-R33 | UC-1 | Věta o DPH zůstává „Nejsme plátci DPH, ceny jsou konečné.“ | – | platí (J-R9) |
 | P-R34 | UC-2 | Věrnostní body = sleva při prodeji, ne platba. | – | platí (G-R2) |
 | P-R35 | UC-3 | Doklady v EUR: kurz ČNB dne vystavení. | – | platí (`onhost:fx:sync`) |
-| P-R36 | UC-4 | Měsíční podklady pro účetní: CSV dokladů a plateb za měsíc. | P17 | plán (runbook den 2); export jako balík fáze Q |
+| P-R36 | UC-4 | Měsíční podklady pro účetní: CSV dokladů a plateb za měsíc. | P17, R2, TASK-0207 (PR #203) | kód: `GET /v1/staff/finance/exports/{documents,payments}?month=` (CSV, finance) |
 | P-R37 | OP-1 | Podpora po–pá 08:00–17:00 Europe/Prague (shodně s I-R13); mimo tuto dobu tiket nebo e-mail; telefon jen při výpadku služby v pracovní době. Web nesmí slibovat 24/7. | P1, TASK-0184 (PR #180) | kód |
 | P-R38 | OP-2 | Reklamace vyřizuje Adrian Staněk, zakladatel. | P7 | plán (do reklamačního řádu po LG-1) |
 | P-R39 | OP-3 | `reklamace@` i `abuse@` čte osoba z OP-2; pošta přes PR-11. | – | čeká: OP-3 (schránky zřizuje vlastník) |
@@ -356,3 +356,16 @@ balíky Q2–Q4 v `PROMPT-faze-Q-2026-10-13.md`. Číslování pokračuje za P-R
 | P-R76 | `CatalogSeeder` dál nabízí v pokladně webhostingu volby `priority_support` („reakce do 10 minut, 24/7“; rozpor s P-R37) a `waf_cdn` („firewall aplikací a anycast cache“; rozpor s H-R2, M2b a P-R46). | Stáhnout obě volby z prodeje: seeder + datová migrace vzoru `001160` (mění jen nedržené verze a jen dokud tam stojí seedovaná slova/stav). Držená předplatná se nemění. | Q2, TASK-0189 (PR #185) | kód (seeder + migrace `001180`); na stagingu od `36009513` (0 řádků) |
 | P-R77 | Tlačítko „Vyzkoušet zdarma“ v hlavičce (žádná zkušební doba neexistuje, VOP čl. 2) a čísla vektorové databáze (14 ms p95, 98,6 % recall) nejsou doložená. | Stáhnout přes seam (prototypy zůstávají byte-identické), demo režim beze změny. | Q3, TASK-0191 (PR #188) | kód; na stagingu od `36009513` |
 | P-R78 | `staging.sh` zapisuje do `expected-env` `ONHOST_TOKEN_ORGANIZATION_REQUIRED=false` a `deploy.sh` odmítne deploy (rc 2), když `app.env` drží jinou hodnotu; nácvik ST-6 (P-R65, `true`) by zablokoval každý další deploy. | Spec deployeru připustí `true` i `false` (pro produkci je `true` krok 8 plánu žádoucí); ověřeno skutečným během skriptu v CI. **ST-6 se neprovádí, dokud Q4 není sloučené a nasazené na staging.** | Q4, TASK-0190 (PR #186) | kód; na stagingu od `36009513`; ST-6 provedeno 2026-10-13 |
+
+## Fáze R (2026-10-13): odkazy na balíky
+
+Fáze R nepřinesla žádné nové rozhodnutí vlastníka; dokončila balíky bez vstupu. Odkazy na rozhodnutí, která naplňuje:
+
+| Rozhodnutí | Co fáze R udělala | Úkol (PR) |
+|---|---|---|
+| P-R16 (PR-10), P-R50 (PX-3), P-R51 (PX-4) | P13: `onhost:platform:backup:export-db`, `infra/aapanel/restore-drill.sh` (jen role bez superuseru), `drill-record`, řádek *platform restore drill within 35 days*, alerty; zapínání `backups.*` s náhledy v `backups.md` | TASK-0202 (#197) |
+| P-R37, P-R69 | R1: stavová stránka, postmortemy, kroky kreditu, kariéra a DNS anycast podle SLA 2026-09 (seam, prototypy byte-identické) | TASK-0204 (#199) |
+| P-R19 (PR-13), P-R24 (PR-18) | P16 staff stránka *Provoz* (jen čtení); P19 návrh měření po spuštění | TASK-0203 (#200), TASK-0205 (#201) |
+| P-R36 (UC-4) | R2: CSV dokladů a plateb za měsíc pro účetní | TASK-0207 (#203) |
+| P-R2 … P-R23 (PR-1 … PR-17), CG-2 | P18: plán na cíl `fda0cedf`, `PRODUKCE-prikazy-2026-10-13.md` (go/no-go, T-48 h, kroky 2a/3a/8a/10a, DNS, rollback) | TASK-0208 (#204) |
+| — | R0 časované bomby (zametení s posunutými hodinami), P15a cesta převodem (camt.053 i GPC), P15b návrh pro staging | TASK-0201 (#198), TASK-0206 (#202) |
