@@ -211,3 +211,49 @@ tests:
         exp_alerts:
           - exp_labels: { severity: ticket }
             exp_annotations: { summary: "No bank statement line imported for 4 days: transfers are not matched to proforma invoices", runbook: docs/runbooks/day-2-operations.md }
+
+  # ── P13 restore drill: never ran (0) does not alert; a drill 36 days old does (2m samples, within the 5-minute lookback); a
+  #    failed drill alerts, a fresh passed one does not ───────────────────────────────────────────────────────────────────────
+  - interval: 2m
+    input_series:
+      - series: 'onhost_platform_restore_drill_timestamp'
+        values: '0x27000'
+      - series: 'onhost_platform_restore_drill_ok'
+        values: '0x27000'
+    alert_rule_test:
+      - eval_time: 37d
+        alertname: OnhostRestoreDrillOverdue
+        exp_alerts: []
+      - eval_time: 37d
+        alertname: OnhostRestoreDrillFailed
+        exp_alerts: []
+  - interval: 2m
+    input_series:
+      - series: 'onhost_platform_restore_drill_timestamp'
+        values: '3600x27000'
+      - series: 'onhost_platform_restore_drill_ok'
+        values: '1x27000'
+    alert_rule_test:
+      - eval_time: 30d
+        alertname: OnhostRestoreDrillOverdue
+        exp_alerts: []
+      - eval_time: 37d
+        alertname: OnhostRestoreDrillOverdue
+        exp_alerts:
+          - exp_labels: { severity: ticket }
+            exp_annotations: { summary: "The last platform restore drill is older than 35 days", runbook: docs/runbooks/backups.md }
+      - eval_time: 37d
+        alertname: OnhostRestoreDrillFailed
+        exp_alerts: []
+  - interval: 1m
+    input_series:
+      - series: 'onhost_platform_restore_drill_timestamp'
+        values: '3600x30'
+      - series: 'onhost_platform_restore_drill_ok'
+        values: '0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: OnhostRestoreDrillFailed
+        exp_alerts:
+          - exp_labels: { severity: ticket }
+            exp_annotations: { summary: "The newest platform restore drill failed: the platform backups may not restore", runbook: docs/runbooks/backups.md }
