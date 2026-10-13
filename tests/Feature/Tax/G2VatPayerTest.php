@@ -54,9 +54,9 @@ use Onhost\Platform\Money\Money;
  */
 
 beforeEach(function () {
+    $this->travelTo(Carbon::parse('2026-10-15 10:00:00', 'Europe/Prague')); // first: seeded prices are dated now()->subDay() (TASK-0192)
     $this->seed([CatalogSeeder::class, TaxRuleSeeder::class, LegalEntitySeeder::class]);
     config(['onhost.billing.fx.fetch' => false]);
-    $this->travelTo(Carbon::parse('2026-10-15 10:00:00', 'Europe/Prague'));
 });
 
 function g2Ctx(): CommandContext
