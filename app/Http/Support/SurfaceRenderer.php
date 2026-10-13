@@ -685,7 +685,7 @@ HTML;
             $html = self::legalClaimSeams($html); // TASK-0142: no promise the legal documents do not make (money-back, badges, bonus)
             $html = self::publicClaimSeams($html); // L-03 (TASK-0146): no factual claim the operator cannot document
             // L3 (M1): a document row of a service page opens its document; N1: the shared FAQ lead and closing block say what the VOP say
-            $rows = ServicePageClaimsSeam::documentRowSwaps() + ServicePageClaimsSeam::pageCopySwaps() + ServicePageClaimsSeam::homeCopySwaps() + ServicePageClaimsSeam::phasePCopySwaps(); // O1: no free trial on the home page; P1/P2: support hours, no DDoS figure
+            $rows = ServicePageClaimsSeam::documentRowSwaps() + ServicePageClaimsSeam::pageCopySwaps() + ServicePageClaimsSeam::homeCopySwaps() + ServicePageClaimsSeam::phasePCopySwaps() + ServicePageClaimsSeam::phaseQCopySwaps(); // O1: no free trial on the home page; P1/P2: support hours, no DDoS figure; Q1/Q3: no trial button, no Anti-DDoS Pro
             $html = self::swap(array_keys($rows), array_values($rows), $html);
             $pricing = PricingPageSeam::swaps(); // K7-2 (L2): #/ceny — table and yearly price from the catalogue, honest FAQ, real cart line
             $html = self::swap(array_keys($pricing), array_values($pricing), $html);

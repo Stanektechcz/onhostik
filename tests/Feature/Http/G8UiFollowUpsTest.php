@@ -105,7 +105,7 @@ it('keeps every sentence that promised credit back in cash out of what is served
         ->not->toContain('přidáváme deset procent navíc')->not->toContain('get ten percent extra'); // a top-up bonus nobody gives
 
     $web = (string) $this->get('/surfaces/onhost-svc-web.js')->assertOk()->getContent();
-    expect($web)->toContain('kredit připíšeme automaticky')->not->toContain('kredit vracíme automaticky');
+    expect($web)->toContain('připíšeme ji jako kredit')->not->toContain('kredit vracíme automaticky'); // Q1 (TASK-0191): claimed in the panel, SLA čl. 4
 
     $staff = $this->staff();
     $admin = (string) $this->actingAs($staff)->get('/sprava')->assertOk()->getContent();

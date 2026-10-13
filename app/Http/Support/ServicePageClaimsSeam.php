@@ -207,6 +207,134 @@ LEGAL_PAGE_NEW;
 }
 SUPPORT_PAGE_NEW;
 
+    /** Q1: the enterprise page of onhost-svc-other.js, from its key to the next page's key. */
+    private const ENTERPRISE_PAGE_FROM = "    'enterprise': C({\n";
+
+    private const ENTERPRISE_PAGE_TO = "    }),\n\n    'green': C({";
+
+    /**
+     * Q1 (phase Q): what a company gets is what SLA 2026-09 says (resources/legal/sla.md čl. 2 and 4: Standard 99,9 % with a reply
+     * within 4 hours, Business 99,95 % within 1 hour, a higher level only by individual contract, compensation claimed in the panel
+     * and credited), the DPA in force and the support hours (P-R37). No price list of its own, no NIS2/ISO claim, no measured uptime.
+     */
+    private const ENTERPRISE_PAGE_NEW = <<<'ENTERPRISE_PAGE_NEW'
+    'enterprise': C({
+      panelsTitle: _('Jak se domluvíme', 'How we agree'), panelsLead: _('Firemní spolupráci stavíme na SLA v platnosti a na smlouvě, kterou spolu uzavřeme.', 'Business work rests on the SLA in force and on the contract we sign together.'),
+      panels: [
+        [_('SLA podle třídy služby', 'SLA by service class'), _('Dostupnost a reakci na incident stanoví SLA v platnosti; vyšší úroveň jen podle individuální smlouvy.', 'Availability and incident response are set by the SLA in force; a higher level only by individual contract.'), [['Standard', _('99,9 % · reakce do 4 h', '99.9% · response within 4 h')], ['Business', _('99,95 % · reakce do 1 h', '99.95% · response within 1 h')], [_('Individuální', 'Individual'), _('podle smlouvy', 'per contract')]]],
+        [_('Podpora', 'Support'), _('Tiket v zákaznickém panelu nebo e-mail, po–pá 8:00–17:00 (Europe/Prague).', 'A ticket in the customer panel or e-mail, Mon–Fri 8:00–17:00 (Europe/Prague).'), [[_('Pracovní doba', 'Hours'), _('po–pá 8–17', 'Mon–Fri 8–17')], [_('Tiket a e-mail', 'Ticket and e-mail'), '✓']]]
+      ],
+      cmp: null,
+      plansTitle: cs ? 'Firemní nabídka' : 'Business offer', plansNote: cs ? 'Nabídku připravíme podle rozsahu; podmínky stanoví smlouva a SLA v platnosti.' : 'We prepare the offer by scope; the contract and the SLA in force set the terms.',
+      cat: 'Onhost', crumb: 'Enterprise a SLA',
+      kicker: _('SLA v platnosti · individuální smlouva', 'The SLA in force · individual contract'),
+      title: _('Služby pro firmy podle smlouvy', 'Services for companies under contract'),
+      lead: _('Pro firmy připravíme nabídku podle rozsahu. Dostupnost a reakci na incident stanoví SLA v platnosti: Standard 99,9 % a reakce do 4 hodin, Business 99,95 % a reakce do 1 hodiny; vyšší úroveň jen podle individuální smlouvy.', 'We prepare an offer for companies by scope. The SLA in force sets availability and incident response: Standard 99.9% with a response within 4 hours, Business 99.95% within 1 hour; a higher level only by individual contract.'),
+      kpis: [],
+      chips: ['SLA', 'GDPR / DPA', _('Individuální smlouva', 'Individual contract')],
+      plans: [
+        { name: _('Firemní nabídka', 'Business offer'), tag: '', price: 0, priceLabel: _('Na dotaz', 'On request'), priceNote: _('podle rozsahu', 'by scope'), ctaLabel: _('Vyžádat nabídku', 'Request an offer'), specs: [_('SLA Standard nebo Business', 'SLA Standard or Business'), _('SLA podle individuální smlouvy', 'SLA by individual contract'), _('Zpracovatelská smlouva (DPA)', 'Data processing agreement (DPA)'), _('Podpora po–pá 8–17', 'Support Mon–Fri 8–17')] }
+      ],
+      feats: [
+        ['01', _('Kompenzace kreditem', 'Compensation as credit'), _('Kompenzaci za nedodrženou dostupnost uplatníte v zákaznickém panelu a připíšeme ji jako kredit (SLA).', 'Compensation for missed availability is claimed in the customer panel and credited (SLA).')],
+        ['02', _('Zpracovatelská smlouva', 'A data processing agreement'), _('DPA je jedním z dokumentů v platnosti.', 'The DPA is one of the documents in force.')]
+      ],
+      tech: [],
+      bench: [],
+      benchNote: _('Naměřenou dostupnost zveřejníme, až ji doložíme měřením.', 'We will publish measured availability once it is backed by measurement.'),
+      cases: [],
+      faq: [
+        [_('Jaké SLA nabízíte?', 'Which SLA do you offer?'), _('Standard 99,9 % s reakcí na incident do 4 hodin a Business 99,95 % do 1 hodiny, jak uvádí SLA v platnosti. Vyšší úroveň jen podle individuální smlouvy.', 'Standard 99.9% with an incident response within 4 hours and Business 99.95% within 1 hour, as the SLA in force states. A higher level only by individual contract.')],
+        [_('Jak uplatním kompenzaci?', 'How do I claim compensation?'), _('V zákaznickém panelu; připíšeme ji jako kredit.', 'In the customer panel; it is credited to your account.')],
+        [_('Kdy podpora odpovídá?', 'When does support answer?'), _('V pracovní dny 8:00–17:00 (Europe/Prague), tiketem nebo e-mailem.', 'On working days 8:00–17:00 (Europe/Prague), by ticket or e-mail.')]
+      ]
+    }),
+
+    'green': C({
+ENTERPRISE_PAGE_NEW;
+
+    /** Q1: the about page of onhost-svc-other.js, from its key to the next page's key. */
+    private const ABOUT_PAGE_FROM = "    'about': C({\n";
+
+    private const ABOUT_PAGE_TO = "    }),\n\n    'careers': C({";
+
+    /** Q1 (phase Q): who runs Onhost is what the terms and the price list say — no head count, customer count, sites or NOC. */
+    private const ABOUT_PAGE_NEW = <<<'ABOUT_PAGE_NEW'
+    'about': C({
+      panelsTitle: _('Jak Onhost funguje', 'How Onhost works'), panelsLead: _('Co nabízíme, za kolik a za jakých podmínek, je na webu ve verzi, která platí.', 'What we offer, at what price and on what terms is on the site in the version in force.'),
+      panels: [
+        [_('Ceny a podmínky', 'Prices and terms'), _('Ceník, obchodní podmínky, SLA a zásady zpracování osobních údajů jsou veřejné.', 'The price list, the terms, the SLA and the privacy policy are public.'), [[_('Ceník', 'Price list'), '✓'], [_('Dokumenty v platnosti', 'Documents in force'), '✓']]],
+        [_('Podpora', 'Support'), _('Tiket v zákaznickém panelu nebo e-mail, po–pá 8:00–17:00 (Europe/Prague).', 'A ticket in the customer panel or e-mail, Mon–Fri 8:00–17:00 (Europe/Prague).'), [[_('Pracovní doba', 'Hours'), _('po–pá 8–17', 'Mon–Fri 8–17')]]]
+      ],
+      cmp: null,
+      plansTitle: cs ? 'Kontakt' : 'Contact', plansNote: cs ? 'Provozovatele (název, IČO a sídlo) uvádějí obchodní podmínky.' : 'The terms name the operator (name, company ID and registered office).',
+      cat: 'Onhost', crumb: _('O nás', 'About us'),
+      kicker: _('Hosting, domény a servery · podpora po–pá 8–17', 'Hosting, domains and servers · support Mon–Fri 8–17'),
+      title: _('Kdo Onhost provozuje', 'Who runs Onhost'),
+      lead: _('Služby, které nabízíme, jejich ceny a podmínky uvádí ceník a dokumenty v platnosti. Provozovatele (název, IČO a sídlo) najdete v obchodních podmínkách.', 'The price list and the documents in force state the services we offer, their prices and terms. The terms name the operator (name, company ID and registered office).'),
+      kpis: [],
+      chips: [_('Veřejný ceník', 'Public price list'), _('Dokumenty v platnosti', 'Documents in force'), _('Podpora po–pá 8–17', 'Support Mon–Fri 8–17')],
+      plans: [
+        { name: _('Kontakt', 'Contact'), tag: '', price: 0, priceLabel: _('Panel a e-mail', 'Panel and e-mail'), priceNote: _('po–pá 8:00–17:00', 'Mon–Fri 8:00–17:00'), ctaLabel: _('Napsat nám', 'Write to us'), specs: [_('Tiket v zákaznickém panelu', 'A ticket in the customer panel'), _('E-mail', 'E-mail'), _('Telefon při výpadku v pracovní době', 'Phone for an outage in working hours')] }
+      ],
+      feats: [
+        ['01', _('Ceny a podmínky veřejně', 'Prices and terms in the open'), _('Ceník, obchodní podmínky, SLA a zásady zpracování osobních údajů jsou na webu ve verzi, která platí.', 'The price list, the terms, the SLA and the privacy policy are on the site in the version in force.')],
+        ['02', _('Podpora v pracovní dny', 'Support on working days'), _('Tiket nebo e-mail, po–pá 8:00–17:00.', 'Ticket or e-mail, Mon–Fri 8:00–17:00.')],
+        ['03', _('Jen doložená čísla', 'Only documented figures'), _('Lokality, certifikace a provozní čísla uvedeme, až je doložíme.', 'We will state locations, certifications and operating figures once they are documented.')]
+      ],
+      tech: [],
+      bench: [],
+      benchNote: _('Provozní čísla zveřejníme, až je doložíme.', 'We will publish operating figures once they are documented.'),
+      cases: [],
+      faq: [
+        [_('Kdo Onhost provozuje?', 'Who operates Onhost?'), _('Provozovatele (název, IČO a sídlo) uvádějí obchodní podmínky.', 'The terms name the operator (name, company ID and registered office).')],
+        [_('Jak vás kontaktuji?', 'How do I reach you?'), _('Tiketem v zákaznickém panelu nebo e-mailem, po–pá 8:00–17:00.', 'By ticket in the customer panel or by e-mail, Mon–Fri 8:00–17:00.')]
+      ]
+    }),
+
+    'careers': C({
+ABOUT_PAGE_NEW;
+
+    /** Q1: the data-centre page of onhost-svc-corp.js, from its key to the next page's key. */
+    private const DATACENTERS_PAGE_FROM = "    'datacenters': C({\n";
+
+    private const DATACENTERS_PAGE_TO = "    }),\n\n    'partners': C({";
+
+    /** Q1 (phase Q): no six sites, own halls, TIER III, ISO 27001, 2N or 24/7 NOC — the order and the panel say where a service runs. */
+    private const DATACENTERS_PAGE_NEW = <<<'DATACENTERS_PAGE_NEW'
+    'datacenters': C({
+      panelsTitle: _('Kde služby běží', 'Where services run'), panelsLead: _('Kde konkrétní služba běží, vám sdělí podpora.', 'Support tells you where a particular service runs.'),
+      panels: [
+        [_('Lokalita služby', 'Service location'), _('Kde služba běží, vám sdělí podpora (tiket nebo e-mail).', 'Support tells you where a service runs (ticket or e-mail).'), [[_('Dotaz na podporu', 'Ask support'), _('po–pá 8–17', 'Mon–Fri 8–17')]]],
+        [_('Parametry datacenter', 'Data-centre figures'), _('Certifikace, napájení, chlazení a konektivitu uvedeme, až je doložíme. Do té doby je neslibujeme.', 'We will state certifications, power, cooling and connectivity once they are documented. Until then we do not promise them.'), []]
+      ],
+      cmp: null,
+      cat: 'Onhost', crumb: _('Datacentra', 'Data centres'),
+      kicker: _('Lokality služeb', 'Service locations'),
+      title: _('Datacentra a lokality', 'Data centres and locations'),
+      lead: _('Kde konkrétní služba běží, vám sdělí podpora. Parametry datacenter (certifikace, napájení, chlazení a konektivitu) zveřejníme, až je doložíme; do té doby je neslibujeme.', 'Support tells you where a particular service runs. We will publish data-centre figures (certifications, power, cooling and connectivity) once they are documented; until then we do not promise them.'),
+      kpis: [],
+      chips: [],
+      plansTitle: _('Lokality', 'Locations'),
+      plansNote: _('Lokalitu konkrétní služby vám sdělí podpora.', 'Support tells you the location of a particular service.'),
+      plans: [
+        { name: _('Lokalita podle služby', 'Location per service'), tag: '', price: 0, priceLabel: _('Na dotaz', 'On request'), priceNote: _('sdělí podpora', 'support tells you'), ctaLabel: _('Napsat nám', 'Write to us'), specs: [_('Lokalitu sdělí podpora', 'Support tells you the location'), _('Tiket nebo e-mail', 'Ticket or e-mail')] }
+      ],
+      feats: [
+        ['01', _('Jen doložené parametry', 'Only documented figures'), _('Certifikace, napájení a konektivitu uvedeme, až je doložíme.', 'We will state certifications, power and connectivity once they are documented.')]
+      ],
+      tech: [],
+      bench: [],
+      benchNote: _('Účinnost (PUE) zveřejníme, až ji doložíme měřením.', 'We will publish efficiency (PUE) once it is backed by measurement.'),
+      cases: [],
+      faq: [
+        [_('Kde služba poběží?', 'Where will my service run?'), _('Zeptejte se podpory, lokalitu konkrétní služby vám sdělí.', 'Ask support; they will tell you where a particular service runs.')]
+      ]
+    }),
+
+    'partners': C({
+DATACENTERS_PAGE_NEW;
+
     /** @return array<string, array<string, string>> script => [needle => replacement] */
     public static function replacements(): array
     {
@@ -251,11 +379,20 @@ SUPPORT_PAGE_NEW;
                 "_('GPU indexace', 'GPU indexing'), 'SLA 99,99 %'" => "_('GPU indexace', 'GPU indexing'), ".self::SLA_BY_CONTRACT,
                 // P3 (P-R70, DD-2): colocation "2N power, N+1 cooling", 2N UPS and "2N + generator" — no document states them
                 "kicker: _('TIER III · 2N napájení · 6 lokalit', 'TIER III · 2N power · 6 locations')," => "kicker: _('Colocation · prostor v racku', 'Colocation · rack space'),",
-                "_('Od jedné U po celý rack, s 2N napájením, chlazením N+1 a přístupem 24/7. " => "_('Od jedné U po celý rack, s přístupem 24/7. ",
-                "'From a single U to a whole rack, with 2N power, N+1 cooling and 24/7 access. " => "'From a single U to a whole rack, with 24/7 access. ",
-                "chips: ['TIER III', '2N UPS', " => "chips: ['TIER III', ",
+                "_('Od jedné U po celý rack, s 2N napájením, chlazením N+1 a přístupem 24/7. " => "_('Od jedné U po celý rack. ", // Q1: no 24/7 access either
+                "'From a single U to a whole rack, with 2N power, N+1 cooling and 24/7 access. " => "'From a single U to a whole rack. ",
+                "chips: ['TIER III', '2N UPS', " => 'chips: [', // Q1: no TIER III either (no certificate or document states it)
                 "'2,5 kW', _('2N napájení', '2N power'), " => "'2,5 kW', ",
                 "'7 kW', _('2N + generátor', '2N + generator'), " => "'7 kW', ",
+                // Q1 (phase Q): colocation "24/7 access" and "24/7 badge" — no document states an access regime; access is arranged
+                "_('BESS baterie', 'BESS storage'), _('Přístup 24/7', '24/7 access'), " => "_('BESS baterie', 'BESS storage'), ",
+                ", _('Přístup 24/7 na kartu', '24/7 badge access')] }," => '] },',
+                "[_('Fyzický přístup', 'Physical access'), _('Na ohlášení', 'On request'), _('24/7 na kartu', '24/7 badge'), _('24/7 na kartu', '24/7 badge')]," => "[_('Fyzický přístup', 'Physical access'), _('Po dohodě', 'By arrangement'), _('Po dohodě', 'By arrangement'), _('Po dohodě', 'By arrangement')],",
+                "_('U racku a čtvrtracku 24/7 na kartu s dvoufaktorem, u 1U na ohlášení do 2 hodin.', 'Full and quarter racks get 24/7 two-factor badge access; 1U is on request within 2 hours.')" => "_('Fyzický přístup k racku domlouváme předem.', 'Physical access to the rack is arranged in advance.')",
+                // Q3 (P-R77): the vector database's "14 ms p95" and "98,6 % recall@10" were never measured
+                "kpis: [['14 ms', _('p95 dotaz nad 5 mil. vektorů', 'p95 query over 5M vectors')], ['98,6 %', 'recall@10'], " => 'kpis: [',
+                "        { label: _('Vector Pro (HNSW, NVMe)', 'Vector Pro (HNSW, NVMe)'), pct: 100, note: '14 ms p95' },\n        { label: _('Sdílená cloudová vektorová služba', 'Shared cloud vector service'), pct: 47, note: '30 ms p95' },\n        { label: _('pgvector bez ladění indexu', 'pgvector with untuned index'), pct: 22, note: '64 ms p95' }\n" => '',
+                "benchNote: _('5 mil. vektorů dimenze 1024, recall@10 nad 98 %, 50 souběžných dotazů.', '5M vectors at 1024 dimensions, recall@10 above 98%, 50 concurrent queries.')," => "benchNote: _('Výkon vektorové databáze zveřejníme, až ho doložíme měřením.', 'We will publish vector database performance once it is backed by measurement.'),",
                 "          [_('Napájení', 'Power feeds'), '2×', '2N', _('2N + generátor', '2N + generator')],\n" => '',
                 "_('Dvě nezávislé trasy, UPS 2N, dieselagregát s palivem na 72 hodin.', 'Two independent feeds, 2N UPS, diesel generator with 72 hours of fuel.')" => "_('Dvě nezávislé napájecí trasy, UPS a dieselagregát.', 'Two independent feeds, UPS and a diesel generator.')",
             ],
@@ -300,6 +437,10 @@ SUPPORT_PAGE_NEW;
                 "benchNote: _('Roční průměr PUE za 2025. Nižší číslo znamená méně energie na chlazení.', 'Annual average PUE for 2025. Lower means less energy spent on cooling.')," => $pueNote,
             ],
             'onhost-svc-other.js' => [
+                // Q1 (phase Q): the careers page's NOC role "in Prague, 24/7 shifts" (support is Mon–Fri 8–17, P-R37)
+                "specs: [_('Praha, směny 24/7', 'Prague, 24/7 shifts'), " => "specs: [_('Praha', 'Prague'), ",
+                // and a head count of 42 the team never had (I-R19: four first names on the people page)
+                "kicker: _('42 lidí · žádné agentury · Praha nebo remote', '42 people · no agencies · Prague or remote')," => "kicker: _('Bez agentur · Praha nebo remote', 'No agencies · Prague or remote'),",
                 // a prototype customer quote (never rendered outside demo mode since I-R14, but served): its number goes too
                 "text: _('Odvod tepla z jejich datacentra ohřívá dvě sousední budovy. Tohle je infrastruktura, jak má být.', 'Waste heat from their data centre warms two neighbouring buildings. This is how infrastructure should work.')" => "text: _('Odvod tepla z jejich datacentra ohřívá sousední budovy. Tohle je infrastruktura, jak má být.', 'Waste heat from their data centre warms the neighbouring buildings. This is how infrastructure should work.')",
                 // the SLA band: the share of renewables
@@ -332,6 +473,9 @@ SUPPORT_PAGE_NEW;
                 "[_('Co když nás někdo bude DDoSovat?', 'What if we get DDoSed?'), _('Filtrujeme automaticky do tří sekund. U turnajů držíme technika po celou dobu.', 'We filter automatically within three seconds. During tournaments an engineer stands by.')]" => "[_('Chráníte servery proti DDoS?', 'Do you protect servers against DDoS?'), ".self::DDOS_UNDOCUMENTED.']',
             ],
             'onhost-svc-more.js' => [
+                // Q1 (phase Q): no ISO 27001 certificate is documented, and NIS2 duties are not something a host "handles" for a customer
+                "_('ISO 27001, DPA, popis architektury a záloh na vyžádání.', 'ISO 27001, a DPA, an architecture and backup description on request.')" => "_('Zpracovatelská smlouva (DPA) a popis služby na vyžádání.', 'A data processing agreement (DPA) and a description of the service on request.')",
+                "_('Ano, včetně dokumentace, auditu a hlášení incidentů ve lhůtě.', 'Yes — including documentation, audits and incident reporting within deadlines.')" => "_('Povinnosti podle NIS2 nese provozovatel regulované služby. Co k nim dodáme my (zpracovatelskou smlouvu, popis služby), domluvíme ve smlouvě.', 'NIS2 duties rest with the operator of the regulated service. What we contribute (a data processing agreement, a description of the service) is agreed in the contract.')",
                 "_('Odpadní teplo z našich sálů ohřívá dvě sousední budovy v Praze.', 'Waste heat from our halls warms two neighbouring Prague buildings.')" => "_('Odpadní teplo z našich sálů ohřívá sousední budovy v Praze.', 'Waste heat from our halls warms neighbouring Prague buildings.')",
                 // O1: the solution pages have no catalogue product behind them — their band, KPIs, plans and tables state the SLA
                 // 2026-09 classes, and 99,99 % only "by individual contract"
@@ -364,9 +508,20 @@ SUPPORT_PAGE_NEW;
                 "[_('Jak rychle reagujete na DDoS?', 'How fast do you react to a DDoS?'), _('Detekce do tří sekund, mitigace automaticky, bez vašeho zásahu.', 'Detection within three seconds, mitigation automatic, no action needed.')]" => "[_('Jak reagujete na DDoS?', 'How do you react to a DDoS?'), ".self::DDOS_UNDOCUMENTED.']',
             ],
             'onhost-svc-web.js' => [
+                // Q1 (phase Q): the band's lead promised a credit "automatically, no request needed"; SLA 2026-09 čl. 4: claimed in the panel
+                "    lead: _('SLA je součástí smlouvy, ne marketingový slib. Když ji nedodržíme, kredit vracíme automaticky — nemusíte o nic žádat.', 'The SLA is part of the contract, not a marketing promise. If we miss it, credit is refunded automatically — no ticket needed.')," => "    lead: _('SLA je součástí smlouvy, ne marketingový slib. Kompenzaci za nedodrženou dostupnost uplatníte v zákaznickém panelu a připíšeme ji jako kredit.', 'The SLA is part of the contract, not a marketing promise. Compensation for missed availability is claimed in the customer panel and credited.'),",
+                // Q1: the CDN page (not sold, P-R46) — 1,2 Tbps, 14 PoPs and detection within 3 s are not documented; its plans come
+                // from the catalogue overlay (CdnAvailability says "Připravujeme")
+                "kicker: _('1,2 Tbps · 14 PoP · WAF', '1.2 Tbps · 14 PoPs · WAF')," => "kicker: _('CDN a WAF · připravujeme', 'CDN and WAF · coming soon'),",
+                "lead: _('Statika ze čtrnácti lokalit, mitigace útoků do 1,2 Tbps a WAF s pravidly pro konkrétní aplikace. Provoz zůstává v Evropě, logy máte k dispozici.', 'Static assets from fourteen locations, mitigation up to 1.2 Tbps and a WAF with application-specific rules. Traffic stays in Europe and logs are yours.')," => "lead: _('CDN a ochranu proti útokům připravujeme. Kapacitu, počet lokalit a dobu detekce uvedeme, až je doložíme; do té doby je neslibujeme.', 'CDN and attack protection are coming. We will state capacity, locations and detection time once they are documented; until then we do not promise them.'),",
+                "kpis: [['1,2 Tbps', _('kapacita mitigace', 'mitigation capacity')], ['< 3 s', _('detekce útoku', 'attack detection')], ['14', _('PoP lokalit', 'PoP locations')]]," => 'kpis: [],',
                 // P1 (P-R37): the web hosting SLA band — a "measured" 99,98 %, a 10-minute 24/7 reply, a 10× credit and TIER III data centres
                 // in three cities, none documented — states SLA 2026-09 (Standard) and the support hours
                 "      { k: '99,98 %', v: _('měřená dostupnost za 12 měsíců', 'measured uptime over 12 months') },\n      { k: '< 10 min', v: _('první reakce podpory (24/7)', 'first support response (24/7)') },\n      { k: '10×', v: _('kredit za každou hodinu nad limit', 'credit for every hour over the limit') },\n      { k: 'TIER III', v: _('datacentra v Praze, Brně, Varšavě', 'data centres in Prague, Brno, Warsaw') }\n" => "      { k: '99,9 %', v: _('měsíční dostupnost (Standard, SLA)', 'monthly availability (Standard, SLA)') },\n      { k: '4 h', v: _('reakce na incident (Standard)', 'incident response (Standard)') },\n      ".self::SUPPORT_HOURS_ROW."\n",
+            ],
+            // Q1 (phase Q, P-R69): the public SLA page's exclusions named a DDoS filtering capacity ("do 2 Tb/s") nobody documented
+            'onhost-public.js' => [
+                "{ t: 'DDoS nad kapacitu ochrany', d: 'Filtrujeme do 2 Tb/s. Nad tím se snažíme dál, ale negarantujeme to. Reálný objem a délku útoku vždy zveřejníme.' }" => "{ t: 'DDoS útok', d: 'Parametry ochrany proti DDoS (kapacitu, vrstvy a dobu reakce) uvedeme, až je doložíme. Do té doby je neslibujeme.' }",
             ],
         ];
     }
@@ -423,13 +578,23 @@ SUPPORT_PAGE_NEW;
     }
 
     /**
-     * P1 (P-R37): whole pages replaced from a start marker (exactly once) to the first end marker after it.
+     * P1 (P-R37): whole pages replaced from a start marker (exactly once) to the first end marker after it. Q1 (phase Q): the
+     * enterprise, about and data-centre pages were made up end to end (42 people, 12 800 customers, six data centres, own halls,
+     * TIER III, ISO 27001, a 24/7 NOC, SLA 99,99 % with a 15-minute reply, "measured" uptime) and are replaced by what the
+     * documents in force say.
      *
      * @return array<string, list<array{0: string, 1: string, 2: string}>> script => [[from, to, replacement]]
      */
     public static function blocks(): array
     {
-        return ['onhost-svc-other.js' => [[self::SUPPORT_PAGE_FROM, self::SUPPORT_PAGE_TO, self::SUPPORT_PAGE_NEW]]];
+        return [
+            'onhost-svc-other.js' => [
+                [self::SUPPORT_PAGE_FROM, self::SUPPORT_PAGE_TO, self::SUPPORT_PAGE_NEW],
+                [self::ENTERPRISE_PAGE_FROM, self::ENTERPRISE_PAGE_TO, self::ENTERPRISE_PAGE_NEW], // Q1
+                [self::ABOUT_PAGE_FROM, self::ABOUT_PAGE_TO, self::ABOUT_PAGE_NEW], // Q1
+            ],
+            'onhost-svc-corp.js' => [[self::DATACENTERS_PAGE_FROM, self::DATACENTERS_PAGE_TO, self::DATACENTERS_PAGE_NEW]], // Q1
+        ];
     }
 
     /**
@@ -471,6 +636,40 @@ SUPPORT_PAGE_NEW;
             "['Smlouvu můžete kdykoli ukončit', 'Bez výpovědní doby a bez penále. Nevyčerpaný kredit vracíme na požádání, data exportujeme jedním kliknutím.']" => "['Výpověď ke konci období', 'Služby platíte předem na měsíc nebo rok, výpověď platí ke konci předplaceného období. Spotřebitel může od smlouvy odstoupit do 14 dnů (VOP).']",
             "['We answer within 15 minutes', 'For P1 (service down) we respond within 15 minutes, 24/7. A response means a human reply, not an automated acknowledgement.'],\n        ['If we miss it, the credit comes without asking', 'On a missed response time we credit the account automatically, without a request, within 24 hours of discovery.'],\n        ['Uptime of 99.9% and above', 'Measured monthly from nine probes. Below 99.9% we return 10% of the monthly fee; below 99% the whole fee.']," => "['We respond per the SLA', 'Incident response by service class: Standard within 4 hours, Business within 1 hour (the SLA in force). Support answers Mon–Fri 8:00–17:00.'],\n        ['Compensation as credit', 'Compensation for missed availability is claimed in the customer panel and credited (SLA).'],\n        ['Availability per the SLA', 'Standard 99.9%, Business 99.95% a month. Each started hour over the limit earns 5% (Standard, at most 50%) or 10% (Business, at most 100%) of the monthly price.'],",
             "['You can leave at any time', 'No notice period, no penalty. Unused credit is refunded on request and your data exports in one click.']" => "['Notice for the end of the period', 'Services are paid in advance for a month or a year; notice takes effect at the end of the prepaid period. A consumer may withdraw within 14 days (terms).']",
+        ];
+    }
+
+    /**
+     * Phase Q on the public surface (`Onhost.dc.html`): Q3 (P-R77) the header, hero, closing block and configurator buttons said
+     * "Vyzkoušet zdarma" / "Start free trial" although there is no trial (VOP čl. 2 bod 2; the buttons open the sign-up form, so they
+     * say what they do). Q1 (P-R69, P-R37): the prototype still sold "Anti-DDoS Pro" (configurator, cart upsells, the price
+     * overview; the catalogue product `anti-ddos-pro` is a draft and nothing delivers it; the game plan cards come from the catalogue,
+     * `ONHOST_DATA.gameSlots`, so their prototype fallback is left alone), the status history showed a "480 Gbps" DDoS incident that never happened, and the search
+     * offered colocation with "remote hands 24/7".
+     *
+     * @return array<string, string> needle => replacement in the public surface
+     */
+    public static function phaseQCopySwaps(): array
+    {
+        return [
+            "navLogin: 'Klientská zóna', navCta: 'Vyzkoušet zdarma'," => "navLogin: 'Klientská zóna', navCta: 'Vytvořit účet',",
+            "navLogin: 'Client area', navCta: 'Start free trial'," => "navLogin: 'Client area', navCta: 'Create account',",
+            "heroCta1: 'Vyzkoušet zdarma', heroCta2:" => "heroCta1: 'Vytvořit účet', heroCta2:",
+            "heroCta1: 'Start free trial', heroCta2:" => "heroCta1: 'Create account', heroCta2:",
+            "ctaBtn1: 'Vyzkoušet zdarma', ctaBtn2:" => "ctaBtn1: 'Vytvořit účet', ctaBtn2:",
+            "ctaBtn1: 'Start free trial', ctaBtn2:" => "ctaBtn1: 'Create account', ctaBtn2:",
+            "cfgOrder: 'Vyzkoušet zdarma', cfgFine:" => "cfgOrder: 'Objednat', cfgFine:",
+            "cfgOrder: 'Start free trial', cfgFine:" => "cfgOrder: 'Order', cfgFine:",
+            "      ['Anti-DDoS Pro', 'Filtr na L7 a ochrana herních portů', 149],\n" => '',
+            "      ['Anti-DDoS Pro', 'L7 filtering and game port protection', 149],\n" => '',
+            "      ['ddos', cs ? 'Anti-DDoS Pro' : 'Anti-DDoS Pro', cs ? '1,2 Tbps, game profily' : '1.2 Tbps, game profiles', 149],\n" => '',
+            "        ['ddos', cs ? 'Anti-DDoS Pro' : 'Anti-DDoS Pro', 149],\n" => '',
+            "['Ostatní hry (CS2, Rust)', 199], ['Anti-DDoS Pro', 149], " => "['Ostatní hry (CS2, Rust)', 199], ",
+            "['Other games (CS2, Rust)', 199], ['Anti-DDoS Pro', 149], " => "['Other games (CS2, Rust)', 199], ",
+            "        ['28. 7. 2026', 'DDoS 480 Gbps na herní segment', 'Odfiltrováno v Praze. Prvních dvacet sekund se hráčům trhalo, pak už ne. Zákazníkovi jsme napsali první.', '20 sekund · bez výpadku', 'odfiltrováno', 'ok'],\n" => '',
+            "        ['28 Jul 2026', 'DDoS 480 Gbps on the game segment', 'Scrubbed in Prague. The first twenty seconds stuttered for players, then nothing. We wrote to the customer first.', '20 seconds · no downtime', 'scrubbed', 'ok'],\n" => '',
+            "['služba', 'Housing a colocation', 'A+B napájení, ruce na místě 24/7', 'housing colocation rack', 'services']," => "['služba', 'Housing a colocation', 'Prostor v racku', 'housing colocation rack', 'services'],",
+            "['service', 'Housing and colocation', 'A+B power, remote hands 24/7', 'housing colocation rack', 'services']," => "['service', 'Housing and colocation', 'Rack space', 'housing colocation rack', 'services'],",
         ];
     }
 
