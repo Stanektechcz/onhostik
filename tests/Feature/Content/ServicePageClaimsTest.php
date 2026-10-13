@@ -48,7 +48,9 @@ it('serves the service scripts without the withdrawn figures outside demo mode',
     // script also loses the invented body of its legal page, L3 / M1: LegalPageClaimsTest; O1 replaces the solution pages' "SLA 99,99 %"
     // with the longer "SLA podle individuální smlouvy", so onhost-svc-more.js may grow by a few hundred bytes)
     // P1 (P-R37) replaces the invented support page of onhost-svc-other.js with a shorter, true one (about 8 % of the script)
-    $floor = ['onhost-svc-corp.js' => 0.85, 'onhost-svc-other.js' => 0.9][$script] ?? 0.95;
+    // Q1 (phase Q) replaces three more invented pages whole: enterprise and about (onhost-svc-other.js, served about 81 % of the
+    // prototype) and the data centres (onhost-svc-corp.js, about 82 %)
+    $floor = ['onhost-svc-corp.js' => 0.8, 'onhost-svc-other.js' => 0.78][$script] ?? 0.95;
     $ceiling = $script === 'onhost-svc-more.js' ? (int) (strlen($prototype) * 1.02) : strlen($prototype) - 1;
     expect(strlen($served))->toBeLessThanOrEqual($ceiling)->toBeGreaterThan((int) (strlen($prototype) * $floor));
 })->with(['onhost-svc-compute.js', 'onhost-svc-corp.js', 'onhost-svc-other.js', 'onhost-svc-more.js']);
