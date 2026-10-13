@@ -364,6 +364,8 @@ blank_families() {
   done
 }
 
+# The token switch (R9, production plan step 8) may be on or off: ST-6 rehearses it on staging, and a pinned `false` stopped every
+# later deploy (P-R78, TASK-0190; infra/aapanel/ci/expected-env-switches.sh runs this function in CI).
 write_expected_env() {
   (umask 077; cat > "$STATE/expected-env" <<'EOF'
 APP_ENV=staging
@@ -395,7 +397,7 @@ ONHOST_PLATFORM_BACKUP_DISK=local
 ONHOST_EGRESS_DENY_CIDRS=0.0.0.0/0,::/0
 ONHOST_EGRESS_ALLOW_CIDRS=
 ONHOST_STAFF_REACH_ENFORCED=false
-ONHOST_TOKEN_ORGANIZATION_REQUIRED=false
+ONHOST_TOKEN_ORGANIZATION_REQUIRED~=^(true|false)?$
 ONHOST_CONSOLE_RELAY_URL=
 ONHOST_CONSOLE_RELAY_KEY=
 ONHOST_NODE_BOOTSTRAP_SSH_KEY=
