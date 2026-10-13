@@ -9,6 +9,7 @@ use Illuminate\Console\Events\ScheduledTaskStarting;
 use Illuminate\Console\Scheduling\Event as ScheduledEvent;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Platform\ScheduleHealth;
 
@@ -97,4 +98,17 @@ it('exports the age and the budget of every job in /metrics', function () {
         ->toMatch('/onhost_schedule_last_success_seconds\{command="onhost:outbox:relay"\} (29|30|31)/')
         ->toContain('onhost_schedule_budget_seconds{command="onhost:outbox:relay"} 720')
         ->toContain('onhost_schedule_last_success_seconds{command="onhost:platform:backup"} -1');
+});
+
+it('prints the row in the doctor, a warning and never a failure', function () {
+    Artisan::call('onhost:doctor', ['--json' => true]);
+    $row = collect(json_decode(trim(Artisan::output()), true, 512, JSON_THROW_ON_ERROR)['checks'])->firstWhere('check', ScheduleHealth::CHECK);
+    expect($row['area'])->toBe('automation')->and($row['status'])->toBe('OK');
+
+    DB::table('scheduled_job_runs')->insert(['command' => 'onhost:outbox:relay', 'last_success_at' => now()->subDays(3), 'created_at' => now()->subDays(3), 'updated_at' => now()]);
+    config(['app.env' => 'production']);
+    app()->detectEnvironment(fn () => 'production');
+    Artisan::call('onhost:doctor', ['--json' => true]);
+    $row = collect(json_decode(trim(Artisan::output()), true, 512, JSON_THROW_ON_ERROR)['checks'])->firstWhere('check', ScheduleHealth::CHECK);
+    expect($row['status'])->toBe('WARN')->and($row['detail'])->toContain('past their budget');
 });
