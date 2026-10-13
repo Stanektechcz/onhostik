@@ -369,3 +369,14 @@ Fáze R nepřinesla žádné nové rozhodnutí vlastníka; dokončila balíky be
 | P-R36 (UC-4) | R2: CSV dokladů a plateb za měsíc pro účetní | TASK-0207 (#203) |
 | P-R2 … P-R23 (PR-1 … PR-17), CG-2 | P18: plán na cíl `fda0cedf`, `PRODUKCE-prikazy-2026-10-13.md` (go/no-go, T-48 h, kroky 2a/3a/8a/10a, DNS, rollback) | TASK-0208 (#204) |
 | — | R0 časované bomby (zametení s posunutými hodinami), P15a cesta převodem (camt.053 i GPC), P15b návrh pro staging | TASK-0201 (#198), TASK-0206 (#202) |
+
+## Fáze S (2026-10-13/14): odkazy na balíky
+
+Fáze S nepřinesla nové rozhodnutí vlastníka kromě „ano R3“ (cyklus A–C `fda0cedf` na stagingu; krok D bez souhlasu). Odkazy:
+
+| Rozhodnutí | Co fáze S udělala | Úkol (PR) |
+|---|---|---|
+| R3-ano | Staging A–C `fda0cedf` (záloha, 2 řádky `expected-nonok`, brána `VERDICT pass`, migrace 86); protokol `staging-rehearsal-2026-10-17.md`; D (DR-1) neproběhl | TASK-0213 (#209) |
+| P-R24 (PR-18) | S1 = M1 z návrhu měření: `alias.create` počítá aliasy proti tarifu, výpis jen řádků `type = alias`; `KNOWN_GAPS` 7 → 6 | TASK-0210 (#207) |
+| P-R37, P-R46, P-R69 | S2: zbytek textů R1 (pošta, SSL, CDN, „420+“ koncovek, 55 s, PRG1, kredit bez žádosti, `#/jak-fungujeme`), stavová mřížka za 30 dní | TASK-0211 (#208) |
+| P-R19 (PR-13), P-R40 (OP-4) | S3: `/metrics` vydává rozpočty plánovaných úloh i pod PHP-FPM (nález z C4) | TASK-0212 (#206) |
