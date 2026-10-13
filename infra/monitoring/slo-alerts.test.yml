@@ -191,19 +191,20 @@ tests:
           - exp_labels: { severity: page, path: app }
             exp_annotations: { summary: "Less than 5 % free on the app disk: backups, uploads and the database stop soon", runbook: docs/runbooks/day-2-operations.md }
 
-  # ── the bank import: never imported (0) is not stale; an import 5 days old is ───────────────────────────────────────────
-  - interval: 1h
+  # ── the bank import: never imported (0) is not stale; an import 4+ days old is (1m samples: a sample older than the 5-minute
+  #    lookback is stale and would hide the series) ────────────────────────────────────────────────────────────────────────
+  - interval: 1m
     input_series:
       - series: 'onhost_bank_statement_last_line_timestamp'
-        values: '0x150'
+        values: '0x8500'
     alert_rule_test:
       - eval_time: 140h
         alertname: OnhostBankImportStale
         exp_alerts: []
-  - interval: 1h
+  - interval: 1m
     input_series:
       - series: 'onhost_bank_statement_last_line_timestamp'
-        values: '3600x150'
+        values: '3600x6100'
     alert_rule_test:
       - eval_time: 100h
         alertname: OnhostBankImportStale
