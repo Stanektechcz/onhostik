@@ -14,9 +14,9 @@ which environment Comgate reviews. Each step that depends on one names it.
 
 ## 0. Phase R refresh (2026-10-13) — read this first
 
-**Target:** the frozen SHA of phase R, `<R-SHA>` (development after PR #203; docs-only commits after it do not change what is
-deployed). Staging runs `36009513` (phase Q) until the owner's next "ano" to an A–C cycle of `<R-SHA>`
-(`GENERALKA-R-A-C-deploy-prikazy-2026-10-13.md` on the owner's desktop); **P1 below is therefore not met for `<R-SHA>`** and no
+**Target:** the frozen SHA of phase R, `fda0cedf443a3c603ef2aeae1a6184fbaf7dfc6a` (development after PR #203; docs-only commits after it do not change what is
+deployed). Staging runs `36009513` (phase Q) until the owner's next "ano" to an A–C cycle of `fda0cedf443a3c603ef2aeae1a6184fbaf7dfc6a`
+(`GENERALKA-R-A-C-deploy-prikazy-2026-10-13.md` on the owner's desktop); **P1 below is therefore not met for `fda0cedf443a3c603ef2aeae1a6184fbaf7dfc6a`** and no
 step of this plan may run in production before it is.
 
 What phase P–R added to the order (each row below is marked *P…*/*R…*; the owner's sheet is `PRODUKCE-prikazy-2026-10-13.md`,
@@ -37,7 +37,7 @@ Owner inputs this plan still waits for (SEZNAM codes): PR-1 (date), PR-2 (host),
 e-mails), PR-7 (target IP), PR-8 (TLS e-mail), PR-9 (signing key), PR-10 (backup bucket), PR-11 (SMTP), PR-12 (Turnstile), PR-13
 (monitoring VM), PR-15 (products on sale on day one), PR-17 (WAPI allow-list), CG-1 … CG-6 (Comgate). Decided defaults: P-R2 … P-R23.
 
-## 1. Preconditions (none of them is met on 2026-10-11; on 2026-10-13 still none — P1 needs an A–C cycle of `<R-SHA>`)
+## 1. Preconditions (none of them is met on 2026-10-11; on 2026-10-13 still none — P1 needs an A–C cycle of `fda0cedf443a3c603ef2aeae1a6184fbaf7dfc6a`)
 
 | # | Precondition | Why | State 2026-10-11 |
 | --- | --- | --- | --- |
@@ -151,10 +151,10 @@ This **is a production deployment**: its own "ano", after P1 (staging proved the
 
 | # | Condition | Evidence |
 | --- | --- | --- |
-| G1 | Staging ran A–C of `<R-SHA>`, gate passed, doctor without unexpected FAIL | protocol `staging-rehearsal-<date>.md` |
-| G2 | CI green on `<R-SHA>` (pest, pest-postgres, php85, monitoring, restore-drill, deploy-scripts, e2e smoke, security) | the run of the merge commit |
+| G1 | Staging ran A–C of `fda0cedf443a3c603ef2aeae1a6184fbaf7dfc6a`, gate passed, doctor without unexpected FAIL | protocol `staging-rehearsal-<date>.md` |
+| G2 | CI green on `fda0cedf443a3c603ef2aeae1a6184fbaf7dfc6a` (pest, pest-postgres, php85, monitoring, restore-drill, deploy-scripts, e2e smoke, security) | the run of the merge commit |
 | G3 | PR-1 … PR-17 answered or their step skipped with a reason | SEZNAM |
-| G4 | Signed tag on `<R-SHA>`, the owner's key in `allowed_signers` (PR-9) | `git tag -v <tag>` on the host |
+| G4 | Signed tag on `fda0cedf443a3c603ef2aeae1a6184fbaf7dfc6a`, the owner's key in `allowed_signers` (PR-9) | `git tag -v <tag>` on the host |
 | G5 | Backup bucket configured off the server (PR-10) and one restore drill passed on the host (step 2a) | doctor rows *platform backup …* OK |
 | G6 | TTL of the records that change lowered to 300 s at least 48 h before (P-R13) | `dig +noall +answer onhost.cz` shows 300 |
 | G7 | Comgate: either the pre-launch for the review (§5) or the launch with transfers only (`PAYMENT_GATEWAY` without credentials) | the decision in the sheet |
