@@ -191,6 +191,16 @@ jobs:
   # The gated deployer (TASK-0032): syntax, ShellCheck, and a real release A → B → A of this tree through the installed
   # deployer (maintenance mode, composer --no-dev, migrations, config/route/event caches, openapi, backup + verify,
   # doctor gate, HTTP checks through the bypass); only systemctl, chown and the PHP-FPM reload are stubbed.
+  # P12 (phase Q): the alert rules are checked and unit-tested by the real promtool, the Alertmanager config by amtool
+  monitoring:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Alert rules (promtool check + test) and Alertmanager config (amtool)
+        run: bash infra/monitoring/ci/promtool.sh "$RUNNER_TEMP/monitoring"
+
   deploy-scripts:
     runs-on: ubuntu-latest
     timeout-minutes: 20
