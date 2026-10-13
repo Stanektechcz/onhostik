@@ -1,0 +1,213 @@
+# Unit tests of infra/monitoring/slo-alerts.yml (P12, phase Q): `promtool test rules infra/monitoring/slo-alerts.test.yml`.
+# One test per alert (tests/Feature/Platform/AlertRulesTest.php checks that none is missing). time() starts at 0 in promtool.
+rule_files:
+  - slo-alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  # ── SLO burn rates: 10 errors in 110 requests a minute is far above every threshold ─────────────────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'onhost_http_requests_total{family="api",status="5xx"}'
+        values: '0+10x4400'
+      - series: 'onhost_http_requests_total{family="api",status="2xx"}'
+        values: '0+100x4400'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: OnhostBurnRateFast
+        exp_alerts:
+          - exp_labels: { severity: page, component: portal }
+            exp_annotations: { summary: "Fast burn: 2 % of the 30-day error budget in 1 h", runbook: docs/runbooks/incident-response.md }
+      - eval_time: 50m
+        alertname: OnhostBurnRateMedium
+        exp_alerts:
+          - exp_labels: { severity: page, component: portal }
+            exp_annotations: { summary: "Medium burn: 5 % of the budget in 6 h" }
+      - eval_time: 2h
+        alertname: OnhostBurnRateSlow
+        exp_alerts:
+          - exp_labels: { severity: ticket, component: portal }
+            exp_annotations: { summary: "Slow burn: budget on track to be exhausted within 30 days" }
+
+  # ── no errors: no burn alert ─────────────────────────────────────────────────────────────────────────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'onhost_http_requests_total{family="api",status="5xx"}'
+        values: '0x200'
+      - series: 'onhost_http_requests_total{family="api",status="2xx"}'
+        values: '0+100x200'
+    alert_rule_test:
+      - eval_time: 3h
+        alertname: OnhostBurnRateFast
+        exp_alerts: []
+
+  # ── platform ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'onhost_outbox_pending_oldest_seconds'
+        values: '300x20'
+      - series: 'onhost_outbox_dead_letters'
+        values: '3x20'
+      - series: 'onhost_outbox_dead_letter_oldest_seconds'
+        values: '90000x5'
+      - series: 'onhost_operations_total{state="DEAD"}'
+        values: '0 0 1 1 1 1'
+      - series: 'onhost_provider_health{instance_key="ispconfig-s2",provider="ispconfig",state="down"}'
+        values: '1x10'
+      - series: 'onhost_registrar_credit_czk{registrar="wedos"}'
+        values: '15000x5'
+      - series: 'onhost_automation_alive{machine="scheduler"}'
+        values: '0x10'
+      - series: 'onhost_virus_scanner_up'
+        values: '0x20'
+      - series: 'onhost_oncall_alerts_active{state="escalated"}'
+        values: '1x15'
+      - series: 'onhost_oncall_assigned'
+        values: '0x70'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: OnhostOutboxLag
+        exp_alerts:
+          - exp_labels: { severity: page }
+            exp_annotations: { summary: "Outbox relay is behind: customers are not receiving notifications/webhooks" }
+      - eval_time: 15m
+        alertname: OnhostOutboxDeadLetters
+        exp_alerts:
+          - exp_labels: { severity: ticket }
+            exp_annotations: { summary: "3 outbox message(s) the relay gave up on — events, notifications or webhooks were never delivered", runbook: docs/runbooks/outbox-dead-letters.md }
+      - eval_time: 2m
+        alertname: OnhostOutboxDeadLettersOld
+        exp_alerts:
+          - exp_labels: { severity: page }
+            exp_annotations: { summary: "An outbox dead letter has waited more than a day for a person", runbook: docs/runbooks/outbox-dead-letters.md }
+      - eval_time: 4m
+        alertname: OnhostProvisioningDead
+        exp_alerts:
+          - exp_labels: { severity: ticket, state: DEAD }
+            exp_annotations: { summary: "A provisioning saga exhausted its retries", runbook: docs/runbooks/provisioning-queue.md }
+      - eval_time: 8m
+        alertname: OnhostProviderDown
+        exp_alerts:
+          - exp_labels: { severity: page, instance_key: ispconfig-s2, provider: ispconfig, state: down }
+            exp_annotations: { summary: "Provider ispconfig-s2 is down", runbook: docs/runbooks/provider-outage.md }
+      - eval_time: 2m
+        alertname: OnhostRegistrarCreditLow
+        exp_alerts:
+          - exp_labels: { severity: ticket, registrar: wedos }
+            exp_annotations: { summary: "WEDOS credit below reserve — renewals at risk", runbook: docs/runbooks/domains-registrar.md }
+      - eval_time: 8m
+        alertname: OnhostAutomationDead
+        exp_alerts:
+          - exp_labels: { severity: page, machine: scheduler }
+            exp_annotations: { summary: "scheduler heartbeat missing — renewals, provisioning and notifications stop", runbook: docs/runbooks/provisioning-queue.md }
+      - eval_time: 18m
+        alertname: OnhostVirusScannerDown
+        exp_alerts:
+          - exp_labels: { severity: ticket }
+            exp_annotations: { summary: "clamd unreachable — uploads wait for the scan" }
+      - eval_time: 12m
+        alertname: OnhostOnCallUnacknowledged
+        exp_alerts:
+          - exp_labels: { severity: page, state: escalated }
+            exp_annotations: { summary: "An escalated on-call alert is still unacknowledged", runbook: docs/runbooks/incident-response.md }
+      - eval_time: 65m
+        alertname: OnhostNobodyOnCall
+        exp_alerts:
+          - exp_labels: { severity: ticket }
+            exp_annotations: { summary: "The on-call rota has nobody on shift" }
+
+  # ── timestamps against time() (0 at the start of the test) ──────────────────────────────────────────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'onhost_platform_backup_verified_timestamp'
+        values: '0x1700'
+      - series: 'onhost_probe_last_seen_timestamp{probe="prg-1",component="portal",location="prg"}'
+        values: '0x30'
+    alert_rule_test:
+      - eval_time: 27h
+        alertname: OnhostBackupStale
+        exp_alerts:
+          - exp_labels: { severity: page }
+            exp_annotations: { summary: "No verified platform backup for 26 h", runbook: docs/runbooks/go-live-checklist.md }
+      - eval_time: 25m
+        alertname: OnhostProbesSilent
+        exp_alerts:
+          - exp_labels: { severity: ticket, probe: prg-1, component: portal, location: prg }
+            exp_annotations: { summary: "External probe prg-1 has not reported for 10 minutes (monitoring gap, not an outage)" }
+
+  # ── P12 operations ───────────────────────────────────────────────────────────────────────────────────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'onhost_schedule_last_success_seconds{command="onhost:fx:sync"}'
+        values: '200000x20'
+      - series: 'onhost_schedule_budget_seconds{command="onhost:fx:sync"}'
+        values: '173400x20'
+      - series: 'onhost_schedule_last_success_seconds{command="onhost:outbox:relay"}'
+        values: '30x20'
+      - series: 'onhost_schedule_budget_seconds{command="onhost:outbox:relay"}'
+        values: '720x20'
+      - series: 'onhost_schedule_last_success_seconds{command="onhost:platform:backup"}'
+        values: '-1x20'
+      - series: 'onhost_schedule_budget_seconds{command="onhost:platform:backup"}'
+        values: '173400x20'
+      - series: 'onhost_certificates_expiring_7d'
+        values: '2x70'
+      - series: 'onhost_certificates_expired'
+        values: '1x20'
+      - series: 'onhost_bank_unmatched_lines'
+        values: '4x1500'
+      - series: 'onhost_disk_free_ratio{path="app"}'
+        values: '0.04x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: OnhostScheduledJobOverdue
+        exp_alerts: # only the job past its budget; one that never ran (-1) is the doctor's to judge
+          - exp_labels: { severity: ticket, command: "onhost:fx:sync" }
+            exp_annotations: { summary: "Scheduled job onhost:fx:sync has not succeeded within its budget", runbook: docs/runbooks/day-2-operations.md }
+      - eval_time: 65m
+        alertname: OnhostCertificateExpiringSoon
+        exp_alerts:
+          - exp_labels: { severity: ticket }
+            exp_annotations: { summary: "2 managed certificate(s) expire within 7 days and were not renewed", runbook: docs/runbooks/day-2-operations.md }
+      - eval_time: 18m
+        alertname: OnhostCertificateExpired
+        exp_alerts:
+          - exp_labels: { severity: page }
+            exp_annotations: { summary: "1 managed certificate(s) expired: the sites show a browser warning", runbook: docs/runbooks/day-2-operations.md }
+      - eval_time: 1441m
+        alertname: OnhostBankLinesUnmatched
+        exp_alerts:
+          - exp_labels: { severity: ticket }
+            exp_annotations: { summary: "4 bank statement line(s) unmatched for a day", runbook: docs/runbooks/billing-dunning.md }
+      - eval_time: 18m
+        alertname: OnhostDiskLow
+        exp_alerts:
+          - exp_labels: { severity: ticket, path: app }
+            exp_annotations: { summary: "Less than 20 % free on the app disk of the control plane", runbook: docs/runbooks/day-2-operations.md }
+      - eval_time: 8m
+        alertname: OnhostDiskCritical
+        exp_alerts:
+          - exp_labels: { severity: page, path: app }
+            exp_annotations: { summary: "Less than 5 % free on the app disk: backups, uploads and the database stop soon", runbook: docs/runbooks/day-2-operations.md }
+
+  # ── the bank import: never imported (0) is not stale; an import 4+ days old is (1m samples: a sample older than the 5-minute
+  #    lookback is stale and would hide the series) ────────────────────────────────────────────────────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'onhost_bank_statement_last_line_timestamp'
+        values: '0x8500'
+    alert_rule_test:
+      - eval_time: 140h
+        alertname: OnhostBankImportStale
+        exp_alerts: []
+  - interval: 1m
+    input_series:
+      - series: 'onhost_bank_statement_last_line_timestamp'
+        values: '3600x6100'
+    alert_rule_test:
+      - eval_time: 100h
+        alertname: OnhostBankImportStale
+        exp_alerts:
+          - exp_labels: { severity: ticket }
+            exp_annotations: { summary: "No bank statement line imported for 4 days: transfers are not matched to proforma invoices", runbook: docs/runbooks/day-2-operations.md }

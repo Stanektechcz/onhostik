@@ -100,6 +100,16 @@ final class HealthController extends Controller
         $schedule = app(ScheduleHealth::class)->jobs();
         $emit('onhost_schedule_last_success_seconds', 'gauge', 'Seconds since the last success (or skip) of a scheduled job, -1 when it never ran', array_map(fn (array $j) => [['command' => $j['command']], $j['age'] ?? -1], $schedule) ?: [[['command' => 'none'], -1]]);
         $emit('onhost_schedule_budget_seconds', 'gauge', 'Age budget of a scheduled job (twice its longest gap plus slack)', array_map(fn (array $j) => [['command' => $j['command']], $j['budget']], $schedule) ?: [[['command' => 'none'], 0]]);
+        // P12: certificates the platform manages, the bank statement import and the app host's disk (alerts in slo-alerts.yml)
+        $certs = DB::table('managed_certificates')->where('state', 'issued')->whereNotNull('expires_at');
+        $emit('onhost_certificates_expiring_7d', 'gauge', 'Issued managed certificates that expire within 7 days', [[[], (int) (clone $certs)->where('expires_at', '>', now())->where('expires_at', '<=', now()->addDays(7))->count()]]);
+        $emit('onhost_certificates_expired', 'gauge', 'Issued managed certificates past their expiry', [[[], (int) (clone $certs)->where('expires_at', '<=', now())->count()]]);
+        $lastLine = DB::table('bank_statement_lines')->max('created_at');
+        $emit('onhost_bank_statement_last_line_timestamp', 'gauge', 'Unix time of the newest imported bank statement line (0 = none)', [[[], $lastLine === null ? 0 : Carbon::parse((string) $lastLine)->getTimestamp()]]);
+        $emit('onhost_bank_unmatched_lines', 'gauge', 'Bank statement lines not matched to a payment', [[[], (int) DB::table('bank_statement_lines')->where('state', 'unmatched')->count()]]);
+        $total = @disk_total_space(base_path());
+        $free = @disk_free_space(base_path());
+        $emit('onhost_disk_free_ratio', 'gauge', 'Free share of the disk the application lives on', is_float($total) && $total > 0 && is_float($free) ? [[['path' => 'app'], round($free / $total, 4)]] : []);
 
         $instances = ProviderInstance::query()->get()->keyBy('id');
         $health = IntegrationHealth::query()->get();
