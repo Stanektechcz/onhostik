@@ -828,3 +828,33 @@ V produkci se nic nespustilo.
 
 **Zbývá (fáze Q, `PROMPT-faze-Q-2026-10-13.md` na ploše):** P11 HSTS z konfigurace (P-R74), P20 `onhost_ref` varianta C (P-R75),
 P10, P12–P19, zbytky textů (Q1), a balíky se vstupem P4–P8 podle SEZNAMu.
+
+## Stav po fázi Q (2026-10-13)
+
+Fáze Q dokončuje balíky fáze P bez vstupu vlastníka (`PROMPT-faze-Q-2026-10-13.md`). Rozhodnutí P-R76 … P-R78 (zjištění kontroly
+stagingu) jsou v `ROZHODNUTI.md`. Souhlas vlastníka 2026-10-13 „pokračuj fází Q, ano ke stagingu“ pokryl nový cyklus A–C (Path B)
+a ST-6; vše ostatní na stagingu a celá produkce dál čeká na samostatné „ano“.
+
+| PR | Úkol | Co se změnilo |
+|---|---|---|
+| #184 | TASK-0188 (Q0) | P-R76 … P-R78; P-R62 (G2) a P-R63 (ST-4) hotovo; věta o stagingu ve fázi P podle protokolu 2026-10-15. |
+| #187 | TASK-0192 | CI na `development` znovu zelené: pět testů s pevným datem seedovalo ceny před cestou v čase (od 2026-10-13 12:00 UTC 409 „No month price“). |
+| #185 | TASK-0189 (Q2, P-R76) | Doplňky `priority_support` („reakce do 10 minut, 24/7“) a `waf_cdn` („anycast cache“) se neprodávají (seeder + migrace `001180`, jen seedovaná slova; držitelé beze změny). |
+| #186 | TASK-0190 (Q4, P-R78) | Spec deployeru připouští `ONHOST_TOKEN_ORGANIZATION_REQUIRED` true/false; skutečný běh `write_expected_env` + `env-assert` v CI. |
+| #188 | TASK-0191 (Q1, Q3, P-R77) | Stránky O nás, Enterprise a Datacentra nahrazeny celé podle dokumentů v platnosti; bez NOC 24/7, TIER III, ISO 27001, NIS2, CDN 1,2 Tbps, Anti-DDoS Pro, vymyšleného incidentu 480 Gbps, tlačítka „Vyzkoušet zdarma“ a čísel vektorové DB. |
+| #189 | TASK-0193 (P11, P-R74) | HSTS z konfigurace (bez preload a includeSubDomains), řádek doctoru *HSTS is sent once and as configured*, runbook `hsts.md`. |
+| #190 | TASK-0195 (P17) | `day-2-operations.md`, první den srovnán, `RunbookCommandsTest` (našel neexistující `onhost:provisioning:jobs`). |
+| #191 | TASK-0196 (P10, P-R73) | Návrh `aapanel-waf-log-privacy.md` (log WAF 0666, od července, `log_save` nefunguje); provedení je krok vlastníka. |
+| #192 | TASK-0197 | Protokol stagingu 2026-10-16: A–C `36009513` (VERDICT pass, 85 migrací) a ST-6. |
+| #193 | TASK-0198 (P20, P-R75) | `onhost_ref` vypnutá výchozím přepínačem; kód z `?ref=` jde v požadavku na registraci. |
+| #194 | TASK-0194 (P14) | Každá plánovaná úloha zapisuje poslední úspěch a má rozpočet stáří; řádek doctoru a metriky pro alerty. |
+| #195 | TASK-0199 (P12) | Alerty pro úlohy po rozpočtu, certifikáty, import výpisu a disk; `promtool test rules` na každé pravidlo v CI; runbook monitorovací VM. |
+
+**Staging (VERIFIED, protokol 2026-10-16):** `36009513ca39f980f670af9da021030923e31e9a` přes bránu (VERDICT pass), migrace 83 → 85,
+doctor 0 FAIL; ST-6 hotovo (řádek R9 OK, `env-assert` rc 0, doctor 0 FAIL / 121 OK / 27 WARN). P11–P14, P20 a další PR po #188
+na stagingu **nejsou** (přijdou dalším cyklem A–C; řádek HSTS bude WARN `2×`, dokud vlastník nevypne HSTS na vhostu).
+**V produkci se nic nespustilo.**
+
+**Zbývá (fáze R, `PROMPT-faze-R-2026-10-13.md` na ploše):** P13 (cvičná obnova skriptem, CI na PostgreSQL), P15a/b (E2E cesty),
+P16 (staff stránka „Provoz“), P18 (cutover a `PRODUKCE-prikazy`), P19 (měření po spuštění), zbytky textů nalezené v Q1 (stavová
+stránka a postmortemy, DNS anycast, kariéra), a balíky se vstupem P4–P8 podle SEZNAMu.
