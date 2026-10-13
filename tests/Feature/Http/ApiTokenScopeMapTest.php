@@ -278,6 +278,7 @@ it('gives a token with services:console a console, and its console actions pass 
 });
 
 it('never lets a token pay for and take away the archive of a cancelled service', function () {
+    config(['onhost.services.deletion.download_fee_minor' => ['CZK' => 50000, 'EUR' => 2000]]); // a fee staff set (none by default since P-R30)
     [$owner, $org] = $this->customerWithOrganization();
     $service = featureWebService($org, 'ispconfig');
     $backup = tokenScopeArchive($org->id, $service->id);

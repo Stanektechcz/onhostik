@@ -21,9 +21,11 @@ beforeEach(function () {
 
 it('applies the region percentage to the list price, lets staff edit the table and customers pick their currency', function () {
     $rules = app(PricingRules::class);
-    expect($rules->regionFor('SK'))->toMatchArray(['key' => 'sk', 'currency' => 'EUR', 'adjust_pct' => 0.0])->and($rules->regionFor('DE'))->toMatchArray(['key' => 'eu', 'currency' => 'EUR', 'adjust_pct' => 5.0])->and($rules->regionFor('CZ')['key'])->toBe('home')->and($rules->regionFor(null)['key'])->toBe('home');
+    expect($rules->regionFor('SK'))->toMatchArray(['key' => 'sk', 'currency' => 'EUR', 'adjust_pct' => 0.0])->and($rules->regionFor('DE'))->toMatchArray(['key' => 'eu', 'currency' => 'EUR', 'adjust_pct' => 0.0])->and($rules->regionFor('CZ')['key'])->toBe('home')->and($rules->regionFor(null)['key'])->toBe('home');
     expect($this->getJson('/v1/catalog/regions?country=de')->assertOk()->json('data.region.key'))->toBe('eu');
     $this->getJson('/v1/catalog/regions?country=deu')->assertStatus(422);
+    // P-R29 made the EU surcharge 0 by default; the percentage mechanism is exercised with a surcharge staff may still set
+    config(['onhost.pricing.regions' => array_map(fn (array $r) => $r['key'] === 'eu' ? ['adjust_pct' => 5.0] + $r : $r, config('onhost.pricing.regions'))]);
 
     [$owner, $org] = $this->customerWithOrganization([], ['country' => 'DE']);
     // the price group follows the country of the ORGANIZATION: what the request says about the country does not move it
@@ -51,7 +53,7 @@ it('applies the region percentage to the list price, lets staff edit the table a
     expect($sk->subtotal_minor)->toBe($home->subtotal_minor - Money::minor($home->subtotal_minor, 'CZK')->percent('10')->minor);
     $pricing = $this->getJson('/v1/staff/pricing')->assertOk()->json();
     expect(($pricing['data'] ?? $pricing)['regions'][0]['key'])->toBe('sk');
-    $this->soloAfterTimeLock($pricingStaff, fn () => $this->putJson('/v1/staff/pricing/regions', ['regions' => []]))->assertOk()->assertJsonPath('regions.eu.adjust_pct', 5); // back to the defaults
+    $this->soloAfterTimeLock($pricingStaff, fn () => $this->putJson('/v1/staff/pricing/regions', ['regions' => []]))->assertOk()->assertJsonPath('regions.eu.adjust_pct', 5); // back to the configured table (this test configures 5 %; the shipped default is 0, P-R29)
 
     // the customer picks the account currency
     $this->actingAs($owner, 'sanctum');
