@@ -460,7 +460,7 @@
       return view === 'login'
         ? A.post('/auth/login', totp ? { email: email.trim(), password: pass, remember: true, totp: totp } : { email: email.trim(), password: pass, remember: true })
         : view === 'register'
-          ? A.post('/auth/register', { name: name.trim() || email.split('@')[0], email: email.trim(), password: pass, terms: true, partner_code: ref || undefined, turnstile: turnstileToken() })
+          ? A.post('/auth/register', { name: name.trim() || email.split('@')[0], email: email.trim(), password: pass, terms: true, partner_code: ref || undefined, ref: ref || undefined, turnstile: turnstileToken() })
           : A.post('/auth/password/reset', { email: email.trim() });
     };
     fetch('/sanctum/csrf-cookie', { credentials: 'same-origin' }).catch(function () {}).then(req).then(function (r) {

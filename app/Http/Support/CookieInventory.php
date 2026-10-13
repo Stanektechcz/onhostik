@@ -32,8 +32,9 @@ final class CookieInventory
         $rows = [
             ['name' => (string) config('session.cookie'), 'source' => self::APPLICATION, 'purpose' => 'přihlášení, košík a rozpracovaná objednávka (relace)', 'lifetime' => $session],
             ['name' => self::XSRF_COOKIE, 'source' => self::APPLICATION, 'purpose' => 'ochrana formulářů před podvrženým odesláním (CSRF)', 'lifetime' => $session],
-            ['name' => RememberReferral::COOKIE, 'source' => self::APPLICATION, 'purpose' => 'kód doporučení partnera; vzniká jen po otevření odkazu s parametrem ?ref=', 'lifetime' => self::days(RememberReferral::DAYS)],
+            ['name' => RememberReferral::enabled() ? RememberReferral::COOKIE : '', 'source' => self::APPLICATION, 'purpose' => 'kód doporučení partnera; vzniká jen po otevření odkazu s parametrem ?ref=', 'lifetime' => self::days(RememberReferral::DAYS)],
         ];
+        $rows = array_values(array_filter($rows, fn (array $row) => $row['name'] !== '')); // P20: the referral cookie only while it is switched on
         if ((bool) config('onhost.privacy.hosting_waf_cookie', true)) {
             $rows[] = ['name' => self::WAF_COOKIE, 'source' => 'webový firewall serveru (aaPanel WAF), ne aplikace', 'purpose' => 'rozpoznání návštěvy firewallem kvůli ochraně webu před automatizovanými útoky a přetížením; <hash> je 8 znaků odvozených od názvu webu', 'lifetime' => self::days(self::WAF_DAYS)];
         }
