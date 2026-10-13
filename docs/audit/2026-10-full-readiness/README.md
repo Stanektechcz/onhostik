@@ -806,3 +806,20 @@ jiné relace) bylo zelené (tests včetně pest-postgres a php 8.5, e2e smoke, s
   (`onhost-svc-other.js`, stránka herních komunit v `onhost-svc-more.js`), `gmBadge` „Anti-DDoS 1,2 Tbps · 24/7“, řádky menu a
   vyhledávání „anti-DDoS v ceně“, karta „Ochrana proti DDoS na hraně“, odrážka katalogu „Anti-DDoS upstream L3/L4“ u herních tarifů.
 * Benchmarky VPS (Geekbench „1 842 pts“, „VPS s přeprodanými jádry“) a „2N napájení, chlazení N+1“ u colocation.
+
+## Stav po fázi P, část 1 (2026-10-13)
+
+Pokyn vlastníka 2026-10-13 „Rozhodni a zapracuj všechny vstupy ze seznamu“: každá položka `SEZNAM-vstupu-vlastnika-2026-10-13.md`
+je rozhodnuta na doporučeném výchozím jako **P-R1 … P-R75** v `ROZHODNUTI.md` (PR #179, TASK-0183). Údaje, které dodá jen vlastník
+(soubory, data, tajemství, odpovědi advokáta, účetní a Comgate, kroky v cizích systémech), zůstávají čekající se svým kódem.
+
+| PR | Úkol | Co se změnilo |
+|---|---|---|
+| #179 | TASK-0183 | P-R1 … P-R75 v `ROZHODNUTI.md`. |
+| #180 | TASK-0184 (P1, P2, P3) | Podpora po–pá 8:00–17:00 přes panel a e-mail (P-R37) na celém veřejném webu včetně stránky podpory a pásů SLA; DDoS u her bez nedoložených čísel (P-R69) včetně odrážky katalogu (migrace `0001_01_01_001170`, jen nedržené verze); VPS benchmark a colocation 2N/N+1 staženy (P-R70). |
+| #181 | TASK-0185 | Přirážka EU 0 % (P-R29), stažení závěrečného archivu zdarma (P-R30); bezplatné stažení dál jen vlastník nebo fakturační správce. |
+
+**Nezměněno:** na stagingu ani v produkci se ve fázi P nic nespustilo (žádné nové „ano“). Staging je dál na `199071b8`.
+
+**Zbývá (fáze Q, `PROMPT-faze-Q-2026-10-13.md` na ploše):** P11 HSTS z konfigurace (P-R74), P20 `onhost_ref` varianta C (P-R75),
+P10, P12–P19, zbytky textů (Q1), a balíky se vstupem P4–P8 podle SEZNAMu.
