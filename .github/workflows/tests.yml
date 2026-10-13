@@ -211,7 +211,7 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_DB: onhost_drill_ci
+          POSTGRES_DB: onhost_restore_ci
           POSTGRES_USER: onhost
           POSTGRES_PASSWORD: onhost
         ports: ['5432:5432']
@@ -223,7 +223,7 @@ jobs:
     env:
       DB_HOST: 127.0.0.1
       DB_PORT: 5432
-      DB_DATABASE: onhost_drill_ci
+      DB_DATABASE: onhost_restore_ci
       DB_USERNAME: onhost
       DB_PASSWORD: onhost
     steps:

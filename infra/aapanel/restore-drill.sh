@@ -45,9 +45,10 @@ say() { printf '▶ %s\n' "$*"; }
 die() { local rc=$1; shift; printf '✖ %s\n' "$*" >&2; exit "$rc"; }
 
 if [ -z "$PG_BIN" ]; then
-  while IFS= read -r candidate; do
+  mapfile -t PG_CANDIDATES < <(printf '%s\n' /www/server/pgsql/bin; compgen -G '/usr/lib/postgresql/*/bin' | sort -rV; printf '%s\n' /usr/local/pgsql/bin)
+  for candidate in "${PG_CANDIDATES[@]}"; do
     if [ -x "$candidate/pg_restore" ]; then PG_BIN="$candidate"; break; fi
-  done < <(printf '%s\n' /www/server/pgsql/bin; compgen -G '/usr/lib/postgresql/*/bin' | sort -rV; printf '%s\n' /usr/local/pgsql/bin)
+  done
 fi
 pg() { local tool=$1; shift; if [ -n "$PG_BIN" ]; then "$PG_BIN/$tool" "$@"; else "$tool" "$@"; fi; }
 
@@ -62,7 +63,7 @@ as_run() {
 art() { as_run "$PHP" "$APP_DIR/artisan" "$@"; }
 
 # ── preflight: nothing is created before every check passed ──────────────────────────────────────────────────────────────
-STAGE=preflight
+STAGE="preflight"
 for tool in pg_restore psql createdb dropdb; do
   if [ -n "$PG_BIN" ]; then [ -x "$PG_BIN/$tool" ] || die 2 "$PG_BIN/$tool missing (PG_BIN)"; else command -v "$tool" >/dev/null || die 2 "$tool not on PATH (set PG_BIN)"; fi
 done
@@ -99,7 +100,7 @@ chmod 0700 "$WORK"
 if [ "$(id -u)" = 0 ]; then chown "$RUN_USER:" "$WORK"; fi
 
 # ── export: the application copies the dump of the newest set and checks it against the manifest ─────────────────────────
-STAGE=export
+STAGE="export"
 say "export the newest platform backup set"
 EXPORT="$(art onhost:platform:backup:export-db --to="$WORK/database.dump" --json)" || die 3 "export failed"
 field() { printf '%s' "$EXPORT" | "$PHP" -n -r '$j = json_decode(stream_get_contents(STDIN), true); echo is_array($j) ? (string) ($j[$argv[1]] ?? "") : "";' "$1"; }
@@ -110,7 +111,7 @@ DRIVER="$(field driver)"
 say "set $SET ($(stat -c %s "$WORK/database.dump") bytes)"
 
 # ── restore into a database of its own ──────────────────────────────────────────────────────────────────────────────────
-STAGE=restore
+STAGE="restore"
 DB="onhost_drill_$(date -u +%Y%m%d%H%M%S)"
 pg createdb "$DB" || die 3 "createdb $DB failed (the role needs CREATEDB)"
 CREATED=1
@@ -119,7 +120,7 @@ say "pg_restore into $DB"
 pg pg_restore --no-owner --no-privileges --exit-on-error --dbname="$DB" "$WORK/database.dump" || die 3 "pg_restore failed"
 
 # ── measure the restored copy ───────────────────────────────────────────────────────────────────────────────────────────
-STAGE=measure
+STAGE="measure"
 q() { pg psql -X -A -t -v ON_ERROR_STOP=1 --dbname="$DB" -c "$1"; }
 MIGRATIONS="$(q 'select count(*) from migrations')"
 USERS="$(q 'select count(*) from users')"
@@ -130,12 +131,12 @@ UNBALANCED="$(q "select count(*) from (select transaction_id from ledger_posting
 SECONDS_TAKEN=$(( $(date +%s) - START ))
 say "migrations $MIGRATIONS · users $USERS · documents $INVOICES · postings $POSTINGS · imbalance $IMBALANCE · unbalanced $UNBALANCED · ${SECONDS_TAKEN} s"
 
-STAGE=drop
+STAGE="drop"
 pg dropdb "$DB"
 CREATED=0
 
 # ── the application judges and records ────────────────────────────────────────────────────────────────────────────────
-STAGE=record
+STAGE="record"
 set +e
 art onhost:platform:backup:drill-record "$SET" --database="$DB" --seconds="$SECONDS_TAKEN" \
   --measured="migrations=$MIGRATIONS,users=$USERS,invoices=$INVOICES,ledger_postings=$POSTINGS,ledger_imbalance=$IMBALANCE,unbalanced_transactions=$UNBALANCED"
