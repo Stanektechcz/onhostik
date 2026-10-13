@@ -1,0 +1,73 @@
+# Metering after launch (P19, phase R)
+
+Owner rule 3 (2026-09-24): **measure everything**; a limit raised by hand is billed. This proposal says where metering stands
+on `development` (2026-10-13, after phase Q), which gaps are left, how each one closes, and in which order the switches that
+change behaviour for existing customers are turned on after the launch (owner decision **P-R24** = SEZNAM PR-18). Nothing in
+this package switches anything; every step below has a preview, its own "ano" and a rollback.
+
+Sources of truth: `domains/Services/Metering/MetricRegistry.php` (every key a plan sells, how it is kept), `PlanPromises::KNOWN_GAPS`
+(the ratchet), `tests/Feature/Catalog/PlanPromisesTest.php` (the guard), `onhost:doctor` (the standing WARN that lists the gaps).
+
+## 1. Where it stands (VERIFIED from the code)
+
+| What | State |
+| --- | --- |
+| `MetricRegistry::REGISTRY` | 41 keys: **5 measured** (`nvme_gb`, `traffic_gb`, `inodes`, `ram_mb`, `quota_mb`), **24 enforced** by the panel or the platform (e.g. `mailboxes`, `databases`, `domains`), **12 gap** rows |
+| Gap rows not sold any more | `dedicated_outbound_ip`, `dedicated_db`, `connections`, `pitr_days` (owner decisions 2/4/6, revision `2026-09-honest-promises`; kept for the versions customers already hold), `products` (fair use, decision 5) |
+| `PlanPromises::KNOWN_GAPS` (sold and kept by nothing) | **7**: `php_workers`, `aliases`, `spam_filter`, `traffic_tb`, `bot_management`, `pids`, `backup_days` |
+| `usage.rotation` (automation rule, *Měření všech služeb*) | off (`default_off`); the usage watch measures only the first 200 services per run until it is on |
+| `ONHOST_METERING_ENFORCE_NEW_METRICS` | `false`: a metric that never drove anything on a family (e.g. RAM of a managed database) is only observed |
+| `ONHOST_LIMIT_RAISE_CUSTOMER_ORDERS` | `false`: staff place limit raises as assisted orders; customers cannot order one in the panel yet |
+| `backups.as_sold`, `backups.compute`, `mail.backup_retention` | off (`backup_days` is kept only under them — see §2) |
+
+The ratchet: `KNOWN_GAPS` may only shrink. A gap that gets closed must leave the list in the same change (the guard fails
+otherwise), and a new unkept number fails the guard until it is named — it is never absorbed silently.
+
+## 2. The seven gaps and how each closes
+
+| Gap | Sold on | What closes it | Needs a live panel? | Package |
+| --- | --- | --- | --- | --- |
+| `aliases` | mail plans (50 / 500) | `alias.create` runs the generic `$limit('aliases', …)` count check that `mailbox.create` uses. **Catch:** `IspConfigWebProvider::listAliases()` reads `mail_alias_get` by `source = %@domain`, which also returns forwards and the catch-all; the count must take rows of `type = alias` only, so the adapter has to return `type`. | Code and tests with the stateful ISPConfig fake; one read on staging that `mail_alias_get` returns `type` (mode S) | **M1** (code, fakes) — first, it is the only one without a decision |
+| `traffic_tb` | VPS/VDS, CDN add-on | Monthly transfer of a VM from Proxmox (`rrddata` netin/netout, summed per calendar month) into `UsageWatch` for the `cloud` family; warn at 85 %, never cut off (the price list says what happens above) | Code with Proxmox fakes; on staging: do counters survive a VM restart and a migration? | **M2** |
+| `pids` | game plans' limits bag | Pterodactyl has no per-server PID field (`memory/swap/disk/io/cpu/threads/oom_disabled`). Either the catalogue revision drops `pids` from the bag (honest, no panel), or a PID limit in the Wings configuration of each node (operator, applies to every server of the node; key name ASSUMED, check on the node) | Revision: no. Wings: yes | **M3** — recommended: revision |
+| `spam_filter` | mail plans ("rspamd" / "rspamd + policies") | A string, not a number: either a spam policy per tier written to the mailbox (`spamfilter_user` + policy id in ISPConfig) or the price list words it as a description (fair use) | Policy: yes (staging). Wording: no | **M4** — owner choice; default: wording |
+| `php_workers` | WordPress/e-shop on aaPanel | aaPanel has one PHP-FPM pool per version per node (`configurePhp()` returns `applied=false`); decision 7 already words it as the shared pool. Closes by a dedicated pool per site (capacity decision) or as fair use | Yes for pools | **M5** — after the capacity decision |
+| `bot_management` | CDN add-on | The CDN is not sold (P-R46, `cdn_cloudflare` gate). Closes with the CDN adapter, or the revision drops it from the add-on | No | with the CDN (H-R2) |
+| `backup_days` | web/managed, mail, db-s/db-m | Kept only under the default-off rules: `backups.as_sold` (web/managed), `mail.backup_retention` (mail), `backups.compute` (data). Closes when the owner switches them (PX-3 = P-R50, PX-4 = P-R51) | Yes (PBS test VM, mail node) | owner switches, §4 |
+
+Each package: test first against the fakes, the gap leaves `KNOWN_GAPS` and its `MetricRegistry` row changes status in the same
+change, `PlanPromisesTest` green, the doctor's standing WARN loses the key. None of them changes a plan version a customer holds:
+a wording change or a dropped key is a catalogue revision (`onhost:catalog:revise`, preview by default).
+
+## 3. Baseline report (what to keep, so later switches can be judged)
+
+| When | Command (read only) | Keep |
+| --- | --- | --- |
+| D0 (go-live) | `php artisan onhost:doctor --json` | the metering rows and the gap list |
+| D+1, before `usage.rotation` | `php artisan onhost:metering:preview --limit=500 --json` | how many services would be told, blocked or upgraded; which answer `null` (not measured) |
+| D+7 | `php artisan onhost:metering:preview --json` again | the same numbers a week later: the trend, not a single read |
+| D+30, before `ENFORCE_NEW_METRICS` | the preview + the daily rows of `service_usage_samples` per family (`onhost:metering:rollup` writes them) | services a new metric would start to warn or block |
+| after the first billing cycle | `php artisan onhost:limit-raise` (lists raises, dry run) | the assisted raises staff placed and what they cost |
+
+The reports go to the owner without customer names (counts per family and plan).
+
+## 4. Switch schedule (P-R24), each step with a preview, an "ano" and a rollback
+
+| Step | Switch | Preview first | How (production, owner runs it — mode V) | Rollback |
+| --- | --- | --- | --- | --- |
+| D+1 | `usage.rotation` on | `onhost:metering:preview` (§3) | staff console *Automatizace* → *Měření všech služeb* on (`PUT /v1/staff/automation/usage.rotation`, audited) | the same switch off; the first measurement of each service is only its baseline — nothing was blocked or ordered by it |
+| D+30 | `ONHOST_METERING_ENFORCE_NEW_METRICS=true` | the D+30 report (§3): which services a new metric would warn or block | one line in `app.env`, then the gated deploy of the same SHA (config cache) | `false` + the same deploy; warnings already sent stay sent, nothing else persists |
+| after the 1st billing cycle | `ONHOST_LIMIT_RAISE_CUSTOMER_ORDERS=true` | `onhost:limit-raise` (dry run): raises staff placed, their prices | `app.env` + gated deploy | `false` + deploy; raises already ordered stay valid (paid) |
+| owner's choice (PX-4) | `backups.as_sold` on | `onhost:backups:frequency-plan` | staff console *Automatizace* | switch off; extra copies made meanwhile are pruned by the normal retention |
+| owner's choice (PX-3, after the PBS test VM) | `backups.compute` on | `onhost:backups:compute-plan` (no `MISSING`) | staff console *Automatizace* | switch off; backups already made stay until their retention |
+| owner's choice | `mail.backup_retention` + `onhost:mail:backup-retention --apply --service=<id>` per service | `onhost:mail:backup-retention` (lists) | rule on, then apply per service (never a bare `--apply --allow-prune`) | rule off; copies kept so far stay |
+
+Rules that stay: no switch on a day with an open incident; one switch per working day; after each switch the doctor and the
+D+1/D+7 numbers are read again before the next one. Staging first where the switch has a staging meaning (A–C cycle of the same SHA).
+
+## 5. What this package does and does not do
+
+- Does: this proposal (merged), the gap packages M1–M5 defined, the schedule with previews and rollbacks.
+- Does not: switch anything, close a gap in code (M1 is the first candidate and needs one staging read to settle the `type`
+  field; it is the next metering task), change a plan version.
+- `KNOWN_GAPS` is unchanged at 7 (the ratchet did not grow).
