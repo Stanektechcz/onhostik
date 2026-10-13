@@ -11,6 +11,7 @@ use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Platform\Ops\PlatformBackup;
+use Onhost\Platform\Ops\RestoreDrill;
 use Onhost\Platform\ProviderHttp\ProviderHttpClient;
 use Onhost\Platform\Resilience\CircuitBreaker;
 
@@ -43,6 +44,7 @@ final class OperationsOverview
         private readonly OutboxDeadLetters $deadLetters,
         private readonly ScheduleHealth $schedule,
         private readonly PlatformBackup $backup,
+        private readonly RestoreDrill $drill,
     ) {}
 
     /**
@@ -97,6 +99,7 @@ final class OperationsOverview
     private function backups(): array
     {
         $status = $this->backup->status();
+        $drill = $this->drill->latest();
         $verifiedAt = $status['verified']['at'] ?? null;
 
         return [
@@ -108,6 +111,12 @@ final class OperationsOverview
                 'verified_set' => $status['verified']['set'] ?? null,
                 'verified_at' => $verifiedAt,
                 'verified_within_26h' => $verifiedAt !== null && CarbonImmutable::parse((string) $verifiedAt)->gt(now()->subHours(26)),
+            ],
+            // P13: the newest restore drill (infra/aapanel/restore-drill.sh); its problems are counted, not shown (they name tables)
+            'drill' => $drill === null ? ['at' => null, 'ok' => null, 'set' => null, 'within_35_days' => false, 'problems' => 0] : [
+                'at' => $drill['at'] ?? null, 'ok' => ($drill['ok'] ?? false) === true, 'set' => $drill['set'] ?? null, 'seconds' => (int) ($drill['seconds'] ?? 0),
+                'within_35_days' => isset($drill['at']) && CarbonImmutable::parse((string) $drill['at'])->gte(now()->subDays(RestoreDrill::MAX_AGE_DAYS)),
+                'problems' => count((array) ($drill['problems'] ?? [])),
             ],
         ];
     }

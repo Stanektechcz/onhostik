@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Onhost\Domain\Payments\Models\BankStatementLine;
 use Onhost\Domain\Platform\OperationsOverview;
 use Onhost\Domain\Platform\ScheduleHealth;
 use Onhost\Domain\Provisioning\Models\IntegrationHealth;
 use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
+use Onhost\Platform\Ops\PlatformBackup;
+use Onhost\Platform\Ops\RestoreDrill;
 use Onhost\Platform\ProviderHttp\ProviderHttpClient;
 
 /*
@@ -98,4 +101,20 @@ it('opens the page "Provoz" like its navigation item', function () {
 
     $this->actingAs($this->staff('sales'));
     $this->get('/sprava/nastaveni/provozni-prehled')->assertForbidden();
+});
+
+it('shows the newest restore drill of the platform backup (P13) without its problem text', function () {
+    Storage::fake('backups');
+    config()->set('onhost.platform_backup.disk', 'backups');
+    config()->set('onhost.platform_backup.files_root', storage_path('framework/testing/no-private-files'));
+    $this->actingAs($this->staff('backup_dr_admin'), 'sanctum');
+    expect($this->getJson('/v1/staff/operations/overview')->assertOk()->json('data.sections.backups.drill'))->toMatchArray(['at' => null, 'within_35_days' => false]);
+
+    $set = app(PlatformBackup::class)->run()['set'];
+    $counts = app(PlatformBackup::class)->counts();
+    app(RestoreDrill::class)->record($set, ['migrations' => $counts['migrations'], 'users' => $counts['users'], 'invoices' => $counts['invoices'], 'ledger_postings' => $counts['ledger_postings'],
+        'ledger_imbalance' => 3, 'unbalanced_transactions' => 1], 40, 'onhost_drill_20261020100000');
+    $response = $this->getJson('/v1/staff/operations/overview')->assertOk();
+    expect($response->json('data.sections.backups.drill'))->toMatchArray(['set' => $set, 'ok' => false, 'within_35_days' => true, 'problems' => 2, 'seconds' => 40])
+        ->and((string) $response->getContent())->not->toContain('out of balance')->not->toContain('differ by');
 });
