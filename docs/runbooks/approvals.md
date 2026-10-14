@@ -164,12 +164,12 @@ price changes take the time lock above: plan them a day ahead.
 
 | Question | Answer (from the code) |
 | --- | --- |
-| Who may approve | Staff holding `iam.approval.decide` **and** the permission of the action itself (`iam_admin`, `platform_owner`; for prices also `catalog.manage`). Never the requester. |
-| Which actions need two people | Permissions rated CRITICAL (`PermissionCatalog::effectiveRisk`), plus price and plan changes (`CatalogCommand::requiresApproval()`). |
-| The switch | `ONHOST_FOUR_EYES` (config `onhost.four_eyes`), default **true**. Set it to `false` only for a single operator. |
+| Who may approve | Staff in roles holding `iam.approval.decide` (`RoleCatalog`: `iam_admin`, `billing_finance_admin`, `platform_owner`) **and** the permission of the action itself. Never the requester. For prices also `catalog.manage`. |
+| Which actions need two people | Permissions whose effective risk is CRITICAL (`PermissionCatalog::effectiveRisk`), any command whose `requiresApproval()` is true, and price and plan changes (`CatalogCommand::requiresApproval()`). A customer permission rated CRITICAL floors at HIGH: a step-up, no staff approval. |
+| The switch | `ONHOST_FOUR_EYES` (config `onhost.identity.four_eyes`), default **true**. Set it to `false` only for a single operator. |
 | Single-operator exception | Applies only with the switch `false` **and** exactly one active holder of `iam.approval.decide` (`ApprovalService::waivesFor`). With two or more approvers nobody is waived. |
 | Time lock | `ONHOST_FOUR_EYES_TIME_LOCK_HOURS` (config `onhost.four_eyes_time_lock_hours`), default **24**, never below 1. The sole approver's own critical action is refused first, and runs when repeated after the lock. |
-| Adding a further approver | `onhost:staff:create` with a role that carries `iam.approval.decide`, while somebody already decides approvals, opens a time-locked request instead of the account (`StaffAccountCommandHandler`); the approvers hear `iam.approval.time_locked` and may cancel it. Repeat the same command (same e-mail, name, role) after the lock to make the account. |
+| Adding a further approver | `onhost:staff:create` with a role that carries `iam.approval.decide`, while somebody already decides approvals, opens a time-locked request instead of the account (`StaffAccountCommandHandler`); the approvers hear `iam.approval.time_locked` and may cancel it. Repeat the same command (same e-mail, name, role) after the lock to make the account. A request opened this way cannot be approved (`time_lock_not_approvable`): it runs when the lock ends, or is cancelled by rejecting it. |
 
 ### Creating staff
 
@@ -178,7 +178,7 @@ php artisan onhost:staff:create ops@example.com --name="Ops" --role=platform_own
 php artisan onhost:staff:create ops@example.com --role=sre --stdin                   # password from standard input
 ```
 
-The password must have **at least 12 characters** (shorter is refused, `password_too_short`). The first approver of an
+The password must have **at least 12 characters** (shorter is refused, "The password must have at least 12 characters."). The first approver of an
 installation, and staff whose role decides no approvals, are made at once; each person enrols MFA at the first sign-in.
 Do not share one password between people: `onhost:demo:accounts` refuses roles that decide approvals for this reason.
 
