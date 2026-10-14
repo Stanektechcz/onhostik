@@ -42,6 +42,40 @@ balancer, a CDN) `TRUSTED_PROXIES` **must** include that proxy, otherwise every 
 address: either all are refused, or — if someone lists the proxy's address — anybody can send one through it. Never put the
 proxy's own address into `COMGATE_CALLBACK_IPS`.
 
+## Notification set-up (W7)
+
+One-time set-up on the day Comgate gives the merchant account and its notification addresses. Nothing here is verified live
+yet (no account, see the end of this page). The owner's launch inputs are collected in [owner-launch-steps.md](owner-launch-steps.md).
+
+1. **The notify URL.** In the Comgate merchant portal register the platform's notification endpoint as the URL for payment
+   status notifications: `POST https://<API host>/v1/webhooks/payments/comgate` (`routes/api.php`:
+   `webhooks/payments/{provider}` under the API prefix `v1`; `<API host>` is the host of `ONHOST_API_BASE_URL`, empty means
+   the portal host of `APP_URL`, e.g. `https://staging.onhost.cz/v1/webhooks/payments/comgate`). The route is public by
+   design (Comgate has no login) and protected by the source allow-list below and a throttle of 120 requests a minute per
+   source address. A notification only names the payment; the platform asks Comgate for the real status.
+2. **Who sends it.** Comgate's servers, from the addresses Comgate gives its merchants. The owner asks Comgate for the
+   current list (input CG-6) and puts it into `COMGATE_CALLBACK_IPS` (comma-separated addresses or CIDR ranges), then
+   `art config:cache` and a queue/FPM restart. Do not copy addresses from a third-party page; a `/0` range is ignored. Re-check
+   the list when Comgate announces a change.
+3. **`TRUSTED_PROXIES` behind nginx.** The source check reads the address Laravel resolves (`$request->ip()`). With the local
+   aaPanel nginx in front (`TRUSTED_PROXIES=127.0.0.1,::1`, the default of `.env.example`) the real sender is read from
+   `X-Forwarded-For`. If the proxy is another host or a load balancer, list its exact address in `TRUSTED_PROXIES` (a real
+   process environment variable; never `*`) and make nginx pass `X-Forwarded-For`. Never put the proxy's own address into
+   `COMGATE_CALLBACK_IPS`.
+4. **Fail-closed.** An empty list, an unlisted sender or an unresolvable sender is answered with HTTP 403
+   `webhook_source_rejected` (the same answer for all three, so a caller does not learn whether the list is empty) and
+   Comgate is not asked about the payment. Payments are not lost: the payer's return and the sweep (below) still settle them.
+5. **Verify, read-only.**
+   * Administration or `GET /v1/staff/payments/comgate`: `callback_allowlist` is the number of entries (not 0) and
+     `callback_notice` is empty. A count of 0 comes with the notice that every notification is refused.
+   * *Ověřit spojení* (above) proves the credentials, not the notify URL.
+   * Logs: a refused notification is a 403 `webhook_source_rejected` on `webhooks/payments/comgate`; if the source address
+     seen is the proxy's, `TRUSTED_PROXIES` is wrong. A 429 means the throttle was hit.
+   * A test payment, with the gateway in test mode (`COMGATE_TEST=true`, shown in the administration): *Testovací platba 1 Kč*
+     for the gateway side, then a card order on staging (`docs/manual-tests/01-registrace-objednavka.md`). The intent must
+     become paid from Comgate's notification and not only from the payer's return or the sweep: if it settles only after up
+     to ten minutes, the sweep did it and the notification is not arriving.
+
 ## Card payments left pending (W6, TASK-0228)
 
 A card payment is settled by Comgate's notification or by the payer's return to the portal. When both are lost the money is
