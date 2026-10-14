@@ -7,6 +7,7 @@ namespace Onhost\Domain\Loyalty;
 use Illuminate\Support\Str;
 use Onhost\Domain\Billing\Models\ChargebackRequest;
 use Onhost\Domain\Identity\Models\User;
+use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Loyalty\Models\Referral;
 use Onhost\Domain\Orders\Models\Order;
@@ -102,7 +103,9 @@ final class ReferralService
     /** `invoice.paid` of the referred organization: the first paid tax document settles the referral — reward, hold for finance, or refuse. */
     public function onInvoicePaid(Invoice $invoice): ?Referral
     {
-        if (! in_array($invoice->type, ['invoice', 'receipt'], true) || (int) $invoice->total_minor <= 0) {
+        // a consumer's top-up (or any payment while the seller is no VAT payer) is confirmed by a payment confirmation instead of a
+        // receipt (G1): the money is the same money
+        if (! in_array($invoice->type, ['invoice', 'receipt', InvoiceService::PAYMENT_CONFIRMATION], true) || (int) $invoice->total_minor <= 0) {
             return null;
         }
         $referral = Referral::query()->where('referred_organization_id', $invoice->organization_id)->where('state', Referral::PENDING)->first();

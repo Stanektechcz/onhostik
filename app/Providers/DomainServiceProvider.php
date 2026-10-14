@@ -27,6 +27,8 @@ use Onhost\Domain\Compliance\Commands\ComplianceCommand;
 use Onhost\Domain\Compliance\Commands\ComplianceCommandHandler;
 use Onhost\Domain\Compliance\Commands\DataRequestCommand;
 use Onhost\Domain\Compliance\Commands\DataRequestCommandHandler;
+use Onhost\Domain\Content\Commands\ContentCommand;
+use Onhost\Domain\Content\Commands\ContentCommandHandler;
 use Onhost\Domain\Dns\Commands\DnsCommand;
 use Onhost\Domain\Dns\Commands\DnsCommandHandler;
 use Onhost\Domain\Domains\Commands\DomainCommand;
@@ -34,6 +36,7 @@ use Onhost\Domain\Domains\Commands\DomainsCommandHandler;
 use Onhost\Domain\Domains\Commands\RegistrarConnectionCommand;
 use Onhost\Domain\Domains\Commands\RegistrarConnectionsCommandHandler;
 use Onhost\Domain\Identity\Authorization\ApprovalService;
+use Onhost\Domain\Identity\Authorization\TokenApprovals;
 use Onhost\Domain\Identity\Commands\ApiTokenCommand;
 use Onhost\Domain\Identity\Commands\ApprovalDecisionCommand;
 use Onhost\Domain\Identity\Commands\ApprovalDecisionCommandHandler;
@@ -52,6 +55,7 @@ use Onhost\Domain\Invoicing\Listeners\SettleInvoicePayment;
 use Onhost\Domain\Loyalty\Commands\AccountLoyaltyCommand;
 use Onhost\Domain\Loyalty\Commands\LoyaltyCommand;
 use Onhost\Domain\Loyalty\Commands\LoyaltyCommandHandler;
+use Onhost\Domain\Loyalty\Commands\RedeemPointsCommand;
 use Onhost\Domain\Loyalty\LoyaltyRouter;
 use Onhost\Domain\Marketplace\Commands\MarketplaceCommand;
 use Onhost\Domain\Marketplace\Commands\MarketplaceCommandHandler;
@@ -71,15 +75,19 @@ use Onhost\Domain\Orders\Listeners\FulfillPaidOrder;
 use Onhost\Domain\Orders\Listeners\ReleaseOrderReservation;
 use Onhost\Domain\Orders\Listeners\SettleOrderPayment;
 use Onhost\Domain\Organizations\Commands\CreateOrganizationCommand;
-use Onhost\Domain\Organizations\Commands\OrganizationCommand;
+use Onhost\Domain\Organizations\Commands\OrganizationCommand; // TASK-0035
 use Onhost\Domain\Organizations\Commands\OrganizationsCommandHandler;
-use Onhost\Domain\Organizations\Listeners\RevokeMemberSideDoors; // TASK-0035
+use Onhost\Domain\Organizations\Listeners\RevokeMemberSideDoors;
 use Onhost\Domain\Partners\Commands\PartnerCommand;
 use Onhost\Domain\Partners\Commands\PartnerPortalCommand;
 use Onhost\Domain\Partners\Commands\PartnersCommandHandler;
 use Onhost\Domain\Partners\Listeners\AccruePartnerCommission;
 use Onhost\Domain\Payments\Commands\BankCommand;
 use Onhost\Domain\Payments\Commands\BankCommandHandler;
+use Onhost\Domain\Payments\Commands\ComgateCheckCommand;
+use Onhost\Domain\Payments\Commands\ComgateCheckCommandHandler;
+use Onhost\Domain\Payments\Commands\PaymentRefundCommand;
+use Onhost\Domain\Payments\Commands\PaymentRefundCommandHandler;
 use Onhost\Domain\Payments\Events\PaymentSucceeded;
 use Onhost\Domain\Provisioning\Commands\CapacityCommand;
 use Onhost\Domain\Provisioning\Commands\CapacityCommandHandler;
@@ -94,10 +102,16 @@ use Onhost\Domain\Services\Commands\ServiceArchiveCommandHandler;
 use Onhost\Domain\Services\Commands\ServicesCommandHandler;
 use Onhost\Domain\Services\Commands\WebToolsCommand;
 use Onhost\Domain\Services\Commands\WebToolsCommandHandler;
+use Onhost\Domain\Services\CustomIso\UploadCustomIsoCommand;
+use Onhost\Domain\Services\CustomIso\UploadCustomIsoHandler;
 use Onhost\Domain\Services\Listeners\CloseServiceAccessGrants;
 use Onhost\Domain\Services\Listeners\RevokeDelegatedAccess;
 use Onhost\Domain\Services\Metering\AnnounceDiskTotalCommand;
 use Onhost\Domain\Services\Metering\AnnounceDiskTotalHandler;
+use Onhost\Domain\Services\Penpot\ForgetPenpotSecrets;
+use Onhost\Domain\Services\Penpot\PenpotAccessCommand;
+use Onhost\Domain\Services\Penpot\PenpotAccessCommandHandler;
+use Onhost\Domain\Services\Penpot\PenpotNotifications;
 use Onhost\Domain\Support\Commands\WorkOfferCommandHandler;
 use Onhost\Domain\Support\Commands\WorkOfferDecisionCommand;
 use Onhost\Domain\Support\Commands\WorkOfferStaffCommand;
@@ -138,6 +152,7 @@ final class DomainServiceProvider extends ServiceProvider
         LoyaltyCommand::class => LoyaltyCommandHandler::class,
         WebhookCommand::class => WebhookCommandHandler::class, // TASK-0077 (D4) customer webhooks
         AccountLoyaltyCommand::class => LoyaltyCommandHandler::class,
+        RedeemPointsCommand::class => LoyaltyCommandHandler::class, // G3 (G-R2) points redeemed for a discount on the cart
         MarketplaceCommand::class => MarketplaceCommandHandler::class,
         MarketplaceStaffCommand::class => MarketplaceCommandHandler::class,
         CatalogCommand::class => CatalogCommandHandler::class,
@@ -146,10 +161,14 @@ final class DomainServiceProvider extends ServiceProvider
         BudgetCommand::class => WalletCommandHandler::class,
         RemovePaymentMethodCommand::class => WalletCommandHandler::class,
         BankCommand::class => BankCommandHandler::class,
+        ComgateCheckCommand::class => ComgateCheckCommandHandler::class, // H-R8: the administration's Comgate check
+        ContentCommand::class => ContentCommandHandler::class, // I-R17/I-R18: the blog and the customer references edited by staff
+        PaymentRefundCommand::class => PaymentRefundCommandHandler::class, // G6: an order payment refunded to its source on a withdrawal, a bank payout confirmed
         ServiceActionCommand::class => ServicesCommandHandler::class,
         ServiceArchiveCommand::class => ServiceArchiveCommandHandler::class,
         IssueConsoleTokenCommand::class => ServicesCommandHandler::class,
         WebToolsCommand::class => WebToolsCommandHandler::class,
+        UploadCustomIsoCommand::class => UploadCustomIsoHandler::class, // a customer's own installation image (TASK-0110)
         IntegrationCommand::class => IntegrationCommandHandler::class,
         DomainCommand::class => DomainsCommandHandler::class,
         RegistrarConnectionCommand::class => RegistrarConnectionsCommandHandler::class,
@@ -167,6 +186,7 @@ final class DomainServiceProvider extends ServiceProvider
         ComplianceCommand::class => ComplianceCommandHandler::class,
         DataRequestCommand::class => DataRequestCommandHandler::class,
         ServiceAccessCommand::class => ServiceAccessCommandHandler::class,
+        PenpotAccessCommand::class => PenpotAccessCommandHandler::class, // TASK-0123: the owner's Penpot password
         ApprovalDecisionCommand::class => ApprovalDecisionCommandHandler::class,
         PartnerCommand::class => PartnersCommandHandler::class,
         PartnerPortalCommand::class => PartnersCommandHandler::class,
@@ -203,6 +223,8 @@ final class DomainServiceProvider extends ServiceProvider
         }
         Event::listen('onhost.organization.member.removed', CloseServiceAccessGrants::class); // whoever left has nothing shared any more
         Event::listen(OutboxEventDispatched::class, RevokeDelegatedAccess::class); // a removed member loses the panel accounts that were theirs (H333)
+        Event::listen(OutboxEventDispatched::class, PenpotNotifications::class); // TASK-0123: Penpot ready / unreachable / owner password, in the organization's language
+        Event::listen(OutboxEventDispatched::class, ForgetPenpotSecrets::class); // TASK-0123: a purged Penpot's keys leave the vault
         Event::listen(OutboxEventDispatched::class, LoyaltyRouter::class); // points for what customers do
         // ── TASK-0035 ──
         foreach (['onhost.organization.member.removed', 'onhost.organization.member.role_changed'] as $memberEvent) { // IF-15: no Discord link or action hook outlives the membership or the role that made it
@@ -216,6 +238,14 @@ final class DomainServiceProvider extends ServiceProvider
             }
             // four eyes: whoever is refused for want of a second person has the request opened for them, and the refusal names it
             $bus->onApprovalRequired(function (Command $command, CommandContext $context): array {
+                // H0 (owner decision H-R1): a token's risky action waits for the organization's owner, never for staff's four eyes
+                if (TokenApprovals::tokenIdOf($context->sessionId) !== null && in_array($context->actorType, ['user', 'service_account'], true) && $context->actorId !== null) {
+                    $request = $this->app->make(TokenApprovals::class)->request($command, $context);
+
+                    return $request === null
+                        ? ['approval_state' => 'not_opened', 'help' => 'This token has '.TokenApprovals::MAX_PENDING_PER_TOKEN.' undecided requests; the owner decides them first (GET /v1/token-approvals).']
+                        : ['approval_id' => $request->id, 'approval_state' => $request->state, 'approval_expires_at' => $request->expires_at?->toIso8601String(), 'help' => '/v1/token-approvals'];
+                }
                 if ($context->actorType !== 'user' || $context->actorId === null) {
                     return [];
                 }

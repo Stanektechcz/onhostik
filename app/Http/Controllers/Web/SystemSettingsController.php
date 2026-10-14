@@ -51,6 +51,12 @@ final class SystemSettingsController extends Controller
         return $this->page($request, '/sprava/nastaveni/tarify', 'admin.plans');
     }
 
+    /** Nastavení systému → Blog a reference (I-R17, I-R18): posts and customer references, written through ContentCommand. */
+    public function content(Request $request): View|RedirectResponse
+    {
+        return $this->page($request, '/sprava/nastaveni/obsah', 'admin.content');
+    }
+
     /** Nastavení systému → Schvalování: requests for the second person of a critical action (four eyes, ApprovalService). */
     public function approvals(Request $request): View|RedirectResponse
     {
@@ -61,6 +67,12 @@ final class SystemSettingsController extends Controller
     public function operations(Request $request): View|RedirectResponse
     {
         return $this->page($request, '/sprava/nastaveni/provoz', 'admin.operations');
+    }
+
+    /** P16 (phase R): Provoz — the read-only shift overview (`/v1/staff/operations/overview`, sections by permission). */
+    public function overview(Request $request): View|RedirectResponse
+    {
+        return $this->page($request, '/sprava/nastaveni/provozni-prehled', 'admin.ops-overview');
     }
 
     /** @param (callable(User): array<string, mixed>)|null $extra */

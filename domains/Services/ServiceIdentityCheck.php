@@ -39,6 +39,7 @@ final class ServiceIdentityCheck
         'game' => ['server', 'game_server', 'server_migration'], // the last one: the copy a migration is building (GameMigrationWorkflow::TARGET_BINDING)
         'cloud' => ['qemu', 'lxc', 'vm', 'server'],
         'data' => ['database', 'db_instance', 'server'],
+        'penpot' => ['stack'], // TASK-0123: a Penpot compose project on its node
     ];
 
     public function __construct(private readonly DeletionPolicy $policy) {}

@@ -53,7 +53,9 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->prependToPriorityList(SubstituteBindings::class, EnsureStaff::class);
         $middleware->prependToPriorityList(before: AuthenticatesRequests::class, prepend: ThrottleFailedAuth::class); // runs OUTSIDE authentication so it sees the 401 (D7)
         $middleware->api(append: [ApiDeprecation::class]); // X-API-Version + Deprecation/Sunset (D7)
-        $middleware->trustProxies(at: env('TRUSTED_PROXIES') ? explode(',', (string) env('TRUSTED_PROXIES')) : null);
+        // H0, owner decision H-R2: no proxy or CDN in front of the origin — unset, only the local aaPanel nginx (loopback) is trusted to
+        // name the client; an explicit empty value trusts nothing; a wildcard is the doctor's FAIL (GoLiveChecks::trustedProxies)
+        $middleware->trustProxies(at: ((string) env('TRUSTED_PROXIES', '127.0.0.1,::1')) !== '' ? array_values(array_filter(array_map('trim', explode(',', (string) env('TRUSTED_PROXIES', '127.0.0.1,::1'))), fn (string $p) => $p !== '')) : null);
         // Surfaces are HTML: guests go to the sign-in surface. Scripts, API and relay endpoints answer 401 JSON instead.
         $middleware->redirectGuestsTo(fn (Request $request) => $request->is('v1/*') || $request->is('surfaces/*') || $request->is('console/*') || $request->expectsJson() ? null : '/prihlaseni?next='.urlencode($request->getRequestUri()));
     })

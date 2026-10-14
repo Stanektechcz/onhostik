@@ -67,3 +67,45 @@ widget and strip of the panel, including the Fakturace "Co kdyby" what-if price 
 
 The transform cache key includes the renderer's own mtime, the shell/support scripts and every `api/*.js`
 seam, so a deploy never serves a stale transform.
+
+## G8 follow-ups (TASK-0118)
+
+* **One input dialog** — `window.OnhostDialog` (session bridge: `form`, `prompt`, `confirm`) replaced every `window.prompt` of the
+  `api/*.js` modules; several questions in a row became one form. `tests/js/g8-ui.harness.mjs` fails if a module calls
+  `window.prompt` again.
+* **Czech counts** — `OnhostI18n.cn(n, csForms, enForms, lang)` gives "1 den, 2 dny, 5 dní"; the modules use a local `cq(_, n, cs, en)`.
+* **Service accounts and the verification mail** — the API keys view lists, creates, issues keys for and removes service accounts
+  (owner only, `/v1/service-accounts`); an unverified sign-in address offers `POST /v1/me/email/verification`.
+* **Staff sign-on** — the customer drawer's "Vstoupit do panelu" calls `POST /v1/staff/services/{id}/panel-login` (ticket + reason).
+* **Destructive preview** — asked with `?locale=` from the page's language; English only on `locale=en`.
+* **Credit is never paid back in cash** — `App\Http\Support\CreditClaimsSeam` corrects the prototype sentences that promised it
+  (`onhost-content.js`, the admin and panel pages, `onhost-svc-web.js`) on the way out; the prototypes stay byte-identical and
+  `G8UiFollowUpsTest` pins every needle against them.
+* **Bindings** — a customer sees `vm`, not the hypervisor's `qemu`.
+
+## H2 UI truth (TASK-0124)
+
+* **No `window.prompt` is served.** The staff Blade pages (`admin/approvals`, `integrations`, `lifecycle`, `operations`, `plans`) and
+  `service-console` ask through `window.OnhostDialog`; they load the session bridge through `partials/dialog-bridge.blade.php` with
+  `window.ONHOST = { dialogOnly: true }`, which makes the bridge define the dialog and the wording helpers and stop (it never touches the
+  shell's session or storage). `tests/Feature/H2H4/H2UiTruthTest.php` fails when a `window.prompt(` call appears anywhere served except
+  the dialog's own no-DOM fallback.
+* **The claims seam corrects the template, not the boot JSON.** `SurfaceRenderer::render()` applies `CreditClaimsSeam` to the prototype
+  template before the boot object is injected, so a customer's own text equal to a needle is never rewritten.
+* **Two more prototype untruths corrected** (needles in `resources/surfaces/credit-claims.php`): the admin demo cards that promised a
+  "bonus 10 %" on top-ups (no rule gives one), and "downloadable for 30 days after cancellation" (the archive of a removed service is
+  kept `DeletionPolicy::retentionDays()`, 60 by default; `{retention_days}` in a corrected sentence is filled in by the seam).
+* **Staff sign-on** opens the one-time link only when it starts with `https:`; otherwise it says so and offers nothing.
+* **Sessions view** says before the click that ending a session renews the "remember me" token, so remembered browsers sign in again.
+
+## Public content of 2026-10-08 (TASK-0149, I-R16 to I-R19)
+
+* **GPU "připravujeme"** — `App\Http\Support\PublicContentSeam::gpu()`, applied in `SurfaceRenderer::transform()` (public, non-demo, anchors
+  counted by the seam anchor report): the mega menu card, the AI band, the service list (a text price instead of 39 / 19 Kč an hour; the
+  list's `price` map accepts a string), menus, search, the `#/technika` stock rows, the price comparison and the delivery promise.
+* **Team page `#/lide`** — the block from `/* ---------- Lidé v podpoře` to `isMissingView:` is replaced by `PublicContentSeam::team()`,
+  which reads `ONHOST_DATA.team(cs)` (`TeamRoster`) and `ONHOST_DATA.contact()` (legal entity phone and e-mail).
+* **Blog** — `ONHOST_DATA.blog(cs)` (published posts with their text, `ContentService::blog()`); the served `onhost-content.js` replaces the
+  prototype's `const blog = [...]` with it (`PublicContentSeam::contentModule()`, `SurfaceController`).
+* **References** — `ONHOST_DATA.references(cs)` now comes from `content_references` (`ContentService::references()`), edited in
+  Nastavení → Blog a reference.

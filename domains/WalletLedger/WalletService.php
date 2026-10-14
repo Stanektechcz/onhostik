@@ -12,7 +12,6 @@ use Onhost\Domain\WalletLedger\Models\LedgerTransaction;
 use Onhost\Domain\WalletLedger\Models\Wallet;
 use Onhost\Domain\WalletLedger\Models\WalletAdjustment;
 use Onhost\Domain\WalletLedger\Models\WalletHold;
-use Onhost\Domain\WalletLedger\Models\WalletRefund;
 use Onhost\Domain\WalletLedger\Models\WalletTopup;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
@@ -144,8 +143,8 @@ final class WalletService
      *
      * It is not a top-up. No money arrived at a bank, so the other side of the entry is what the correction takes back —
      * the revenue and its VAT, or the receivable — not an `asset:bank:<reason>` account nobody can ever reconcile with a
-     * statement. And it does not raise what may be paid out in money: `refundableBalance()` counts purchased top-ups only,
-     * so a service bought with bonus credit and then given back does not turn the bonus into cash.
+     * statement. Like all credit it is never paid out in money (owner decision G-R4: the wallet has no cash refund); the row is
+     * marked `refundable = false` and is not purchased credit in the spend order (`RefundableCredit`, G-R3).
      *
      * @param  list<array{account:string, debit:int}>  $debits  where the returned amount is taken from; must add up to it
      */
@@ -433,51 +432,6 @@ final class WalletService
         }, 3);
     }
 
-    /** Refund purchased (never promo) credit back to the payment source or by credit note. */
-    public function refund(Organization|string $organization, Money $amount, string $reason, string $idempotencyKey, CommandContext $context, string $destination = 'source', ?string $paymentIntentId = null, ?string $approvalId = null): WalletRefund
-    {
-        $organizationId = $organization instanceof Organization ? $organization->id : $organization;
-
-        return DB::transaction(function () use ($organizationId, $amount, $reason, $idempotencyKey, $context, $destination, $paymentIntentId, $approvalId) {
-            $existing = WalletRefund::query()->where('idempotency_key', $idempotencyKey)->first();
-            if ($existing !== null) {
-                return $existing;
-            }
-            $wallet = $this->lockWallet($organizationId, $amount->currency);
-            $refundable = $this->refundableBalance($organizationId, $amount->currency);
-            if ($refundable->lessThan($amount)) {
-                throw new DomainError('refund_exceeds_refundable', 'Refund exceeds the refundable purchased credit.', 409, ['refundable' => $refundable]);
-            }
-            $transaction = $this->ledger->post('refund', $amount->currency, [
-                ['account' => LedgerService::walletAccount($organizationId, $amount->currency), 'debit' => $amount->minor],
-                ['account' => $destination === 'source' && $paymentIntentId ? LedgerService::bankAccount('refund_pending', $amount->currency) : LedgerService::expenseAccount('refund', $amount->currency), 'credit' => $amount->minor],
-            ], 'ledger:'.$idempotencyKey, $organizationId, 'wallet_refund', $idempotencyKey, $reason, $this->actor($context), ['approval_id' => $approvalId]);
-            $refund = WalletRefund::query()->create([
-                'wallet_id' => $wallet->id, 'organization_id' => $organizationId, 'amount_minor' => $amount->minor, 'currency' => $amount->currency->value,
-                'reason' => $reason, 'destination' => $destination, 'payment_intent_id' => $paymentIntentId, 'state' => 'pending',
-                'transaction_id' => $transaction->id, 'approval_id' => $approvalId, 'idempotency_key' => $idempotencyKey, 'created_by' => $this->actor($context),
-            ]);
-            $this->refreshCaches($wallet);
-            $this->outbox->publish(GenericEvent::of('wallet.refund.requested', 'wallet', $wallet->id, ['refund_id' => $refund->id, 'amount' => $amount, 'destination' => $destination], $organizationId));
-
-            return $refund;
-        }, 3);
-    }
-
-    /** Purchased credit that has not been consumed, i.e. min(available, sum of purchased top-ups − consumed). */
-    public function refundableBalance(string $organizationId, Currency|string $currency): Money
-    {
-        $wallet = $this->wallet($organizationId, $currency);
-        $purchased = (int) WalletTopup::query()->where('organization_id', $organizationId)->where('currency', $wallet->currency)
-            ->where('bucket', 'purchased')->where('state', 'completed')->sum('amount_minor');
-        $refunded = (int) WalletRefund::query()->where('organization_id', $organizationId)->where('currency', $wallet->currency)
-            ->whereIn('state', ['pending', 'completed'])->sum('amount_minor');
-        $cap = Money::minor(max(0, $purchased - $refunded), $wallet->currency);
-        $available = $wallet->available();
-
-        return $available->lessThan($cap) ? $available : $cap;
-    }
-
     public function freeze(Organization|string $organization, Currency|string $currency, string $reason, CommandContext $context): Wallet
     {
         $wallet = $this->lockWallet($organization instanceof Organization ? $organization->id : $organization, $currency);
@@ -560,6 +514,76 @@ final class WalletService
         return $applied;
     }
 
+    // ── H0 (owner decision H-R5, 2026-10-06): the credit of an erased account is forfeited ──
+    /**
+     * What the account still holds, per currency: the purchased credit and the promotional credit that would be forfeited if
+     * the account were erased now (posted minus what active holds reserve). Read only — the erasure preview shows it.
+     *
+     * @return list<array{currency:string, purchased_minor:int, promo_minor:int}>
+     */
+    public function forfeitable(string $organizationId): array
+    {
+        $rows = [];
+        foreach (Wallet::query()->where('organization_id', $organizationId)->orderBy('currency')->get() as $wallet) {
+            $currency = (string) $wallet->currency;
+            $posted = $this->ledger->balance(LedgerService::walletAccount($wallet->organization_id, $currency, $wallet->kind === 'promo' ? 'promo' : 'wallet'), $currency)->minor;
+            $amount = max(0, $posted - (int) WalletHold::query()->where('wallet_id', $wallet->id)->where('state', 'active')->sum('amount_minor'));
+            $rows[$currency] ??= ['currency' => $currency, 'purchased_minor' => 0, 'promo_minor' => 0];
+            $rows[$currency][$wallet->kind === 'promo' ? 'promo_minor' : 'purchased_minor'] += $amount;
+        }
+
+        return array_values(array_filter($rows, fn (array $r) => $r['purchased_minor'] > 0 || $r['promo_minor'] > 0));
+    }
+
+    /**
+     * Books the forfeit of everything an erased account still holds (H-R5): credit is never paid out in money (G-R4), and an
+     * account that is erased has nobody left to spend it. Purchased credit leaves the customer's liability as other income
+     * (DR liability:wallet / CR revenue:forfeited_credit), promotional credit goes back where it came from (DR liability:promo /
+     * CR expense:promo). Once per erasure (`$reference`) and bucket: running the erasure again books nothing twice. A reserved
+     * amount (an active hold) is left alone — it is released or captured by its own order.
+     *
+     * @return list<array{currency:string, purchased_minor:int, promo_minor:int}>
+     */
+    public function forfeitAll(string $organizationId, string $reference, CommandContext $context): array
+    {
+        $rows = [];
+        foreach (Wallet::query()->where('organization_id', $organizationId)->orderBy('currency')->get() as $wallet) {
+            $currency = (string) $wallet->currency;
+            $promo = $wallet->kind === 'promo';
+            $amount = $this->forfeitWallet($wallet->id, $promo ? 'promo' : 'wallet', $reference, $context);
+            $rows[$currency] ??= ['currency' => $currency, 'purchased_minor' => 0, 'promo_minor' => 0];
+            $rows[$currency][$promo ? 'promo_minor' : 'purchased_minor'] += $amount;
+        }
+
+        return array_values(array_filter($rows, fn (array $r) => $r['purchased_minor'] > 0 || $r['promo_minor'] > 0));
+    }
+
+    private function forfeitWallet(string $walletId, string $bucket, string $reference, CommandContext $context): int
+    {
+        return DB::transaction(function () use ($walletId, $bucket, $reference, $context): int {
+            $wallet = Wallet::query()->lockForUpdate()->findOrFail($walletId);
+            $currency = (string) $wallet->currency;
+            $key = 'ledger:forfeit:'.$reference.':'.$bucket.':'.$currency;
+            if (LedgerTransaction::query()->where('idempotency_key', $key)->exists()) {
+                return 0;
+            }
+            $this->refreshCaches($wallet);
+            $amount = (int) $wallet->posted_balance_minor - (int) $wallet->reserved_balance_minor;
+            if ($amount <= 0) {
+                return 0;
+            }
+            $counter = $bucket === 'promo' ? LedgerService::expenseAccount('promo', $currency) : LedgerService::revenueAccount('forfeited_credit', $currency);
+            $this->ledger->post('credit_forfeit', $currency, [
+                ['account' => LedgerService::walletAccount($wallet->organization_id, $currency, $bucket), 'debit' => $amount],
+                ['account' => $counter, 'credit' => $amount],
+            ], $key, $wallet->organization_id, 'data_request', $reference, $bucket === 'promo' ? 'Promotional credit forfeited with the erased account' : 'Credit forfeited with the erased account (H-R5)', $this->actor($context));
+            $this->refreshCaches($wallet);
+
+            return $amount;
+        }, 3);
+    }
+
+    // ── end H0 ──
     private function lockWallet(string $organizationId, Currency|string $currency, string $kind = 'main'): Wallet
     {
         $wallet = $this->wallet($organizationId, $currency, $kind);

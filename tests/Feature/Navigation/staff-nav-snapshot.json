@@ -5,6 +5,7 @@
         "ticket",
         "customers",
         "leads",
+        "opsoverview",
         "incidents",
         "maintenance",
         "oncall",
@@ -29,6 +30,7 @@
         "loyalty",
         "marketplace",
         "bank",
+        "comgate",
         "dunning",
         "withdrawals",
         "sla_credits",
@@ -41,6 +43,7 @@
         "lifecycle",
         "templates",
         "content",
+        "content_editor",
         "security_incidents",
         "abuse",
         "data_requests",
@@ -56,6 +59,7 @@
     "infrastructure_admin": [
         "dash",
         "customers",
+        "opsoverview",
         "fleet",
         "jobsadm",
         "automation",
@@ -71,11 +75,13 @@
         "operations",
         "bulk",
         "chargebacks",
+        "comgate",
         "approvals"
     ],
     "network_admin": [
         "dash",
         "customers",
+        "opsoverview",
         "fleet",
         "jobsadm",
         "automation",
@@ -90,11 +96,13 @@
         "registrars",
         "operations",
         "bulk",
+        "comgate",
         "approvals"
     ],
     "domain_dns_admin": [
         "dash",
         "customers",
+        "opsoverview",
         "fleet",
         "jobsadm",
         "automation",
@@ -107,6 +115,7 @@
     "shared_hosting_admin": [
         "dash",
         "customers",
+        "opsoverview",
         "fleet",
         "jobsadm",
         "automation",
@@ -121,11 +130,13 @@
         "operations",
         "bulk",
         "chargebacks",
+        "comgate",
         "approvals"
     ],
     "managed_hosting_admin": [
         "dash",
         "customers",
+        "opsoverview",
         "fleet",
         "jobsadm",
         "automation",
@@ -140,11 +151,13 @@
         "operations",
         "bulk",
         "chargebacks",
+        "comgate",
         "approvals"
     ],
     "apps_platform_admin": [
         "dash",
         "customers",
+        "opsoverview",
         "fleet",
         "jobsadm",
         "automation",
@@ -160,11 +173,13 @@
         "operations",
         "bulk",
         "chargebacks",
+        "comgate",
         "approvals"
     ],
     "cloud_vps_admin": [
         "dash",
         "customers",
+        "opsoverview",
         "fleet",
         "jobsadm",
         "automation",
@@ -180,11 +195,13 @@
         "operations",
         "bulk",
         "chargebacks",
+        "comgate",
         "approvals"
     ],
     "game_admin": [
         "dash",
         "customers",
+        "opsoverview",
         "fleet",
         "jobsadm",
         "automation",
@@ -200,11 +217,13 @@
         "operations",
         "bulk",
         "chargebacks",
+        "comgate",
         "approvals"
     ],
     "mail_admin": [
         "dash",
         "customers",
+        "opsoverview",
         "fleet",
         "jobsadm",
         "automation",
@@ -219,11 +238,13 @@
         "operations",
         "bulk",
         "chargebacks",
+        "comgate",
         "approvals"
     ],
     "database_admin": [
         "dash",
         "customers",
+        "opsoverview",
         "fleet",
         "jobsadm",
         "automation",
@@ -242,6 +263,7 @@
     "backup_dr_admin": [
         "dash",
         "customers",
+        "opsoverview",
         "fleet",
         "jobsadm",
         "automation",
@@ -255,11 +277,13 @@
         "registrars",
         "operations",
         "bulk",
+        "comgate",
         "approvals"
     ],
     "sre": [
         "dash",
         "customers",
+        "opsoverview",
         "incidents",
         "maintenance",
         "oncall",
@@ -279,6 +303,7 @@
         "registrars",
         "operations",
         "bulk",
+        "comgate",
         "sla_credits",
         "reports",
         "approvals"
@@ -286,6 +311,7 @@
     "incident_commander": [
         "dash",
         "customers",
+        "opsoverview",
         "incidents",
         "oncall",
         "probes",
@@ -326,6 +352,7 @@
     "billing_finance_admin": [
         "dash",
         "customers",
+        "opsoverview",
         "slo",
         "chargebacks",
         "loyalty",
@@ -346,6 +373,7 @@
     "billing_operator": [
         "dash",
         "customers",
+        "opsoverview",
         "slo",
         "bank",
         "dunning",
@@ -359,6 +387,7 @@
         "ticket",
         "customers",
         "leads",
+        "opsoverview",
         "incidents",
         "oncall",
         "probes",
@@ -380,6 +409,7 @@
         "queue",
         "ticket",
         "customers",
+        "opsoverview",
         "fleet",
         "jobsadm",
         "automation",
@@ -394,6 +424,7 @@
         "ticket",
         "customers",
         "leads",
+        "opsoverview",
         "fleet",
         "jobsadm",
         "automation",
@@ -410,6 +441,7 @@
         "ticket",
         "customers",
         "leads",
+        "opsoverview",
         "incidents",
         "oncall",
         "probes",
@@ -428,6 +460,7 @@
         "bulk",
         "renewals",
         "chargebacks",
+        "comgate",
         "approvals"
     ],
     "sales": [
@@ -442,6 +475,7 @@
     "marketing_content": [
         "dash",
         "content",
+        "content_editor",
         "approvals"
     ],
     "product_manager": [
@@ -455,11 +489,13 @@
         "lifecycle",
         "templates",
         "content",
+        "content_editor",
         "approvals"
     ],
     "auditor_read_only": [
         "dash",
         "customers",
+        "opsoverview",
         "slo",
         "fleet",
         "jobsadm",

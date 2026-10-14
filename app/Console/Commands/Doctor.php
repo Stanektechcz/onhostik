@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Onhost\Domain\Billing\ReinstatementHealth;
 use Onhost\Domain\Billing\WithdrawalHealth;
 use Onhost\Domain\Catalog\CatalogRevisions;
 use Onhost\Domain\Catalog\CatalogService;
@@ -31,8 +32,12 @@ use Onhost\Domain\Invoicing\Models\LegalEntity;
 use Onhost\Domain\Notifications\MailHealth;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\OrderStateMachine;
+use Onhost\Domain\Payments\ComgateCheck;
+use Onhost\Domain\Platform\GoLiveChecks;
+use Onhost\Domain\Platform\HstsHealth;
 use Onhost\Domain\Platform\IsolationChecks;
 use Onhost\Domain\Platform\QueueLaneHeartbeat;
+use Onhost\Domain\Platform\ScheduleHealth;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Provisioning\Models\IntegrationHealth;
 use Onhost\Domain\Provisioning\Models\Node;
@@ -55,6 +60,7 @@ use Onhost\Domain\Services\Models\BackupPolicy;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\Models\SshKeyGrant;
+use Onhost\Domain\Services\Penpot\PenpotHealth;
 use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\Services\Web\BackupOperationsCheck;
@@ -63,9 +69,13 @@ use Onhost\Domain\Support\Assistant\AssistantBudget;
 use Onhost\Domain\Tax\CnbRates;
 use Onhost\Domain\Tax\Models\ExchangeRate;
 use Onhost\Domain\Tax\VatHealth;
+use Onhost\Domain\Tax\VatPayerMode;
 use Onhost\Domain\WalletLedger\AutoTopup;
 use Onhost\Platform\Files\VirusScanner;
 use Onhost\Platform\Ops\PlatformBackup;
+use Onhost\Platform\Ops\RestoreDrill;
+use Onhost\Platform\Settings\SettingsStore;
+use Onhost\Providers\Payments\Comgate\ComgateMode;
 
 /**
  * Production readiness self-check (docs/runbooks/go-live-checklist.md). Every row is a fact the control plane can
@@ -79,7 +89,12 @@ final class Doctor extends Command
 
     protected $description = 'Production readiness self-check: environment, storage, secrets, TLS, providers, payments, documents, identity, mail, observability';
 
-    /** @var list<array{area:string, check:string, status:string, detail:string}> */
+    /** Rows of other classes that state their problem without a way out; the doctor adds it (presence only, no values). */
+    private const REMEDIES = [
+        'Turnstile protects registration and public forms' => 'create a Cloudflare Turnstile widget and set TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY in the server environment, then php artisan config:cache; or switch enforcement off deliberately with ONHOST_TURNSTILE_ENFORCE_REGISTER=false and ONHOST_TURNSTILE_ENFORCE_FORMS=false',
+    ];
+
+    /** @var list<array{area:string, check:string, status:string, detail:string, remedy:string}> */
     private array $rows = [];
 
     private bool $production = false;
@@ -103,6 +118,12 @@ final class Doctor extends Command
         foreach (app(WithdrawalHealth::class)->checks() as $check) { // TASK-0025: the lawyer's review and stuck withdrawals
             $this->add($check['area'], $check['check'], $check['ok'], $check['detail'], $check['blocking']);
         }
+        foreach (app(ReinstatementHealth::class)->checks() as $check) { // G6: pay and restore waits for the owner — the consequence and the way to switch it on
+            $this->addChecked($check);
+        }
+        foreach (app(PenpotHealth::class)->checks() as $check) { // TASK-0123: Penpot sold only with a node and a price; every instance answers
+            $this->addChecked($check);
+        }
         // ── TASK-0031: VIES on and configured, customers waiting for an answer, the last answer, lapsing reverse charge (no HTTP) ──
         foreach (app(VatHealth::class)->checks() as $check) {
             $this->add($check['area'], $check['check'], $check['ok'], $check['detail'], $check['blocking']);
@@ -113,13 +134,24 @@ final class Doctor extends Command
             $this->addChecked($check);
         }
         // ── end TASK-0045 ──
+        // ── E11: what an operator meets on the way to go-live; every row names its remedy ──
+        foreach ((new GoLiveChecks)->rows() as $check) {
+            $this->addChecked($check);
+        }
+        // ── end E11 ──
+        foreach (app(HstsHealth::class)->checks() as $check) { // P11 (P-R74): HSTS once, from the application, as configured
+            $this->addChecked($check);
+        }
+        foreach (app(ScheduleHealth::class)->checks() as $check) { // P14: every scheduled job within its age budget
+            $this->addChecked($check);
+        }
 
         $fails = count(array_filter($this->rows, fn ($r) => $r['status'] === 'FAIL'));
         $warns = count(array_filter($this->rows, fn ($r) => $r['status'] === 'WARN'));
         if ($this->option('json')) {
             $this->line((string) json_encode(['environment' => app()->environment(), 'fail' => $fails, 'warn' => $warns, 'checks' => $this->rows], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
         } else {
-            $this->table(['Area', 'Check', 'Status', 'Detail'], array_map(fn ($r) => [$r['area'], $r['check'], $r['status'], $r['detail']], $this->rows));
+            $this->table(['Area', 'Check', 'Status', 'Detail', 'Remedy'], array_map(fn ($r) => [$r['area'], $r['check'], $r['status'], $r['detail'], $r['remedy']], $this->rows));
             $this->line(sprintf('%s · %d checks · %d FAIL · %d WARN', app()->environment(), count($this->rows), $fails, $warns));
         }
 
@@ -150,6 +182,32 @@ final class Doctor extends Command
             : count($drift).' differ ('.implode(', ', array_slice($drift, 0, 6)).(count($drift) > 6 ? ', …' : '').') — php artisan db:seed --class=AuthorizationSeeder --force');
     }
 
+    /**
+     * Services whose most recent cancellation (`terminate`) failed and that are still not cancelled — no removal scheduled,
+     * not being removed. No time window (security review): a service that still serves months after its cancellation
+     * failed is exactly the one nobody remembers. A later cancellation that went through, or one still running, takes the
+     * service off the list. @return list<string> service ids
+     */
+    private static function unfinishedCancellations(): array
+    {
+        $candidates = Operation::query()->where('kind', 'service.action')->where('desired->action', 'terminate')->where('state', Operation::FAILED)
+            ->whereNotNull('service_id')
+            ->whereIn('service_id', Service::query()->whereNull('terminate_at')->whereNotIn('state', [ServiceStateMachine::TERMINATED, ServiceStateMachine::TERMINATING])->select('id'))
+            ->distinct()->limit(500)->pluck('service_id');
+        $out = [];
+        foreach ($candidates as $serviceId) {
+            $latest = Operation::query()->where('kind', 'service.action')->where('desired->action', 'terminate')->where('service_id', $serviceId)->orderByDesc('id')->value('state');
+            $service = Service::query()->find($serviceId);
+            if ($latest !== Operation::FAILED || $service === null || $service->terminate_at !== null
+                || in_array($service->state, [ServiceStateMachine::TERMINATED, ServiceStateMachine::TERMINATING], true)) {
+                continue;
+            }
+            $out[] = (string) $serviceId;
+        }
+
+        return $out;
+    }
+
     private function deletionLifecycle(): void
     {
         // a key revocation no panel has confirmed for an hour is a key that may still open a session (H185); not blocking, but never silent
@@ -157,6 +215,12 @@ final class Doctor extends Command
         $this->add('access', 'SSH key revocations confirmed by the panels', $openKeys === 0, $openKeys === 0 ? 'none open for longer than an hour' : "{$openKeys} open for longer than an hour — GET /v1/staff/provisioning/ssh-key-revocations", false);
         $strandedServices = ServiceService::stranded()->count(); // nothing is accepted in a transient state: a stranded service is unusable until released
         $this->add('lifecycle', 'no service stranded in a transient state', $strandedServices === 0, $strandedServices === 0 ? 'none' : "{$strandedServices} in SUSPENDING/RESUMING/RESIZING with no open operation — php artisan onhost:services:release-stranded", false);
+        // TASK-0099: a cancellation that failed (most often at its final archive) leaves the service as the panel has it — still
+        // serving, or suspended as before — and nothing else in the platform remembers that it was meant to end
+        $unfinished = self::unfinishedCancellations();
+        $this->add('lifecycle', 'no cancellation left unfinished', $unfinished === [], $unfinished === [] ? 'none'
+            : count($unfinished).' service(s) whose last cancellation failed and that run (or stay suspended) as before: '.implode(', ', array_slice($unfinished, 0, 5)).(count($unfinished) > 5 ? ', …' : ''), false,
+            'php artisan onhost:services:archive <service> shows why the final archive failed; fix the path to the panel, then ask for the cancellation again (staff console → the service → cancel; dunning repeats its own every day)');
         $policy = app(DeletionPolicy::class)->all();
         $this->add('lifecycle', 'restore window and retention set', $policy['grace_days'] >= 1 && $policy['retention_days'] >= 30,
             $policy['grace_days'].' days to restore · archive kept '.$policy['retention_days'].' days · '.$policy['identity_checks'].' identity points · download '.number_format($policy['download_fee_minor']['CZK'] / 100, 0, ',', ' ').' Kč', false);
@@ -341,9 +405,26 @@ final class Doctor extends Command
         $this->add('speed', "actions a person waits for finish within {$target} s (p95, 24 h)", $slow === [], $slow === [] ? 'nothing slower' : implode('; ', array_map(fn (array $r) => "{$r['provider']} {$r['action']}: p95 {$r['p95_s']} s (queue {$r['wait_p95_s']} s, {$r['count']}×)", array_slice($slow, 0, 5))), false);
     }
 
-    private function add(string $area, string $check, bool $ok, string $detail = '', bool $blocking = true): void
+    private function add(string $area, string $check, bool $ok, string $detail = '', bool $blocking = true, string $remedy = ''): void
     {
-        $this->rows[] = ['area' => $area, 'check' => $check, 'status' => $ok ? 'OK' : ($blocking && $this->production ? 'FAIL' : 'WARN'), 'detail' => $detail];
+        $this->rows[] = ['area' => $area, 'check' => $check, 'status' => $ok ? 'OK' : ($blocking && $this->production ? 'FAIL' : 'WARN'), 'detail' => $detail, 'remedy' => $ok ? '' : self::remedyOf($check, $detail, $remedy)];
+    }
+
+    /** The explicit remedy, else what follows the last ' — ' of the detail (older rows write the way out there); never invented. */
+    private static function remedyOf(string $check, string $detail, string $remedy): string
+    {
+        if ($remedy !== '') {
+            return $remedy;
+        }
+        if (isset(self::REMEDIES[$check])) {
+            return self::REMEDIES[$check];
+        }
+        $at = mb_strrpos($detail, ' — ');
+
+        $tail = $at === false ? '' : trim(mb_substr($detail, $at + 3));
+
+        // only an instruction is a remedy; a note ("nothing is sent to them") stays in the detail
+        return preg_match('/^(php |set |run |read |grant |raise |check |open |lift |add |fix |remove |use |onhost:|systemctl |GET |POST |see |decide |tell )/i', $tail) === 1 ? $tail : '';
     }
 
     /**
@@ -355,11 +436,11 @@ final class Doctor extends Command
     private function addChecked(array $row): void
     {
         if (! $row['ok'] && ($row['fail_everywhere'] ?? false)) {
-            $this->rows[] = ['area' => $row['area'], 'check' => $row['check'], 'status' => 'FAIL', 'detail' => $row['detail']];
+            $this->rows[] = ['area' => $row['area'], 'check' => $row['check'], 'status' => 'FAIL', 'detail' => $row['detail'], 'remedy' => (string) ($row['remedy'] ?? '')];
 
             return;
         }
-        $this->add($row['area'], $row['check'], $row['ok'], $row['detail'], $row['blocking']);
+        $this->add($row['area'], $row['check'], $row['ok'], $row['detail'], $row['blocking'], (string) ($row['remedy'] ?? ''));
     }
 
     private function environment(): void
@@ -376,6 +457,9 @@ final class Doctor extends Command
         $backup = app(PlatformBackup::class)->status(); // go-live §1: a verified backup younger than a day
         $verifiedAt = isset($backup['verified']['at']) ? CarbonImmutable::parse((string) $backup['verified']['at']) : null;
         $this->add('storage', 'platform backup verified within 26 h', $verifiedAt !== null && $verifiedAt->gt(now()->subHours(26)), $verifiedAt !== null ? 'set '.$backup['verified']['set'].' verified '.$verifiedAt->diffForHumans().' on disk '.$backup['disk'] : (isset($backup['last']['at']) ? 'last backup '.$backup['last']['at'].' not verified yet — onhost:platform:backup:verify' : 'no backup yet — onhost:platform:backup runs daily 02:15'), false);
+        foreach (app(RestoreDrill::class)->checks() as $check) { // P13: a restore that was really tried, within 35 days
+            $this->addChecked($check);
+        }
         $this->add('storage', 'platform backup disk off the server', ! $this->production || $backup['disk'] !== 'local', $backup['disk'].($backup['disk'] === 'local' ? ' (production: an S3-compatible disk — ONHOST_PLATFORM_BACKUP_DISK)' : ''), false);
         try {
             DB::select('select 1');
@@ -487,11 +571,20 @@ final class Doctor extends Command
         $gateway = (string) config('onhost.payments.default');
         $merchant = (string) config("onhost.payments.{$gateway}.merchant", '');
         $this->add('payments', "card gateway ({$gateway}) configured", $merchant !== '', $merchant !== '' ? "merchant {$merchant}" : 'merchant id missing — card payments fail with payment_provider_error');
-        $this->add('payments', 'card gateway live mode', ! (bool) config("onhost.payments.{$gateway}.test", true), (bool) config("onhost.payments.{$gateway}.test", true) ? 'test flag on' : 'live');
+        // H-R8: the administration may override COMGATE_TEST (four eyes); the row reads the mode payments are really created in
+        $testMode = $gateway === 'comgate' ? ComgateMode::test() : (bool) config("onhost.payments.{$gateway}.test", true);
+        $this->add('payments', 'card gateway live mode', ! $testMode, $testMode ? 'test flag on'.($gateway === 'comgate' ? ' (set by '.ComgateMode::source().')' : '') : 'live');
+        if ($gateway === 'comgate') { // the last check staff ran in the administration (connection or 1 Kč test payment)
+            $last = (array) (app(SettingsStore::class)->get(ComgateCheck::LAST_CHECK) ?? []);
+            $this->add('payments', 'Comgate answered the last administration check', ($last['ok'] ?? false) === true,
+                $last === [] ? 'never checked — Nastavení → Integrace → Platební brána Comgate, "Ověřit spojení"' : ($last['kind'] ?? '?').' at '.($last['at'] ?? '?').': '.mb_substr((string) ($last['message'] ?? ''), 0, 160), false);
+        }
         $this->add('payments', 'stored cards for automatic top-ups', app(AutoTopup::class)->supported(), app(AutoTopup::class)->supported() ? 'a gateway charges stored methods (recurring)' : 'no gateway charges stored methods — automatic top-ups only notify (COMGATE_MERCHANT + COMGATE_RECURRING)', false);
         $bank = (array) config('onhost.payments.bank');
         $this->add('payments', 'bank account for transfers', ($bank['iban'] ?? '') !== '' && ($bank['account_number'] ?? '') !== '', 'ONHOST_BANK_IBAN / ONHOST_BANK_ACCOUNT printed on proformas and top-up instructions');
-        $this->add('payments', 'bank statement import', ($bank['fio_token'] ?? '') !== '', ($bank['fio_token'] ?? '') !== '' ? 'Fio API token set — onhost:bank:sync runs every 5 minutes' : 'ONHOST_BANK_FIO_TOKEN missing — transfers must be recorded by hand in Nastavení → Bankovní platby');
+        // J-R7 (M3): without a Fio token the statement file of Česká spořitelna is imported in the console — not a missing piece any more
+        $this->add('payments', 'bank statement import', true, (($bank['fio_token'] ?? '') !== '' ? 'Fio API token set — onhost:bank:sync runs every 5 minutes' : 'no Fio API token')
+            .'; a statement file from Česká spořitelna (camt.053 or ABO/GPC) is imported in Nastavení → Bankovní platby, unmatched lines are assigned there by hand', false);
     }
 
     private function documents(): void
@@ -500,9 +593,34 @@ final class Doctor extends Command
         $this->add('documents', 'legal entity exists', $entity !== null, (string) config('onhost.billing.legal_entity', 'onhost-cz'));
         if ($entity !== null) {
             $placeholder = str_starts_with((string) $entity->iban, 'CZ0000') || (string) $entity->iban === '';
-            $this->add('documents', 'legal entity bank details real', ! $placeholder, $placeholder ? 'seeded placeholder IBAN — run LegalEntitySeeder with production values' : (string) $entity->iban);
+            $checksum = $placeholder || self::ibanChecksumValid((string) $entity->iban); // I-R15: a mistyped IBAN would put every transfer on hold
+            $this->add('documents', 'legal entity bank details real', ! $placeholder && $checksum, match (true) {
+                $placeholder => 'seeded placeholder IBAN — run LegalEntitySeeder with production values',
+                ! $checksum => 'IBAN '.$entity->iban.' has wrong check digits — correct ONHOST_BANK_IBAN and run onhost:production:prepare --legal',
+                default => (string) $entity->iban,
+            });
             $this->add('documents', 'legal entity identification', (string) $entity->ico !== '' && (string) $entity->name !== '', "{$entity->name} · IČO {$entity->ico}");
         }
+        // G2: the VAT mode documents are issued in, and the way out when the declaration (ONHOST_VAT_PAYER) and the legal entity disagree
+        $vat = app(VatPayerMode::class)->report();
+        $this->add('documents', 'VAT payer mode', $vat['consistent'], $vat['detail'], true, $vat['remedy']);
+    }
+
+    /** ISO 13616 mod-97 check of an IBAN (letters → 10..35, country and check digits moved to the end, remainder 1). */
+    private static function ibanChecksumValid(string $iban): bool
+    {
+        $iban = strtoupper(str_replace(' ', '', $iban));
+        if (preg_match('/^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/', $iban) !== 1) {
+            return false;
+        }
+        $remainder = 0;
+        foreach (str_split(substr($iban, 4).substr($iban, 0, 4)) as $char) {
+            foreach (str_split(ctype_alpha($char) ? (string) (ord($char) - 55) : $char) as $digit) {
+                $remainder = ($remainder * 10 + (int) $digit) % 97;
+            }
+        }
+
+        return $remainder === 1;
     }
 
     private function identity(): void

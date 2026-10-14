@@ -19,7 +19,7 @@ final class QueueScaler
 {
     public const HELPERS_KEY = 'onhost:queue:helpers';
 
-    public const QUEUES = 'default,mails,provider-proxmox,provider-ispconfig,provider-aapanel,provider-pterodactyl,provider-powerdns,provider-registrar,provider-kubernetes';
+    public const QUEUES = 'default,mails,provider-proxmox,provider-ispconfig,provider-aapanel,provider-pterodactyl,provider-powerdns,provider-registrar,provider-kubernetes,provider-penpot';
 
     /** @var (Closure(list<string>): void)|null test seam: receives the command line instead of starting a process */
     public static ?Closure $launcher = null;

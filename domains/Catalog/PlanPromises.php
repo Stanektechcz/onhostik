@@ -78,6 +78,7 @@ final class PlanPromises
         'validation' => 'the validation level of the certificate authority',
         'support' => 'the response time of the support team',
         'tls' => 'which certificate authority the free certificate comes from',
+        'spam_filter' => 'the mail server\'s antispam (one rspamd with the server\'s rules for every mail plan, metering M4 default, phase U): no mail workflow writes a per-plan rspamd policy, so the price list words it as a description of the server — "Antispam rspamd s pravidly serveru (fair use)" — never as a policy tier; a per-plan policy is the owner\'s choice (ISPConfig spamfilter_user + policy, staging first)',
         'products' => 'a recommended catalogue size for the shop plan (owner decision 5, 2026-09-25): nothing reads back or caps a store\'s product count; worded "Doporučeno do N produktů"',
     ];
 
@@ -113,11 +114,6 @@ final class PlanPromises
      */
     public const KNOWN_GAPS = [
         'php_workers' => 'sold on wordpress/eshop (aaPanel), where the price list words it as the shared pool ("Sdílené PHP workery", decision 7); AaPanelWebProvider returns applied=false for every PHP-worker change, so the number itself is kept nowhere — see MetricRegistry',
-        'aliases' => 'sold on mail plans; ISPConfig has no limit_mailalias and alias.create runs no count check — see MetricRegistry',
-        'spam_filter' => 'sold on mail plans; only the price list names the antispam tier, no mail config sets an rspamd policy from it — see MetricRegistry',
-        'traffic_tb' => 'sold on VPS/VDS and the CDN add-on; UsageWatch only measures traffic for web/managed families — see MetricRegistry',
-        'bot_management' => 'sold on the CDN add-on, whose product has no executor at all — nothing in the platform configures bot management — see MetricRegistry',
-        'pids' => 'sold in every game plan\'s limits bag; PterodactylGameProvider\'s resource limits (memory/swap/disk/io/cpu) never include a PID cap — see MetricRegistry',
         'backup_days' => 'sold on web/managed, mail and db-s/db-m plans; kept only behind the owner\'s default-off rules — backups.as_sold (web/managed daily backups), mail.backup_retention (mailbox copies, TASK-0024) and backups.compute (managed databases, family `data`) — so with the rules off (the default) no family keeps it as sold — see MetricRegistry kept_under (found by family-scoping the registry check, audit §5ad)',
     ];
 

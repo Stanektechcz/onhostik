@@ -6,10 +6,12 @@ namespace Onhost\Domain\Orders;
 
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Catalog\Models\PromoCode;
+use Onhost\Domain\Identity\EmailVerificationGuard;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Invoicing\AccountingClock;
 use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Invoicing\Models\Invoice;
+use Onhost\Domain\Loyalty\LoyaltyRedemptions;
 use Onhost\Domain\Orders\Models\Consent;
 use Onhost\Domain\Orders\Models\ConsentDocument;
 use Onhost\Domain\Orders\Models\Order;
@@ -18,6 +20,7 @@ use Onhost\Domain\Orders\Models\Quote;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Payments\Models\PaymentIntent;
 use Onhost\Domain\Payments\PaymentService;
+use Onhost\Domain\Services\CdnAvailability;
 use Onhost\Domain\Services\Limits\LimitRaisePolicy;
 use Onhost\Domain\WalletLedger\Models\WalletHold;
 use Onhost\Domain\WalletLedger\WalletService;
@@ -69,11 +72,14 @@ final class CheckoutService
         if ($quote->organization_id !== null && $quote->organization_id !== $organization->id) {
             throw new DomainError('quote_organization_mismatch', 'The quote belongs to a different organization.', 403);
         }
+        EmailVerificationGuard::assertMayPlaceOrder((int) $quote->total_minor, (string) $quote->currency, $context); // R5: an unverified e-mail does not place a large order (TASK-0096)
         $mode = $payment['mode'] ?? 'wallet';
         if (! in_array($mode, ['wallet', 'gateway', 'bank', 'postpaid'], true)) {
             throw new DomainError('payment_mode_invalid', 'Unsupported payment mode.');
         }
         LimitRaisePolicy::assertOrderable($quote, $source, $context); // customers order a raise once the switch is on; a free raise is staff's (TASK-0022)
+        PenpotLine::assertStillOrderable($quote, $organization); // a quote lives two hours: the node and the parent are asked again (H-R7)
+        CdnAvailability::assertQuotable((array) $quote->lines); // K7-5 / R4: the CDN account, asked again when the quote is paid
         if ($mode === 'postpaid' && $this->wallets->approvedCreditLine($organization->id, $quote->currency)->isZero()) {
             throw new DomainError('postpaid_not_approved', 'Postpaid billing requires an approved credit line.', 403);
         }
@@ -108,7 +114,12 @@ final class CheckoutService
         $risk = $this->risk->assess($quote, $organization, $user, $context, $source);
 
         return DB::transaction(function () use ($quote, $organization, $user, $consents, $payment, $idempotencyKey, $context, $source, $mode, $fingerprint, $risk, $awaitApproval, $standingDefault) {
+            // two requests with one quote: the second waits for the first and finds it accepted (a 409, never a second order or a 500)
+            if (Quote::query()->whereKey($quote->id)->lockForUpdate()->value('state') !== 'open') {
+                throw new DomainError('quote_already_used', 'Tato nabídka už byla objednána; obnovte košík.', 409, ['field' => 'quote_id']);
+            }
             $quote->forceFill(['state' => 'accepted', 'organization_id' => $organization->id])->save();
+            PenpotLine::claimParents($quote, $organization); // one Penpot per service: decided under the parent's row lock (TASK-0130)
             // a promo code is used when an order is placed with it — counted here, under a lock, so "the first hundred" is a
             // hundred even when two checkouts race. The counter existed and nothing ever wrote to it: every limited code was unlimited.
             $promoCode = (string) ($quote->versions['promo'] ?? '');
@@ -160,9 +171,10 @@ final class CheckoutService
                     'total_minor' => $line['total'],
                     'period' => $line['period'],
                     'config' => array_merge($line['config'], ['entitlements' => $line['entitlements'], 'family' => $line['family'], 'renewal_net_minor' => $line['renewal_net'], 'tax_category' => $line['tax_category'], 'currency' => $quote->currency]),
-                    'state' => 'pending',
+                    'state' => LoyaltyRedemptions::isRedemption($line) ? LoyaltyRedemptions::ITEM_STATE : 'pending', // a points discount is applied with the order, never provisioned
                 ]);
             }
+            app(LoyaltyRedemptions::class)->reserve($order, $quote, $user, $context); // G3 (G-R2): the points the quote priced, under a lock on the organization
             $consentIds = $this->recordConsents($order, $organization, $user, $consents, $context);
             $order->forceFill(['consents' => $consentIds])->save();
             $this->audit->record($context->withScope($organization->id), 'order.place', 'succeeded', ['number' => $number, 'total' => $order->total(), 'mode' => $mode], 'order', $order->id);
@@ -251,6 +263,7 @@ final class CheckoutService
                 $order->forceFill(['wallet_hold_id' => $hold->id]);
             }
             $order->forceFill(['state' => OrderStateMachine::PAID, 'paid_at' => now(), 'payment_intent_id' => $paymentIntentId ?? $order->payment_intent_id])->save();
+            app(LoyaltyRedemptions::class)->consume($order, $context); // G3 (G-R2): the reserved points are spent with the payment
             $invoice = $this->invoices->issueForOrder($order, $context, $method);
             $order->forceFill(['invoice_id' => $invoice->id])->save();
             $this->audit->record($context->withScope($order->organization_id), 'order.paid', 'succeeded', ['number' => $order->number, 'method' => $method], 'order', $order->id);
@@ -346,6 +359,7 @@ final class CheckoutService
                 if ($order->promo_code !== null && $order->paid_at === null) { // an order nobody paid gives its use of the code back
                     PromoCode::query()->where('code', $order->promo_code)->where('uses', '>', 0)->decrement('uses');
                 }
+                app(LoyaltyRedemptions::class)->release($order, (string) ($note ?? 'order cancelled'), $context); // G3: points reserved by an unpaid order come back (a paid one returns them with its credit note)
                 if ($order->wallet_hold_id !== null) {
                     $hold = WalletHold::query()->find($order->wallet_hold_id);
                     if ($hold !== null && $hold->isActive()) {

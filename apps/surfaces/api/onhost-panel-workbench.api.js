@@ -7,6 +7,9 @@
  * (POST …/actions). Tabs whose feature the executor does not offer are simply not shown. The surface stays
  * byte-identical: SurfaceRenderer points `svTabs` and `WB_BUILD` at tabs()/build() below. */
 (function () {
+  /* a count with its noun in the right Czech form (1 den, 2 dny, 5 dní) — G8 item 7 */
+  function cn(n, cs, en, lang) { var I = window.OnhostI18n; return I ? I.cn(n, cs, en, lang) : n + ' ' + (lang === 'en' ? (n === 1 ? en[0] : en[1]) : (n === 1 ? cs[0] : (n >= 2 && n <= 4 ? cs[1] : cs[2]))); }
+  function cq(_, n, cs, en) { return _(cn(n, cs, en, 'cs'), cn(n, cs, en, 'en')); }
   if (window.OnhostPanelWorkbench) return; // the prototype runtime executes helmet scripts twice
   var API = window.OnhostApi;
   var SELF_SRC = (typeof document !== 'undefined' && document.currentScript && document.currentScript.src) || ''; // where this file came from: the domains module is loaded beside it when the renderer did not inject it
@@ -15,7 +18,7 @@
   function cs(cmp) { return !cmp || !cmp.state || cmp.state.lang !== 'en'; }
   function T(cmp) { var c = cs(cmp); return function (a, b) { return c ? a : b; }; }
   function real(sel) { return !!(window.ONHOST_PANEL && sel && sel.apiState); }
-  function family(sel) { return { web: 'web', vps: 'cloud', mc: 'game', cs2: 'game', mail: 'mail', domain: 'domain' }[sel.type] || null; }
+  function family(sel) { if (sel && sel.product === 'penpot') return 'penpot'; return { web: 'web', vps: 'cloud', mc: 'game', cs2: 'game', mail: 'mail', domain: 'domain' }[sel.type] || null; } // TASK-0123: a Penpot row is listed with the web services
   function rerender(cmp) { try { cmp.setState({ wbTick: ++state.tick }); } catch (e) { /* not mounted */ } }
   function flash(cmp, t, b) { if (cmp && typeof cmp.flash === 'function') cmp.flash(t, b); }
   function since(cmp, iso) { if (!iso) return ''; var d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString(cs(cmp) ? 'cs-CZ' : 'en-GB', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }); }
@@ -57,7 +60,7 @@
       [_('Platba a obnova', 'Billing and renewal'), renewal],
       [_('Projekt', 'Project'), sm.project ? sm.project.name : _('bez projektu', 'no project')],
       [_('Certifikát', 'Certificate'), sm.certificate ? (cert[sm.certificate] || sm.certificate) : _('—', '—')],
-      [_('Poslední záloha', 'Last backup'), sm.backup ? day(sm.backup.last_at) + (sm.backup.offsite ? _(' · offsite kopie', ' · offsite copy') : '') + (sm.backup.verified ? _(' · ověřená', ' · verified') : '') + (sm.backups_count ? ' · ' + sm.backups_count + _(' záloh', ' backups') : '') : _('zatím žádná', 'none yet')],
+      [_('Poslední záloha', 'Last backup'), sm.backup ? day(sm.backup.last_at) + (sm.backup.offsite ? _(' · offsite kopie', ' · offsite copy') : '') + (sm.backup.verified ? _(' · ověřená', ' · verified') : '') + (sm.backups_count ? ' · ' + cq(_, sm.backups_count, ['záloha', 'zálohy', 'záloh'], ['backup', 'backups']) : '') : _('zatím žádná', 'none yet')],
       [_('Monitoring', 'Monitoring'), mon],
       [_('Operace', 'Operations'), (ops.active ? _('probíhá ', 'in progress ') + ops.active : _('klid', 'idle')) + (ops.last_failed ? _(' · poslední selhání ', ' · last failure ') + (ops.last_failed.kind || '') + ' ' + day(ops.last_failed.finished_at) : '')]
     ];
@@ -191,9 +194,10 @@
     });
   }
   /* GET …/actions/{action}/preview?params[k]=v — the server describes the action; scalars only, as a query string can carry */
-  function previewQuery(params) {
+  function previewQuery(params, locale) {
     var out = [];
     Object.keys(params || {}).forEach(function (k) { var v = params[k]; if (v === null || v === undefined || typeof v === 'object') return; out.push(encodeURIComponent('params[' + k + ']') + '=' + encodeURIComponent(String(v))); });
+    if (locale) out.push('locale=' + locale); // the preview says what goes in the language the page is in
     return out.length ? '?' + out.join('&') : '';
   }
   /* A destructive action (DestructivePreview::ACTIONS) never runs on a blind "OK": the server's preview says what goes,
@@ -202,7 +206,7 @@
   function destructive(cmp, sel, action, params, o) {
     o = o || {};
     var _ = T(cmp);
-    return API.get('/services/' + sel.id + '/actions/' + action + '/preview' + previewQuery(params)).then(function (r) {
+    return API.get('/services/' + sel.id + '/actions/' + action + '/preview' + previewQuery(params, _('cs', 'en'))).then(function (r) {
       var p = r.data || r;
       return dialog(cmp, { danger: true, title: o.title || _('Opravdu to provést?', 'Really do this?'), lead: (p.service && p.service.name) || sel.name, lines: (p.what || []).concat(p.depends || []), note: p.recovery && p.recovery.note ? p.recovery.note : '', confirm: o.confirm || _('Provést', 'Proceed') }).then(function (yes) {
         if (!yes) return null;
@@ -229,7 +233,8 @@
     cloud: [['console', 'console'], ['tasks', 'operations'], ['snap', 'snapshots'], ['disks', 'disks'], ['net', 'firewall'], ['bkp', 'backups'], ['mon', 'usage'], ['noc', 'operations']],
     game: [['console', 'console'], ['startup', 'startup'], ['sched', 'schedules'], ['settings', 'game_settings'], ['files', 'game_files'], ['world', 'backups'], ['bkp', 'backups'], ['dbs', 'game_databases'], ['net', 'network'], ['users', 'subusers'], ['plan', 'resize'], ['mon', 'usage'], ['noc', 'operations']],
     mail: [['boxes', 'mailboxes'], ['alias', 'aliases'], ['auth', 'dkim'], ['noc', 'operations']],
-    domain: [['dns', 'zone'], ['soa', 'nameservers'], ['reg', 'registration'], ['sec', 'dnssec'], ['noc', 'operations']]
+    domain: [['dns', 'zone'], ['soa', 'nameservers'], ['reg', 'registration'], ['sec', 'dnssec'], ['noc', 'operations']],
+    penpot: [['cfg', 'penpot'], ['bkp', 'backups'], ['noc', 'operations']] // TASK-0123: the card, its backups, its operations
   };
   function tabs(cmp, sel, SV) {
     if (!real(sel)) return null;
@@ -239,6 +244,11 @@
       var wantD = ['reg', 'soa', 'sec', 'noc', 'dns'];
       var outD = all.filter(function (t) { return wantD.indexOf(t.id) >= 0; });
       return outD.length ? outD : all.slice(0, 1);
+    }
+    if (fam === 'penpot') { // TASK-0123: a Penpot has no panel features; its three tabs are always there
+      var wantP = TABS.penpot.map(function (p) { return p[0]; });
+      var outP = all.filter(function (t) { return wantP.indexOf(t.id) >= 0; });
+      return outP.length ? outP : all.slice(0, 1);
     }
     var f = features(cmp, sel);
     var wanted = TABS[fam].filter(function (pair) { return pair[1] === 'operations' || (f ? !!(f.features[pair[1]] && f.features[pair[1]].enabled) : pair[0] === 'cfg' || pair[0] === 'console' || pair[0] === 'boxes'); }).map(function (p) { return p[0]; });
@@ -250,13 +260,15 @@
   function unavailableReason(_, why) {
     if (why === 'state') return _('Služba teď neběží (je pozastavená, ruší se nebo se zřizuje). Tato funkce bude k dispozici, až se vrátí do provozu.', 'The service is not running right now (suspended, being cancelled or still being set up). This feature is available again once it runs.');
     if (why === 'permission') return _('K této funkci nemáte oprávnění. Službu vidíte, ale tuhle změnu smí provést jen člověk s vyšší rolí; požádejte vlastníka nebo správce služby.', 'You do not have permission for this feature. You can see the service, but only someone with a higher role may do this; ask the owner or the service manager.');
+    if (why === 'plan') return _('Není v tarifu. Funkci získáte změnou tarifu na takový, který ji obsahuje.', 'Not in the plan. Change to a plan that includes it to get this feature.');
+    if (why === 'node') return _('Tarif funkci obsahuje, ale server, na kterém služba běží, ji zatím nenabízí. Napište podpoře.', 'The plan includes it, but the server the service runs on does not offer it yet. Write to support.');
     return _('Tuto funkci služba v aktuálním tarifu nenabízí. Napište podpoře, pokud ji potřebujete.', 'This feature is not offered on the current plan. Write to support if you need it.');
   }
 
   /* ── panels ──────────────────────────────────────────────────────────── */
   function buildCore(cmp, sel, tab, _) {
     if (!real(sel)) return null;
-    var H = cmp.WB_H(sel), fam = family(sel), f = fam === 'domain' ? { features: {} } : features(cmp, sel);
+    var H = cmp.WB_H(sel), fam = family(sel), f = fam === 'domain' || fam === 'penpot' ? { features: {} } : features(cmp, sel);
     var cell = H.cell, A = H.act, F = H.F, s = H.s;
     var loading = { title: sel.name, note: _('načítám nastavení služby…', 'loading the service…'), state: '', head: [], rows: [] };
     if (!f) return loading;
@@ -281,6 +293,7 @@
     var genExtra = function (k) { return { label: _('Vygenerovat heslo', 'Generate password'), on: function () { var p = password(20); var next = Object.assign({}, s.wbF); next[k] = p; cmp.setState({ wbF: next }); flash(cmp, _('Heslo vygenerováno', 'Password generated'), _('Uložte si ho teď — po odeslání ho už nikde nezobrazíme: ', 'Save it now — it is never shown again after submitting: ') + p); } }; };
 
     if (fam === 'domain') return domainBuild(cmp, sel, tab, _, { H: H, infoPanel: infoPanel, unavailable: unavailable, loading: loading });
+    if (fam === 'penpot' && tab !== 'noc' && tab !== 'tasks') return penpotBuild(cmp, sel, tab, _, { H: H, infoPanel: infoPanel, loading: loading, passwordField: passwordField, genExtra: genExtra });
 
     /* operations (all families) */
     if (tab === 'noc' || tab === 'tasks') {
@@ -299,15 +312,16 @@
         var cbState = closed ? (req && req.state === 'refunded' ? _('kredit vrácen ', 'credit returned ') + fmtM(req.refund) : (req && req.state === 'rejected' ? _('zamítnuto podporou', 'rejected by support') : _('bez otevřené žádosti', 'no open request'))) : ({ requested: _('čeká na technickou podporu', 'waiting for technical support'), approved: _('schváleno · službu můžete zrušit', 'approved · you may cancel the service'), cancelling: _('rušíme službu, kredit připíšeme po dokončení', 'cancelling; the credit follows') }[req.state] || req.state);
         var cbActs = [];
         if (closed) cbActs.push(A(_('Požádat o vrácení kreditu', 'Request a credit refund'), function () {
-          var reason = window.prompt(_('Proč chcete službu opustit? Podpora žádost posoudí; po schválení službu zrušíte a ' + pct + ' % nevyužitého zaplaceného období se vrátí jako kredit.', 'Why do you want to leave the service? Support reviews it; after the approval you cancel and ' + pct + ' % of the unused paid period comes back as credit.'), '');
+          window.OnhostDialog.prompt(_('Proč chcete službu opustit? Podpora žádost posoudí; po schválení službu zrušíte a ' + pct + ' % nevyužitého zaplaceného období se vrátí jako kredit.', 'Why do you want to leave the service? Support reviews it; after the approval you cancel and ' + pct + ' % of the unused paid period comes back as credit.'), '', { title: _('Požádat o vrácení kreditu', 'Request a credit refund'), fieldLabel: _('Důvod', 'Reason'), required: true }).then(function (reason) {
           if (!reason) return;
           API.post('/services/' + sel.id + '/chargeback', { reason: reason }, API.key()).then(function () { chargebackInfo(cmp, sel, true); }).catch(function (e) { window.alert((e && e.message) || 'error'); });
+          });
         }));
         if (req && req.state === 'approved') cbActs.push(A(_('Zrušit službu a vrátit ' + fmtM(req.refund), 'Cancel the service and get ' + fmtM(req.refund)), function () {
           if (!window.confirm(_('Služba bude nevratně zrušena (po závěrečné záloze) a ' + fmtM(req.refund) + ' se připíše jako kredit. Pokračovat?', 'The service is cancelled for good (after a final backup) and ' + fmtM(req.refund) + ' is credited. Continue?'))) return;
           API.post('/services/' + sel.id + '/chargeback/cancel', {}, API.key()).then(function () { chargebackInfo(cmp, sel, true); operations(cmp, sel, true); }).catch(function (e) { window.alert((e && e.message) || 'error'); });
         }));
-        rows.push({ cells: [cell(_('Vrácení kreditu (chargeback)', 'Credit refund (chargeback)'), '1 1 220px'), cell(cbState, '0 0 260px'), cell(_('nyní by se vrátilo ', 'would return now ') + fmtM(est.refund_minor != null ? { minor: est.refund_minor, currency: est.currency } : null) + ' (' + pct + ' %)' + ((est.lines || []).length ? ' · ' + (est.lines || []).map(function (l) { return (l.number || '') + ' ' + l.days_left + '/' + l.days + _(' dní', ' days') + (l.paid ? '' : _(' (nezaplaceno: sníží fakturu)', ' (unpaid: reduces the invoice)')); }).join(', ') : _(' · žádné zaplacené období', ' · no paid period')), '1 1 220px', 1)], note: req && req.decision_reason ? req.decision_reason : (req && req.reason && !closed ? req.reason : ''), actions: cbActs });
+        rows.push({ cells: [cell(_('Vrácení kreditu (chargeback)', 'Credit refund (chargeback)'), '1 1 220px'), cell(cbState, '0 0 260px'), cell(_('nyní by se vrátilo ', 'would return now ') + fmtM(est.refund_minor != null ? { minor: est.refund_minor, currency: est.currency } : null) + ' (' + pct + ' %)' + ((est.lines || []).length ? ' · ' + (est.lines || []).map(function (l) { return (l.number || '') + ' ' + l.days_left + '/' + cq(_, l.days, ['den', 'dny', 'dní'], ['day', 'days']) + (l.paid ? '' : _(' (nezaplaceno: sníží fakturu)', ' (unpaid: reduces the invoice)')); }).join(', ') : _(' · žádné zaplacené období', ' · no paid period')), '1 1 220px', 1)], note: req && req.decision_reason ? req.decision_reason : (req && req.reason && !closed ? req.reason : ''), actions: cbActs });
       }
       var wd = withdrawalInfo(cmp, sel); // TASK-0025 consumer withdrawal within 14 days: off first, the unused part back to the credit, then cancelled
       if (wd && Array.isArray(rows) && (wd.withdrawal || (wd.enabled && wd.eligible))) {
@@ -315,12 +329,28 @@
         var dayW = function (v) { return v ? new Date(v).toLocaleDateString('cs-CZ') : '—'; };
         var w = wd.withdrawal, estW = wd.estimate || {};
         var offW = function (m, cs, en) { return m && m.minor > 0 ? _(cs, en) + fmtW(m) : ''; }; // what only makes an unpaid document smaller is never money on the credit (TASK-0025 review)
-        var wdState = w ? ({ suspending: _('přijato · službu pozastavujeme', 'received · suspending the service'), refunded: _('na kredit vráceno ', 'returned to the credit ') + fmtW(w.to_credit) + offW(w.off_documents, ' · doklady sníženy o ', ' · documents reduced by ') + _(' · službu rušíme', ' · cancelling the service'), terminating: _('na kredit vráceno ', 'returned to the credit ') + fmtW(w.to_credit) + offW(w.off_documents, ' · doklady sníženy o ', ' · documents reduced by ') + _(' · služba se ruší', ' · the service is being cancelled'), completed: _('smlouva ukončena · na kredit vráceno ', 'contract ended · returned to the credit ') + fmtW(w.to_credit) + offW(w.off_documents, ' · doklady sníženy o ', ' · documents reduced by ') }[w.state] || w.state) : _('můžete odstoupit do ', 'you may withdraw until ') + dayW(wd.deadline);
-        var wdActs = w ? [] : [A(_('Odstoupit od smlouvy', 'Withdraw from the contract'), function () {
-          if (!window.confirm(_('Odstupuji od smlouvy o této službě. Služba bude pozastavena a zrušena (po závěrečné záloze). Výslovně souhlasím, že nevyužitou zaplacenou část — odhadem ' + fmtW(estW.to_credit) + ' — mi vrátíte dobropisem na kredit účtu, ne na původní platební prostředek.' + offW(estW.off_documents, ' O odhadem ', ' ') + (estW.off_documents && estW.off_documents.minor > 0 ? ' se sníží neuhrazené doklady.' : '') + ' Pokračovat?', 'I withdraw from the contract for this service. It is suspended and cancelled (after a final backup). I expressly agree that the unused paid part — about ' + fmtW(estW.to_credit) + ' — is returned to my account credit with a credit note, not to the original payment method.' + offW(estW.off_documents, ' Unpaid documents are reduced by about ', ' ') + ' Continue?'))) return;
-          API.post('/services/' + sel.id + '/withdrawal', { confirm_refund_to_credit: true }, API.key()).then(function () { withdrawalInfo(cmp, sel, true); operations(cmp, sel, true); }).catch(function (e) { window.alert((e && e.message) || 'error'); });
-        })];
-        rows.push({ cells: [cell(_('Odstoupení od smlouvy (14 dní)', 'Withdrawal from the contract (14 days)'), '1 1 220px'), cell(wdState, '0 0 260px'), cell(w ? (w.credit_notes || []).join(', ') || '—' : _('vrátí se odhadem ', 'about ') + fmtW(estW.to_credit) + _(' na kredit', ' back to the credit') + offW(estW.off_documents, ' · doklady se sníží o ', ' · documents reduced by '), '1 1 220px', 1)], note: w && w.error ? _('Krok čeká: ', 'A step is waiting: ') + w.error : _('Jen pro spotřebitele; registraci domény vrátit nelze.', 'Consumers only; a domain registration cannot be withdrawn.'), actions: wdActs });
+        var backW = function (x) { return x && x.refund_method === 'source' ? _('vráceno (kredit / původní platba) ', 'returned (credit / original payment) ') : _('na kredit vráceno ', 'returned to the credit '); }; // L-06: credit only on the consumer's agreement
+        var wdState = w ? ({ suspending: _('přijato · službu pozastavujeme', 'received · suspending the service'), refunded: backW(w) + fmtW(w.to_credit) + offW(w.off_documents, ' · doklady sníženy o ', ' · documents reduced by ') + _(' · službu rušíme', ' · cancelling the service'), terminating: backW(w) + fmtW(w.to_credit) + offW(w.off_documents, ' · doklady sníženy o ', ' · documents reduced by ') + _(' · služba se ruší', ' · the service is being cancelled'), payout_due: _('smlouva ukončena · ', 'contract ended · ') + fmtW(w.payout) + _(' vrátíme na kartu / účet, z něhož jste platili, do ', ' goes back to the card / account you paid from by ') + dayW(w.payout_due_by), completed: _('smlouva ukončena · ', 'contract ended · ') + backW(w) + fmtW(w.to_credit) + offW(w.off_documents, ' · doklady sníženy o ', ' · documents reduced by ') }[w.state] || w.state) : _('můžete odstoupit do ', 'you may withdraw until ') + dayW(wd.deadline);
+        var wdSend = function (toCredit) {
+          var text = toCredit
+            ? _('Odstupuji od smlouvy o této službě. Služba bude pozastavena a zrušena (po závěrečné záloze). Dobrovolně souhlasím, že nevyužitou zaplacenou část — odhadem ' + fmtW(estW.to_credit) + ' — mi vrátíte dobropisem na kredit účtu místo na původní platební prostředek.' + offW(estW.off_documents, ' O odhadem ', ' ') + (estW.off_documents && estW.off_documents.minor > 0 ? ' se sníží neuhrazené doklady.' : '') + ' Pokračovat?', 'I withdraw from the contract for this service. It is suspended and cancelled (after a final backup). I voluntarily agree that the unused paid part — about ' + fmtW(estW.to_credit) + ' — is returned to my account credit with a credit note instead of the original payment method.' + offW(estW.off_documents, ' Unpaid documents are reduced by about ', ' ') + ' Continue?')
+            : _('Odstupuji od smlouvy o této službě. Služba bude pozastavena a zrušena (po závěrečné záloze). Nevyužitou zaplacenou část — odhadem ' + fmtW(estW.to_credit) + ' — mi vrátíte stejným způsobem, jakým jsem platil(a): platbu kartou nebo převodem na ni do 14 dnů, platbu z kreditu na kredit.' + offW(estW.off_documents, ' O odhadem ', ' ') + (estW.off_documents && estW.off_documents.minor > 0 ? ' se sníží neuhrazené doklady.' : '') + ' Pokračovat?', 'I withdraw from the contract for this service. It is suspended and cancelled (after a final backup). The unused paid part — about ' + fmtW(estW.to_credit) + ' — goes back the way I paid: a card or transfer payment there within 14 days, a payment from the credit to the credit.' + offW(estW.off_documents, ' Unpaid documents are reduced by about ', ' ') + ' Continue?');
+          if (!window.confirm(text)) return;
+          API.post('/services/' + sel.id + '/withdrawal', toCredit ? { confirm_refund_to_credit: true } : {}, API.key()).then(function () { withdrawalInfo(cmp, sel, true); operations(cmp, sel, true); }).catch(function (e) { window.alert((e && e.message) || 'error'); });
+        };
+        var wdActs = w ? [] : [A(_('Odstoupit od smlouvy', 'Withdraw from the contract'), function () { wdSend(false); }), A(_('Odstoupit, peníze na kredit', 'Withdraw, money to the credit'), function () { wdSend(true); })];
+        rows.push({ cells: [cell(_('Odstoupení od smlouvy (14 dní)', 'Withdrawal from the contract (14 days)'), '1 1 220px'), cell(wdState, '0 0 260px'), cell(w ? (w.credit_notes || []).join(', ') || '—' : _('vrátí se odhadem ', 'about ') + fmtW(estW.to_credit) + _(' (stejným způsobem, jakým jste platili)', ' back (the way you paid)') + offW(estW.off_documents, ' · doklady se sníží o ', ' · documents reduced by '), '1 1 220px', 1)], note: w && w.error ? _('Krok čeká: ', 'A step is waiting: ') + w.error : _('Jen pro spotřebitele; registraci domény vrátit nelze.', 'Consumers only; a domain registration cannot be withdrawn.'), actions: wdActs });
+      }
+      var pp = fam !== 'penpot' && fam !== 'domain' ? penpotOffer(cmp, sel) : null; // H-R7 (TASK-0130): Penpot for this service — included, its price, or why not
+      if (pp && !pp.__error && Array.isArray(rows)) {
+        var fmtP = function (m) { return m && m.minor != null ? (m.minor === 0 ? _('v ceně tarifu', 'included in the plan') : (Math.round(m.minor) / 100).toLocaleString('cs-CZ') + ' ' + (m.currency || '') + (pp.period === 'year' ? _(' / rok', ' / year') : _(' / měsíc', ' / month'))) : '—'; };
+        var ppWhy = { penpot_unavailable: _('teď nedodáme: server pro Penpot není připravený — nic se neobjedná ani nezaplatí', 'not deliverable now: the Penpot server is not ready — nothing is ordered or charged'), penpot_exists: _('služba už Penpot má (nebo je objednaný)', 'the service already has its Penpot (or it is ordered)'), penpot_parent_inactive: _('jen ke službě, která běží a není zrušená', 'only for a running service that is not cancelled'), penpot_parent_invalid: _('k této službě se Penpot neobjednává', 'Penpot is not ordered for this service'), penpot_unpriced: _('v této měně nemá cenu', 'no price in this currency'), product_not_sellable: _('Penpot se teď neprodává', 'Penpot is not on sale now') };
+        var ppState = pp.orderable ? (pp.included ? _('v ceně tarifu · lze aktivovat', 'included in the plan · can be activated') : _('doplněk ', 'add-on ') + fmtP(pp.price)) : (ppWhy[pp.reason] || pp.message || pp.reason || '—');
+        var ppActs = pp.orderable && window.OnhostPanelOrder && window.OnhostPanelOrder.penpot ? [A(pp.included ? _('Aktivovat Penpot (v ceně)', 'Activate Penpot (included)') : _('Objednat Penpot za ', 'Order Penpot for ') + fmtP(pp.price), function () {
+          if (!window.confirm(pp.included ? _('Aktivovat Penpot k této službě? Je v ceně tarifu, nic se neplatí.', 'Activate Penpot for this service? It is included in the plan; nothing is charged.') : _('Objednat Penpot k této službě za ' + fmtP(pp.price) + '? Platí se se službou každé období.', 'Order Penpot for this service for ' + fmtP(pp.price) + '? It is billed every period.'))) return;
+          window.OnhostPanelOrder.penpot(cmp, sel.id, pp).then(function () { penpotOffer(cmp, sel, true); operations(cmp, sel, true); });
+        })] : [];
+        rows.push({ cells: [cell(_('Penpot (návrhy a prototypy)', 'Penpot (design and prototyping)'), '1 1 220px'), cell(ppState, '0 0 260px'), cell(pp.existing && pp.existing.length ? _('Penpot služby je v seznamu webových služeb', 'the service\'s Penpot is listed with the web services') : (pp.included ? _('vlastní instance pro tým, HTTPS, denní zálohy', 'your own instance for the team, HTTPS, daily backups') : fmtP(pp.price)), '1 1 220px', 1)], note: '', actions: ppActs });
       }
       var held = sel.suspension && sel.suspension.customer_can_resume === false ? sel.suspension : null; // a suspension we imposed is not the customer's to lift (H17)
       if (held) {
@@ -330,7 +360,7 @@
       var del = !held && sel.deletion && sel.deletion.grace_until ? sel.deletion : null; // a cancelled service waits deactivated; the customer may bring it back (audit §5ab)
       if (del) {
         var dayD = function (v) { return v ? new Date(v).toLocaleDateString('cs-CZ') : '—'; };
-        rows.unshift({ cells: [cell(_('Zrušená služba', 'Cancelled service'), '1 1 220px'), cell(_('deaktivovaná, data máme zazálohovaná', 'deactivated, the data is archived'), '1 1 300px'), cell(_('obnovit do ', 'restore by ') + dayD(del.grace_until) + (del.days_left != null ? ' (' + del.days_left + _(' dní', ' days') + ')' : ''), '0 0 200px', 1)],
+        rows.unshift({ cells: [cell(_('Zrušená služba', 'Cancelled service'), '1 1 220px'), cell(_('deaktivovaná, data máme zazálohovaná', 'deactivated, the data is archived'), '1 1 300px'), cell(_('obnovit do ', 'restore by ') + dayD(del.grace_until) + (del.days_left != null ? ' (' + cq(_, del.days_left, ['den', 'dny', 'dní'], ['day', 'days']) + ')' : ''), '0 0 200px', 1)],
           note: _('Po uplynutí lhůty službu odstraníme a zůstane jen archiv ke stažení nebo k obnově do nové služby.', 'After the window we remove the service; only the archive is left, to download or restore into a new service.'),
           actions: [A(_('Obnovit službu', 'Restore the service'), function () {
             if (!window.confirm(_('Obnovit službu a zrušit plánované odstranění?', 'Restore the service and call the removal off?'))) return;
@@ -375,9 +405,10 @@
       } else if (mg) {
         var when = function (v) { return v ? new Date(v).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'; };
         rows.unshift({ cells: [cell(_('Plánované stěhování ', 'Scheduled migration ') + mgWhat, '1 1 220px'), cell(_('začne ', 'starts ') + when(mg.starts_at), '0 0 170px'), cell(_('okno ', 'window ') + when(mg.from) + ' – ' + when(mg.to), '1 1 240px', 1)], note: (mg.reason || '') + (mg.chosen_at ? _(' · termín jste zvolili', ' · you chose the time') : _(' · termín můžete posunout', ' · you may move the time')), actions: [A(_('Změnit termín', 'Change the time'), function () {
-          var v = window.prompt((mgWeb ? _('Kdy má stěhování začít? (RRRR-MM-DD HH:MM, v okně výše; web bude po dobu kopírování dočasně vypnutý, aby se nic z objednávek ani z databáze neztratilo)', 'When should the migration start? (YYYY-MM-DD HH:MM, within the window; the site is off while it is copied, so that nothing written in the meantime is lost)') : _('Kdy má stěhování začít? (RRRR-MM-DD HH:MM, v okně výše; server bude po dobu přenosu vypnutý)', 'When should the migration start? (YYYY-MM-DD HH:MM, within the window; the server is off while the data moves)')), (mg.starts_at || '').slice(0, 16).replace('T', ' '));
+          window.OnhostDialog.prompt((mgWeb ? _('Kdy má stěhování začít? (RRRR-MM-DD HH:MM, v okně výše; web bude po dobu kopírování dočasně vypnutý, aby se nic z objednávek ani z databáze neztratilo)', 'When should the migration start? (YYYY-MM-DD HH:MM, within the window; the site is off while it is copied, so that nothing written in the meantime is lost)') : _('Kdy má stěhování začít? (RRRR-MM-DD HH:MM, v okně výše; server bude po dobu přenosu vypnutý)', 'When should the migration start? (YYYY-MM-DD HH:MM, within the window; the server is off while the data moves)')), (mg.starts_at || '').slice(0, 16).replace('T', ' '), { title: _('Termín stěhování', 'Migration time'), fieldLabel: _('Začátek (RRRR-MM-DD HH:MM)', 'Start (YYYY-MM-DD HH:MM)'), required: true }).then(function (v) {
           if (!v) return;
           API.put('/services/' + sel.id + '/migration', { starts_at: v.trim().replace(' ', 'T') }).then(function (r) { var m = r && r.migration ? r.migration : null; if (m) { sel.migration = m; } window.alert(_('Termín uložen: ', 'Time saved: ') + when(m ? m.starts_at : v)); operations(cmp, sel, true); }).catch(function (e) { window.alert((e && e.message) || 'error'); });
+          });
         })] });
       }
       return { key: 'real:ops', title: _('Provoz · ', 'Operations · ') + sel.name, note: _('každý zásah do služby je operace s auditem; selhání zkoušíme znovu a hlásíme', 'every change is an audited operation; failures are retried and reported'), state: Array.isArray(ops) ? ops.length + ' ' + _('operací', 'operations') : '', head: [cell(_('Operace', 'Operation'), '1 1 220px'), cell(_('Stav', 'State'), '0 0 110px'), cell(_('Čas', 'Time'), '0 0 130px')], rows: rows, extra: [{ label: _('Obnovit', 'Refresh'), on: function () { operations(cmp, sel, true); } }] };
@@ -539,7 +570,7 @@
         if (!on('shell')) return on('ssh') ? infoPanel(_('SSH a SFTP · ', 'SSH and SFTP · ') + sel.name, _('shell přístup zapíná podpora na vyžádání; SFTP funguje s FTP účty', 'shell access is enabled by support on request; SFTP works with the FTP accounts'), [[_('SFTP', 'SFTP'), _('adresa webu, port 22, FTP účet', 'site address, port 22, FTP account')]]) : unavailable('SSH');
         return listPanel('shell_users', _('Shell a SSH klíče · ', 'Shell and SSH keys · ') + sel.name, _('shell účet v chrootu webu (WP-CLI, composer, git); přihlášení heslem nebo klíčem ed25519/RSA', 'a shell account chrooted to the site (WP-CLI, composer, git); sign in with a password or an ed25519/RSA key'),
           [cell(_('Uživatel', 'User'), '1 1 200px'), cell(_('Klíč', 'Key'), '0 0 120px'), cell(_('Chroot', 'Chroot'), '0 0 90px')],
-          function (d) { var k = d.key || null, who = k && k.owner ? (k.owner.name || k.owner.email || '') : ''; return { cells: [cell(d.user, '1 1 200px', 1), cell(k && k.revocation_pending ? _('ruší se', 'being removed') : (d.has_key ? _('nastaven', 'set') : '—'), '0 0 120px', k && k.revocation_pending ? 1 : 0), cell(d.chroot ? _('ano', 'yes') : _('ne', 'no'), '0 0 90px')], note: !k ? '' : (k.revocation_pending ? _('Odebrání klíče server ještě nepotvrdil — do té doby se jím lze přihlásit. ', 'The server has not confirmed the removal yet — until then the key still signs in. ') : '') + (k.known ? (who ? _('klíč patří: ', 'key of: ') + who + ' · ' : _('klíč bez přiřazené osoby · ', 'key with no person assigned · ')) + (k.fingerprint || '') : _('klíč nastavený mimo ONhost, vlastníka neznáme', 'a key set outside ONhost, its owner is unknown')), actions: [A(_('Nastavit klíč', 'Set key'), function () { var key = window.prompt(_('Vložte veřejný SSH klíč (ssh-ed25519 …); prázdné = odebrat', 'Paste the public SSH key (ssh-ed25519 …); empty = remove'), ''); if (key !== null) act(cmp, sel, 'shell.key', { remote_id: d.remote_id, ssh_key: key.trim() }, ['shell_users']); }), A(_('Smazat', 'Delete'), function () { if (window.confirm(_('Smazat shell účet ' + d.user + '?', 'Delete shell account ' + d.user + '?'))) act(cmp, sel, 'shell.delete', { remote_id: d.remote_id }, ['shell_users']); })] }; },
+          function (d) { var k = d.key || null, who = k && k.owner ? (k.owner.name || k.owner.email || '') : ''; return { cells: [cell(d.user, '1 1 200px', 1), cell(k && k.revocation_pending ? _('ruší se', 'being removed') : (d.has_key ? _('nastaven', 'set') : '—'), '0 0 120px', k && k.revocation_pending ? 1 : 0), cell(d.chroot ? _('ano', 'yes') : _('ne', 'no'), '0 0 90px')], note: !k ? '' : (k.revocation_pending ? _('Odebrání klíče server ještě nepotvrdil — do té doby se jím lze přihlásit. ', 'The server has not confirmed the removal yet — until then the key still signs in. ') : '') + (k.known ? (who ? _('klíč patří: ', 'key of: ') + who + ' · ' : _('klíč bez přiřazené osoby · ', 'key with no person assigned · ')) + (k.fingerprint || '') : _('klíč nastavený mimo ONhost, vlastníka neznáme', 'a key set outside ONhost, its owner is unknown')), actions: [A(_('Nastavit klíč', 'Set key'), function () { window.OnhostDialog.prompt(_('Vložte veřejný SSH klíč (ssh-ed25519 …); prázdné = odebrat', 'Paste the public SSH key (ssh-ed25519 …); empty = remove'), '', { type: 'textarea' }).then(function (key) { if (key !== null) act(cmp, sel, 'shell.key', { remote_id: d.remote_id, ssh_key: key.trim() }, ['shell_users']); }); }), A(_('Smazat', 'Delete'), function () { if (window.confirm(_('Smazat shell účet ' + d.user + '?', 'Delete shell account ' + d.user + '?'))) act(cmp, sel, 'shell.delete', { remote_id: d.remote_id }, ['shell_users']); })] }; },
           { title: _('Nový shell účet', 'New shell account'), fields: [F('a', _('uživatel', 'user'), '0 0 160px'), passwordField('b'), F('c', _('veřejný SSH klíč (volitelně)', 'public SSH key (optional)'), '1 1 260px')], submit: _('Vytvořit', 'Create'), on: function () { act(cmp, sel, 'shell.create', { user: (s.wbF.a || '').trim(), password: s.wbF.b || '', ssh_key: (s.wbF.c || '').trim() }, ['shell_users']); } },
           [genExtra('b')]);
       }
@@ -628,7 +659,16 @@
         if (snapLimit && snapUsed !== null && snapUsed >= snapLimit) psn.note = _('limit tarifu je vyčerpaný (' + snapLimit + '); nový snapshot vytvoříte po smazání některého ze stávajících', 'the plan limit is used up (' + snapLimit + '); create a new snapshot after deleting one');
         return psn;
       }
-      if (tab === 'disks') return infoPanel(_('Disky · ', 'Disks · ') + sel.name, _('velikost disku určuje tarif; navýšení proběhne změnou tarifu za provozu', 'disk size follows the plan; grow it by changing the plan while running'), [[_('Konfigurace', 'Configuration'), sel.spec], [_('Tarif', 'Plan'), sel.product || '']]);
+      if (tab === 'disks') {
+        var dk = infoPanel(_('Disky · ', 'Disks · ') + sel.name, _('velikost disku určuje tarif; navýšení proběhne změnou tarifu za provozu', 'disk size follows the plan; grow it by changing the plan while running'), [[_('Konfigurace', 'Configuration'), sel.spec], [_('Tarif', 'Plan'), sel.product || '']]);
+        /* TASK-0110 (G-R5): a customer's own installation image as the server's CD drive — only where the plan sells it */
+        var isoF = f.features.custom_iso || {};
+        if (!isoF.enabled && !on('custom_iso_exit')) {
+          dk.rows.push({ cells: [cell(_('Vlastní ISO', 'Custom ISO'), '1 1 220px'), cell(unavailableReason(_, isoF.reason || 'plan'), '1 1 260px')], note: '' });
+          return dk;
+        }
+        return customIsoPanel(cmp, sel, _, H, !!isoF.enabled, dk);
+      }
       if (tab === 'net') {
         if (!on('firewall')) return unavailable('Firewall', 'firewall');
         var fw = resource(cmp, sel, 'firewall');
@@ -639,9 +679,10 @@
         p6.rows = rules.length ? rules.map(function (r, i) { return { cells: [cell(r.action, '0 0 90px'), cell(r.type, '0 0 70px'), cell((r.proto || 'any') + (r.dport ? ' ' + r.dport : ''), '1 1 160px', 1), cell(r.source || _('kdokoli', 'anyone'), '1 1 160px', 1)], note: r.comment || '', actions: [A(_('Odebrat', 'Remove'), function () { var next = rules.filter(function (x, j) { return j !== i; }); act(cmp, sel, 'firewall.apply', { rules: next, enabled: fw.enabled !== false }, ['firewall']); })] }; }) : [{ cells: [cell(_('žádná pravidla · vše povoleno', 'no rules · everything allowed'), '1 1 300px')], note: '' }];
         p6.form = { title: _('Povolit port', 'Allow a port'), fields: [F('a', _('port (např. 443 nebo 8000:8100)', 'port (e.g. 443 or 8000:8100)'), '0 0 200px'), F('b', _('zdroj (CIDR, volitelně)', 'source (CIDR, optional)'), '0 0 200px'), F('c', _('protokol tcp/udp', 'protocol tcp/udp'), '0 0 120px')], submit: _('Přidat', 'Add'), on: function () { var next = rules.concat([{ action: 'ACCEPT', type: 'in', proto: (s.wbF.c || 'tcp').trim(), dport: (s.wbF.a || '').trim(), source: (s.wbF.b || '').trim() || undefined, enable: true, comment: 'panel' }]); act(cmp, sel, 'firewall.apply', { rules: next, enabled: true }, ['firewall']); } };
         if (on('vm_rdns')) p6.extra = (p6.extra || []).concat([{ label: _('Reverzní záznam (PTR)', 'Reverse record (PTR)'), on: function () {
-          var name = window.prompt(_('Jméno, které se má vracet pro IP adresu serveru (prázdné = zrušit záznam):', 'The name to return for the server IP address (empty removes the record):'), '');
+          window.OnhostDialog.prompt(_('Jméno, které se má vracet pro IP adresu serveru (prázdné = zrušit záznam):', 'The name to return for the server IP address (empty removes the record):'), '').then(function (name) {
           if (name === null) return;
           act(cmp, sel, 'rdns.set', { hostname: String(name).trim() }, [], String(name).trim() ? _('Reverzní záznam nastaven', 'Reverse record set') : _('Reverzní záznam zrušen', 'Reverse record removed'), _('Záznam je vidět na internetu do pár minut.', 'The record is visible on the internet within minutes.'));
+          });
         } }]);
         return p6;
       }
@@ -672,12 +713,12 @@
         if (!on('startup')) return unavailable(_('Startup a proměnné', 'Startup and variables'), 'startup');
         var su = resource(cmp, sel, 'startup');
         var suRows = su === null ? [{ cells: [cell(_('načítám…', 'loading…'), '1 1 300px')], note: '' }] : (su.__error ? [{ cells: [cell(_('Nelze načíst: ', 'Cannot load: ') + su.__error, '1 1 300px')], note: '' }] : (su.variables || []).map(function (v) {
-          return { cells: [cell(v.name || v.key, '1 1 200px'), cell(v.key, '0 0 190px', 1), cell(v.value === '' ? '—' : v.value, '1 1 220px', 1)], note: ((su.attention || []).indexOf(v.key) >= 0 ? _('⚠ Hodnota chybí nebo je neplatná — server bez ní nenastartuje. ', '⚠ Missing or invalid — the server will not start without it. ') : '') + (v.description || '') + (v.editable ? '' : _(' · pevně daná šablonou', ' · fixed by the template')), actions: v.editable ? [A(_('Změnit', 'Change'), function () { var next = window.prompt(_('Nová hodnota proměnné ' + v.key + ':', 'New value of ' + v.key + ':'), v.value); if (next === null || next === v.value) return; act(cmp, sel, 'variable.set', { key: v.key, value: next }, ['startup', 'server_detail']); })] : [] };
+          return { cells: [cell(v.name || v.key, '1 1 200px'), cell(v.key, '0 0 190px', 1), cell(v.value === '' ? '—' : v.value, '1 1 220px', 1)], note: ((su.attention || []).indexOf(v.key) >= 0 ? _('⚠ Hodnota chybí nebo je neplatná — server bez ní nenastartuje. ', '⚠ Missing or invalid — the server will not start without it. ') : '') + (v.description || '') + (v.editable ? '' : _(' · pevně daná šablonou', ' · fixed by the template')), actions: v.editable ? [A(_('Změnit', 'Change'), function () { window.OnhostDialog.prompt(_('Nová hodnota proměnné ' + v.key + ':', 'New value of ' + v.key + ':'), v.value).then(function (next) { if (next === null || next === v.value) return; act(cmp, sel, 'variable.set', { key: v.key, value: next }, ['startup', 'server_detail']); }); })] : [] };
         }));
         var images = su && !su.__error ? Object.keys(su.docker_images || {}) : [];
         var extraS = [{ label: _('Obnovit', 'Refresh'), on: function () { resource(cmp, sel, 'startup', true); } }];
-        if (images.length > 1) extraS.unshift({ label: _('Změnit image', 'Change image'), on: function () { var current = Object.keys(su.docker_images).filter(function (k) { return su.docker_images[k] === su.docker_image; })[0] || ''; var pick = window.prompt(_('Vyberte image (název přesně):\n', 'Pick an image (exact name):\n') + images.join('\n'), current); if (!pick || !su.docker_images[pick]) return; if (window.confirm(_('Změnit image na ' + pick + '? Server se po dalším startu spustí v novém prostředí.', 'Switch the image to ' + pick + '? The server starts in the new environment next time.'))) act(cmp, sel, 'image.set', { image: su.docker_images[pick] }, ['startup', 'server_detail']); } });
-        return { key: 'real:startup', title: _('Startup a proměnné · ', 'Startup and variables · ') + sel.name, note: su && !su.__error ? _('image ', 'image ') + (su.docker_image || '—') + ' · ' + _('startovací příkaz: ', 'startup command: ') + (su.startup || '—') : _('proměnné šablony, které smíte měnit; změna platí od dalšího startu', 'template variables you may change; applied at the next start'), state: su && !su.__error ? (su.variables || []).length + _(' proměnných', ' variables') : '', head: [cell(_('Proměnná', 'Variable'), '1 1 200px'), cell(_('Klíč', 'Key'), '0 0 190px'), cell(_('Hodnota', 'Value'), '1 1 220px')], rows: suRows, extra: extraS };
+        if (images.length > 1) extraS.unshift({ label: _('Změnit image', 'Change image'), on: function () { var current = Object.keys(su.docker_images).filter(function (k) { return su.docker_images[k] === su.docker_image; })[0] || ''; window.OnhostDialog.prompt(_('Vyberte image (název přesně):\n', 'Pick an image (exact name):\n') + images.join('\n'), current, { type: 'select', options: images }).then(function (pick) { if (!pick || !su.docker_images[pick]) return; if (window.confirm(_('Změnit image na ' + pick + '? Server se po dalším startu spustí v novém prostředí.', 'Switch the image to ' + pick + '? The server starts in the new environment next time.'))) act(cmp, sel, 'image.set', { image: su.docker_images[pick] }, ['startup', 'server_detail']); }); } });
+        return { key: 'real:startup', title: _('Startup a proměnné · ', 'Startup and variables · ') + sel.name, note: su && !su.__error ? _('image ', 'image ') + (su.docker_image || '—') + ' · ' + _('startovací příkaz: ', 'startup command: ') + (su.startup || '—') : _('proměnné šablony, které smíte měnit; změna platí od dalšího startu', 'template variables you may change; applied at the next start'), state: su && !su.__error ? cq(_, (su.variables || []).length, ['proměnná', 'proměnné', 'proměnných'], ['variable', 'variables']) : '', head: [cell(_('Proměnná', 'Variable'), '1 1 200px'), cell(_('Klíč', 'Key'), '0 0 190px'), cell(_('Hodnota', 'Value'), '1 1 220px')], rows: suRows, extra: extraS };
       }
       if (tab === 'settings') {
         if (!on('game_settings')) return unavailable(_('Nastavení služby', 'Service settings'), 'game_settings');
@@ -685,7 +726,7 @@
         var acc = on('panel_access') ? resource(cmp, sel, 'panel_access') : null;
         var d = det && !det.__error ? det : null, ac = acc && !acc.__error ? acc : null;
         var pairsG = [
-          [_('Název serveru', 'Server name'), d ? d.name : (det === null ? _('načítám…', 'loading…') : (det && det.__error ? _('nelze načíst', 'cannot load') : '—')), '', d ? [A(_('Přejmenovat', 'Rename'), function () { var n = window.prompt(_('Nový název serveru:', 'New server name:'), d.name); if (!n || n === d.name) return; act(cmp, sel, 'rename', { name: n }, ['server_detail']); })] : []],
+          [_('Název serveru', 'Server name'), d ? d.name : (det === null ? _('načítám…', 'loading…') : (det && det.__error ? _('nelze načíst', 'cannot load') : '—')), '', d ? [A(_('Přejmenovat', 'Rename'), function () { window.OnhostDialog.prompt(_('Nový název serveru:', 'New server name:'), d.name).then(function (n) { if (!n || n === d.name) return; act(cmp, sel, 'rename', { name: n }, ['server_detail']); }); })] : []],
           [_('Adresa', 'Address'), d && d.allocation ? (d.allocation.alias || d.allocation.ip) + ':' + d.allocation.port : ((window.ONHOST_PANEL.servers.filter(function (x) { return x.id === sel.id; })[0] || {}).ip || '—')],
           [_('SFTP', 'SFTP'), d ? d.sftp.host + ':' + d.sftp.port + ' · ' + _('uživatel ', 'user ') + d.sftp.username : '—', _('heslo je heslo do herního panelu', 'the password is the game panel password')],
           [_('Image', 'Image'), d ? d.docker_image : '—'],
@@ -739,7 +780,7 @@
         var presetLabel = function (perms) { var n = (perms || []).length; return n >= 20 ? _('plný přístup', 'full access') : (n >= 8 ? _('konzole a soubory', 'console and files') : _('konzole', 'console')); };
         return listPanel('subusers', _('Spolupracovníci · ', 'Collaborators · ') + sel.name, _('účet v herním panelu s omezenými právy; pozvánka přijde e-mailem', 'a game panel account with limited rights; the invitation goes by e-mail'),
           [cell(_('E-mail', 'E-mail'), '1 1 240px'), cell(_('Práva', 'Rights'), '1 1 160px'), cell(_('Od', 'Since'), '0 0 130px')],
-          function (x) { return { cells: [cell(x.email, '1 1 240px', 1), cell(presetLabel(x.permissions), '1 1 160px'), cell(since(cmp, x.created_at) || '—', '0 0 130px', 1)], note: (x.permissions || []).length + _(' oprávnění', ' permissions'), actions: [A(_('Odebrat', 'Remove'), function () { if (window.confirm(_('Odebrat spolupracovníka ' + x.email + '?', 'Remove collaborator ' + x.email + '?'))) act(cmp, sel, 'subuser.delete', { remote_id: x.remote_id }, ['subusers']); })] }; },
+          function (x) { return { cells: [cell(x.email, '1 1 240px', 1), cell(presetLabel(x.permissions), '1 1 160px'), cell(since(cmp, x.created_at) || '—', '0 0 130px', 1)], note: cq(_, (x.permissions || []).length, ['oprávnění', 'oprávnění', 'oprávnění'], ['permission', 'permissions']), actions: [A(_('Odebrat', 'Remove'), function () { if (window.confirm(_('Odebrat spolupracovníka ' + x.email + '?', 'Remove collaborator ' + x.email + '?'))) act(cmp, sel, 'subuser.delete', { remote_id: x.remote_id }, ['subusers']); })] }; },
           { title: _('Nový spolupracovník', 'New collaborator'), fields: [F('a', 'admin@priklad.cz', '0 0 240px'), F('b', _('práva: console | files | full', 'rights: console | files | full'), '0 0 200px')], submit: _('Pozvat', 'Invite'), on: function () { act(cmp, sel, 'subuser.create', { email: (s.wbF.a || '').trim(), preset: (s.wbF.b || 'console').trim().toLowerCase() || 'console' }, ['subusers']); } });
       }
       if (tab === 'mon') return usagePanel(cmp, sel, _);
@@ -829,7 +870,7 @@
     if (dir) rows.push({ cells: [cell('..', '1 1 260px', 1), cell(_('nadřazená složka', 'parent folder'), '0 0 120px'), cell('', '0 0 100px'), cell('', '0 0 150px')], note: '', actions: [A(_('Otevřít', 'Open'), function () { go(dir.split('/').slice(0, -1).join('/')); })] });
     (listing ? listing.entries : []).forEach(function (e) {
       var path = (dir ? dir + '/' : '') + e.name;
-      var rename = A(_('Přejmenovat', 'Rename'), function () { var to = window.prompt(_('Nový název:', 'New name:'), e.name); if (!to || to === e.name) return; act(cmp, sel, 'gfile.rename', { root: root, from: e.name, to: to }, [], _('Přejmenováno', 'Renamed'), '').then(refresh); });
+      var rename = A(_('Přejmenovat', 'Rename'), function () { window.OnhostDialog.prompt(_('Nový název:', 'New name:'), e.name).then(function (to) { if (!to || to === e.name) return; act(cmp, sel, 'gfile.rename', { root: root, from: e.name, to: to }, [], _('Přejmenováno', 'Renamed'), '').then(refresh); }); });
       var remove = A(_('Smazat', 'Delete'), function () { if (window.confirm(_('Smazat ' + e.name + (e.type === 'dir' ? ' včetně obsahu' : '') + '?', 'Delete ' + e.name + (e.type === 'dir' ? ' with its contents' : '') + '?'))) act(cmp, sel, 'gfile.delete', { root: root, name: e.name }, [], _('Smazáno', 'Deleted'), '').then(refresh); });
       var actions = e.type === 'dir'
         ? [A(_('Otevřít', 'Open'), function () { go(path); }), rename, remove]
@@ -932,16 +973,61 @@
     input.click();
   }
 
+  /* TASK-0110 (owner decision G-R5): the organization's own installation images on the Disks tab — only where the server's plan
+   * sells them. Upload (multipart to POST …/isos: ISO 9660, plan size, virus scan, quota), then the service actions iso.attach
+   * (as the CD drive, first in the boot order), iso.detach (the boot order found before comes back) and iso.delete (a fresh
+   * step-up; detached first). After a plan change without the feature only detach and delete stay (`custom_iso_exit`). */
+  function customIsoPanel(cmp, sel, _, H, offered, base) {
+    var cell = H.cell, A = H.act, key = sel.id + ':isos', d = state.resources[key];
+    if (d === undefined) { state.resources[key] = null; load('i:' + key, '/services/' + sel.id + '/isos', cmp, function (r) { state.resources[key] = r; }); }
+    var mb = function (b) { return b == null ? '—' : Math.max(1, Math.round(b / 1048576)) + ' MB'; };
+    var images = d && !d.__error ? (d.images || []) : [];
+    var rows = base.rows.slice();
+    rows.push({ cells: [cell(_('Vlastní ISO', 'Custom ISO'), '1 1 220px'), cell(d === null ? _('načítám…', 'loading…') : (d && d.__error ? _('Nelze načíst: ', 'Cannot load: ') + d.__error : (offered ? _('jeden obraz do ', 'one image up to ') + mb(d.max_bytes) + _(' · organizace ', ' · organization ') + mb(d.quota && d.quota.used_bytes) + ' / ' + mb(d.quota && d.quota.quota_bytes) + ' (' + ((d.quota && d.quota.images) || 0) + '/' + ((d.quota && d.quota.max_images) || 0) + ')' : unavailableReason(_, 'plan') + _(' Připojené ISO můžete odpojit a smazat.', ' You may still detach and delete an attached image.'))), '1 1 260px')], note: '' });
+    images.forEach(function (iso) {
+      var acts = [];
+      if (iso.attached_here) acts.push(A(_('Odpojit', 'Detach'), function () { act(cmp, sel, 'iso.detach', { reboot: window.confirm(_('Restartovat server hned, aby nabootoval ze svého disku?', 'Reboot the server now so it boots from its own disk?')) }, ['isos'], _('ISO se odpojuje', 'Detaching the image'), _('Pořadí bootování se vrátí přesně na to, jaké bylo před připojením.', 'The boot order goes back exactly to what it was before.')); }));
+      else if (offered && !iso.attached_service_id) acts.push(A(_('Připojit', 'Attach'), function () { if (!window.confirm(_('Připojit ' + iso.name + ' jako CD-ROM a bootovat z něj jako první? Disky zůstanou nedotčené; projeví se po restartu.', 'Attach ' + iso.name + ' as the CD drive and boot from it first? The disks are left alone; it applies after a reboot.'))) return; act(cmp, sel, 'iso.attach', { iso_id: iso.id, boot_first: true, reboot: false }, ['isos'], _('ISO se připojuje', 'Attaching the image'), _('Obraz nahrajeme na server a připojíme; pak server restartujte.', 'The image is copied to the server and attached; then reboot the server.')); }));
+      if (!iso.attached_service_id || iso.attached_here) acts.push(A(_('Smazat', 'Delete'), function () { if (!window.confirm(_('Smazat ' + iso.name + '? Připojený obraz nejdřív odpojíme.', 'Delete ' + iso.name + '? An attached image is detached first.'))) return; act(cmp, sel, 'iso.delete', { iso_id: iso.id }, ['isos'], _('ISO se maže', 'Deleting the image')); }));
+      rows.push({ cells: [cell(iso.name, '1 1 220px', 1), cell(mb(iso.size_bytes) + ' · ' + (iso.attached_here ? _('připojeno k tomuto serveru', 'attached to this server') : (iso.attached_service_id ? _('připojeno k jinému serveru', 'attached to another server') : _('v knihovně', 'in the library'))), '1 1 260px')], note: 'SHA-256 ' + String(iso.sha256 || '').slice(0, 16) + '…', actions: acts });
+    });
+    var extra = [{ label: _('Obnovit', 'Refresh'), on: function () { delete state.resources[key]; rerender(cmp); } }];
+    if (offered) extra.unshift({ label: _('Nahrát ISO', 'Upload an ISO'), primary: true, on: function () { uploadCustomIso(cmp, sel, _, d && d.max_bytes, function () { delete state.resources[key]; rerender(cmp); }); } });
+    return Object.assign({}, base, { rows: rows, extra: extra });
+  }
+
+  function uploadCustomIso(cmp, sel, _, maxBytes, refresh) {
+    var input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.iso,application/x-iso9660-image';
+    input.style.display = 'none';
+    input.addEventListener('change', function () {
+      var file = input.files && input.files[0];
+      input.remove();
+      if (!file) return;
+      if (maxBytes && file.size > maxBytes) { flash(cmp, _('Obraz je příliš velký', 'The image is too large'), _('Tarif dovoluje obraz do ' + Math.round(maxBytes / 1048576) + ' MB.', 'The plan allows an image up to ' + Math.round(maxBytes / 1048576) + ' MB.')); return; }
+      var form = new FormData();
+      form.append('file', file, file.name);
+      flash(cmp, _('Nahrávám ' + file.name + '…', 'Uploading ' + file.name + '…'), _('Obraz nejdřív zkontrolujeme antivirem; bez kontroly ho nepřijmeme.', 'The image is virus-scanned first; it is never accepted unscanned.'));
+      API.post('/services/' + sel.id + '/isos', form, API.key()).then(function () {
+        flash(cmp, _('ISO přijato', 'Image accepted'), file.name + _(' je v knihovně organizace; připojte ho tlačítkem Připojit.', ' is in the organization\'s library; attach it with Attach.'));
+        refresh();
+      }).catch(function (e) { flash(cmp, _('ISO se nepodařilo nahrát', 'The image could not be uploaded'), (e && e.message) || ''); });
+    });
+    document.body.appendChild(input);
+    input.click();
+  }
+
   /* C9: a fresh operating system on a server. The image comes from the list the platform allows for it; the server's
    * own destructive preview says what goes, the confirmation carries its fingerprint, and the bus asks for a step-up. */
   function reinstallVm(cmp, sel, _, options) {
     var images = options.images || [];
     if (!images.length) { flash(cmp, _('Reinstalace není dostupná', 'Reinstall is not available'), _('Pro tento server není připravený žádný systém.', 'No system is prepared for this server.')); return; }
-    var pick = window.prompt(_('Který systém nainstalovat? Napište přesně jeden z:\n', 'Which system should be installed? Type exactly one of:\n') + images.join('\n'), images[0]);
+    window.OnhostDialog.prompt(_('Který systém nainstalovat? Napište přesně jeden z:\n', 'Which system should be installed? Type exactly one of:\n') + images.join('\n'), images[0], { type: 'select', options: images }).then(function (pick) {
     if (pick === null) return;
     pick = String(pick).trim();
     if (images.indexOf(pick) < 0) { flash(cmp, _('Takový systém pro server nenabízíme', 'That system is not offered for this server'), images.join(', ')); return; }
-    API.get('/services/' + sel.id + '/actions/reinstall/preview?params%5Bimage%5D=' + encodeURIComponent(pick)).then(function (r) {
+    API.get('/services/' + sel.id + '/actions/reinstall/preview?params%5Bimage%5D=' + encodeURIComponent(pick) + '&locale=' + _('cs', 'en')).then(function (r) {
       var p = r.data || r;
       return dialog(cmp, { danger: true, title: _('Reinstalovat ' + sel.name + ' na ' + pick + '?', 'Reinstall ' + sel.name + ' with ' + pick + '?'), lead: (p.service && p.service.name) || sel.name, lines: (p.what || []).concat(p.depends || []), note: p.recovery && p.recovery.note ? p.recovery.note : '', confirm: _('Reinstalovat', 'Reinstall') }).then(function (yes) {
       if (!yes) return null;
@@ -953,6 +1039,7 @@
       });
       });
     }).catch(function (e) { flash(cmp, _('Reinstalace neproběhla', 'Reinstall failed'), (e && e.message) || ''); });
+    });
   }
 
   function usagePanel(cmp, sel, _) {
@@ -1017,10 +1104,11 @@
   function stepUp(cmp, err) {
     var _ = T(cmp), b = err && err.body;
     if (!err || err.status !== 403 || !b || b.error !== 'step_up_required') return Promise.reject(err);
-    var code = window.prompt(_('Potvrďte akci kódem z autentikátoru (TOTP) nebo záložním kódem:', 'Confirm with the code from your authenticator (TOTP) or a recovery code:')) || '';
+    return window.OnhostDialog.prompt(_('Potvrďte akci kódem z autentikátoru (TOTP) nebo záložním kódem:', 'Confirm with the code from your authenticator (TOTP) or a recovery code:'), '', { title: _('Druhé ověření', 'Second verification'), fieldLabel: _('Kód', 'Code'), required: true }).then(function (raw_code) { var code = raw_code || '';
     code = code.replace(/\s+/g, '');
     if (!code) return Promise.reject(new Error(_('Akce vyžaduje druhé ověření.', 'The action needs a second verification.')));
     return API.post('/auth/step-up', { method: code.length > 6 ? 'recovery' : 'totp', code: code }).catch(function (e) { throw new Error(_('Ověření se nezdařilo: ', 'Verification failed: ') + ((e && e.message) || '')); });
+    });
   }
   function dpost(cmp, sel, path, body, kinds, okTitle, okBody) {
     var _ = T(cmp);
@@ -1044,6 +1132,56 @@
     }).catch(function (e) { flash(cmp, _('Akce neproběhla', 'Action failed'), errText(cmp, e)); throw e; });
   }
   var DOMAIN_OPS = { 'domain-create': ['Registrace', 'Registration'], 'domain-renew': ['Prodloužení', 'Renewal'], 'domain-update-ns': ['Změna jmenných serverů', 'Nameserver change'], 'domain-transfer': ['Transfer k nám', 'Transfer in'], 'domain-send-auth-info': ['AUTH-ID', 'AUTH-ID'], 'domain-update-keyset': ['DNSSEC u registru', 'DNSSEC at the registry'], 'contact-create': ['Kontakt držitele', 'Registrant contact'], 'nsset-create': ['Sada jmenných serverů', 'Nameserver set'] };
+  /* ── Penpot (TASK-0123) ──────────────────────────────────────────────────
+   * GET /v1/services/{id}/penpot: the address to open, the sign-in e-mail, the plan's limits, the last check of the node. The
+   * owner's password is set here (POST …/penpot/owner-password, HIGH: the API asks for a fresh step-up) and shown nowhere. */
+  /* What a Penpot costs next to this service and whether it can be ordered now (GET /v1/services/{id}/penpot-offer, H-R7). */
+  function penpotOffer(cmp, sel, fresh) {
+    state.penpotOffer = state.penpotOffer || {};
+    var r = state.penpotOffer[sel.id];
+    if (r === undefined || fresh) { if (r === undefined) state.penpotOffer[sel.id] = null; load('ppo:' + sel.id, '/services/' + sel.id + '/penpot-offer', cmp, function (d) { state.penpotOffer[sel.id] = d; }); }
+    return state.penpotOffer[sel.id];
+  }
+  function penpotInfo(cmp, sel, fresh) {
+    state.penpot = state.penpot || {};
+    var r = state.penpot[sel.id];
+    if (r === undefined || fresh) { if (r === undefined) state.penpot[sel.id] = null; load('pp:' + sel.id, '/services/' + sel.id + '/penpot', cmp, function (d) { state.penpot[sel.id] = d && d.data ? d.data : d; }); }
+    return state.penpot[sel.id];
+  }
+  function penpotBuild(cmp, sel, tab, _, X) {
+    if (tab === 'bkp') return backupsPanel(cmp, sel, _, true);
+    var p = penpotInfo(cmp, sel);
+    if (p === null) return X.loading;
+    if (!p || p.__error) return { title: 'Penpot · ' + sel.name, note: _('Údaje o instanci se nepodařilo načíst.', 'The instance details could not be loaded.'), state: 'error', head: [], rows: [] };
+    var s = X.H.s, lim = p.limits || {}, hl = p.health || {}, pen = (p.usage && p.usage.metrics) || {};
+    var health = (sel.apiState !== 'ACTIVE' && sel.apiState !== 'DEGRADED') ? _('služba neběží', 'the service is not running') : (hl.status === 'down' ? _('neodpovídá', 'not responding') : (hl.status === 'up' ? _('odpovídá', 'responding') : _('zatím neověřeno', 'not checked yet')));
+    var panel = X.infoPanel('Penpot · ' + sel.name, _('vlastní instance Penpotu na serveru ONhost; přihlašujete se účtem Penpotu (registrace je vypnutá, tým pozvete v Penpotu)', 'your own Penpot instance on an ONhost server; you sign in with a Penpot account (registration is off, invite your team inside Penpot)'), [
+      [_('Adresa', 'Address'), p.url || '—'],
+      [_('Přihlašovací e-mail', 'Sign-in e-mail'), p.owner_email || '—', _('účet vlastníka organizace', 'the organization owner\'s account')],
+      [_('Heslo účtu', 'Account password'), p.owner_password_set ? _('nastaveno', 'set') : _('zatím nenastaveno — nastavte ho níže', 'not set yet — set it below')],
+      [_('Paměť / CPU', 'Memory / CPU'), (lim.ram_mb ? Math.round(lim.ram_mb / 1024) + ' GB' : '—') + ' / ' + (lim.cpus || '—') + ' vCPU'],
+      [_('Úložiště', 'Storage'), (lim.storage_gb || '—') + ' GB' + (pen.disk && pen.disk.pct != null ? ' · ' + _('využito ', 'used ') + pen.disk.pct + ' %' : '')],
+      [_('Dostupnost', 'Availability'), health + (hl.checked_at ? ' · ' + since(cmp, hl.checked_at) : '')],
+      [_('Verze Penpotu', 'Penpot version'), p.version || '—']
+    ], [
+      { label: _('Otevřít Penpot', 'Open Penpot'), on: function () { if (p.open_url) window.open(p.open_url, '_blank', 'noopener'); else flash(cmp, _('Instance teď neběží', 'The instance is not running'), ''); } },
+      X.genExtra('a'),
+      { label: _('Zálohovat teď', 'Back up now'), on: function () { act(cmp, sel, 'backup', { kind: 'manual' }, ['backups'], _('Záloha spuštěna', 'Backup started'), _('Databáze a soubory instance se zálohují; hotovou zálohu uvidíte v záložce Zálohy.', 'The database and files are being backed up; the finished backup appears under Backups.')); } },
+      { label: _('Obnovit údaje', 'Refresh'), on: function () { penpotInfo(cmp, sel, true); } }
+    ]);
+    panel.key = 'real:penpot';
+    panel.form = { title: _('Heslo účtu vlastníka v Penpotu (min. 12 znaků)', 'Password of the owner account in Penpot (min. 12 characters)'), fields: [X.passwordField('a')], submit: _('Nastavit heslo', 'Set password'), on: function () {
+      var pass = String(s.wbF.a || '');
+      if (pass.length < 12) { flash(cmp, _('Heslo musí mít aspoň 12 znaků', 'The password needs at least 12 characters'), ''); return; }
+      API.post('/services/' + sel.id + '/penpot/owner-password', { password: pass }, API.key()).then(function () {
+        cmp.setState({ wbF: { a: '', b: '', c: '' } });
+        flash(cmp, _('Heslo se nastavuje', 'Setting the password'), _('Za chvíli se jím přihlásíte do Penpotu; nikde ho neukládáme.', 'You can sign in to Penpot with it in a moment; we store it nowhere.'));
+        [2500, 8000].forEach(function (ms) { setTimeout(function () { penpotInfo(cmp, sel, true); forget(sel, []); rerender(cmp); }, ms); });
+      }).catch(function (e) { flash(cmp, _('Heslo se nepodařilo nastavit', 'The password could not be set'), (e && e.message) || ''); });
+    } };
+    return panel;
+  }
+
   function domainBuild(cmp, sel, tab, _, X) {
     var panel = domainBuildCore(cmp, sel, tab, _, X), D = window.OnhostPanelDomains;
     if (!D) { loadDomainsModule(cmp); return panel; }
@@ -1078,7 +1216,7 @@
       var auth = state.resources[sel.id + ':authinfo'];
       var reg = d.registrant || null;
       var pairs = [
-        [_('Stav', 'State'), sel.state], [_('Expirace', 'Expiry'), dateOf(d.expires_at) + (d.days_to_expiry != null ? ' · ' + _('za ', 'in ') + d.days_to_expiry + _(' dní', ' days') : '')],
+        [_('Stav', 'State'), sel.state], [_('Expirace', 'Expiry'), dateOf(d.expires_at) + (d.days_to_expiry != null ? ' · ' + _('za ', 'in ') + cq(_, d.days_to_expiry, ['den', 'dny', 'dní'], ['day', 'days']) : '')],
         [_('Registrováno', 'Registered'), dateOf(d.registered_at)], [_('Automatická obnova', 'Auto-renew'), d.auto_renew ? yes + ' · ' + _('vždy na ', 'always for ') + (d.renewal_period || 1) + _(' rok(y)', ' year(s)') : no],
         [_('Zámek vydání převodního kódu', 'Transfer code lock'), d.transfer_lock ? yes : no], [_('DNS', 'DNS'), onhostDns ? _('DNS u ONhost', 'ONhost DNS') : _('externí DNS', 'external DNS')],
         [_('Držitel', 'Registrant'), reg ? [reg.name, reg.organization_name, reg.email].filter(Boolean).join(' · ') : '—'], [_('Poslední kontrola registru', 'Last registry check'), since(cmp, d.last_reconciled_at) || '—']

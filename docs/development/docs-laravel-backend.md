@@ -173,7 +173,8 @@ Service accounty organizace (TASK-0079): `GET|POST /v1/service-accounts`, `GET|P
 `POST /v1/service-accounts/{account}/tokens`, `DELETE /v1/service-accounts/{account}/tokens/{token}`. Spravuje je jen vlastník
 organizace, každý zápis je `ServiceAccountCommand` (HIGH, čerstvý step-up); tajný token je jen v odpovědi, která ho vytvořila.
 Account dostane organizační roli pod vlastníkem (`ServiceAccountRules::roles()`) a jeho token jedná jako `service_account`
-jen za svou organizaci; endpointy pro osobu (`/v1/me`) odpovídají `403 person_required`. Tokeny tyto routy nevidí.
+jen za svou organizaci; endpointy pro osobu (např. `/v1/tickets`, `PATCH /v1/me`) odpovídají `403 person_required`, `GET /v1/me`
+odpoví, kdo token je (`type: service_account`, účet, organizace, role, rozsahy; F12a). Tokeny tyto routy nevidí.
 
 ## 6. Fronty a plánovač
 

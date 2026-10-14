@@ -8,6 +8,7 @@ use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
+use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Incidents\Models\Incident;
 use Onhost\Domain\Incidents\Models\SlaCredit;
 use Onhost\Domain\Incidents\SlaService;
@@ -58,7 +59,7 @@ function vatR2Fake(bool $valid = true, string $name = '---'): void
 /** A partner organization as it exists before TASK-0031: a Czech DIČ, never checked, an approved partner row with commission. */
 function vatR2ExistingCzechPartner(): Organization
 {
-    $org = Organization::query()->create(['slug' => 'pixel-'.uniqid(), 'name' => 'Agentura Pixel s.r.o.', 'owner_user_id' => 'usr_pixel', 'country' => 'CZ', 'dic' => 'CZ12345678', 'ico' => '12345678', 'customer_class' => 'b2b', 'currency' => 'CZK']);
+    $org = Organization::query()->create(['slug' => 'pixel-'.uniqid(), 'name' => 'Agentura Pixel s.r.o.', 'owner_user_id' => User::factory()->create()->id, 'country' => 'CZ', 'dic' => 'CZ12345678', 'ico' => '12345678', 'customer_class' => 'b2b', 'currency' => 'CZK']);
     $partners = app(PartnerService::class);
     $partner = $partners->approve($partners->apply($org, ['model' => 'share'], CommandContext::system('test')), CommandContext::system('test'));
     PartnerCommission::query()->create(['partner_id' => $partner->id, 'organization_id' => $org->id, 'invoice_id' => 'inv-'.uniqid(), 'period' => now()->format('Y-m'), 'kind' => 'share', 'base_minor' => 1000000, 'rate_pct' => 20, 'amount_minor' => 200000, 'currency' => 'CZK', 'state' => 'payable', 'invoice_paid_at' => now()->subDay()]);
@@ -93,7 +94,7 @@ function vatR2Patch($test, $owner, Organization $org, string $vatId): void
 
 it('lists an existing Czech partner with an unchecked DIČ in the dry run, checks it on --apply, and pays VAT once finance confirmed it', function () {
     $partner = vatR2ExistingCzechPartner();
-    $customer = Organization::query()->create(['slug' => 'domestic-r2', 'name' => 'Domestic s.r.o.', 'owner_user_id' => 'usr_dom', 'country' => 'CZ', 'dic' => 'CZ87654321', 'customer_class' => 'b2b']);
+    $customer = Organization::query()->create(['slug' => 'domestic-r2', 'name' => 'Domestic s.r.o.', 'owner_user_id' => User::factory()->create()->id, 'country' => 'CZ', 'dic' => 'CZ87654321', 'customer_class' => 'b2b']);
     config(['onhost.vies.enabled' => true]);
     vatR2Fake();
 
@@ -141,7 +142,7 @@ it('still says a partner is not a VAT payer when the check said so, or when ther
 it('checks the number of an organization that applies to be a partner, and again when it is approved', function () {
     Queue::fake();
     config(['onhost.vies.enabled' => true]);
-    $org = Organization::query()->create(['slug' => 'apply-r2', 'name' => 'Apply s.r.o.', 'owner_user_id' => 'usr_apply', 'country' => 'CZ', 'dic' => 'CZ12345678', 'customer_class' => 'b2b']);
+    $org = Organization::query()->create(['slug' => 'apply-r2', 'name' => 'Apply s.r.o.', 'owner_user_id' => User::factory()->create()->id, 'country' => 'CZ', 'dic' => 'CZ12345678', 'customer_class' => 'b2b']);
     $partners = app(PartnerService::class);
 
     $partner = $partners->apply($org, ['model' => 'share'], CommandContext::system('test'));

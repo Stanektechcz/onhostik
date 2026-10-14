@@ -12,11 +12,13 @@ use Onhost\Platform\Commands\GlobalCommand;
  * Staff partner administration, dispatched by `op`:
  *  approve{partner_id} · state{partner_id,state,reason} · payout.approve{payout_id} · payout.reject{payout_id,reason} ·
  *  payout.pay{payout_id,reference} · payout.freeze{payout_id,reason} · payout.unfreeze{payout_id,reason} · tiers.recompute{} ·
- *  model.decide{request_id,decision,note?} · masking.notice{partner_id}
+ *  model.decide{request_id,decision,note?} · masking.notice{partner_id} ·
+ *  commissions.mature{} (R7: pending commissions whose 30 days passed become payable — the hourly job, as the system) ·
+ *  commission.cancel_duplicate{commission_id,reason} (I-R6, K5: the newer row of a double commission, set aside by migration 000949)
  */
 final class PartnerCommand extends GlobalCommand implements RiskAwareCommand
 {
-    public const OPS = ['approve', 'state', 'payout.approve', 'payout.reject', 'payout.pay', 'payout.freeze', 'payout.unfreeze', 'tiers.recompute', 'model.decide', 'masking.notice'];
+    public const OPS = ['approve', 'state', 'payout.approve', 'payout.reject', 'payout.pay', 'payout.freeze', 'payout.unfreeze', 'tiers.recompute', 'model.decide', 'masking.notice', 'commissions.mature', 'commission.cancel_duplicate'];
 
     public function op(): string
     {
@@ -36,21 +38,36 @@ final class PartnerCommand extends GlobalCommand implements RiskAwareCommand
     /**
      * Paying out money is CRITICAL (TASK-0040, permission program §7 "payments, refunds, partner payouts"): a second person
      * signs the payment, the sole operator waits the time lock. It used to be HIGH — one person with a step-up paid any
-     * payout, even one they had approved themselves (audit P8, TD-4). The rest keeps the floor of `partner.manage` (HIGH).
+     * payout, even one they had approved themselves (audit P8, TD-4). The rest keeps the floor of `partner.manage` (HIGH). Maturing commissions (R7) moves no money — the payout of what matured is
+     * still the CRITICAL payment — so it stays at that floor.
      */
     public function riskLevel(): string
     {
-        return $this->movesMoney() ? PermissionCatalog::CRITICAL : PermissionCatalog::NORMAL;
+        return match (true) {
+            $this->movesMoney() => PermissionCatalog::CRITICAL,
+            $this->correctsCommission() => PermissionCatalog::HIGH,
+            default => PermissionCatalog::NORMAL,
+        };
     }
 
     public function requiresStepUp(): bool
     {
-        return $this->movesMoney();
+        return $this->movesMoney() || $this->correctsCommission();
     }
 
     public function requiresApproval(): bool
     {
-        return $this->movesMoney();
+        return $this->movesMoney() || $this->correctsCommission();
+    }
+
+    /**
+     * The commission-only cancellation (owner decision I-R6, K5): HIGH with a fresh step-up and a second person. It pays nothing
+     * out, but it decides which of two commissions stands and may put a minus on the partner's next payouts — one person holding
+     * `partner.manage` does not decide that alone (the sole operator waits the time lock).
+     */
+    private function correctsCommission(): bool
+    {
+        return $this->op() === 'commission.cancel_duplicate';
     }
 
     /**

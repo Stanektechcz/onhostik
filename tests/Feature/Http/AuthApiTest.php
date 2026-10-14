@@ -40,7 +40,7 @@ it('registers and signs in a second account in a browser that still sends the pr
         ->assertCreated()->assertJsonPath('data.user.email', 'second@example.cz')->assertJsonPath('data.organization.name', 'Druhý Účet');
     $this->withHeaders(['Referer' => 'http://localhost'])->postJson('/v1/auth/logout')->assertOk();
     $this->withHeaders($stale)->postJson('/v1/auth/login', ['email' => 'second@example.cz', 'password' => STRONG])->assertOk()->assertJsonPath('data.organization.name', 'Druhý Účet');
-    $this->withHeaders($stale)->getJson('/v1/me')->assertForbidden(); // outside the sign-in the header is still enforced
+    $this->withHeaders($stale)->getJson('/v1/me')->assertNotFound()->assertJsonPath('error', 'not_found'); // outside the sign-in the header is still enforced; somebody else's organization is not found (F12a)
 });
 
 it('returns field errors for weak passwords and duplicate e-mails', function () {

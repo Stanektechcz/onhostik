@@ -4,6 +4,24 @@ Každý záznam je nadpis `## datum | druh | název | okno` a odstavec pod ním.
 `security`; okno je volitelné. Stránka `/dokumentace/api` i `/api` čtou tenhle soubor (`PublicApiDocs::changelog()`),
 takže tu nikdy nestojí nic jiného než na webu. Nový záznam patří nahoru.
 
+## 2026-10-05 | new | Věrnostní body jako sleva v košíku
+Nová operace `POST /v1/cart/loyalty {points}` (jen přihlášený panel, klíč se nepřijímá) uplatní věrnostní body jako slevu (rozhodnutí vlastníka G-R2): 1 bod = 1 Kč bez DPH, nejméně 100 bodů, slevy na zlevnitelných řádcích dohromady nejvýš 20 % ceny bez DPH, doména se nezlevňuje. `POST /v1/cart/quote` pak nese řádek `sku: loyalty-redeem` se zápornou cenou a pole `loyalty` (`requested`, `applied`, `value`, `max_points`, `reason`); `GET /v1/cart` uvádí `loyalty_points`, `GET /v1/account/rewards` přidává `standing`, `redeem` (`available`, `reserved`, `min_points`, `cap_pct`, `point_value`) a `expiring`. `POST /v1/orders` může odpovědět `409 loyalty_points_unavailable`, když body mezitím uplatnila jiná objednávka. Nové události (jen oznámení zákazníkovi, ne webhooky): `loyalty.redeemed`, `loyalty.points_returned`, `loyalty.expiring`, `loyalty.expired`. Košík bez zvolených bodů se nemění.
+
+## 2026-10-05 | breaking | Kredit se nevyplácí: událost wallet.refund.requested není v katalogu webhooků | bez okna
+Kredit nelze vrátit v hotovosti (rozhodnutí vlastníka G-R4), takže API nemá žádnou cestu k výplatě kreditu a `GET /v1/webhooks` už mezi událostmi nenabízí `wallet.refund.requested`. Událost se nikdy neposílala (výplatu kreditu nic nevolalo), takže dosavadní odběr, který ji uvádí, nepřijde o žádné doručení; nový odběr, který ji jmenuje výslovně, dostane `422 webhook_event_unknown`. Uložený odběr, který ji v seznamu má, zůstává beze změny a funguje dál (odběr se nemění, API nemá cestu k úpravě seznamu událostí); kdo odběr zakládá znovu, událost ze seznamu vynechá, jinak dostane 422. Odpovědi `GET /v1/wallet` a `GET /v1/wallet/transactions` se nemění a žádnou vyplatitelnou částku neuvádějí.
+
+## 2026-10-05 | compatible | Testovací událost webhooku bez Idempotency-Key narazí na limit
+`POST /v1/webhooks/{endpoint}/ping` bez hlavičky `Idempotency-Key` je pokaždé nový požadavek: druhý ping v době čekání odpoví `429 webhook_ping_cooldown` s `retry_after`. Dřív se dva pingy během jedné minuty sloučily a druhý dostal znovu první odpověď `202`. Se stejnou hlavičkou `Idempotency-Key` se ping dál jen zopakuje; založení, otočení tajemství a ostatní zápisy webhooků zůstávají bez hlavičky idempotentní v rámci minuty.
+
+## 2026-10-05 | new | GET /v1/me odpoví i klíči servisního účtu
+Klíč servisního účtu se na `GET /v1/me` dozví, kdo je: `type: service_account`, účet (id, název), organizace (id, název), role účtu, rozsahy klíče a jeho platnost. Dřív dostal `403 person_required`. Odpověď osobě nese nově `type: person`, jinak je beze změny. Ostatní koncové body určené člověku odpovídají servisnímu účtu dál `403 person_required`.
+
+## 2026-10-05 | security | Cizí organizace v X-Organization odpoví 404
+Kdo pošle `X-Organization` (nebo `?organization=`) organizace, do které nepatří, dostane `404 not_found` stejně jako u identifikátoru, který neexistuje; dřív odpověď `403` prozradila, že organizace existuje. Člen organizace, kterému chybí oprávnění, dostává dál `403` s názvem chybějícího oprávnění.
+
+## 2026-10-05 | compatible | Klíč servisního účtu na staff cestě dostane 403, ne 401
+Klíč servisního účtu, který zavolá cestu pod `/v1/staff/`, dostává `403 staff_only` (účet je přihlášený, jen to není zaměstnanec). Dřív odpověď zněla `401 unauthenticated` "Sign in to continue", což klienta vyzývalo k novému přihlášení s platným klíčem.
+
 ## 2026-10-04 | new | Servisní účty organizace a rozsah dns:read (D6)
 Vlastník organizace spravuje servisní účty (`/v1/service-accounts`, vydání a zrušení klíče účtu pod `/v1/service-accounts/{account}/tokens`); tajemství klíče se ukáže jen v odpovědi, která ho vydala, a každý zápis chce čerstvé potvrzení. Klíč servisního účtu jedná za svou organizaci; koncový bod určený člověku odpoví `403 person_required`. Čtení DNS zóny má vlastní rozsah `dns:read` (`dns:write` ho dál zahrnuje, takže dosavadní klíče čtou dál) a aliasy `/v1/domains/{zone}/zone` se řídí stejnými rozsahy jako `/v1/dns/zones/{zone}`.
 

@@ -831,7 +831,8 @@ Tests: `tests/Feature/Organizations/GrantMatrixTest.php`, `tests/Feature/Organiz
   `guest`, an `svc_*` capability or a staff role), recorded as a `service_account` binding with `granted_by` = the owner.
 * **Its token acts as the account** (`ApiContext::serviceAccountOrganization`, `context()` → actor `service_account`): its own
   organization only (`token_organization_mismatch` otherwise), its own bindings, its token's scopes; a person-only endpoint answers
-  403 `person_required`; a HIGH or CRITICAL command is refused (an account never holds a step-up). The secret is in the create
+  403 `person_required` (`GET /v1/me` answers who the token is — account, organization id and name, role, scopes — never another
+  token of the account or the organization's billing identity, F12a); a HIGH or CRITICAL command is refused (an account never holds a step-up). The secret is in the create
   answer only (the replay store and the audit mask it). Revoking a token or removing the account stops it at the next request
   (`PersonalAccessToken::findToken`; removal revokes every token, drops the bindings and soft-deletes the account).
 * **`dns:read`** reads zones; `dns:write` still carries it (`TokenScopes::IMPLIED_BY`, read by `PersonalAccessToken::can`), so no
@@ -848,6 +849,11 @@ Tests: `tests/Feature/Identity/ServiceAccountApiTest.php`, `tests/Feature/Http/A
 Every API limiter that matters for abuse (`probes`, `callbacks`, `public`, `auth`, the failed-authentication throttle) is keyed by the
 client **address**. Operator note:
 
+* **Owner decision H-R2 (2026-10-06): no proxy and no CDN in front of the origin.** Without `TRUSTED_PROXIES` the platform trusts only the
+  local aaPanel nginx (`127.0.0.1`, `::1`, `bootstrap/app.php`); an explicit empty value trusts nothing (right while nginx hands requests
+  to PHP-FPM over FastCGI — the client's address is `REMOTE_ADDR` itself). A loopback trust lets any process on the host name a client
+  address through `X-Forwarded-For`; the platform host runs nothing that is not ours. A CDN or another proxy in front is a new owner
+  decision recorded in `docs/audit/2026-10-full-readiness/ROZHODNUTI.md` first; the doctor warns about any address beyond loopback.
 * Behind a reverse proxy, load balancer or CDN set `TRUSTED_PROXIES` in `.env` to the **exact** proxy addresses (comma-separated).
   Without it Laravel sees the proxy's address for every request, so **every client shares one bucket** — one noisy caller (or a
   burst of bearer guesses) then answers 429 for everybody.

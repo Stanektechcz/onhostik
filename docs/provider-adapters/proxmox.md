@@ -8,7 +8,8 @@
 API token (`PVEAPIToken=user@realm!tokenid=secret`) from the `SecretStore` reference `env://PROXMOX_<KEY>`.
 Instance options: `verify_tls`, `default_node`, `storage` (NVMe pool), `bridge`, `templates` (image key → template
 vmid, `<image>_node` → the node holding it), `template_node`, `backup_storage`, `os_disk`, `pool`, `vmid_min` / `vmid_max`
-(the range customer VMs are numbered in; defaults 100 / 999999999).
+(the range customer VMs are numbered in; defaults 100 / 999999999), `iso_storage` (the operator's rescue images, default `local`),
+`custom_iso_storage` (customers' own images, TASK-0110 — no default: without it the custom ISO feature is off on the instance).
 
 ## Capabilities
 
@@ -22,6 +23,7 @@ vmid, `<image>_node` → the node holding it), `template_node`, `backup_storage`
 | ConsoleCapable | `consoleAccess` | `POST …/vncproxy` → single-use `con_` token in cache (see runbook console-relay) | — |
 | BackupCapable | `backup` / `restore` / `snapshot` / `rollback` | `POST /nodes/{node}/vzdump` (PBS storage), `POST …/qemu` restore, `POST …/snapshot`, `POST …/snapshot/{name}/rollback` | UPID |
 | Usage | `usage()` | `GET …/rrddata?timeframe=hour` → cpu, mem, netin/netout, diskread/write | — |
+| CustomIsoCapable | `hasCustomIso` / `uploadCustomIso` / `deleteCustomIso` (TASK-0110) | `GET /nodes/{node}/storage/{custom_iso_storage}/content?content=iso`; `POST …/storage/{storage}/upload` (multipart: `content=iso`, `checksum` + `checksum-algorithm=sha256`, file part `filename`, streamed, `onhost.custom_iso.upload_timeout_seconds`); `DELETE …/storage/{storage}/content/{volid}` after a listing (a volume that is gone is deleted). Only `onhost-ciso-<id>.iso` names are written or deleted; `listIsoImages` (rescue) never lists them. Attach/detach use `bootMedia`/`setBootMedia` on `ide2` like the rescue mode | UPID |
 | ComputeProvider | `migrate(ref, targetNode, online)` | `POST /nodes/{node}/qemu/{vmid}/migrate` (`target`, `online` when the VM runs, `with-local-disks=1`) — the handle polls the *source* node's task; the binding's `remote_node` and the service node move in `VpsMigrationWorkflow` | UPID |
 
 Spec keys consumed: `vcpu`, `ram_mb`, `nvme_gb`, `cpu_limit`, `hostname`, `image`, `ssh_keys`, `ipv4`, `ipv6`,

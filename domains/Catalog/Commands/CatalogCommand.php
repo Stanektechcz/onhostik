@@ -15,7 +15,8 @@ use Onhost\Platform\Commands\GlobalCommand;
  *  option.upsert{product_key,option,reason?} · option.delete{product_key,key,reason?} · product.state{state: active|draft, products: list} ·
  *  plan.publish{product_key,plan_key,base_version?,entitlements?,limits?,features?,prices?,reason,confirm_large_change?,keep_promos? (CLI revisions only; the console API does not accept it)} ·
  *  plan.activate_version{product_key,plan_key,version,base_version?,reason} · lifecycle.set{config,base?,reason?} · panel_nav.set{config} ·
- *  product.describe{product_key,description{cs,en},base?} · product.create{product_key,reason?} (only a product CatalogRevisions::PRODUCTS defines)
+ *  product.describe{product_key,description{cs,en},base?} · product.create{product_key,reason?} (only a product CatalogRevisions::PRODUCTS defines) ·
+ *  pricing.penpot.set{config{web_default?,plans?},base?,reason?} (Penpot per web hosting tariff, H-R7: a price — four eyes by the default below)
  *
  * Who it takes (owner decision 13, 2026-09-25; docs/runbooks/approvals.md): HIGH is a fresh step-up and nothing more, but every
  * change of a price or a plan takes a second person as well, although catalog.manage itself is only HIGH. Withdrawing an offer
@@ -26,7 +27,7 @@ use Onhost\Platform\Commands\GlobalCommand;
  */
 final class CatalogCommand extends GlobalCommand implements RiskAwareCommand
 {
-    public const OPS = ['pricing.commit_discounts.set', 'pricing.regions.set', 'pricing.domain_discount.set', 'pricing.domain_discount.delete', 'pricing.addon_products.set', 'promo.upsert', 'promo.delete', 'option.upsert', 'option.delete', 'panel_nav.set', 'product.state', 'plan.publish', 'plan.activate_version', 'lifecycle.set', 'product.describe', 'product.create'];
+    public const OPS = ['pricing.commit_discounts.set', 'pricing.regions.set', 'pricing.domain_discount.set', 'pricing.domain_discount.delete', 'pricing.addon_products.set', 'promo.upsert', 'promo.delete', 'option.upsert', 'option.delete', 'panel_nav.set', 'product.state', 'plan.publish', 'plan.activate_version', 'lifecycle.set', 'product.describe', 'product.create', 'pricing.penpot.set'];
 
     /**
      * Classified four-eyes on purpose (not by the fail-closed default): a new product on sale is a new offer at a price, even when

@@ -24,8 +24,9 @@ it('does not let a customer speak for an organization they do not belong to', fu
     $this->actingAs($stranger, 'sanctum');
 
     foreach (['/v1/services', '/v1/orders', '/v1/invoices', '/v1/domains', '/v1/tickets', '/v1/dns/zones', '/v1/payments', '/v1/services/archives'] as $list) {
-        $this->withHeader('X-Organization', $org->id)->getJson($list)->assertForbidden();
-        $this->getJson($list.'?organization='.$org->id)->assertForbidden();
+        // F12a: a stranger hears what a missing organization gets, not a 403 that confirms it exists
+        $this->withHeader('X-Organization', $org->id)->getJson($list)->assertNotFound()->assertJsonPath('error', 'not_found');
+        $this->getJson($list.'?organization='.$org->id)->assertNotFound()->assertJsonPath('error', 'not_found');
     }
     $this->flushHeaders();
     // their own lists never carry the other organization's rows
@@ -48,7 +49,7 @@ it('stops counting a membership at the second its access ends, before any clean-
 
     // the date passes; onhost:access:expire has not run (or is switched off)
     $this->travel(2)->days();
-    $this->withHeader('X-Organization', $org->id)->getJson('/v1/services')->assertForbidden();
+    $this->withHeader('X-Organization', $org->id)->getJson('/v1/services')->assertNotFound(); // a stranger again: not found (F12a)
     $this->flushHeaders();
     expect((string) $this->get('/surfaces/onhost-panel.js')->getContent())->not->toContain($service->id);
     expect(collect($this->getJson('/v1/organizations')->assertOk()->json('data'))->pluck('id')->all())->not->toContain($org->id);

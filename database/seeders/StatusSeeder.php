@@ -25,18 +25,6 @@ final class StatusSeeder extends Seeder
             [$group, $region, $class] = self::META[$key] ?? [null, null, 'standard'];
             StatusComponent::query()->updateOrCreate(['key' => $key], ['name' => $name, 'group' => $group, 'region_code' => $region, 'sla_class' => $class, 'sort' => ++$sort, 'public' => true]);
         }
-        foreach ((array) config('onhost.sla.credit_policies', []) as $class => $policy) {
-            $current = SlaCreditPolicy::query()->where('key', "sla-{$class}")->orderByDesc('version')->first();
-            if ($current !== null && $current->bands === $policy['bands'] && $current->cap_percent === (int) $policy['cap_percent']) {
-                continue; // unchanged: keep the version (credits reference it)
-            }
-            if ($current !== null) {
-                $current->forceFill(['state' => 'superseded'])->save();
-            }
-            SlaCreditPolicy::query()->create([
-                'key' => "sla-{$class}", 'version' => ($current?->version ?? 0) + 1, 'sla_class' => $class, 'bands' => $policy['bands'], 'cap_percent' => (int) $policy['cap_percent'],
-                'claim' => 'auto', 'eligibility' => ['paid_up' => true, 'not_suspended_for_dunning' => true], 'exclusions' => ['maintenance_excluded', 'force_majeure', 'customer_caused', 'upstream_registry'], 'state' => 'active',
-            ]);
-        }
+        SlaCreditPolicy::syncFromConfig();
     }
 }

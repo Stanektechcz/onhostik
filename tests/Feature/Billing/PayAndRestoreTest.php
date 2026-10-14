@@ -241,7 +241,8 @@ it('does not let the customer undo a cancellation that was refunded through a ch
         'unused_minor' => 24200, 'refund_minor' => 16940, 'operation_id' => 'op_chargeback_1', 'cancelled_at' => now()->subDays(5), 'refunded_at' => now()->subDays(5)]);
     $services = app(ServiceService::class);
 
-    // switch off: the refund was paid for giving the service up — the customer cannot take it back for free
+    // switch off (H0, H-R3: the default is on, staff switch it off): the refund was paid for giving the service up — the customer cannot take it back for free
+    reinstateSwitchOn(false);
     expect(fn () => $services->requestAction($service, 'resume', $this->contextFor($owner, $org), 'cb-undo-off'))->toThrow(DomainError::class, 'chargeback');
 
     // switch on: the refunded period does not count, a whole new one is owed, and a plain resume asks for it
@@ -374,6 +375,7 @@ it('charges once and resumes once however often the request arrives', function (
 });
 
 it('changes nothing while the switch is off', function () {
+    reinstateSwitchOn(false); // H0 (H-R3): on by default; staff switched it off
     [$owner, $org] = $this->customerWithOrganization();
     app(WalletService::class)->topup($org, Money::decimal('1000', 'CZK'), 'bank', 'seed', $this->contextFor($owner, $org));
     $service = reinstateCancelled($org, ['period_end' => now()->addDays(10)]);
@@ -921,7 +923,12 @@ it('ends a restored service again at the renewal pass even when an earlier expir
     expect(Subscription::query()->findOrFail($subscription->id)->state)->toBe(Subscription::CANCELLED)
         ->and(Operation::query()->where('service_id', $service->id)->where('idempotency_key', 'like', 'sub_expire:%')->count())->toBe(2);
     driveOperations();
-    expect(Service::query()->findOrFail($service->id)->state)->not->toBe(ServiceStateMachine::ACTIVE);
+    // this fixture binds a database service to a VM, which the identity check of a cancellation refuses: the new termination
+    // stops before anything is switched off, so the service is reported as it really is — running (TASK-0099: a failed
+    // cancellation used to be settled SUSPENDED whatever the panel had, which is what this line once relied on)
+    $second = Operation::query()->where('service_id', $service->id)->where('idempotency_key', 'like', 'sub_expire:%')->orderByDesc('id')->firstOrFail();
+    expect($second->state)->toBe(Operation::FAILED)->and($second->step_label)->toBe('Ověření identity služby')
+        ->and(Service::query()->findOrFail($service->id)->state)->toBe(ServiceStateMachine::ACTIVE);
 });
 
 it('does not warn staff when a restore keeps a paid period or the auto-renew the customer had on', function () {
@@ -942,6 +949,7 @@ it('undoes a refunded cancellation on the platform authority only for a staff bi
     ChargebackRequest::query()->create(['organization_id' => $org->id, 'service_id' => $service->id, 'requested_by' => $owner->id, 'state' => ChargebackRequest::REFUNDED, 'reason' => 'Odcházíme jinam.', 'percent' => 70, 'currency' => 'CZK',
         'unused_minor' => 24200, 'refund_minor' => 16940, 'operation_id' => 'op_chargeback_p16', 'cancelled_at' => now()->subDays(5), 'refunded_at' => now()->subDays(5)]);
     $reinstatement = app(ServiceReinstatement::class);
+    reinstateSwitchOn(false); // the switch-off path (H0, H-R3: on by default); with it on, support is refused for want of the credit key
 
     // support manages services, it does not give the customer's money back: the refunded period is not undone for free by it
     expect(fn () => $reinstatement->assertCustomerMayResume($service, $this->staffContextFor($this->staff('support_l2'), $org)))

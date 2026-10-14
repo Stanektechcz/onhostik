@@ -40,7 +40,7 @@ final class TicketService
     /** The fields of a ticket a staff write may change, each one audited with its old and new value. */
     private const AUDITED_FIELDS = ['state', 'priority', 'queue_id', 'assignee_id', 'escalation_level', 'first_response_due_at', 'resolution_due_at'];
 
-    public function __construct(private readonly AuditRecorder $audit, private readonly OutboxPublisher $outbox, private readonly Authorizer $authorizer) {}
+    public function __construct(private readonly AuditRecorder $audit, private readonly OutboxPublisher $outbox, private readonly Authorizer $authorizer, private readonly ComplaintService $complaints) {}
 
     /**
      * @param  array{subject:string, body:string, category?:?string, priority?:?string, service_id?:?string, domain_id?:?string, channel?:string, email?:?string, name?:?string, tags?:list<string>, incident_id?:?string, attachments?:list<array<string,mixed>>}  $input
@@ -56,7 +56,13 @@ final class TicketService
         if ($email === '') {
             throw new DomainError('ticket_email_required', 'Pro tiket potřebujeme kontaktní e-mail.', 422, ['field' => 'email']);
         }
-        $service = isset($input['service_id']) ? Service::query()->withTrashed()->find($input['service_id']) : null;
+        $named = isset($input['service_id']) && $input['service_id'] !== '';
+        $service = $named ? Service::query()->withTrashed()->find($input['service_id']) : null;
+        // TASK-0098 review M1: a service that does not exist is answered as one of another organization — the reference was dropped
+        // silently and the ticket opened about nothing, while a foreign id answered 404 (a difference that told the two apart)
+        if ($named && $service === null) {
+            throw DomainError::notFound('service');
+        }
         if ($service !== null && $organization !== null && $service->organization_id !== $organization->id) {
             throw DomainError::notFound('service');
         }
@@ -64,27 +70,34 @@ final class TicketService
         if (isset($input['domain_id']) && $organization !== null && ! Domain::query()->where('organization_id', $organization->id)->whereKey((string) $input['domain_id'])->exists()) {
             throw DomainError::notFound('domain');
         }
+        $attachments = $this->attachments((array) ($input['attachments'] ?? [])); // refused BEFORE the ticket exists: a forbidden file left a ticket with no first message
         $triage = Triage::classify($subject, $body);
         $topic = (string) ($input['category'] ?? $triage['topic']);
         if (! isset(Triage::TOPICS[$topic]) && $topic !== 'ostatni') {
             $topic = $triage['topic'];
         }
-        $contractual = $organization !== null && Service::query()->where('organization_id', $organization->id)->whereIn('sla_class', ['business', 'ha', 'critical'])->exists();
+        // the classes sold with a contractual SLA (L-05: Standard too, since the SLA in force promises it 99.9 %)
+        $contractualClasses = array_keys(array_filter((array) config('onhost.sla.classes', []), fn ($c) => is_array($c) && ($c['contractual'] ?? null) !== null));
+        $contractual = $organization !== null && Service::query()->where('organization_id', $organization->id)->whereIn('sla_class', $contractualClasses)->exists();
         $priority = Triage::priority($input['priority'] ?? null, $topic, $staff, $contractual, $subject.' '.$body);
         $policy = $this->policyFor($organization);
         $targets = $policy?->targetsFor($priority) ?? ['ack' => 60, 'first' => 240, 'next' => 480, 'resolve' => 4320];
         $queue = SupportQueue::query()->where('key', Triage::queueFor($topic))->first() ?? SupportQueue::query()->where('key', 'l1')->first();
 
+        $opened = now(); // TASK-0133: one instant for the ticket and its SLA clocks (a second boundary in between cut the window short)
         $ticket = $this->withNumber(fn (string $number) => Ticket::query()->create([
-            'number' => $number, 'organization_id' => $organization?->id, 'user_id' => $user?->id, 'email' => $email, 'name' => $input['name'] ?? $user?->name ?? $organization?->name, 'subject' => mb_substr($subject, 0, 250),
+            'number' => $number, 'created_at' => $opened, 'updated_at' => $opened, 'organization_id' => $organization?->id, 'user_id' => $user?->id, 'email' => $email, 'name' => $input['name'] ?? $user?->name ?? $organization?->name, 'subject' => mb_substr($subject, 0, 250),
             'category' => $topic, 'priority' => $priority, 'state' => TicketStateMachine::TRIAGED, 'channel' => (string) ($input['channel'] ?? 'portal'), 'queue_id' => $queue?->id, 'service_id' => $service?->id, 'domain_id' => $input['domain_id'] ?? null, 'incident_id' => $input['incident_id'] ?? null,
             'required_skills' => Triage::skillsFor($topic), 'tags' => array_values((array) ($input['tags'] ?? [])), 'sla_policy_id' => $policy?->id,
-            'first_response_due_at' => SlaClock::due(now(), $targets['first'], $policy), 'resolution_due_at' => SlaClock::due(now(), $targets['resolve'], $policy), 'last_customer_message_at' => now(),
+            'first_response_due_at' => SlaClock::due($opened, $targets['first'], $policy), 'resolution_due_at' => SlaClock::due($opened, $targets['resolve'], $policy), 'last_customer_message_at' => $opened,
             'meta' => ['triage' => $triage, 'requested_priority' => $input['priority'] ?? null, 'targets' => $targets],
         ]));
-        TicketMessage::query()->create(['ticket_id' => $ticket->id, 'author_type' => $staff ? 'staff' : 'customer', 'author_id' => $user?->id, 'author_name' => $ticket->name, 'visibility' => 'public', 'body' => $body, 'attachments' => $this->attachments($input['attachments'] ?? [])]);
+        TicketMessage::query()->create(['ticket_id' => $ticket->id, 'author_type' => $staff ? 'staff' : 'customer', 'author_id' => $user?->id, 'author_name' => $ticket->name, 'visibility' => 'public', 'body' => $body, 'attachments' => $attachments]);
         $this->audit->record($context->withScope($organization?->id), 'ticket.create', 'succeeded', ['number' => $ticket->number, 'category' => $topic, 'priority' => $priority, 'queue' => $queue?->key], 'ticket', $ticket->id);
         $this->outbox->publish(GenericEvent::of('ticket.created', 'ticket', $ticket->id, ['number' => $ticket->number, 'subject' => $ticket->subject, 'email' => $email, 'name' => $ticket->name, 'priority' => $priority, 'category' => $topic, 'queue' => $queue?->key, 'first_response_minutes' => $targets['first'], 'channel' => $ticket->channel], $organization?->id));
+        if ($topic === Triage::COMPLAINT_TOPIC) { // L-15: a complaint is confirmed at once and decided within 30 days
+            $ticket = $this->complaints->open($ticket, $context);
+        }
 
         return $ticket;
     }
@@ -290,8 +303,9 @@ final class TicketService
             $this->transition($ticket, TicketStateMachine::CLOSED, $context, 'Tiket byl automaticky uzavřen 7 dní po vyřešení.', 'public');
             $closed++;
         }
+        $complaints = $this->complaints->watch(); // L-15: the 30 days of a complaint, told before and when they run out
 
-        return ['breached' => $breached, 'closed' => $closed];
+        return ['breached' => $breached, 'closed' => $closed, 'complaints_due_soon' => $complaints['due_soon'], 'complaints_overdue' => $complaints['overdue']];
     }
 
     /** Topic clusters for the admin queue (mirrors the prototype's `clusters()`). @return list<array<string,mixed>> */

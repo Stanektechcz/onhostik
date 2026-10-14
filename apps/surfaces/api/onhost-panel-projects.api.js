@@ -139,11 +139,19 @@
       action: manage ? _('Upravit', 'Edit') : '', actionCls: 'btn btn-secondary',
       onAction: function () {
         if (!manage) return;
-        var name = window.prompt(_('Název projektu:', 'Project name:'), p.name); if (name === null) return;
-        var cost = window.prompt(_('Nákladové středisko (prázdné = žádné):', 'Cost centre (empty = none):'), p.cost_center || ''); if (cost === null) return;
-        var tags = window.prompt(_('Štítky oddělené čárkou:', 'Tags separated by commas:'), (p.tags || []).join(', ')); if (tags === null) return;
-        A().patch(path, { name: name.trim() || p.name, cost_center: cost.trim() || null, tags: tags.split(',').map(function (t) { return t.trim(); }).filter(Boolean) })
-          .then(function () { flash(cmp, _('Projekt upraven', 'Project updated'), name.trim() || p.name); reload(cmp); }).catch(function (e) { fail(cmp, _, e); });
+        window.OnhostDialog.form({
+          title: _('Upravit projekt', 'Edit project'), confirm: _('Uložit', 'Save'),
+          fields: [
+            { key: 'name', label: _('Název projektu', 'Project name'), value: p.name, required: true },
+            { key: 'cost', label: _('Nákladové středisko (prázdné = žádné)', 'Cost centre (empty = none)'), value: p.cost_center || '' },
+            { key: 'tags', label: _('Štítky oddělené čárkou', 'Tags separated by commas'), value: (p.tags || []).join(', ') }
+          ]
+        }).then(function (v) {
+          if (!v) return null;
+          var name = v.name, cost = v.cost, tags = v.tags;
+          return A().patch(path, { name: name.trim() || p.name, cost_center: cost.trim() || null, tags: tags.split(',').map(function (t) { return t.trim(); }).filter(Boolean) })
+            .then(function () { flash(cmp, _('Projekt upraven', 'Project updated'), name.trim() || p.name); reload(cmp); });
+        }).catch(function (e) { fail(cmp, _, e); });
       }
     };
     var serviceRows = services.filter(function (x) { return H.match(x.label || '') || H.match(x.hostname || '') || H.match(x.name || ''); }).map(function (x) {

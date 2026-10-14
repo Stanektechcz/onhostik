@@ -33,7 +33,9 @@ final class StaffNavigation
      * @var array<string, string>
      */
     public const API_ALLOW_LIST = [
-        // empty since D2: the staff panel sign-on (staff/services/{service}/panel-login) is POST only (P1-10), no GET is left outside an item
+        // D2 left this empty (the staff panel sign-on is POST only, P1-10). G2: the seller's VAT mode is API-only — finance reads it
+        // (billing.tax_rule.manage) before the four-eyes switch, the doctor row "VAT payer mode" shows it to operators; no console screen
+        'staff/tax/vat-payer-mode' => 'G2: VAT payer mode report before the four-eyes switch (API-only, billing.tax_rule.manage; doctor shows it)',
     ];
 
     /**
@@ -51,7 +53,6 @@ final class StaffNavigation
         'provisioning.operation.retry' => 'bus: retry from the fleet and game queues',
         'provisioning.operation.cancel' => 'bus: cancel from the fleet board',
         'provisioning.drift.resolve' => 'bus: resolving a drift from the drifts overview',
-        'provider.instance.manage' => 'bus: instance, node and egg writes on the integrations page and game views',
         'provider.secret.view' => 'dormant: provider secrets are never revealed through the platform (PermissionCatalog::DORMANT)',
         'capacity.manage' => 'bus: deciding capacity requests and the budget',
         'node.manage' => 'bus: node state, evacuation and migration writes',
@@ -60,10 +61,9 @@ final class StaffNavigation
         'dns.global.write' => 'bus: platform DNS writes (four eyes)',
         'domain.critical.manage' => 'bus: critical domain operations (four eyes)',
         'billing.invoice.manage' => 'bus: invoice writes (mark paid, credit notes) from the customer detail',
-        'billing.refund.execute' => 'bus: refunds and recorded withdrawals',
         'billing.refund.execute_large' => 'bus: large refunds (four eyes)',
         'billing.credit.adjust_mass' => 'bus: mass credit (four eyes)',
-        'billing.tax_rule.manage' => 'bus: a VAT status set by hand (four eyes)',
+        'billing.tax_rule.manage' => 'bus: a VAT status set by hand and the VAT payer mode switch (four eyes); its one GET, the mode report, is in API_ALLOW_LIST',
         'billing.credit_line.manage' => 'bus: credit lines',
         'incident.publish' => 'bus: publishing to the status page from the incidents view',
         'notification.mass.send' => 'dormant: no mass notice endpoint yet',
@@ -81,7 +81,6 @@ final class StaffNavigation
         'ai.ops.read' => 'dormant: no staff endpoint yet',
         'feature_flag.manage' => 'dormant: no staff endpoint yet',
         'billing.limit_raise.waive' => 'bus: a free limit raise from the customer detail (four eyes)',
-        'staff.backup.read' => 'no staff endpoint yet',
     ];
 
     public function __construct(private readonly Authorizer $authorizer) {}
@@ -122,6 +121,10 @@ final class StaffNavigation
                 N::get('staff/leads', 'staff.customer.read'), N::write('post', 'staff/leads/{lead}/transition', 'staff.order.manage'),
             ], all: ['staff.customer.read', 'staff.order.manage']),
             // ── operations: incidents, maintenance, on-call, the status page ──
+            // P16 (phase R): the shift overview — each section by its own permission (OperationsOverview::SECTIONS), read only
+            new N('opsoverview', 'operations', 5, 'gauge', ['cs' => 'Provoz', 'en' => 'Operations overview'], N::SCREEN_PAGE, '/sprava/nastaveni/provozni-prehled', [
+                N::get('staff/operations/overview', [$ops, 'staff.backup.read', 'billing.reconcile', $instances]),
+            ], any: [$ops, 'staff.backup.read', 'billing.reconcile', $instances]),
             new N('incidents', 'operations', 10, 'siren', ['cs' => 'Incidenty', 'en' => 'Incidents'], N::SCREEN_VIEW, 'incidents', [
                 N::get('staff/incidents', 'incident.manage'), N::get('staff/incidents/{incident}', 'incident.manage'), N::get('staff/incidents/components', 'incident.manage'),
                 N::get('staff/incidents/metrics', 'report.read'),
@@ -195,13 +198,20 @@ final class StaffNavigation
             ], all: ['partner.manage']),
             // ── finance ──
             new N('bank', 'finance', 10, 'bank', ['cs' => 'Bankovní platby', 'en' => 'Bank payments'], N::SCREEN_PAGE, '/sprava/nastaveni/integrace', [
-                N::get('staff/payments/bank', 'billing.reconcile'),
+                N::get('staff/payments/bank', 'billing.reconcile'), N::write('post', 'staff/payments/bank/statements', 'billing.reconcile'), // J-R7 (M3): ČS statement import
+                N::get('staff/finance/exports/{kind}', 'billing.reconcile'), // R2 (P-R36): the month's documents and payments as CSV for the accountant
             ], all: ['billing.reconcile']),
+            // H-R8: the Comgate gateway check (credentials present?, mode, connection, 1 Kč test payment) in the settings page
+            new N('comgate', 'finance', 15, 'bank', ['cs' => 'Platební brána Comgate', 'en' => 'Comgate gateway'], N::SCREEN_PAGE, '/sprava/nastaveni/integrace', [
+                N::get('staff/payments/comgate', 'provider.instance.read'), N::write('post', 'staff/payments/comgate/check', 'provider.instance.manage'), N::write('put', 'staff/payments/comgate/test-mode', 'provider.instance.manage'),
+            ], all: ['provider.instance.read']),
             new N('dunning', 'finance', 20, 'receipt', ['cs' => 'Upomínky a pohledávky', 'en' => 'Dunning and receivables'], N::SCREEN_VIEW, 'invoices', [
                 N::get('staff/dunning', 'billing.dunning.manage'), N::write('post', 'staff/dunning/run', 'billing.dunning.manage'),
             ], all: ['billing.dunning.manage']),
             new N('withdrawals', 'finance', 30, 'file', ['cs' => 'Odstoupení od smlouvy', 'en' => 'Contract withdrawals'], N::SCREEN_VIEW, 'contracts', [
                 N::get('staff/withdrawals', 'staff.billing.read'),
+                // G6: an order payment back to its source when the consumer did not take credit; bank payouts confirmed by finance
+                N::get('staff/payments/refunds', 'staff.billing.read'), N::get('staff/payments/refunds/not-paid-out', 'staff.billing.read'), N::write('post', 'staff/payments/{payment}/refund', 'billing.refund.execute'), N::write('post', 'staff/payments/refunds/{refund}/confirm', 'billing.refund.execute'), N::write('post', 'staff/payments/refunds/{refund}/cancel', 'billing.refund.execute'),
             ], all: ['staff.billing.read']),
             new N('sla_credits', 'finance', 40, 'shield', ['cs' => 'SLA kredity', 'en' => 'SLA credits'], N::SCREEN_VIEW, 'slapol', [
                 N::get('staff/sla-credits', 'sla.credit.manage'),
@@ -224,7 +234,7 @@ final class StaffNavigation
             ], all: ['iam.mfa.reset']),
             // ── product ──
             new N('pricing', 'product', 10, 'tag', ['cs' => 'Ceník, slevy a doplňky', 'en' => 'Pricing, discounts and add-ons'], N::SCREEN_PAGE, '/sprava/nastaveni/integrace', [
-                N::get('staff/pricing', 'catalog.manage'),
+                N::get('staff/pricing', 'catalog.manage'), N::get('staff/pricing/penpot', 'catalog.manage'), // H-R7: Penpot per web hosting tariff
             ], all: ['catalog.manage']),
             new N('plans', 'product', 20, 'versions', ['cs' => 'Tarify a verze', 'en' => 'Plans and versions'], N::SCREEN_PAGE, '/sprava/nastaveni/tarify', [
                 N::get('staff/pricing', 'catalog.manage'), N::get('staff/pricing/plans/{product}/{plan}/versions', 'catalog.manage'),
@@ -242,6 +252,15 @@ final class StaffNavigation
                 N::get('posts', null), N::get('kb', null), N::get('changelog', null),
                 N::write('put', 'staff/content/posts', 'content.manage'), N::write('put', 'staff/content/changelog', 'content.manage'), N::write('put', 'staff/content/kb', 'support.kb.manage'),
             ], any: ['content.manage', 'support.kb.manage']),
+            // I-R17 / I-R18 (TASK-0149): the blog and the customer references, written in a settings page through ContentCommand
+            new N('content_editor', 'product', 65, 'pen', ['cs' => 'Blog a reference', 'en' => 'Blog and references'], N::SCREEN_PAGE, '/sprava/nastaveni/obsah', [
+                N::get('staff/content/posts', 'content.manage'), N::get('staff/content/references', 'content.manage'),
+                N::write('post', 'staff/content/posts', 'content.manage'), N::write('patch', 'staff/content/posts/{post}', 'content.manage'),
+                N::write('post', 'staff/content/posts/{post}/state', 'content.manage'), N::write('delete', 'staff/content/posts/{post}', 'content.manage'),
+                N::write('post', 'staff/content/references', 'content.manage'), N::write('post', 'staff/content/references/order', 'content.manage'),
+                N::write('patch', 'staff/content/references/{reference}', 'content.manage'), N::write('post', 'staff/content/references/{reference}/state', 'content.manage'),
+                N::write('delete', 'staff/content/references/{reference}', 'content.manage'),
+            ], all: ['content.manage']),
             // ── security and compliance ──
             new N('security_incidents', 'security', 10, 'lock', ['cs' => 'Bezpečnostní incidenty a lhůty', 'en' => 'Security incidents and deadlines'], N::SCREEN_VIEW, 'opsaudit', [
                 N::get('staff/security/incidents', 'security.incident.manage'), N::get('staff/security/incidents/{case}', 'security.incident.manage'),

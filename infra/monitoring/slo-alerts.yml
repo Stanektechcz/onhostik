@@ -39,6 +39,16 @@ groups:
         for: 5m
         labels: { severity: page }
         annotations: { summary: "Outbox relay is behind: customers are not receiving notifications/webhooks" }
+      # G7 (TASK-0115): a message the relay gave up on after 10 attempts is never delivered and no longer counts as lag
+      - alert: OnhostOutboxDeadLetters
+        expr: onhost_outbox_dead_letters > 0
+        for: 10m
+        labels: { severity: ticket }
+        annotations: { summary: "{{ $value }} outbox message(s) the relay gave up on — events, notifications or webhooks were never delivered", runbook: docs/runbooks/outbox-dead-letters.md }
+      - alert: OnhostOutboxDeadLettersOld
+        expr: onhost_outbox_dead_letter_oldest_seconds > 24 * 3600
+        labels: { severity: page }
+        annotations: { summary: "An outbox dead letter has waited more than a day for a person", runbook: docs/runbooks/outbox-dead-letters.md }
       - alert: OnhostProvisioningDead
         expr: increase(onhost_operations_total{state="DEAD"}[1h]) > 0
         labels: { severity: ticket }
@@ -82,3 +92,54 @@ groups:
         for: 10m
         labels: { severity: ticket }
         annotations: { summary: "External probe {{ $labels.probe }} has not reported for 10 minutes (monitoring gap, not an outage)" }
+
+  # P12 (phase Q): what the doctor checks by hand, as alerts — each rule has a unit test in slo-alerts.test.yml (promtool test rules,
+  # CI job "monitoring"). The scheduler tick and the worker heartbeat are OnhostAutomationDead above (machine="scheduler"|"worker").
+  - name: onhost-operations
+    rules:
+      - alert: OnhostScheduledJobOverdue
+        expr: onhost_schedule_last_success_seconds > onhost_schedule_budget_seconds
+        for: 10m
+        labels: { severity: ticket }
+        annotations: { summary: "Scheduled job {{ $labels.command }} has not succeeded within its budget", runbook: docs/runbooks/day-2-operations.md }
+      - alert: OnhostCertificateExpiringSoon
+        expr: onhost_certificates_expiring_7d > 0
+        for: 1h
+        labels: { severity: ticket }
+        annotations: { summary: "{{ $value }} managed certificate(s) expire within 7 days and were not renewed", runbook: docs/runbooks/day-2-operations.md }
+      - alert: OnhostCertificateExpired
+        expr: onhost_certificates_expired > 0
+        for: 15m
+        labels: { severity: page }
+        annotations: { summary: "{{ $value }} managed certificate(s) expired: the sites show a browser warning", runbook: docs/runbooks/day-2-operations.md }
+      - alert: OnhostBankImportStale
+        expr: onhost_bank_statement_last_line_timestamp > 0 and time() - onhost_bank_statement_last_line_timestamp > 4 * 86400
+        for: 1h
+        labels: { severity: ticket }
+        annotations: { summary: "No bank statement line imported for 4 days: transfers are not matched to proforma invoices", runbook: docs/runbooks/day-2-operations.md }
+      - alert: OnhostBankLinesUnmatched
+        expr: onhost_bank_unmatched_lines > 0
+        for: 24h
+        labels: { severity: ticket }
+        annotations: { summary: "{{ $value }} bank statement line(s) unmatched for a day", runbook: docs/runbooks/billing-dunning.md }
+      - alert: OnhostDiskLow
+        expr: onhost_disk_free_ratio < 0.2
+        for: 15m
+        labels: { severity: ticket }
+        annotations: { summary: "Less than 20 % free on the {{ $labels.path }} disk of the control plane", runbook: docs/runbooks/day-2-operations.md }
+      - alert: OnhostDiskCritical
+        expr: onhost_disk_free_ratio < 0.05
+        for: 5m
+        labels: { severity: page }
+        annotations: { summary: "Less than 5 % free on the {{ $labels.path }} disk: backups, uploads and the database stop soon", runbook: docs/runbooks/day-2-operations.md }
+      # P13 (phase R): the monthly restore drill (infra/aapanel/restore-drill.sh). "Never ran" (0) is the doctor's row, not a page.
+      - alert: OnhostRestoreDrillOverdue
+        expr: onhost_platform_restore_drill_timestamp > 0 and time() - onhost_platform_restore_drill_timestamp > 35 * 86400
+        for: 1h
+        labels: { severity: ticket }
+        annotations: { summary: "The last platform restore drill is older than 35 days", runbook: docs/runbooks/backups.md }
+      - alert: OnhostRestoreDrillFailed
+        expr: onhost_platform_restore_drill_ok == 0 and onhost_platform_restore_drill_timestamp > 0
+        for: 15m
+        labels: { severity: ticket }
+        annotations: { summary: "The newest platform restore drill failed: the platform backups may not restore", runbook: docs/runbooks/backups.md }

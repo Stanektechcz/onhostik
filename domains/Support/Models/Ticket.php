@@ -21,6 +21,7 @@ final class Ticket extends Model
             'required_skills' => 'array', 'tags' => 'array', 'meta' => 'array', 'paused_minutes' => 'integer', 'reopen_count' => 'integer', 'escalation_level' => 'integer', 'csat_score' => 'integer',
             'first_response_due_at' => 'datetime', 'next_response_due_at' => 'datetime', 'resolution_due_at' => 'datetime', 'first_responded_at' => 'datetime', 'last_customer_message_at' => 'datetime', 'last_staff_message_at' => 'datetime',
             'waiting_since' => 'datetime', 'resolved_at' => 'datetime', 'closed_at' => 'datetime',
+            'complaint_received_at' => 'datetime', 'complaint_due_at' => 'datetime', 'complaint_resolved_at' => 'datetime', // L-15
         ];
     }
 
@@ -33,6 +34,12 @@ final class Ticket extends Model
     public function slaEvents(): HasMany
     {
         return $this->hasMany(SlaEvent::class, 'ticket_id');
+    }
+
+    /** L-15: a complaint (reklamace) about the service, with the deadline the law counts. */
+    public function isComplaint(): bool
+    {
+        return $this->complaint_received_at !== null;
     }
 
     public function isOpen(): bool

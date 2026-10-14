@@ -12,6 +12,7 @@ use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Catalog\Models\Plan;
 use Onhost\Domain\Catalog\Models\PlanVersion;
 use Onhost\Domain\Catalog\Models\Price;
+use Onhost\Domain\Catalog\PlanVersioning;
 use Onhost\Domain\Identity\Authorization\Models\Approval;
 use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Notifications\Models\Notification;
@@ -19,6 +20,7 @@ use Onhost\Domain\Orders\QuoteService;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Platform\Audit\AuditEvent;
+use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Outbox\OutboxPublisher;
 use Tests\TestCase;
 
@@ -151,4 +153,24 @@ it('serves the settings page to staff only', function () {
     [$customer] = $this->customerWithOrganization();
     $this->actingAs($customer, 'sanctum');
     $this->get('/sprava/nastaveni/tarify')->assertRedirect('/panel');
+});
+
+it('lets a version add only the keys the code reads for its family: a custom ISO on a VPS, never on a web plan (TASK-0110)', function () {
+    $owner = $this->staff('platform_owner');
+    $context = $this->contextFor($owner, null, 'totp');
+    $versioning = app(PlanVersioning::class);
+
+    $version = $versioning->publish('vps', 'compute-4', ['entitlements' => ['custom_iso' => true, 'custom_iso_max_mb' => 4096], 'reason' => 'vlastní ISO podle G-R5'], $context);
+    expect($version->entitlements)->toMatchArray(['custom_iso' => true, 'custom_iso_max_mb' => 4096, 'vcpu' => 4]);
+    // the spec gives the type: a switch stays a switch, a size a whole number
+    expect(fn () => $versioning->publish('vps', 'compute-8', ['entitlements' => ['custom_iso' => 'ano'], 'reason' => 'překlep'], $context))
+        ->toThrow(DomainError::class, 'must stay a boolean');
+    expect(fn () => $versioning->publish('vps', 'compute-8', ['entitlements' => ['custom_iso_max_mb' => 4.5], 'reason' => 'překlep'], $context))
+        ->toThrow(DomainError::class, 'must stay a non-negative number');
+    // nothing reads it on a web plan: still a key the plan does not have
+    expect(fn () => $versioning->publish('web-hosting', 'start', ['entitlements' => ['custom_iso' => true], 'reason' => 'omylem na webu'], $context))
+        ->toThrow(DomainError::class, 'is not part of this plan');
+    // and taken off again like any other key
+    expect($versioning->publish('vps', 'compute-4', ['entitlements' => ['custom_iso' => null, 'custom_iso_max_mb' => null], 'reason' => 'zpět bez ISO'], $context)->entitlements)
+        ->not->toHaveKeys(['custom_iso', 'custom_iso_max_mb']);
 });

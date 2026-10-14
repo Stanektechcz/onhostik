@@ -6,11 +6,13 @@ namespace Onhost\Domain\Notifications;
 
 use Carbon\CarbonImmutable;
 use Onhost\Domain\Identity\Models\User;
+use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Orders\CreditOrderPolicy;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Organizations\GrantPolicy;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
+use Onhost\Domain\Services\Metering\UsageMetrics;
 use Onhost\Domain\Services\Metering\WebDiskTotal;
 use Onhost\Domain\Services\UsageWatch;
 use Onhost\Domain\Tax\VatNumber;
@@ -124,9 +126,11 @@ final class NotificationRouter
                     return;
                 }
                 $level = (string) ($p['level'] ?? 'warn');
-                $body = match ($level) { // a full plan is not a warning any more: the site cannot take more until there is room
-                    'full' => "Tarif je vyčerpaný, takže do služby zatím nejde přidávat další obsah. Uvolněte místo, nebo zvyšte tarif. {$offer}",
-                    'critical' => "Kapacita je téměř vyčerpaná. {$offer}",
+                $soft = UsageMetrics::isSoft((string) ($top['key'] ?? '')); // a soft limit (the monthly transfer of a VPS, phase T) tells, it never stops anything
+                $body = match (true) { // a full plan is not a warning any more: the site cannot take more until there is room
+                    $level === 'full' && $soft => "Limit tarifu je vyčerpaný. Službu kvůli tomu neomezujeme ani neodpojujeme. {$offer}",
+                    $level === 'full' => "Tarif je vyčerpaný, takže do služby zatím nejde přidávat další obsah. Uvolněte místo, nebo zvyšte tarif. {$offer}",
+                    $level === 'critical' => "Kapacita je téměř vyčerpaná. {$offer}",
                     default => "Blížíte se limitu tarifu. {$offer}",
                 };
                 $this->customer($m, 'service', $level === 'full' ? "Služba {$name} má vyčerpaný tarif ({$metric})" : "Služba {$name} využívá {$pct} % ({$metric})", $body, '/panel/sluzby', in_array($level, ['critical', 'full'], true) ? 'hot' : 'warn', $email, 'service-usage-high', ['sluzba' => $name, 'metrika' => $metric, 'procenta' => (string) $pct, 'nabidka' => $offer, 'url' => "{$portal}/panel/sluzby"]);
@@ -141,6 +145,12 @@ final class NotificationRouter
             // loyalty programme: levels and badges
             'loyalty.level_up' => $this->customer($m, 'account', 'Nová úroveň věrnostního programu: '.($p['name'] ?? ''), ($p['reward'] ?? null) ? 'Odměna '.$money($p['reward']).' je na vašem promo kreditu.' : 'Díky, že jste s námi.', '/panel/nastaveni', 'info', $email, 'loyalty-level-up', ['uroven' => (string) ($p['name'] ?? ''), 'body' => (string) (int) ($p['points'] ?? 0), 'odmena' => ($p['reward'] ?? null) ? $money($p['reward']) : '—', 'url' => "{$portal}/panel/nastaveni"]),
             'loyalty.badge' => $this->customer($m, 'account', 'Nový odznak: '.($p['name'] ?? ''), 'Najdete ho v nastavení účtu.', '/panel/nastaveni'),
+            'loyalty.clawback' => $this->customer($m, 'account', 'Věrnostní body vráceny: '.(int) ($p['points'] ?? 0), ($p['reason'] ?? 'Peníze se vrátily').' · zůstatek '.(int) ($p['total'] ?? 0).' bodů. Body se přičítají jen za zaplacené částky.', '/panel/nastaveni', 'info'),
+            // G3 (owner decision G-R2): points redeemed for a discount, given back with a credit note, about to expire, expired
+            'loyalty.redeemed' => $this->customer($m, 'account', 'Věrnostní body uplatněny: '.(int) ($p['points'] ?? 0), 'Sleva za věrnostní body '.$money($p['value'] ?? null).' · objednávka '.($p['number'] ?? '').' · zůstatek '.(int) ($p['total'] ?? 0).' bodů', '/panel/nastaveni', 'info'),
+            'loyalty.points_returned' => $this->customer($m, 'account', 'Uplatněné body se vrátily: '.(int) ($p['points'] ?? 0), 'Dobropis '.($p['credit_note'] ?? '').' · zůstatek '.(int) ($p['total'] ?? 0).' bodů', '/panel/nastaveni', 'info'),
+            'loyalty.expiring' => $this->customer($m, 'account', 'Věrnostní body brzy propadnou: '.(int) ($p['points'] ?? 0), 'Propadnou '.self::day($p['expires_on'] ?? null).'. Uplatněte je v košíku jako slevu na objednávku.', '/panel/nastaveni', 'warn', $email, 'loyalty-expiring', ['body' => (string) (int) ($p['points'] ?? 0), 'datum' => self::day($p['expires_on'] ?? null), 'zustatek' => (string) (int) ($p['total'] ?? 0), 'url' => "{$portal}/panel/nastaveni"]),
+            'loyalty.expired' => $this->customer($m, 'account', 'Věrnostní body propadly: '.(int) ($p['points'] ?? 0), 'Propadly body připsané do '.self::day($p['credited_until'] ?? null).' · zůstatek '.(int) ($p['total'] ?? 0).' bodů', '/panel/nastaveni', 'info'),
             'service.migration.collaborators_dropped' => $this->customer($m, 'service', 'Server '.($p['label'] ?? '').': spolupracovníky se nepodařilo přenést', 'Na nový server se nepřenesli spolupracovníci: '.(int) ($p['count'] ?? 0).'. Jejich práva by se při přenosu změnila, proto jsme je nepřidali. Přidejte je znovu v nastavení serveru.', '/panel/sluzby', 'warn'),
             'service.migrated' => $this->customer($m, 'service', 'Server '.($p['label'] ?? '').' byl přestěhován', 'Nová adresa: '.($p['address'] ?? '—').'. Data, nastavení i plány zůstaly.', '/panel/sluzby', 'info', $email, 'service-migrated', ['sluzba' => (string) ($p['label'] ?? ''), 'adresa' => (string) ($p['address'] ?? ''), 'url' => "{$portal}/panel/sluzby"]),
             'service.migration.failed' => $this->internal($m, 'infra', 'Stěhování serveru '.($p['label'] ?? '').' selhalo', (string) ($p['error'] ?? '').' · '.($p['source_node'] ?? '').' → '.($p['target_node'] ?? ''), '/sprava#/gprov', 'hot'),
@@ -154,6 +164,15 @@ final class NotificationRouter
             'service.backup.schedule.stalled' => $this->customerAndStaff($m, $p, 'Plánovaná záloha se nespustila', 'Zálohu služby '.($p['label'] ?? '').' se nepodařilo spustit '.(int) ($p['missed'] ?? 0).'× po sobě ('.($p['reason'] ?? '').'). Díváme se na to; poslední hotová záloha zůstává k dispozici.'),
             'service.rescue.started' => $this->customer($m, 'service', 'Server běží v záchranném režimu', 'Nastartovali jsme server ze záchranného obrazu ('.($p['image'] ?? '').'). Disky zůstaly nedotčené. Režim sám skončí '.($p['until'] ?? '').' a server nabootuje zpět do svého systému.', '/panel/sluzby', 'warn'),
             'service.rescue.ended' => $this->customer($m, 'service', 'Záchranný režim skončil', 'Server jsme vrátili do vlastního systému ('.($p['reason'] ?? '').').', '/panel/sluzby', 'info'),
+            // ── H1 (TASK-0121): the organization's own installation images — the feed of everybody in it, never a mail (the person who acted got the answer) ──
+            'service.iso.uploaded' => $this->customer($m, 'service', 'Vlastní ISO nahráno: '.($p['name'] ?? ''), 'Obraz prošel antivirovou kontrolou a je v knihovně organizace ('.(int) round((int) ($p['size_bytes'] ?? 0) / 1048576).' MB). K serveru ho připojíte v panelu.', '/panel/sluzby', 'info'),
+            'service.iso.attached' => $this->customer($m, 'service', 'Vlastní ISO připojeno k serveru '.($p['label'] ?? ''), ! empty($p['boot_first'])
+                ? 'Server nabootuje z obrazu '.($p['name'] ?? '').' při příštím startu. Po instalaci ISO odpojte; server pak zase startuje ze svého disku.'
+                : 'Ve virtuální mechanice je obraz '.($p['name'] ?? '').'; server dál startuje ze svého disku.', '/panel/sluzby', ! empty($p['boot_first']) ? 'warn' : 'info'),
+            'service.iso.detached' => ($p['cause'] ?? '') === 'delete' ? null // only the first step of a delete: the deletion notice follows
+                : $this->customer($m, 'service', 'Vlastní ISO odpojeno od serveru '.($p['label'] ?? ''), 'Z mechaniky jsme odebrali obraz '.($p['name'] ?? '').'; mechanika a pořadí bootování jsou zpět, jak byly před připojením.', '/panel/sluzby', 'info'),
+            'service.iso.deleted' => $this->customer($m, 'service', 'Vlastní ISO smazáno: '.($p['name'] ?? ''), 'Obraz i jeho kopie na serverech jsou pryč a místo v kvótě organizace je volné.', '/panel/sluzby', 'info'),
+            // ── end H1 ──
             'service.deactivated' => $this->internal($m, 'service', 'Služba deaktivována ke zrušení', (string) ($p['reason'] ?? ''), '/sprava/sluzby'),
             'service.deletion.scheduled' => $this->customer($m, 'service', 'Služba byla zrušena a deaktivována', 'Zálohu máme hotovou. Obnovit službu můžete do '.(int) ($p['grace_days'] ?? 30).' dnů. Data uchováme dalších '.(int) ($p['retention_days'] ?? 60).' dní.', '/panel/sluzby', 'warn', $email, 'service-deletion-scheduled', ['lhuta' => (string) (int) ($p['grace_days'] ?? 30), 'uchovani' => (string) (int) ($p['retention_days'] ?? 60), 'url' => "{$portal}/panel/sluzby"]),
             'service.deletion.cancelled' => $this->customer($m, 'service', 'Zrušení služby jsme odvolali', 'Služba běží dál, plánované odstranění jsme zrušili.', '/panel/sluzby', 'info'),
@@ -177,7 +196,7 @@ final class NotificationRouter
             'service.recovered' => $this->internal($m, 'service', 'Služba opět v pořádku', '', '/sprava/sluzby'),
             // one payment produces a proforma, a receipt and a statement: only the documents the customer acts on or files (proforma,
             // invoice, credit note) are mailed as "Doklad"; the receipt is covered by "Platba přijata", the statement stays in the panel
-            'invoice.issued' => $this->customer($m, 'invoice.issued', "Nový doklad {$p['number']}", $money($p['total'] ?? null).(($p['type'] ?? '') === 'invoice' ? ' · splatnost 14 dní' : ''), '/panel/fakturace', 'info', in_array($p['type'] ?? 'invoice', ['proforma', 'invoice', 'credit_note'], true) ? $email : null, 'invoice', ['cislo' => $p['number'], 'castka' => $money($p['total'] ?? null), 'splatnost' => $p['due_at'] ?? '', 'url' => "{$portal}/panel/fakturace"]),
+            'invoice.issued' => $this->customer($m, 'invoice.issued', "Nový doklad {$p['number']}", $money($p['total'] ?? null).(self::stillOwed($m, $p) ? ' · splatnost 14 dní' : ''), '/panel/fakturace', 'info', in_array($p['type'] ?? 'invoice', ['proforma', 'invoice', 'credit_note'], true) ? $email : null, 'invoice', ['cislo' => $p['number'], 'castka' => $money($p['total'] ?? null), 'splatnost' => $p['due_at'] ?? '', 'url' => "{$portal}/panel/fakturace"]),
             'invoice.cancelled' => $this->customer($m, 'invoice.issued', "Doklad {$p['number']} byl stornován", (string) ($p['reason'] ?? 'objednávka zrušena, nic k úhradě'), '/panel/fakturace'),
             'invoice.overdue' => $this->customer($m, 'invoice.issued', "Doklad {$p['number']} je po splatnosti", $money($p['outstanding'] ?? ($p['total'] ?? null)), '/panel/fakturace', 'hot', $email, 'invoice-overdue', ['cislo' => $p['number'], 'castka' => $money($p['outstanding'] ?? ($p['total'] ?? null)), 'url' => "{$portal}/panel/fakturace"]),
             'invoice.paid' => $this->both($m, 'invoice', "Platba {$p['number']}", ($org?->name ?? '').' · '.$money($p['amount'] ?? null), "Platba přijata: {$p['number']}", $money($p['amount'] ?? null).' · služby se zřizují', '/sprava/doklady', '/panel/fakturace', 'info', ($p['type'] ?? '') === 'invoice' ? $email : null, 'payment-received', ['cislo' => $p['number'] ?? '', 'castka' => $money($p['amount'] ?? null), 'url' => $portal.'/panel/fakturace']), // receipts are announced by payment.succeeded (order) or wallet.topup.completed (top-up)
@@ -198,6 +217,8 @@ final class NotificationRouter
             // stored card (audit §5f-1): the customer sees which card the automatic top-up will charge
             'payment.method.saved' => $this->customer($m, 'wallet', 'Karta •••• '.($p['last4'] ?? '').' uložena pro automatické dobití', ! empty($p['auto_topup']) ? 'Automatické dobití kreditu ji použije, když kredit nepokryje obnovy příštího týdne. Odebrat ji můžete ve Fakturaci.' : 'Zapněte automatické dobití kreditu ve Fakturaci a obnovy proběhnou bez vašeho zásahu. Kartu můžete kdykoli odebrat.', '/panel/fakturace', 'info'),
             'payment.succeeded' => ($p['purpose'] ?? '') === 'order' ? $this->customer($m, 'invoice.issued', 'Platba přijata', $money($p['amount'] ?? null).($orderNumber !== '' ? " · objednávka {$orderNumber}" : '').' · služby se zřizují', '/panel/objednavky', 'info', $email, 'payment-received', ['cislo' => $orderNumber !== '' ? $orderNumber : ($p['reference'][1] ?? ''), 'castka' => $money($p['amount'] ?? null), 'url' => $portal.'/panel/objednavky']) : null,
+            // F12b: a refund the gateway confirmed (no credit note says so); written in the organization's language here, as Lexicon has no line for it
+            'payment.refunded' => $this->customer($m, 'wallet', $locale === 'en' ? 'Payment refunded' : 'Platba vrácena', $locale === 'en' ? $money($p['amount'] ?? null).' went back to the original payment method.' : 'Částka '.$money($p['amount'] ?? null).' se vrátila na původní platební metodu.', '/panel/fakturace', 'info', $email, 'payment-refunded', ['castka' => $money($p['amount'] ?? null), 'doklad' => (string) ($p['credit_note'] ?? ''), 'url' => "{$portal}/panel/fakturace"]), // G6: and by mail
             'wallet.topup.completed' => $this->customer($m, 'wallet', 'Kredit dobit', $money($p['amount'] ?? null), '/panel/fakturace', 'info', ($p['purpose'] ?? 'topup') === 'topup' ? $email : null, 'wallet-topup', ['castka' => $money($p['amount'] ?? null), 'zustatek' => $money($p['balance'] ?? null) ?: '—', 'url' => $portal.'/panel/fakturace']),
             'wallet.frozen' => $this->both($m, 'wallet', 'Peněženka zmrazena', (string) ($p['reason'] ?? ''), 'Peněženka byla zmrazena', 'Kontaktujte prosím podporu.', '/sprava/zakaznici', '/panel/fakturace', 'hot'),
             'budget.threshold' => $this->customer($m, 'wallet', 'Rozpočet: '.($p['threshold'] ?? '').' %', 'Útrata dosáhla nastaveného prahu.', '/panel/fakturace', 'warn'),
@@ -244,6 +265,9 @@ final class NotificationRouter
                 : $this->user($m, 'security.mfa', 'Heslo bylo změněno', ($p['ip'] ?? ''), '/panel/nastaveni', 'warn', 'security-password', ['ip' => $p['ip'] ?? '', 'url' => "{$portal}/panel/nastaveni"]),
             'security.account_locked' => $this->user($m, 'security.login', 'Účet dočasně uzamčen', 'Opakované neúspěšné přihlášení z '.($p['ip'] ?? ''), '/panel/nastaveni', 'hot', 'security-locked', ['ip' => $p['ip'] ?? '', 'url' => "{$portal}/obnova-hesla"]),
             'api_token.created' => $this->user($m, 'api_token.created', "Vytvořen API token „{$p['name']}“", 'rozsah: '.implode(', ', (array) ($p['scopes'] ?? [])), '/panel/api', 'warn', 'api-token', ['nazev' => $p['name'] ?? '', 'rozsah' => implode(', ', (array) ($p['scopes'] ?? [])), 'expirace' => substr((string) ($p['expires_at'] ?? ''), 0, 10), 'url' => "{$portal}/panel/api"]),
+            // H0 (owner decision H-R1): a risky action of an API token waits for the owner's approval in the portal
+            'iam.token_approval.requested' => $this->customer($m, 'security', 'API token čeká na schválení: '.(string) ($p['action'] ?? ''), trim((string) ($p['token_name'] ?? '').' · '.(string) ($p['requester'] ?? '').' · schválit může vlastník nebo správce organizace do '.$until, ' ·'), '/panel/api', 'warn'),
+            'iam.token_approval.decided' => $this->customer($m, 'security', (($p['decision'] ?? '') === 'approved' ? 'Požadavek API tokenu schválen: ' : 'Požadavek API tokenu zamítnut: ').(string) ($p['action'] ?? ''), trim((string) ($p['token_name'] ?? '').' · '.(string) ($p['decider'] ?? '').' · '.(string) ($p['note'] ?? ''), ' ·'), '/panel/api'),
             'identity.registered' => $this->mailOnly($m, (string) ($p['email'] ?? ''), 'welcome', ['jmeno' => $p['name'] ?? '', 'organizace' => $org?->name ?? '', 'url' => "{$portal}/panel"], $locale),
             'organization.invitation.created' => $this->internal($m, 'account', 'Pozvánka do organizace odeslána', ($org?->name ?? '').' · '.($p['email'] ?? '').' · '.($p['role'] ?? ''), '/sprava/zakaznici'),
             'organization.invitation.cancelled' => $this->internal($m, 'account', 'Pozvánka do organizace zrušena', ($org?->name ?? '').' · '.($p['email'] ?? '').' · '.($p['role'] ?? ''), '/sprava/zakaznici'),
@@ -277,6 +301,21 @@ final class NotificationRouter
             'ticket.escalated' => $this->internal($m, 'ticket', "Eskalace {$p['number']} → L".($p['level'] ?? ''), (string) ($p['reason'] ?? ''), '/sprava/fronta', 'hot'),
             'ticket.sla_breached' => $this->internal($m, 'ticket', "SLA porušeno · {$p['number']}", (string) ($p['kind'] ?? ''), '/sprava/fronta', 'hot'),
             'ticket.resolved' => $this->customer($m, 'ticket', "Tiket {$p['number']} vyřešen", 'Ohodnoťte prosím řešení.', '/panel/tikety'),
+            // L-15 (TASK-0145): a complaint confirmed when it is made and when it is decided (§ 19 ZOS, mandatory legal notices); support hears the 30 days run out
+            'ticket.complaint.received' => (function () use ($m, $p, $email, $portal): void {
+                $day = fn (string $iso) => $iso === '' ? '—' : CarbonImmutable::parse($iso)->setTimezone((string) config('onhost.billing.timezone', 'Europe/Prague'))->format('j. n. Y');
+                $this->internal($m, 'ticket', 'Reklamace přijata · '.($p['number'] ?? ''), ($p['subject'] ?? '').' · vyřídit do '.$day((string) ($p['due_at'] ?? '')), '/sprava/fronta', 'warn');
+                $this->customer($m, 'legal.notice', 'Reklamace přijata · '.($p['number'] ?? ''), 'Uplatněna '.$day((string) ($p['received_at'] ?? '')).', vyřídíme nejpozději do '.$day((string) ($p['due_at'] ?? '')).'.', '/panel/tikety', 'info', (string) ($p['email'] ?? $email), 'complaint-received',
+                    ['cislo' => (string) ($p['number'] ?? ''), 'predmet' => (string) ($p['subject'] ?? ''), 'prijato' => $day((string) ($p['received_at'] ?? '')), 'lhuta' => $day((string) ($p['due_at'] ?? '')), 'url' => "{$portal}/panel/tikety"]);
+            })(),
+            'ticket.complaint.resolved' => (function () use ($m, $p, $email, $portal): void {
+                $day = fn (string $iso) => $iso === '' ? '—' : CarbonImmutable::parse($iso)->setTimezone((string) config('onhost.billing.timezone', 'Europe/Prague'))->format('j. n. Y');
+                $outcome = ['accepted' => 'uznána', 'partially_accepted' => 'uznána zčásti', 'rejected' => 'zamítnuta'][(string) ($p['outcome'] ?? '')] ?? (string) ($p['outcome'] ?? '');
+                $this->customer($m, 'legal.notice', 'Reklamace vyřízena · '.($p['number'] ?? ''), 'Reklamace '.$outcome.' '.$day((string) ($p['resolved_at'] ?? '')).'. '.mb_substr((string) ($p['resolution'] ?? ''), 0, 400), '/panel/tikety', 'info', (string) ($p['email'] ?? $email), 'complaint-resolved',
+                    ['cislo' => (string) ($p['number'] ?? ''), 'predmet' => (string) ($p['subject'] ?? ''), 'prijato' => $day((string) ($p['received_at'] ?? '')), 'vyrizeno' => $day((string) ($p['resolved_at'] ?? '')), 'vysledek' => $outcome, 'zpusob' => (string) ($p['resolution'] ?? ''), 'url' => "{$portal}/panel/tikety"]);
+            })(),
+            'ticket.complaint.due_soon' => $this->internal($m, 'ticket', 'Reklamace se blíží lhůtě · '.($p['number'] ?? ''), ($p['subject'] ?? '').' · zákonná lhůta 30 dní končí '.substr((string) ($p['due_at'] ?? ''), 0, 10), '/sprava/fronta', 'warn'),
+            'ticket.complaint.overdue' => $this->internal($m, 'ticket', 'Reklamace po lhůtě · '.($p['number'] ?? ''), ($p['subject'] ?? '').' · zákonná lhůta 30 dní uplynula '.substr((string) ($p['due_at'] ?? ''), 0, 10).' · vyřiďte ihned, spotřebitel může od smlouvy odstoupit', '/sprava/fronta', 'hot'),
             'ticket.handoff' => $this->internal($m, 'ticket', "Předání od AI asistenta · {$p['number']}", (string) ($p['reason'] ?? ''), '/sprava/fronta', 'warn'),
             'incident.opened' => $this->both($m, 'incident.affecting', "{$p['number']} otevřen", (string) ($p['title'] ?? ''), 'Probíhá incident', (string) ($p['title'] ?? ''), '/sprava/incidenty', '/stav', 'hot', $email, 'incident', ['incident' => $p['number'], 'nazev' => $p['title'] ?? '', 'stav' => $p['state'] ?? '', 'dopad' => $p['impact'] ?? '', 'url' => "{$portal}/stav"]),
             'incident.updated' => $this->both($m, 'incident.affecting', "{$p['number']} → {$p['state_label']}", (string) ($p['note'] ?? ''), "{$p['number']} — {$p['state_label']}", (string) ($p['note'] ?? ''), '/sprava/incidenty', '/stav', 'warn'),
@@ -289,13 +328,24 @@ final class NotificationRouter
             'lead.received' => $this->internal($m, 'sales', 'Nová poptávka: '.($p['kind'] ?? ''), ($p['company'] ?? $p['name'] ?? '').' · '.($p['email'] ?? ''), '/sprava/zakaznici', 'info'),
             'partner.payout.requested' => $this->internal($m, 'partner', 'Žádost o výplatu provize', ($org?->name ?? '').' · '.$money($p['amount'] ?? null), '/sprava/fakturace', 'warn'),
             'partner.payout.paid' => $this->customer($m, 'partner', 'Provize vyplacena', $money($p['amount'] ?? null), '/partner/vyplaty', 'info', $email, 'payout', ['castka' => $money($p['amount'] ?? null), 'obdobi' => $p['period'] ?? '', 'url' => "{$portal}/partner/vyplaty"]),
+            // R7 (TASK-0097): a commission is payable 30 days after the client paid; what a credit note did to it reaches the partner
+            'partner.commissions.matured' => $this->customer($m, 'partner', 'Provize k výplatě: '.$money($p['amount'] ?? null), 'Uplynulo 30 dní od zaplacení klientem (provizí: '.(int) ($p['count'] ?? 0).'). Výplatu si vyžádáte v portálu.', '/partner#/provize', 'info'),
+            'partner.commission.cancelled' => $this->customer($m, 'partner', 'Provize zrušena: faktura '.($p['invoice'] ?? ''), 'Klient dostal peníze zpět do 30 dnů od zaplacení (dobropis '.($p['credit_note'] ?? '').'); provize '.$money($p['amount'] ?? null).' se nevyplatí.', '/partner#/provize', 'info'),
+            'partner.commission.reduced' => $this->customer($m, 'partner', 'Provize snížena: faktura '.($p['invoice'] ?? ''), 'Klient dostal část peněz zpět do 30 dnů od zaplacení (dobropis '.($p['credit_note'] ?? '').'); provize je nižší o '.$money($p['amount'] ?? null).', zbývá '.$money($p['left'] ?? null).'.', '/partner#/provize', 'info'),
+            'partner.commission.adjusted' => $this->customer($m, 'partner', 'Provize opravena: faktura '.($p['invoice'] ?? ''), 'Klient dostal peníze zpět po ochranné lhůtě (dobropis '.($p['credit_note'] ?? '').'); '.$money($p['amount'] ?? null).' se odečte od příští výplaty.', '/partner#/provize', 'warn'),
+            // I-R6 (K5, TASK-0158): finance cancelled the newer row of a double commission (set aside by the deploy)
+            'partner.commission.duplicate_cancelled' => $this->customer($m, 'partner', 'Zdvojená provize opravena: faktura '.($p['invoice'] ?? ''), match ($p['outcome'] ?? 'cancelled') {
+                'deducted' => 'Provize k této faktuře byla vyplacena dvakrát. '.$money($p['amount'] ?? null).' se odečte od příští výplaty.',
+                'credited' => 'Oprava provize k této faktuře byla zapsaná dvakrát. '.$money($p['amount'] ?? null).' přičteme k příští výplatě.',
+                default => 'Provize k této faktuře byla zapsaná dvakrát. Druhý zápis ('.$money($p['amount'] ?? null).') jsme zrušili, vyplacen nebude.',
+            }, '/partner#/provize', ($p['outcome'] ?? 'cancelled') === 'deducted' ? 'warn' : 'info'),
             // the whole account is going to be erased: said in the panel at once, with the date and the way to stop it
             'compliance.data_request.deletion_scheduled' => $this->customer($m, 'legal.notice', 'Účet bude smazán', 'Smazání účtu proběhne '.self::when($p['execute_after'] ?? null).'. Do té doby ho můžete zrušit v nastavení.', '/panel/nastaveni', 'warn'),
             'compliance.data_export.ready' => $this->customer($m, 'legal.notice', 'Export dat je připraven', 'Ke stažení '.($p['days'] ?? 30).' dní.', '/panel/nastaveni', 'info', $email, 'data-export', ['url' => "{$portal}/panel/nastaveni", 'dni' => $p['days'] ?? 30]),
             // a plan version decides what new customers get and pay (H01): finance hears about it, it is not an alarm
             'catalog.plan.version_published', 'catalog.plan.version_activated' => $this->internal($m, 'finance', self::internalTitle($m->name, $p), 'Změněno: '.implode(', ', array_merge((array) ($p['changed']['entitlements'] ?? []), (array) ($p['changed']['limits'] ?? []), (array) ($p['changed']['prices'] ?? []))).' · důvod: '.($p['reason'] ?? ''), '/sprava/fakturace', 'warn'),
             'platform.mail.failing', 'platform.mail.recovered',
-            'node.blocklisted', 'service.name_unproved', 'service.certificate.problem', 'service.resume.incomplete', 'service.suspend.incomplete', 'service.purge.leftover',
+            'node.blocklisted', 'service.name_unproved', 'service.certificate.problem', 'service.resume.incomplete', 'service.suspend.incomplete', 'service.purge.leftover', 'service.termination.failed',
             'registrar.credit.low', 'integration.down', 'integration.maintenance.lifted', 'integration.maintenance.overdue', 'security.ssh_key.revocation.stuck', 'platform.load_shedding.started', 'platform.load_shedding.ended', 'platform.queue.stalled', 'platform.queue.backlog', 'node.drained', 'node.resumed', 'node.qualified', 'node.disk.low', 'service.integrity.suspicious', 'node.synthetic.leftover', 'service.relocated', 'capacity.unavailable', 'ipam.exhausted', 'ipam.threshold', 'ipam.rdns.unpublished', 'ipam.rdns.failed', 'provisioning.drift.detected', 'operation.failed', 'finance.reconciliation.mismatch', 'registrar.notification.dead', 'domain.reconcile.missing_remote', 'domain.reconcile.unknown_remote', 'payment.orphan_callback', 'security.incident.opened', 'abuse.case.opened', 'compliance.timer.due', 'compliance.timer.missed', 'sla.burn_rate', 'sla.budget.exhausted', 'maintenance.unapproved' => $this->internal($m, self::internalKind($m->name), self::internalTitle($m->name, $p), self::internalBody($p), self::internalSurface($m->name), 'hot'),
             // marketplace (audit §5j-1): the partner gets the brief, the customer the delivery; disputes reach support and the partner
             'marketplace.ordered' => $this->customer($m, 'order', 'Objednávka z marketplace: '.($p['title'] ?? ''), 'Partner dostal zadání; dodání do '.self::when($p['due_at'] ?? null).'. Zaplaceno z kreditu ('.$money($p['total'] ?? null).').', '/panel/nastaveni', 'info'),
@@ -324,6 +374,7 @@ final class NotificationRouter
             'partner.change.approved' => $this->customer($m, 'partner', 'Změna podmínek schválena: '.self::termName($p['kind'] ?? ''), self::termValue($p['kind'] ?? '', $p['to'] ?? null).' platí od '.self::when($p['effective_from'] ?? null).'.', '/partner#/provize', 'info'),
             'partner.change.rejected' => $this->customer($m, 'partner', 'Změna podmínek zamítnuta: '.self::termName($p['kind'] ?? ''), (string) ($p['note'] ?? ''), '/partner#/provize', 'warn'),
             'partner.change.applied' => $this->customer($m, 'partner', self::termName($p['kind'] ?? '').': '.self::termValue($p['kind'] ?? '', $p['to'] ?? null), 'Nová podmínka platí od dnešního dne.', '/partner#/provize', 'info'),
+            'partner.payout.auto_skipped' => $this->customer($m, 'partner', 'Výplata provize čeká na ověření e-mailu', $money($p['amount'] ?? null).' · automatická výplata se nevytvořila, dokud majitel účtu neověří svůj e-mail. Nechte si poslat ověřovací odkaz v nastavení profilu.', '/partner#/vyplaty', 'warn'),
             'partner.payout.auto' => $this->customer($m, 'partner', 'Výplata provize požádána automaticky', $money($p['amount'] ?? null).' · podle vašich výplatních podmínek ('.($p['terms'] ?? '').'); finance ji schválí a odešlou.', '/partner#/vyplaty', 'info'),
             'marketplace.period_delivered' => $this->customer($m, 'order', 'Měsíční plnění dodáno: '.($p['title'] ?? ''), (string) ($p['note'] ?? ''), '/panel/sluzby', 'info'),
             'marketplace.period_due' => $this->customer($m, 'partner', 'Měsíční plnění ještě není odevzdané: '.($p['title'] ?? ''), 'Období končí '.self::when($p['period_end'] ?? null).'; bez odevzdání dostane zákazník kredit '.(int) ($p['credit_pct'] ?? 0).' % z vašeho podílu.', '/partner#/marketplace', 'warn'),
@@ -398,8 +449,13 @@ final class NotificationRouter
                 $about = ! empty($p['estimate']) ? 'odhadem ' : '';
                 $toCredit = (int) data_get($p, 'to_credit.minor', 0) > 0;
                 $offDocuments = (int) data_get($p, 'off_documents.minor', 0) > 0;
+                // L-06: without the agreement to the credit the money goes back the way it was paid — an order payment to its card or
+                // account within fourteen days, what was paid from the credit to the credit
+                $back = ($p['refund_method'] ?? 'credit') !== 'source' ? 'na kredit vrátíme dobropisem '
+                    : (! empty($p['to_source']) ? 'peníze vrátíme stejným způsobem, jakým jste platili (na kartu nebo účet, z něhož byla objednávka zaplacena), do 14 dnů, '
+                        : 'peníze vrátíme stejným způsobem, jakým jste platili (z kreditu), tedy dobropisem na kredit ');
                 $what = implode(', ', array_filter([
-                    $toCredit ? 'na kredit vrátíme dobropisem '.$about.$money($p['to_credit']) : null,
+                    $toCredit ? $back.$about.$money($p['to_credit']) : null,
                     $offDocuments ? 'neuhrazené doklady snížíme o '.$about.$money($p['off_documents']) : null,
                     $toCredit || $offDocuments ? null : (! empty($p['already_returned']) ? 'na kredit se nic nevrací, vše už bylo vráceno dříve' : 'na kredit se nic nevrací'),
                 ]));
@@ -412,10 +468,29 @@ final class NotificationRouter
                 $this->internal($m, 'finance', 'Odstoupení spotřebitele: vráceno '.$money($p['refund'] ?? null), ($org->name ?? '').' · '.($p['label'] ?? '').' · na kredit '.$money($p['to_credit'] ?? null).' · z neuhrazených dokladů '.$money($p['off_documents'] ?? null).' · dobropisy '.implode(', ', (array) ($p['credit_notes'] ?? [])), '/sprava#/money', 'info');
                 $credited = (int) data_get($p, 'to_credit.minor', 0) > 0;
                 $reduced = (int) data_get($p, 'off_documents.minor', 0) > 0 ? 'neuhrazené doklady sníženy o '.$money($p['off_documents']) : null;
+                if ((int) data_get($p, 'payout.minor', 0) > 0) { // L-06: held on the credit for the payout to the card or account, not credit to spend
+                    $this->customer($m, 'wallet', 'Odstoupení: '.$money($p['payout']).' vrátíme na původní platební prostředek', ($p['label'] ?? '').' · částku do vrácení držíme na kreditu, nelze ji utratit · dobropis '.implode(', ', (array) ($p['credit_notes'] ?? [])), '/panel/fakturace', 'info');
+
+                    return;
+                }
                 $this->customer($m, 'wallet', $credited ? 'Vráceno na kredit po odstoupení: '.$money($p['to_credit']) : 'Odstoupení vyřízeno: '.($reduced ?? 'na kredit se nic nevrací'),
                     ($p['label'] ?? '').($credited && $reduced !== null ? ' · '.$reduced : '').' · dobropis '.implode(', ', (array) ($p['credit_notes'] ?? [])), '/panel/fakturace', 'info');
             })(),
+            // L-24 (TASK-0146): a new version of documents a customer accepted — told when it is published, ≥ 30 days (privacy 14) ahead (§ 1752 OZ, VOP čl. 15)
+            'legal.document.changed' => (function () use ($m, $p, $email, $portal, $locale): void {
+                $en = $locale === 'en';
+                $day = CarbonImmutable::parse((string) ($p['effective_from'] ?? 'now'))->format('j. n. Y');
+                $docs = collect((array) ($p['documents'] ?? []));
+                $names = $docs->map(fn ($d) => (string) ($en ? ($d['title_en'] ?? $d['title'] ?? '') : ($d['title'] ?? '')))->filter()->implode(', ');
+                $links = $docs->map(fn ($d) => (string) ($en ? ($d['title_en'] ?? $d['title'] ?? '') : ($d['title'] ?? '')).': '.$portal.(string) ($d['url'] ?? ''))->implode("\n");
+                $leave = $en ? 'If you do not agree with the change, you may terminate the contract before the day it takes effect; the unused prepaid part is returned (Terms, art. 15).'
+                    : 'Pokud se změnou nesouhlasíte, můžete smlouvu do dne účinnosti vypovědět; nevyužitou zaplacenou část vám vrátíme (VOP čl. 15).';
+                $this->customer($m, 'legal.notice', ($en ? 'Change of contract documents from ' : 'Změna smluvních dokumentů od ').$day, $names.'. '.$leave, '/dokumenty', 'warn', $email, 'legal-change',
+                    ['dokumenty' => $names, 'odkazy' => $links, 'ucinnost' => $day, 'vypoved' => $leave, 'url' => "{$portal}/dokumenty"]);
+            })(),
             'withdrawal.completed' => $this->customer($m, 'service', 'Služba ukončena odstoupením: '.($p['label'] ?? ''), 'Smlouva je ukončena. Novou službu si můžete kdykoli objednat.', '/panel/sluzby', 'info'),
+            // L-06: a withdrawal without the agreement to the credit owes an order payment its money: finance pays it out within 14 days
+            'withdrawal.payout_due' => $this->internal($m, 'finance', 'Odstoupení: vrátit na původní platební prostředek '.$money($p['payout'] ?? null), ($org->name ?? '').' · '.($p['label'] ?? '').' · platba '.(string) ($p['payment_id'] ?? '').' · nejpozději '.substr((string) ($p['due_by'] ?? ''), 0, 10).' · Správa → Odstoupení → Vyplatit', '/sprava#/money', 'hot'),
             'withdrawal.stalled' => $this->internal($m, 'finance', 'Odstoupení se zastavilo: '.($p['label'] ?? ''), 'krok '.(string) ($p['step'] ?? '').' odmítnut: '.(string) ($p['error'] ?? '').' · vráceno: '.(! empty($p['refunded']) ? 'ano' : 'ne').' · onhost:withdrawals:finish to zkusí znovu', '/sprava#/money', 'hot'),
             // ── end TASK-0025 ──
             // ── TASK-0029 service-access-reduced: a share given again without the console takes the person's SSH keys and game sub-users on it (RevokeDelegatedAccess) ──
@@ -558,6 +633,19 @@ final class NotificationRouter
         }
 
         return ($said === [] ? 'DNS domény neodpovídá tomu, co jsme pro ni nastavili' : implode(' · ', $said)).'. Záznamy k nastavení najdete u služby.';
+    }
+
+    /**
+     * G6: whether an issued invoice still has a payment term to announce — not the final invoice of a proforma order (issued due at
+     * once, paid by its advance: `due_days` 0), nor an invoice paid by the time the notice goes out. Events from before G6 carry no
+     * `due_days` and keep the term while the invoice is unpaid.
+     *
+     * @param  array<string,mixed>  $p
+     */
+    private static function stillOwed(OutboxMessage $m, array $p): bool
+    {
+        return ($p['type'] ?? '') === 'invoice' && (int) ($p['due_days'] ?? 14) > 0
+            && Invoice::query()->whereKey((string) $m->aggregate_id)->whereIn('state', [Invoice::ISSUED, Invoice::OVERDUE])->exists();
     }
 
     private function customer(OutboxMessage $m, string $kind, string $title, string $body, string $surface, string $severity = 'info', ?string $mailTo = null, ?string $template = null, array $vars = []): void
@@ -775,6 +863,19 @@ final class NotificationRouter
         };
     }
 
+    /** `5. 10. 2026` — a calendar day (G3 expiry dates), no time. */
+    private static function day(mixed $date): string
+    {
+        if (! is_string($date) || $date === '') {
+            return '—';
+        }
+        try {
+            return CarbonImmutable::parse($date)->format('j. n. Y');
+        } catch (\Throwable) {
+            return $date;
+        }
+    }
+
     private static function when(mixed $iso): string
     {
         if (! is_string($iso) || $iso === '') {
@@ -810,6 +911,8 @@ final class NotificationRouter
             'service.integrity.suspicious' => 'Web '.($p['hostname'] ?? $p['label'] ?? '').' vypadá napadeně ('.implode(', ', (array) ($p['kinds'] ?? [])).')',
             'service.resume.incomplete' => 'Služba '.($p['name'] ?? '').' je po obnovení zase živá, ale panel odmítl zapnout zpět: '.implode(', ', (array) ($p['kinds'] ?? [])).' — zákazník zaplatil a tohle mu nejede',
             'service.purge.leftover' => 'Po smazání služby '.($p['name'] ?? '').' zůstalo na uzlu '.($p['node'] ?? '').': '.implode(', ', (array) ($p['kinds'] ?? [])).' — data a přístupy zrušeného zákazníka, je potřeba je odstranit ručně',
+            // TASK-0099: a cancellation that failed; the service is left as the panel has it (state), nothing was removed
+            'service.termination.failed' => 'Zrušení služby se nedokončilo: '.($p['name'] ?? '').' — zůstává '.(($p['state'] ?? '') === 'SUSPENDED' ? 'vypnutá (pozastavená)' : (($p['state'] ?? '') === 'ACTIVE' ? 'v provozu' : (string) ($p['state'] ?? ''))).', krok: '.($p['step'] ?? '').' — opravte příčinu a zadejte zrušení znovu (onhost:doctor)',
             'service.suspend.incomplete' => 'Služba '.($p['name'] ?? '').' je pozastavená, ale panel odmítl vypnout: '.implode(', ', (array) ($p['kinds'] ?? [])).' — na zastavené službě to běží dál'.(($p['reason'] ?? '') === '' ? '' : ' (důvod pozastavení: '.$p['reason'].')'),
             'service.certificate.problem' => ((string) ($p['kind'] ?? '') === 'mismatch'
                 ? 'Web '.($p['domain'] ?? '').' se hlásí certifikátem pro '.implode(', ', array_slice((array) ($p['covers'] ?? []), 0, 3)).' — návštěvník vidí varování prohlížeče'

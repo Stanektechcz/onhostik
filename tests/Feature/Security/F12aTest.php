@@ -1,0 +1,186 @@
+<?php
+
+declare(strict_types=1);
+
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
+use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
+use Onhost\Domain\Identity\Authorization\RoleCatalog;
+use Onhost\Domain\Identity\Models\User;
+use Onhost\Domain\Identity\StepUp\StepUpService;
+use Onhost\Domain\Notifications\Models\WebhookDelivery;
+use Onhost\Domain\Notifications\Models\WebhookEndpoint;
+use Onhost\Domain\Notifications\Webhooks\WebhookCommandHandler;
+use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Organizations\Models\OrganizationMembership;
+
+/*
+ * F12a (TASK-0106): follow-ups of the identity and API audit.
+ *
+ * 1. A test that signs in a member of staff names a role RoleCatalog knows. A made-up key binds no permission at all, so since
+ *    D2 the staff guard refuses that person before the permission the test was written for is ever asked — the 403 proved the
+ *    guard, not the permission (three tests did it with a `support_agent` that never existed).
+ * 2. `X-Organization` naming somebody else's organization answers a stranger the 404 an identifier that does not exist gets —
+ *    a 403 "not a member" confirmed the organization exists (the existence oracle TASK-0098 closed for rows). A party of that
+ *    organization who lacks the permission keeps the 403 that names what to ask for.
+ * 3. `GET /v1/me` with a service account's token answers who that is — the account, its organization, its role and the token's
+ *    scopes — instead of `person_required`: a pipeline checks its credential the way a person's token does. The endpoints that
+ *    act for a person still refuse it.
+ * 4. A webhook ping without `Idempotency-Key` is a request of its own: two within the cooldown meet the cooldown (429). Keyed per
+ *    minute, the second one replayed the first 202 and the caller never learnt the limit. Create and rotate stay idempotent per
+ *    minute, and a repeated `Idempotency-Key` still replays a ping.
+ */
+
+/** A service account of `$org` created by its owner in the portal; returns the plain token and the answer. @return array{0: string, 1: array<string, mixed>} */
+function f12aServiceAccount(mixed $test, User $owner, Organization $org, string $role, array $scopes): array
+{
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
+    $created = $test->actingAs($owner, 'sanctum')->postJson('/v1/service-accounts', ['name' => 'CI pipeline', 'role' => $role, 'scopes' => $scopes], ['X-Organization' => $org->id, 'Idempotency-Key' => (string) Str::ulid()])->assertCreated();
+    app('auth')->forgetGuards();
+    $test->flushHeaders();
+
+    return [(string) $created->json('token'), (array) $created->json('data')];
+}
+
+/** A current member of `$org` in role `$role` (membership and the binding that carries the role). */
+function f12aMember(Organization $org, string $role, string $email): User
+{
+    $user = test()->customer(['email' => $email]);
+    PolicyBinding::query()->create(['principal_type' => 'user', 'principal_id' => $user->id, 'role_key' => $role, 'scope_type' => 'organization', 'scope_id' => $org->id, 'organization_id' => $org->id]);
+    OrganizationMembership::query()->create(['organization_id' => $org->id, 'user_id' => $user->id, 'state' => 'active', 'role_key' => $role, 'joined_at' => now()]);
+
+    return $user;
+}
+
+it('signs staff in only with role keys RoleCatalog knows', function () {
+    $pattern = '/(?<![A-Za-z0-9_])(?:staff|steppedUpStaff)\(\s*[\'"]([^\'"]+)[\'"]/';
+    $calls = 0;
+    $unknown = [];
+    foreach (File::allFiles(base_path('tests')) as $file) {
+        if ($file->getExtension() !== 'php') {
+            continue;
+        }
+        foreach (preg_split('/\R/', $file->getContents()) ?: [] as $index => $line) {
+            if (preg_match_all($pattern, $line, $matches) === 0) {
+                continue;
+            }
+            foreach ($matches[1] as $role) {
+                $calls++;
+                if (! RoleCatalog::exists($role)) {
+                    $unknown[] = str_replace('\\', '/', $file->getRelativePathname()).':'.($index + 1)." {$role}";
+                }
+            }
+        }
+    }
+
+    expect($calls)->toBeGreaterThan(100) // the scan itself still finds the helper calls: a renamed helper must not make this pass silently
+        ->and($unknown)->toBe([]);
+});
+
+it('answers a stranger naming a foreign organization exactly as an organization that does not exist', function () {
+    [$stranger] = $this->customerWithOrganization(['email' => 'cizi@f12a.cz'], ['name' => 'Cizí s.r.o.']);
+    [, $foreign] = $this->customerWithOrganization(['email' => 'majitel@f12a.cz'], ['name' => 'Firma s.r.o.']);
+    $this->actingAs($stranger, 'sanctum');
+
+    $missing = $this->getJson('/v1/services', ['X-Organization' => 'org_doesnotexist'])->assertNotFound();
+    $named = $this->getJson('/v1/services', ['X-Organization' => $foreign->id])->assertNotFound();
+    expect($named->json('error'))->toBe($missing->json('error'))->toBe('not_found')
+        ->and($named->json('message'))->toBe($missing->json('message'));
+    $this->getJson('/v1/services?organization='.$foreign->id)->assertNotFound()->assertJsonPath('error', 'not_found');
+    $this->getJson('/v1/webhooks', ['X-Organization' => $foreign->id])->assertNotFound()->assertJsonPath('error', 'not_found');
+});
+
+it('keeps the 403 for a member of that organization who lacks the permission, and lets staff with the customer view in', function () {
+    [, $org] = $this->customerWithOrganization(['email' => 'majitel2@f12a.cz'], ['name' => 'Firma 2 s.r.o.']);
+    $viewer = f12aMember($org, 'viewer', 'ctenar@f12a.cz');
+
+    $this->actingAs($viewer, 'sanctum')->getJson('/v1/services', ['X-Organization' => $org->id])->assertOk();
+    $this->getJson('/v1/webhooks', ['X-Organization' => $org->id])->assertForbidden()->assertJsonPath('message', 'Missing permission organization.manage');
+
+    // staff with the customer view reach the organization; what they may do there is still their permission's (not a 404)
+    $this->actingAs($this->staff('support_l1'), 'sanctum')->getJson('/v1/webhooks', ['X-Organization' => $org->id])->assertForbidden()->assertJsonPath('message', 'Missing permission organization.manage');
+});
+it('tells a service account token who it is on GET /v1/me, and nothing about a person', function () {
+    [$owner, $org] = $this->customerWithOrganization(['email' => 'majitel3@f12a.cz'], ['name' => 'Pipeline s.r.o.']);
+    [$plain, $account] = f12aServiceAccount($this, $owner, $org, 'developer', ['services:read', 'tickets:write']);
+
+    $me = $this->withToken($plain)->getJson('/v1/me')->assertOk()->json('data');
+    expect($me)->toBe([
+        'type' => 'service_account',
+        'account' => ['id' => $account['id'], 'name' => 'CI pipeline'],
+        'organization' => ['id' => $org->id, 'name' => 'Pipeline s.r.o.'],
+        'role' => 'developer',
+        'scopes' => ['services:read', 'tickets:write'],
+        'token' => ['id' => $account['tokens'][0]['id'], 'expires_at' => $account['tokens'][0]['expires_at']],
+    ]);
+    // its own organization named is the same answer; another one is refused as for any token
+    $this->withToken($plain)->getJson('/v1/me', ['X-Organization' => $org->id])->assertOk()->assertJsonPath('data.account.id', $account['id']);
+    [, $other] = $this->customerWithOrganization(['email' => 'jiny@f12a.cz']);
+    $this->withToken($plain)->getJson('/v1/me', ['X-Organization' => $other->id])->assertForbidden()->assertJsonPath('error', 'token_organization_mismatch');
+    // what acts for a person still refuses it
+    $this->flushHeaders();
+    $this->withToken($plain)->getJson('/v1/tickets')->assertForbidden()->assertJsonPath('error', 'person_required');
+});
+
+it('still answers a person their own record on GET /v1/me', function () {
+    [$owner, $org] = $this->customerWithOrganization(['email' => 'osoba@f12a.cz']);
+    $me = $this->actingAs($owner, 'sanctum')->getJson('/v1/me', ['X-Organization' => $org->id])->assertOk()->json('data');
+    expect($me['type'])->toBe('person')->and($me['user']['id'])->toBe($owner->id)->and($me['organization']['id'])->toBe($org->id);
+});
+it('answers a second ping without an Idempotency-Key inside the cooldown with 429, and keeps create, rotate and keyed pings idempotent', function () {
+    Http::preventStrayRequests();
+    Http::fake(['hooks.f12a.cz/*' => Http::response('', 204)]);
+    $this->freezeTime(); // create and rotate are keyed per minute without a header: no minute boundary inside the test
+    [$owner, $org] = $this->customerWithOrganization(['email' => 'hook@f12a.cz']);
+    $this->actingAs($owner, 'sanctum');
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
+
+    // create twice in the same minute without a key: one endpoint, the same answer
+    $first = $this->postJson('/v1/webhooks', ['url' => 'https://hooks.f12a.cz/in', 'events' => ['*']])->assertCreated()->json('data');
+    $again = $this->postJson('/v1/webhooks', ['url' => 'https://hooks.f12a.cz/in', 'events' => ['*']])->assertCreated()->json('data');
+    expect($again['id'])->toBe($first['id'])->and(WebhookEndpoint::query()->where('organization_id', $org->id)->count())->toBe(1);
+    // rotate twice in the same minute without a key: one rotation (the replay masks the secret it already showed once)
+    $rotated = $this->postJson("/v1/webhooks/{$first['id']}/rotate-secret")->assertOk()->json('data.secret');
+    $this->postJson("/v1/webhooks/{$first['id']}/rotate-secret")->assertOk();
+    expect(WebhookEndpoint::query()->findOrFail($first['id'])->secret)->toBe($rotated);
+
+    // two pings without a key: the second one meets the cooldown
+    $this->postJson("/v1/webhooks/{$first['id']}/ping")->assertStatus(202)->assertJsonPath('data.event', 'webhook.ping');
+    $this->postJson("/v1/webhooks/{$first['id']}/ping")->assertStatus(429)->assertJsonPath('error', 'webhook_ping_cooldown')->assertJsonStructure(['retry_after']);
+    expect(WebhookDelivery::query()->where('endpoint_id', $first['id'])->where('event', 'webhook.ping')->count())->toBe(1);
+
+    // a keyed ping retried with the same key is the same request: replayed, not a second test event and not a 429
+    $this->travel(120)->seconds();
+    $keyed = $this->postJson("/v1/webhooks/{$first['id']}/ping", [], ['Idempotency-Key' => 'f12a-ping-1'])->assertStatus(202)->json('data.id');
+    expect($this->postJson("/v1/webhooks/{$first['id']}/ping", [], ['Idempotency-Key' => 'f12a-ping-1'])->assertStatus(202)->json('data.id'))->toBe($keyed)
+        ->and(WebhookDelivery::query()->where('endpoint_id', $first['id'])->where('event', 'webhook.ping')->count())->toBe(2);
+});
+it('lets only one of two parallel pings through: the cooldown is claimed atomically, not read from the deliveries', function () {
+    // SQLite runs one request at a time, so the race is staged: the first request's claim is held, its delivery row not yet
+    // visible to the second (removed here, as an uncommitted row would be) — the second must still be refused
+    Http::preventStrayRequests();
+    Http::fake(['hooks.f12a.cz/*' => Http::response('', 204)]);
+    $this->freezeTime();
+    [$owner] = $this->customerWithOrganization(['email' => 'race@f12a.cz']);
+    $this->actingAs($owner, 'sanctum');
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
+    $hook = $this->postJson('/v1/webhooks', ['url' => 'https://hooks.f12a.cz/race', 'events' => ['*']])->assertCreated()->json('data');
+
+    // a ping still in flight elsewhere holds the claim: this one is refused and sends nothing
+    expect(Cache::add(WebhookCommandHandler::pingLockKey($hook['id']), 'elsewhere', WebhookCommandHandler::PING_COOLDOWN_SECONDS))->toBeTrue();
+    $this->postJson("/v1/webhooks/{$hook['id']}/ping")->assertStatus(429)->assertJsonPath('error', 'webhook_ping_cooldown');
+    expect(WebhookDelivery::query()->where('endpoint_id', $hook['id'])->count())->toBe(0);
+    Cache::forget(WebhookCommandHandler::pingLockKey($hook['id']));
+
+    // the first ping claims the window; the second does not get through even when it cannot see the first one's delivery
+    $this->postJson("/v1/webhooks/{$hook['id']}/ping")->assertStatus(202);
+    WebhookDelivery::query()->where('endpoint_id', $hook['id'])->delete();
+    $this->postJson("/v1/webhooks/{$hook['id']}/ping")->assertStatus(429)->assertJsonPath('error', 'webhook_ping_cooldown');
+    expect(WebhookDelivery::query()->where('endpoint_id', $hook['id'])->count())->toBe(0);
+
+    // the claim lasts the cooldown, no longer
+    $this->travel(WebhookCommandHandler::PING_COOLDOWN_SECONDS + 1)->seconds();
+    $this->postJson("/v1/webhooks/{$hook['id']}/ping")->assertStatus(202);
+});

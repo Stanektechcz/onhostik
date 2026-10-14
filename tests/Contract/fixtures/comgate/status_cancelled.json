@@ -1,0 +1,11 @@
+{
+  "code": 0,
+  "message": "OK",
+  "test": "true",
+  "price": 50000,
+  "curr": "CZK",
+  "refId": "pi_local_ref3",
+  "method": "APPLEPAY_REDIRECT",
+  "transId": "QR90-ST12-UV34",
+  "status": "CANCELLED"
+}

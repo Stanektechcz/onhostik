@@ -7,6 +7,7 @@ namespace Onhost\Domain\Services;
 use Illuminate\Support\Collection;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Services\Penpot\PenpotParents;
 
 /**
  * The services the platform put under another one and bills with it: the test copy of a web site today, and the
@@ -41,6 +42,19 @@ final class IncludedServices
             ->whereIn('state', self::LIVE)
             ->orderBy('created_at')
             ->get();
+    }
+
+    /**
+     * What the service carries and what follows it through suspension, resumption, cancellation and its undo: the services of
+     * `of()` and the Penpot ordered for it (owner decision H-R7, TASK-0130) — of any family of parent, organisation-scoped.
+     *
+     * @return Collection<int, Service>
+     */
+    public static function carried(Service $service): Collection
+    {
+        $penpots = PenpotParents::of($service);
+
+        return self::of($service)->concat($penpots->reject(fn (Service $p) => self::of($service)->contains('id', $p->id)))->values();
     }
 
     /** What the customer is told goes with the service — its domains, in the order they were added. @return list<string> */

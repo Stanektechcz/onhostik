@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Services;
 
 use Onhost\Domain\Catalog\Models\Product;
+use Onhost\Domain\Services\CustomIso\CustomIsoPolicy;
 use Onhost\Domain\Services\Limits\LimitRaises;
 use Onhost\Domain\Services\Models\BackupPolicy;
 use Onhost\Domain\Services\Models\Service;
@@ -34,12 +35,21 @@ final class Addons
     /** A backup kept every hour for a month is 720 copies; a plan that asks for more than this is a mistake, not a sale. */
     public const MAX_GENERATIONS = 2000;
 
+    /**
+     * H1 (TASK-0121): a custom ISO for one cloud server whose plan does not sell it (owner decision G-R5 — it is a paid part of that
+     * VPS). It patches the switch and the size of one image; the organization's quota stays what it is.
+     */
+    public const CUSTOM_ISO = 'custom-iso';
+
+    /** Add-ons whose keys are one decision: a key changed since the purchase keeps all of them on cancellation (H1). */
+    private const LINKED = [self::CUSTOM_ISO];
+
     public function __construct(private readonly ServiceFeatures $features) {}
 
     /** Add-on products the platform delivers. Anything else is not sellable — see the class comment. */
     public static function handled(): array
     {
-        return ['ipv4', 'backup-plus', 'backup-hourly', 'mail-hosting', 'cdn', LimitRaises::PRODUCT];
+        return ['ipv4', 'backup-plus', 'backup-hourly', 'mail-hosting', 'cdn', LimitRaises::PRODUCT, self::CUSTOM_ISO];
     }
 
     /**
@@ -94,6 +104,9 @@ final class Addons
     public function apply(Service $parent, Service $addon): array
     {
         self::assertSellable((string) $addon->product_key);
+        if ($addon->product_key === self::CUSTOM_ISO && $parent->family !== 'cloud') {
+            throw new DomainError('addon_parent_mismatch', 'Vlastní ISO jde koupit jen k cloudovému serveru (VPS, VDS).', 422, ['addon' => $addon->product_key, 'family' => $parent->family]);
+        }
         $entitlements = (array) $addon->entitlements;
         $patch = $this->patch($parent, (string) $addon->product_key, $entitlements);
         $before = [];
@@ -141,6 +154,10 @@ final class Addons
                     $restored[$key] = $entitlements[$key];
                 }
             }
+            $patch = [];
+        }
+        if (in_array($addon->product_key, self::LINKED, true) && array_filter($patch, fn ($value, $key) => ($entitlements[$key] ?? null) !== $value, ARRAY_FILTER_USE_BOTH) !== []) {
+            $kept = array_keys($patch); // one half changed since: the decision is somebody else's now, neither half is taken back
             $patch = [];
         }
         foreach ($patch as $key => $value) {
@@ -226,6 +243,11 @@ final class Addons
             ], fn ($v) => $v !== null),
             // one number of the parent, plus what was paid for (LimitRaiseLine computed the delta on the server)
             LimitRaises::PRODUCT => self::raised($current, self::raiseDelta($ent)),
+            // the switch, and the larger of the size the plan sells and the size the add-on sells (never less than the plan had)
+            self::CUSTOM_ISO => [
+                CustomIsoPolicy::FEATURE => true,
+                CustomIsoPolicy::MAX_MB => max((int) ($current[CustomIsoPolicy::MAX_MB] ?? 0), (int) ($ent[CustomIsoPolicy::MAX_MB] ?? 0) ?: (int) config('onhost.custom_iso.default_max_mb', 4096)),
+            ],
             default => [], // the backup add-ons deliver through the policy, not through the parent's entitlements
         };
     }

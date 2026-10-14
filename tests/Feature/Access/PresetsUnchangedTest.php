@@ -46,10 +46,24 @@ const PUC_B6_CHANGES = [
     'marketing_content' => ['add' => ['staff.inbox.read'], 'drop' => []],
 ];
 
-/** @return array{roles: array<string, list<string>>, actions: array<string, string>} the base, with the B6 changes applied */
+/**
+ * Service actions that came after the base, each with the permission it would have had there (the fixture stays frozen). Every one
+ * must behave like that old permission for every preset, token scope, staff key and risk — the split keys standing in for
+ * `service.manage` as for every other action.
+ *
+ * TASK-0110 (owner decision G-R5): a customer's own ISO. Attaching boots a system of the customer's choosing (the console, as
+ * `rescue.start`); detaching is managing (as `rescue.stop`); deleting the image deletes a data object (`service.data.delete`, split
+ * from `service.manage`).
+ *
+ * @var array<string, string>
+ */
+const PUC_ACTIONS_ADDED = ['iso.attach' => 'service.console', 'iso.detach' => 'service.manage', 'iso.delete' => 'service.manage'];
+
+/** @return array{roles: array<string, list<string>>, actions: array<string, string>} the base, with the B6 changes and later actions applied */
 function pucBefore(): array
 {
     $before = require __DIR__.'/fixtures/before-task-0043.php';
+    $before['actions'] = array_merge($before['actions'], PUC_ACTIONS_ADDED);
     foreach (PUC_B6_CHANGES as $role => $change) {
         $before['roles'][$role] = array_values(array_merge(array_diff($before['roles'][$role], $change['drop']), $change['add']));
     }
@@ -85,7 +99,7 @@ it('keeps every preset of the base: its old permissions, plus exactly the two sp
 
 it('lets every preset run exactly the service actions it ran before, with the same token scope, staff key and risk', function () {
     ['roles' => $roles, 'actions' => $actions] = pucBefore();
-    expect(array_keys(ServiceActionCommand::PERMISSIONS))->toBe(array_keys($actions)); // no action came or went
+    expect(pucSorted(array_keys(ServiceActionCommand::PERMISSIONS)))->toBe(pucSorted(array_keys($actions))); // no action came or went but those named in PUC_ACTIONS_ADDED (the map's order is not the point)
 
     foreach ($actions as $action => $old) {
         $new = ServiceActionCommand::permissionFor($action);

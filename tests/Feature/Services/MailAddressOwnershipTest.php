@@ -35,7 +35,8 @@ it('refuses to make an address in a domain that is not the service\'s', function
 });
 
 it('makes the same address in the service\'s own domain without a word', function () {
-    Http::fake(fn () => Http::response(['code' => 'ok', 'message' => '', 'response' => []]));
+    // the panel answers a session: since S1 an alias is counted against the plan before it is requested
+    Http::fake(fn ($request) => Http::response(['code' => 'ok', 'message' => '', 'response' => str_ends_with((string) parse_url($request->url(), PHP_URL_QUERY), 'login') ? 'sess' : []]));
     [$user, $org] = $this->customerWithOrganization();
     $mail = featureMailService($org, 'firma.cz');
 

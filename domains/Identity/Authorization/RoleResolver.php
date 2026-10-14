@@ -46,4 +46,15 @@ final class RoleResolver
     {
         return array_map(fn (array $role) => $role['permissions'], RoleCatalog::all());
     }
+
+    /**
+     * Every catalogue role with its name, description, scope, staff flag and permissions — for documentation that is generated
+     * from the code (onhost:docs:roles); never a basis for granting or revoking.
+     *
+     * @return array<string, array{name:string, description:string, scope:string, staff:bool, permissions:list<string>}>
+     */
+    public static function definitions(): array
+    {
+        return RoleCatalog::all();
+    }
 }

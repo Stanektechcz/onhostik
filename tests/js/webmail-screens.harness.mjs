@@ -143,7 +143,7 @@ it('asks the server what a database delete would do, shows it in the page and se
   const p = await build('dbs');
   assert.equal(p.rows.length, 1);
   actionOf(p.rows[0], 'Smazat').on(); await settle();
-  assert.equal(gets(win, '/services/svc_w1/actions/database.delete/preview')[0].path, '/services/svc_w1/actions/database.delete/preview?params%5Bremote_id%5D=12');
+  assert.equal(gets(win, '/services/svc_w1/actions/database.delete/preview')[0].path, '/services/svc_w1/actions/database.delete/preview?params%5Bremote_id%5D=12&locale=cs'); // the preview is asked in the page's language (G8 item 4)
   const d = dialog();
   assert.ok(d, 'the preview is shown in the page');
   const text = d.text();

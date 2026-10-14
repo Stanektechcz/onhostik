@@ -7,6 +7,7 @@ use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Invoicing\Models\InvoiceLine;
 use Onhost\Domain\Orders\QuoteService;
@@ -161,7 +162,7 @@ it('does not flag a VIES name that is the organization\'s own, written another w
 
 it('writes a buyer name that starts like a formula into the accountant\'s CSV as text', function () {
     Storage::fake('local');
-    $org = Organization::query()->create(['slug' => 'r1-formula', 'name' => '=HYPERLINK("http://evil.example","x")', 'owner_user_id' => 'usr_r1', 'country' => 'DE', 'vat_id' => 'DE123456789', 'customer_class' => 'b2b', 'currency' => 'EUR']);
+    $org = Organization::query()->create(['slug' => 'r1-formula', 'name' => '=HYPERLINK("http://evil.example","x")', 'owner_user_id' => User::factory()->create()->id, 'country' => 'DE', 'vat_id' => 'DE123456789', 'customer_class' => 'b2b', 'currency' => 'EUR']);
     $invoice = Invoice::query()->create([
         'number' => 'FV-R1-0001', 'legal_entity' => 'onhost-cz', 'series' => 'FV', 'type' => 'invoice', 'organization_id' => $org->id, 'currency' => 'EUR', 'state' => 'PAID',
         'subtotal_minor' => 10000, 'tax_minor' => 1900, 'total_minor' => 11900, 'paid_minor' => 11900, 'issued_at' => '2026-03-01 10:00:00',

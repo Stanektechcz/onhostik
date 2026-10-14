@@ -34,7 +34,16 @@ final class Withdrawal extends Model
 
     public const COMPLETED = 'completed';
 
-    public const OPEN = [self::SUSPENDING, self::REFUNDED, self::TERMINATING];
+    /** L-06: cancelled, and what an order payment brought waits on the credit (held) for finance to pay it back to its source */
+    public const PAYOUT_DUE = 'payout_due';
+
+    public const OPEN = [self::SUSPENDING, self::REFUNDED, self::TERMINATING, self::PAYOUT_DUE];
+
+    /** the consumer agreed to take the money as credit (voluntary) */
+    public const METHOD_CREDIT = 'credit';
+
+    /** the statutory default (§ 1831 OZ): back the way it was paid — an order payment to its card or account, credit to the credit */
+    public const METHOD_SOURCE = 'source';
 
     public const PANEL = 'panel';
 
@@ -44,7 +53,7 @@ final class Withdrawal extends Model
     {
         return [
             'sent_at' => 'datetime', 'contract_start_at' => 'datetime', 'deadline_at' => 'datetime', 'refunded_at' => 'datetime', 'completed_at' => 'datetime',
-            'refund_minor' => 'integer', 'to_credit_minor' => 'integer', 'off_document_minor' => 'integer', 'basis' => 'array',
+            'refund_minor' => 'integer', 'to_credit_minor' => 'integer', 'off_document_minor' => 'integer', 'basis' => 'array', 'payout_minor' => 'integer', 'paid_out_minor' => 'integer',
         ];
     }
 }

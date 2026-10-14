@@ -24,7 +24,7 @@ use Onhost\Domain\Provisioning\Workflows\ServiceActionWorkflow;
 final class OperationLatency
 {
     /** actions nobody expects to finish in seconds (reported, never judged) */
-    public const LONG_BY_NATURE = ['backup', 'restore', 'archive.restore', 'terminate', 'purge', 'resize', 'snapshot', 'rollback_snapshot', 'reinstall', 'wp.install', 'wp.update', 'import.run', 'ssl.issue', 'ssl.wildcard', 'app.install', 'database.import', 'database.export', 'file.archive', 'file.extract', 'game.migrate'];
+    public const LONG_BY_NATURE = ['backup', 'restore', 'archive.restore', 'terminate', 'purge', 'resize', 'snapshot', 'rollback_snapshot', 'reinstall', 'wp.install', 'wp.update', 'import.run', 'ssl.issue', 'ssl.wildcard', 'app.install', 'database.import', 'database.export', 'file.archive', 'file.extract', 'game.migrate', 'iso.attach'];
 
     public static function targetSeconds(): int
     {

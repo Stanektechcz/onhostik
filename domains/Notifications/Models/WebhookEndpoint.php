@@ -13,6 +13,8 @@ use Onhost\Platform\Eloquent\Model;
  * customer; final). `paused` is how a suspension was written before D4 and is read as one.
  *
  * @property ?Carbon $last_delivered_at
+ * @property ?string $previous_secret the secret the last rotation replaced (encrypted at rest; G7)
+ * @property ?Carbon $previous_secret_expires_at until when it still signs
  * @property ?Carbon $created_at
  */
 final class WebhookEndpoint extends Model
@@ -29,11 +31,20 @@ final class WebhookEndpoint extends Model
 
     protected $table = 'webhook_endpoints';
 
-    protected $hidden = ['secret'];
+    protected $hidden = ['secret', 'previous_secret'];
 
     protected function casts(): array
     {
-        return ['secret' => 'encrypted', 'events' => 'array', 'failures' => 'integer', 'last_delivered_at' => 'datetime'];
+        return ['secret' => 'encrypted', 'previous_secret' => 'encrypted', 'previous_secret_expires_at' => 'datetime', 'events' => 'array', 'failures' => 'integer', 'last_delivered_at' => 'datetime'];
+    }
+
+    /** G7: the secret a rotation replaced, while its overlap window lasts (it still signs X-ONhost-Signature-Previous); null after. */
+    public function previousSecret(): ?string
+    {
+        $secret = $this->previous_secret;
+        $until = $this->previous_secret_expires_at;
+
+        return is_string($secret) && $secret !== '' && $until instanceof Carbon && $until->isFuture() ? $secret : null;
     }
 
     public function isSuspended(): bool

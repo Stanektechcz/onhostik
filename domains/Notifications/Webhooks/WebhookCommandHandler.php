@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Notifications\Webhooks;
 
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Onhost\Domain\Notifications\Models\WebhookDelivery;
@@ -40,9 +41,9 @@ final class WebhookCommandHandler implements CommandHandler
             'create' => $this->create($command, $context),
             'disable' => $this->disable($this->endpoint($command)),
             'enable' => $this->enable($this->endpoint($command)),
-            'rotate_secret' => $this->rotate($this->endpoint($command)),
+            'rotate_secret' => $this->rotate($this->endpoint($command), $command->get('overlap') !== false),
             'redeliver' => $this->redeliver($command),
-            'ping' => $this->ping($this->endpoint($command)),
+            'ping' => $this->ping($this->endpoint($command, lock: true)),
             default => throw new DomainError('webhook_op_unknown', 'Unknown webhook operation.', 422),
         };
     }
@@ -92,14 +93,22 @@ final class WebhookCommandHandler implements CommandHandler
         return WebhookView::endpointResult($endpoint);
     }
 
-    /** @return array<string, mixed> takes effect at once: every attempt from now on, retries included, is signed with the new secret */
-    private function rotate(WebhookEndpoint $endpoint): array
+    /**
+     * The new secret signs every attempt from now on, retries included. G7 (TASK-0115): the secret it replaces still signs
+     * X-ONhost-Signature-Previous for `onhost.webhooks.secret_overlap_minutes` (0 = not at all), so the receiver can switch without
+     * losing a delivery; a rotation inside the window keeps only the secret it replaced. The old secret is never shown again.
+     *
+     * @return array<string, mixed>
+     */
+    private function rotate(WebhookEndpoint $endpoint, bool $withOverlap = true): array
     {
         $this->assertNotDisabled($endpoint);
         $secret = self::newSecret();
-        $endpoint->forceFill(['secret' => $secret])->save();
+        $overlap = $withOverlap ? (int) config('onhost.webhooks.secret_overlap_minutes', 60) : 0; // `overlap: false` — a leaked secret ends now
+        $until = $overlap > 0 ? now()->addMinutes($overlap) : null;
+        $endpoint->forceFill(['secret' => $secret, 'previous_secret' => $until === null ? null : (string) $endpoint->secret, 'previous_secret_expires_at' => $until])->save();
 
-        return WebhookView::endpointResult($endpoint) + ['secret' => $secret];
+        return WebhookView::endpointResult($endpoint) + ['secret' => $secret, 'previous_secret_valid_until' => $until?->toIso8601String()];
     }
 
     /** @return array<string, mixed> */
@@ -123,22 +132,52 @@ final class WebhookCommandHandler implements CommandHandler
         return WebhookView::delivery($this->webhooks->redeliver($delivery));
     }
 
-    /** @return array<string, mixed> */
+    /** The cache entry that claims an endpoint's ping window (F12a): it lasts the whole cooldown, not just while the request runs. */
+    public static function pingLockKey(string $endpointId): string
+    {
+        return 'webhook-ping:'.$endpointId;
+    }
+
+    /**
+     * One test event per endpoint and cooldown. F12a (TASK-0106): reading the last ping and then writing one was a race — parallel
+     * pings without an Idempotency-Key (each its own command since F12a) all read "no ping yet" and all sent one. Two guards now:
+     * the endpoint row is read FOR UPDATE (endpoint(lock: true)), so on PostgreSQL a second ping waits for the first to commit and
+     * then sees its delivery; and the window is claimed with an atomic Cache::add that lasts the cooldown (SET NX on Redis, INSERT … ON
+     * CONFLICT DO NOTHING on the database store — no failed statement inside the bus transaction), which holds on any database and
+     * while the first delivery is not committed yet. A ping that fails in the handler gives the window back; a rollback after the
+     * handler keeps it closed for one cooldown at most (on the database store the claim rolls back with it).
+     *
+     * @return array<string, mixed>
+     */
     private function ping(WebhookEndpoint $endpoint): array
     {
         $this->assertActive($endpoint);
         $last = WebhookDelivery::query()->where('endpoint_id', $endpoint->id)->where('event', WebhookEvents::PING)->max('created_at');
         $wait = $last === null ? 0 : self::PING_COOLDOWN_SECONDS - (int) Carbon::parse((string) $last)->diffInSeconds(now(), true);
         if ($wait > 0) {
-            throw new DomainError('webhook_ping_cooldown', 'One test event per endpoint every '.self::PING_COOLDOWN_SECONDS.' seconds.', 429, ['retry_after' => $wait]);
+            throw self::pingCooldown($wait);
         }
-
-        return WebhookView::delivery($this->webhooks->ping($endpoint));
+        $claim = self::pingLockKey($endpoint->id);
+        if (! Cache::add($claim, now()->getTimestamp(), self::PING_COOLDOWN_SECONDS)) {
+            throw self::pingCooldown(self::PING_COOLDOWN_SECONDS); // another ping holds the window (possibly not committed yet)
+        }
+        try {
+            return WebhookView::delivery($this->webhooks->ping($endpoint));
+        } catch (\Throwable $e) {
+            Cache::forget($claim);
+            throw $e;
+        }
     }
 
-    private function endpoint(WebhookCommand $command): WebhookEndpoint
+    private static function pingCooldown(int $wait): DomainError
     {
-        $endpoint = WebhookEndpoint::query()->where('organization_id', $command->organizationId)->find((string) $command->get('endpoint_id'));
+        return new DomainError('webhook_ping_cooldown', 'One test event per endpoint every '.self::PING_COOLDOWN_SECONDS.' seconds.', 429, ['retry_after' => $wait]);
+    }
+
+    private function endpoint(WebhookCommand $command, bool $lock = false): WebhookEndpoint
+    {
+        $query = WebhookEndpoint::query()->where('organization_id', $command->organizationId);
+        $endpoint = ($lock ? $query->lockForUpdate() : $query)->find((string) $command->get('endpoint_id')); // the bus runs the handler in a transaction
         if ($endpoint === null) {
             throw DomainError::notFound('webhook');
         }

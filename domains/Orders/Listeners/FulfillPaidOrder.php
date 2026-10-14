@@ -58,7 +58,7 @@ final class FulfillPaidOrder
                     $this->services->createFromOrderItem($item, $order, $context);
                 }
             } catch (DomainError $e) {
-                $this->itemFailed($order, $item, $e->getMessage(), $context);
+                $this->itemFailed($order, $item, $e->getMessage(), $context, $e->error);
             } catch (Throwable $e) {
                 if (self::transient($e)) {
                     throw $e; // a locked database or a deadlock is not the order's fault: the outbox retries the message with backoff
@@ -75,11 +75,12 @@ final class FulfillPaidOrder
         return (bool) preg_match('/database is locked|deadlock|could not serialize|serialization failure|lock wait timeout|connection (refused|reset|timed out)/i', $e->getMessage());
     }
 
-    private function itemFailed(Order $order, OrderItem $item, string $reason, CommandContext $context): void
+    /** `$error` is the refusal's slug when the domain refused the line (`penpot_unavailable` …): listeners tell the customer why (TASK-0131). */
+    private function itemFailed(Order $order, OrderItem $item, string $reason, CommandContext $context, ?string $error = null): void
     {
         $item->forceFill(['state' => 'failed'])->save();
         $this->audit->record($context, 'order.item.failed', 'failed', ['item' => $item->id, 'sku' => $item->sku, 'reason' => $reason], 'order', $order->id);
-        $this->outbox->publish(GenericEvent::of('order.fulfilment_failed', 'order', $order->id, ['number' => $order->number, 'item_id' => $item->id, 'sku' => $item->sku, 'reason' => $reason], $order->organization_id));
+        $this->outbox->publish(GenericEvent::of('order.fulfilment_failed', 'order', $order->id, ['number' => $order->number, 'item_id' => $item->id, 'sku' => $item->sku, 'reason' => $reason, 'error' => $error], $order->organization_id));
         $this->fulfilment->recheck($order->id, $context);
     }
 }
