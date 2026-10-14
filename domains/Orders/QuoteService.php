@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Orders;
 
+use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Catalog\CatalogService;
 use Onhost\Domain\Catalog\Models\PlanVersion;
@@ -107,6 +108,45 @@ final class QuoteService
             } elseif ($kind === self::LINE_PENPOT) {
                 $this->catalog->resolve(PenpotOffer::PRODUCT, PenpotOffer::PLAN, $currency, $commitMonths >= 12 ? 'year' : 'month'); // as PenpotLine::build()
             }
+        }
+    }
+
+    /**
+     * TASK-0236: the whole quote of somebody who has no account yet, rehearsed BEFORE the guest checkout creates one. W8 asked
+     * only the catalogue; every other refusal of quote() — a CDN add-on without a CDN account, a location not on offer, an
+     * invalid promo code, a TLD or a period that is not sold, a sold-out server, a name another customer serves — still came
+     * after the account existed and left it behind (no order, no set-password mail, the next try `account_exists`).
+     *
+     * The rehearsal is quote() itself for a customer without an organization (a new organization has no services, no loyalty
+     * and no checked VAT number, so it is priced and refused the same way), inside a transaction that is always rolled back:
+     * the quote and tax rows it writes never exist for anybody. quote() calls no provider and sends nothing; an outbox row or an
+     * after-commit job would go with the rollback too. `$alsoAssert` runs further checks of the rehearsed quote inside the same
+     * transaction (the consents the order will ask for).
+     *
+     * Why not one transaction around account, quote and order: the VIES check of the new organization's VAT number (a provider
+     * call with a timeout) has to run after the organization exists and before the quote, and is kept outside every transaction
+     * (TASK-0031); and an unverified e-mail over the limit deliberately keeps the account (EmailVerificationGuard).
+     *
+     * What the rehearsal does NOT cover, so it can still leave an account behind: refusals that depend on the real organization
+     * — what VIES says about its VAT number and the tax evidence that follows from it (e.g. `tax_evidence_conflict`), and the
+     * EmailVerificationGuard limit (`email_unverified`, which keeps the account on purpose) — and races between the rehearsal
+     * and the placement (capacity sold out, a promo code spent, a site name claimed in between, a payment-provider error).
+     *
+     * @param  list<array<string,mixed>>  $items
+     * @param  array{country?:string,customer_class?:string,ip_country?:?string}  $customer
+     * @param  (callable(Quote):void)|null  $alsoAssert
+     */
+    public function assertNewCustomerQuote(array $items, Currency|string $currency, array $customer, int $commitMonths, ?string $promoCode, string $locale = 'cs', ?callable $alsoAssert = null): void
+    {
+        $this->assertNewCustomerCart($items, $currency, $commitMonths); // its own errors first (`upgrade_needs_account`)
+        DB::beginTransaction();
+        try {
+            $quote = $this->quote($items, $currency, $customer, $commitMonths, $promoCode, null, $locale);
+            if ($alsoAssert !== null) {
+                $alsoAssert($quote);
+            }
+        } finally {
+            DB::rollBack();
         }
     }
 
