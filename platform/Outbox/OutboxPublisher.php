@@ -108,6 +108,9 @@ final class OutboxPublisher
             ->where('available_at', '<=', now())
             ->where('attempts', '<', 10)
             ->orderBy('available_at')
+            // available_at has whole seconds, so a burst ties; the time-ordered ULID breaks the tie the same way on
+            // every database (PostgreSQL otherwise returns any subset of the tied rows under the limit)
+            ->orderBy('id')
             ->limit($limit)
             ->get();
         foreach ($messages as $message) {
