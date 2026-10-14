@@ -36,6 +36,7 @@ use Onhost\Domain\Payments\ComgateCheck;
 use Onhost\Domain\Platform\GoLiveChecks;
 use Onhost\Domain\Platform\HstsHealth;
 use Onhost\Domain\Platform\IsolationChecks;
+use Onhost\Domain\Platform\LaunchReadinessChecks;
 use Onhost\Domain\Platform\QueueLaneHeartbeat;
 use Onhost\Domain\Platform\ScheduleHealth;
 use Onhost\Domain\Provisioning\AutomationLedger;
@@ -135,6 +136,7 @@ final class Doctor extends Command
             $this->addChecked($check);
         }
         // ── end TASK-0045 ──
+        $this->addChecked((new LaunchReadinessChecks)->sellMatrix()); // W2: the fail-closed sell matrix (W3)
         // ── E11: what an operator meets on the way to go-live; every row names its remedy ──
         foreach ((new GoLiveChecks)->rows() as $check) {
             $this->addChecked($check);
@@ -579,6 +581,7 @@ final class Doctor extends Command
         $testMode = $gateway === 'comgate' ? ComgateMode::test() : (bool) config("onhost.payments.{$gateway}.test", true);
         $this->add('payments', 'card gateway live mode', ! $testMode, $testMode ? 'test flag on'.($gateway === 'comgate' ? ' (set by '.ComgateMode::source().')' : '') : 'live');
         if ($gateway === 'comgate') { // the last check staff ran in the administration (connection or 1 Kč test payment)
+            $this->addChecked((new LaunchReadinessChecks)->comgateAllowlist()); // W2: an empty list refuses every notification (W1)
             $last = (array) (app(SettingsStore::class)->get(ComgateCheck::LAST_CHECK) ?? []);
             $this->add('payments', 'Comgate answered the last administration check', ($last['ok'] ?? false) === true,
                 $last === [] ? 'never checked — Nastavení → Integrace → Platební brána Comgate, "Ověřit spojení"' : ($last['kind'] ?? '?').' at '.($last['at'] ?? '?').': '.mb_substr((string) ($last['message'] ?? ''), 0, 160), false);
