@@ -452,8 +452,23 @@ return [
         'imap_port' => (int) env('ONHOST_MAIL_IMAP_PORT', 993),
         'pop3_port' => (int) env('ONHOST_MAIL_POP3_PORT', 995),
         'smtp_port' => (int) env('ONHOST_MAIL_SMTP_PORT', 587),
-        // the lists asked about every node's sending address (BlocklistCheck); zone => the name an operator knows it by
-        'blocklists' => ['zen.spamhaus.org' => 'Spamhaus ZEN', 'bl.spamcop.net' => 'SpamCop', 'b.barracudacentral.org' => 'Barracuda'],
+    ],
+
+    // ── SP1 antispam and sending reputation (phase V, owner decision V-R1; docs/proposals/antispam-reputation.md) ──────────
+    'antispam' => [
+        // addresses the platform sends mail from besides every node's public_ipv4/public_ipv6 tag (the transactional relay, …)
+        'sending_addresses' => array_values(array_filter(array_map('trim', explode(',', (string) env('ONHOST_ANTISPAM_SENDING_ADDRESSES', ''))))),
+        'dnsbl' => [
+            // an own recursive resolver (host or host:port) — blocklists refuse public resolvers; empty = the system resolver
+            'resolver' => (string) env('ONHOST_DNSBL_RESOLVER', ''),
+            'timeout_seconds' => (float) env('ONHOST_DNSBL_TIMEOUT', 2.0),
+            // optional secret: Spamhaus Data Query Service key (free for low volume); never logged, never stored with a listing
+            'spamhaus_dqs_key' => (string) env('ONHOST_SPAMHAUS_DQS_KEY', ''),
+            // keys of BlocklistCatalog::LISTS the operator switched off
+            'disabled' => array_values(array_filter(array_map('trim', explode(',', (string) env('ONHOST_DNSBL_DISABLED', ''))))),
+            'min_interval_minutes' => (int) env('ONHOST_DNSBL_MIN_INTERVAL_MINUTES', 60), // each (list, target) pair at most this often
+            'max_queries_per_run' => (int) env('ONHOST_DNSBL_MAX_QUERIES_PER_RUN', 2000),
+        ],
     ],
 
     'dns' => [
