@@ -127,6 +127,11 @@ final class QuoteService
      * call with a timeout) has to run after the organization exists and before the quote, and is kept outside every transaction
      * (TASK-0031); and an unverified e-mail over the limit deliberately keeps the account (EmailVerificationGuard).
      *
+     * What the rehearsal does NOT cover, so it can still leave an account behind: refusals that depend on the real organization
+     * — what VIES says about its VAT number and the tax evidence that follows from it (e.g. `tax_evidence_conflict`), and the
+     * EmailVerificationGuard limit (`email_unverified`, which keeps the account on purpose) — and races between the rehearsal
+     * and the placement (capacity sold out, a promo code spent, a site name claimed in between, a payment-provider error).
+     *
      * @param  list<array<string,mixed>>  $items
      * @param  array{country?:string,customer_class?:string,ip_country?:?string}  $customer
      * @param  (callable(Quote):void)|null  $alsoAssert

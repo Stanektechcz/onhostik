@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Database\Seeders\CatalogSeeder;
 use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;
 use Onhost\Domain\Catalog\Models\Product;
@@ -16,6 +17,7 @@ use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\Models\Quote;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Payments\Models\PaymentIntent;
+use Onhost\Domain\Services\Models\Website;
 use Onhost\Platform\Audit\AuditEvent;
 use Onhost\Platform\Outbox\OutboxMessage;
 
@@ -115,4 +117,49 @@ it('gives a guest from Slovakia without a currency euro prices, the same default
         ->and($order->currency)->toBe('EUR')
         ->and($organization->currency)->toBe('EUR')
         ->and($organization->country)->toBe('SK');
+});
+
+it('lets a business guest with an IČO and a VAT number order: the rehearsal does not stand in the way of a legitimate cart', function () {
+    $endpoint = 'https://ec.europa.eu/taxation_customs/vies/rest-api/check-vat-number';
+    config(['onhost.vies.enabled' => true, 'onhost.vies.endpoint' => $endpoint, 'onhost.vies.requester_vat_id' => 'CZ12345678']);
+    Http::preventStrayRequests();
+    Http::fake([
+        $endpoint => fn ($request) => Http::response(['countryCode' => $request['countryCode'], 'vatNumber' => $request['vatNumber'], 'requestDate' => '2026-10-14T10:00:00.000Z', 'valid' => true, 'requestIdentifier' => 'WAPINOORPH1', 'name' => 'ORPHAN S.R.O.', 'address' => 'Krátká 3, Brno']),
+        'api.pwnedpasswords.com/*' => Http::response(''),
+    ]);
+
+    $placed = noOrphanPost($this, noOrphanPayload('firma@orphan.cz', ['customer' => ['company' => 'Orphan s.r.o.', 'ico' => '12345679', 'vat_id' => 'CZ12345679']]), 'no-orphan-b2b')->assertCreated();
+
+    $organization = Organization::query()->where('billing_email', 'firma@orphan.cz')->sole();
+    expect($placed->json('account.created'))->toBeTrue()
+        ->and($placed->json('account.organization.customer_class'))->toBe('b2b')
+        ->and($organization->vat_status)->toBe('valid')
+        ->and($organization->vat_checked_number)->toBe('CZ12345679')
+        ->and(Order::query()->where('organization_id', $organization->id)->count())->toBe(1);
+    Http::assertSent(fn ($request) => $request->url() === $endpoint);
+});
+
+it('leaves exactly one quote after a successful guest checkout: the rehearsed one is rolled back', function () {
+    $placed = noOrphanPost($this, noOrphanPayload('jedna@orphan.cz'), 'no-orphan-one-quote')->assertCreated();
+
+    $order = Order::query()->findOrFail($placed->json('order_id'));
+    expect(Quote::query()->count())->toBe(1)
+        ->and(Quote::query()->sole()->organization_id)->toBe($order->organization_id)
+        ->and(Quote::query()->sole()->state)->toBe('accepted');
+});
+
+it('leaves no account behind when another customer already serves the site name', function () {
+    [, $neighbour] = $this->customerWithOrganization();
+    $service = featureWebService($neighbour, 'aapanel');
+    $service->forceFill(['hostname' => 'soused-orphan.cz', 'desired_spec' => array_merge((array) $service->desired_spec, ['domain' => 'soused-orphan.cz'])])->save();
+    Website::query()->create(['service_id' => $service->id, 'domain' => 'soused-orphan.cz', 'aliases' => [], 'executor' => 'aapanel', 'php_version' => '8.3', 'remote_site_id' => 77, 'remote_node' => 'aapanel-managed01', 'state' => 'active']);
+    $before = noOrphanCounts();
+
+    $refused = noOrphanPost($this, noOrphanPayload('cizi@orphan.cz', [], [['line_id' => 'web', 'product_key' => 'web-hosting', 'plan_key' => 'start', 'config' => ['domain' => 'soused-orphan.cz']]]), 'no-orphan-name')->assertStatus(409);
+
+    expect($refused->json('error'))->toBe('site_name_taken')
+        ->and(User::query()->where('email', 'cizi@orphan.cz')->exists())->toBeFalse()
+        ->and(noOrphanCounts())->toBe($before);
+    Notification::assertNothingSent();
+    Mail::assertNothingOutgoing();
 });
