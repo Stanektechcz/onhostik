@@ -404,3 +404,29 @@ Fáze U nepřinesla nové rozhodnutí vlastníka; CD-3 a M4 platí podle doporu�
 | P-R37, rozhodnutí 2 (2026-09-25), P-R24 | U3: zbytky textů z T4 přes `PhaseUCopySeam` (PITR, WordPress kpis, VPS přenos, páteř Praha–Brno, changelog API, řádek tendru Enterprise) | TASK-0219 (#215) |
 | P-R24 (PR-18), M4 (výchozí: formulace) | U4: `spam_filter` jako fair use s popisem na ceníku; `KNOWN_GAPS` 3 → 2 | TASK-0220 (#216) |
 | — | Dokument vlastníka `GENERALKA-T-A-C-deploy-prikazy-2026-10-14.md` obnoven na cíl `259cbea6` (čeká na „T-ano“) | — (plocha) |
+
+## Fáze V (2026-10-14): rozhodnutí vlastníka a odkazy na balíky
+
+- **T-ano** (2026-10-14, předáno koordinátorem): cyklus A–C cíle `259cbea6` na stagingu. Krok A proběhl (záloha `/root/t-2026-10`);
+  krok B se zastavil podle dokumentu — nový non-OK řádek `automation|every scheduled job ran within its budget`
+  (`onhost:registrar:credit` 26× za sebou bez tajemství `WEDOS_MAIN_*`). Příčinu opravil TASK-0222 (#218); doplnění řádku do
+  `expected-nonok` čeká na samostatné „ano“ (SEZNAM V-ano).
+- **V-R1 = SP-1** (2026-10-14, vlastník): antispam má být **plně vyřešený a automatizovaný** — konfigurovatelný napříč panely
+  (ISPConfig, aaPanel, jakýkoli poštovní backend) přes abstrakci poskytovatele; politiky antispamu pro tarif / službu / globálně
+  a rozšíření nastavuje personál; zákazník si nastavuje v panelu v mezích, které personál dovolí; ochrana odchozí pošty, aby se
+  žádná služba ani server nedostaly na blocklist (limity odesílání na schránku a doménu, odchozí kontrola rspamd, poznání
+  napadeného účtu — náhlý objem, přihlášení z mnoha IP —, automatické pozdržení / karanténa, automatické SPF/DKIM/DMARC a jejich
+  kontrola, kontrola PTR/HELO); průběžné hlídání každé odesílací IP a domény zákazníka proti blocklistům (DNS přes nastavitelný
+  resolver, cache, podmínky seznamů, klíč Spamhaus DQS jako volitelné tajemství) a zpětná vazba postmasterů (Google Postmaster,
+  Microsoft SNDS jako volitelné integrace); při zařazení nejdřív automatická náprava (příčina, zamčení a vynucená změna hesla
+  napadené schránky, vyčištění fronty od spamu, zpřísnění limitu, žádost o vyřazení tam, kde to seznam umí, jinak připravený
+  tiket), zákazník se dozví až **po úspěšném vyřazení** a co se změnilo; nevyřešené do **72 h** → okamžitě technická podpora
+  (tiket + alert), podpora má **48 h**, potom zákazník dostane zprávu, že k problému došlo, řeší se a žádáme o součinnost; úplná
+  auditní stopa, metriky, alerty, řádky doctoru, sekce na nástěnce personálu. `spam_filter` přejde z `FAIR_USE` na vymáhaný
+  podle tarifu, až bude politika aplikovaná. Živé ověření jen na stagingu se samostatným „ano“. Návrh a architektura:
+  `docs/proposals/antispam-reputation.md`.
+
+| Rozhodnutí | Co fáze V udělala | Úkol (PR) |
+|---|---|---|
+| T-ano | V1 krok A (záloha), krok B STOP (nový non-OK řádek); oprava příčiny | TASK-0222 (#218) |
+| V-R1 (SP-1) | SP1a: návrh, katalog blocklistů (bez SORBS), vlastní resolver, DQS, monitor adres a domén, historie zařazení, řádky doctoru, metriky | TASK-0223 |

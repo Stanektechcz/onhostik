@@ -55,6 +55,7 @@ use Onhost\Domain\Services\Addons;
 use Onhost\Domain\Services\DeletionPolicy;
 use Onhost\Domain\Services\FinalArchive;
 use Onhost\Domain\Services\Limits\LimitRaises;
+use Onhost\Domain\Services\Mail\Reputation\ReputationHealth;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\BackupPolicy;
 use Onhost\Domain\Services\Models\Service;
@@ -143,6 +144,9 @@ final class Doctor extends Command
             $this->addChecked($check);
         }
         foreach (app(ScheduleHealth::class)->checks() as $check) { // P14: every scheduled job within its age budget
+            $this->addChecked($check);
+        }
+        foreach (app(ReputationHealth::class)->checks() as $check) { // SP1a (V-R1): sending addresses and customer domains on no major blocklist
             $this->addChecked($check);
         }
 

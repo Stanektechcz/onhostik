@@ -345,7 +345,7 @@ final class NotificationRouter
             // a plan version decides what new customers get and pay (H01): finance hears about it, it is not an alarm
             'catalog.plan.version_published', 'catalog.plan.version_activated' => $this->internal($m, 'finance', self::internalTitle($m->name, $p), 'Změněno: '.implode(', ', array_merge((array) ($p['changed']['entitlements'] ?? []), (array) ($p['changed']['limits'] ?? []), (array) ($p['changed']['prices'] ?? []))).' · důvod: '.($p['reason'] ?? ''), '/sprava/fakturace', 'warn'),
             'platform.mail.failing', 'platform.mail.recovered',
-            'node.blocklisted', 'service.name_unproved', 'service.certificate.problem', 'service.resume.incomplete', 'service.suspend.incomplete', 'service.purge.leftover', 'service.termination.failed',
+            'node.blocklisted', 'mail.reputation.listed', 'service.name_unproved', 'service.certificate.problem', 'service.resume.incomplete', 'service.suspend.incomplete', 'service.purge.leftover', 'service.termination.failed',
             'registrar.credit.low', 'integration.down', 'integration.maintenance.lifted', 'integration.maintenance.overdue', 'security.ssh_key.revocation.stuck', 'platform.load_shedding.started', 'platform.load_shedding.ended', 'platform.queue.stalled', 'platform.queue.backlog', 'node.drained', 'node.resumed', 'node.qualified', 'node.disk.low', 'service.integrity.suspicious', 'node.synthetic.leftover', 'service.relocated', 'capacity.unavailable', 'ipam.exhausted', 'ipam.threshold', 'ipam.rdns.unpublished', 'ipam.rdns.failed', 'provisioning.drift.detected', 'operation.failed', 'finance.reconciliation.mismatch', 'registrar.notification.dead', 'domain.reconcile.missing_remote', 'domain.reconcile.unknown_remote', 'payment.orphan_callback', 'security.incident.opened', 'abuse.case.opened', 'compliance.timer.due', 'compliance.timer.missed', 'sla.burn_rate', 'sla.budget.exhausted', 'maintenance.unapproved' => $this->internal($m, self::internalKind($m->name), self::internalTitle($m->name, $p), self::internalBody($p), self::internalSurface($m->name), 'hot'),
             // marketplace (audit §5j-1): the partner gets the brief, the customer the delivery; disputes reach support and the partner
             'marketplace.ordered' => $this->customer($m, 'order', 'Objednávka z marketplace: '.($p['title'] ?? ''), 'Partner dostal zadání; dodání do '.self::when($p['due_at'] ?? null).'. Zaplaceno z kreditu ('.$money($p['total'] ?? null).').', '/panel/nastaveni', 'info'),
@@ -839,7 +839,7 @@ final class NotificationRouter
             str_starts_with($event, 'integration.'), str_starts_with($event, 'provisioning.'), str_starts_with($event, 'operation.'), str_starts_with($event, 'capacity.'), str_starts_with($event, 'ipam.') => 'infra',
             str_starts_with($event, 'security.'), str_starts_with($event, 'abuse.'), str_starts_with($event, 'compliance.') => 'security',
             str_starts_with($event, 'sla.'), str_starts_with($event, 'maintenance.') => 'infra',
-            str_starts_with($event, 'node.'), str_starts_with($event, 'service.'), str_starts_with($event, 'platform.') => 'infra', // they used to land under finance
+            str_starts_with($event, 'node.'), str_starts_with($event, 'service.'), str_starts_with($event, 'platform.'), str_starts_with($event, 'mail.') => 'infra', // they used to land under finance
             default => 'finance',
         };
     }
@@ -907,6 +907,7 @@ final class NotificationRouter
             'node.drained' => 'Uzel '.($p['name'] ?? '').' odstaven z umísťování'.(! empty($p['automatic']) ? ' (automaticky)' : ''),
             'node.resumed' => 'Uzel '.($p['name'] ?? '').' opět přijímá služby',
             'node.disk.low' => 'Uzlu '.($p['node'] ?? '').' dochází místo na disku ('.($p['free_pct'] ?? '?').' % volného)',
+            'mail.reputation.listed' => (($p['kind'] ?? '') === 'domain' ? 'Poštovní doména zákazníka ' : 'Odesílací adresa ').($p['target'] ?? '').' je na blocklistu '.($p['list'] ?? '').' ('.($p['code'] ?? '').', '.($p['weight'] ?? '').')',
             'node.blocklisted' => 'Odesílací adresa uzlu '.($p['name'] ?? '').' ('.($p['address'] ?? '').') je na blocklistu: '.($p['lists'] ?? '').' — pošta zákazníků z tohoto uzlu se bude vracet',
             'service.integrity.suspicious' => 'Web '.($p['hostname'] ?? $p['label'] ?? '').' vypadá napadeně ('.implode(', ', (array) ($p['kinds'] ?? [])).')',
             'service.resume.incomplete' => 'Služba '.($p['name'] ?? '').' je po obnovení zase živá, ale panel odmítl zapnout zpět: '.implode(', ', (array) ($p['kinds'] ?? [])).' — zákazník zaplatil a tohle mu nejede',
@@ -954,7 +955,7 @@ final class NotificationRouter
             str_starts_with($event, 'registrar.'), str_starts_with($event, 'domain.') => '/sprava/sluzby',
             str_starts_with($event, 'integration.'), str_starts_with($event, 'provisioning.'), str_starts_with($event, 'operation.'), str_starts_with($event, 'capacity.'), str_starts_with($event, 'ipam.') => '/sprava/uzly',
             str_starts_with($event, 'security.'), str_starts_with($event, 'abuse.'), str_starts_with($event, 'compliance.'), str_starts_with($event, 'sla.'), str_starts_with($event, 'maintenance.') => '/sprava/incidenty',
-            str_starts_with($event, 'node.'), str_starts_with($event, 'platform.') => '/sprava/uzly',
+            str_starts_with($event, 'node.'), str_starts_with($event, 'platform.'), str_starts_with($event, 'mail.') => '/sprava/uzly',
             str_starts_with($event, 'service.') => '/sprava/sluzby',
             default => '/sprava/fakturace',
         };

@@ -18,6 +18,8 @@ use Illuminate\Support\ServiceProvider;
 use Onhost\Domain\Identity\Models\PersonalAccessToken;
 use Onhost\Domain\Platform\QueueLaneHeartbeat;
 use Onhost\Domain\Platform\ScheduleHealth;
+use Onhost\Platform\Dns\Dnsbl\DnsblLookup;
+use Onhost\Platform\Dns\Dnsbl\ResolverDnsblLookup;
 use Onhost\Platform\Dns\RecordResolver;
 use Onhost\Platform\Dns\SystemRecordResolver;
 use Onhost\Platform\Http\DnsHostResolver;
@@ -31,6 +33,7 @@ final class AppServiceProvider extends ServiceProvider
     {
         $this->app->bind(HostResolver::class, DnsHostResolver::class); // what a customer-named destination resolves to (EgressGuard)
         $this->app->bind(RecordResolver::class, SystemRecordResolver::class); // what the internet answers for a customer's domain (PublicDnsCheck)
+        $this->app->bind(DnsblLookup::class, ResolverDnsblLookup::class); // SP1a: blocklist questions through the operator's own resolver
         $this->app->bind(CertificateReader::class, PeerCertificateReader::class); // what a node really serves for a site (CertificateWatch)
         $this->app->singleton(SurfaceRenderer::class, fn () => new SurfaceRenderer((string) config('onhost.ui.surfaces_path', base_path('apps/surfaces'))));
         $this->app->singleton(QueueLaneHeartbeat::class); // one per worker process: it remembers when it last stamped each lane (TASK-0045)

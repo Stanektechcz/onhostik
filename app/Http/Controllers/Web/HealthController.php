@@ -21,6 +21,7 @@ use Onhost\Domain\Platform\ScheduleHealth;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Provisioning\Models\IntegrationHealth;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
+use Onhost\Domain\Services\Mail\Reputation\ReputationHealth;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Files\VirusScanner;
 use Onhost\Platform\Ops\PlatformBackup;
@@ -111,6 +112,17 @@ final class HealthController extends Controller
         $total = @disk_total_space(base_path());
         $free = @disk_free_space(base_path());
         $emit('onhost_disk_free_ratio', 'gauge', 'Free share of the disk the application lives on', is_float($total) && $total > 0 && is_float($free) ? [[['path' => 'app'], round($free / $total, 4)]] : []);
+        // SP1a (V-R1): open blocklist listings of our sending addresses and customer mail domains, lists refusing our resolver
+        $reputation = app(ReputationHealth::class)->metrics();
+        $listingSamples = [];
+        foreach ($reputation['listings'] as $weight => $kinds) {
+            foreach ($kinds as $kind => $n) {
+                $listingSamples[] = [['weight' => $weight, 'kind' => $kind], $n];
+            }
+        }
+        $emit('onhost_mail_blocklist_listings', 'gauge', 'Open blocklist listings by weight (major/minor/info) and kind (address/domain)', $listingSamples);
+        $emit('onhost_mail_blocklist_refused', 'gauge', 'Blocklists that refused our resolver within the last day', [[[], $reputation['refused']]]);
+        $emit('onhost_mail_reputation_last_check_timestamp', 'gauge', 'Unix time of the newest blocklist answer (0 = never asked)', [[[], $reputation['last_check']]]);
 
         $instances = ProviderInstance::query()->get()->keyBy('id');
         $health = IntegrationHealth::query()->get();
