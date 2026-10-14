@@ -263,6 +263,17 @@ return [
             'max_age_hours' => (int) env('ONHOST_PAYMENTS_SWEEP_MAX_AGE_HOURS', 72),
             'batch' => (int) env('ONHOST_PAYMENTS_SWEEP_BATCH', 50), // intents re-read per run, oldest first
         ],
+        // TASK-0235: onhost:payments:reconcile compares yesterday's provider settlements (Europe/Prague day) with intents and the
+        // ledger, once per provider and day. A provider without credentials is skipped; `bank` needs none (its statement lines).
+        'reconcile' => [
+            'providers' => array_values(array_filter(array_map('trim', explode(',', (string) env('ONHOST_PAYMENTS_RECONCILE_PROVIDERS', 'comgate,gopay,stripe,bank'))))),
+            // days a provider may take to pay a payment out: the run of day D reports a payout missing only for intents paid on
+            // D minus this (a larger value only reports later, never falsely). ASSUMED, not verified with any account: Comgate
+            // reconciles by transfer date and GoPay by statement date (a payout after one or more working days; 5 covers a weekend
+            // with a holiday); Stripe's adapter lists balance transactions by charge creation (same day; 2 for a late-night charge);
+            // the bank's settlement is the matched statement line itself
+            'settlement_lag_days' => ['comgate' => 5, 'gopay' => 5, 'stripe' => 2, 'bank' => 0],
+        ],
     ],
 
     'einvoice' => [

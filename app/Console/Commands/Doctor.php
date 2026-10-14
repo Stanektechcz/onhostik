@@ -33,6 +33,7 @@ use Onhost\Domain\Notifications\MailHealth;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\OrderStateMachine;
 use Onhost\Domain\Payments\ComgateCheck;
+use Onhost\Domain\Payments\ReconciliationHealth;
 use Onhost\Domain\Platform\GoLiveChecks;
 use Onhost\Domain\Platform\HstsHealth;
 use Onhost\Domain\Platform\IsolationChecks;
@@ -143,6 +144,9 @@ final class Doctor extends Command
         }
         // ── end E11 ──
         foreach (app(HstsHealth::class)->checks() as $check) { // P11 (P-R74): HSTS once, from the application, as configured
+            $this->addChecked($check);
+        }
+        foreach (app(ReconciliationHealth::class)->checks() as $check) { // TASK-0235: a gateway whose settlements went unchecked yesterday
             $this->addChecked($check);
         }
         foreach (app(ScheduleHealth::class)->checks() as $check) { // P14: every scheduled job within its age budget
