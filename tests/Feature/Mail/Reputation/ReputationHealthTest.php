@@ -58,6 +58,7 @@ it('forgets a refusal that is older than a day', function () {
 });
 
 it('exports the listings, refusals and the last check time to /metrics', function () {
+    $this->freezeSecond(); // the timestamp is compared to the second
     listing([]);
     ReputationCheck::query()->create(['list_key' => 'spamhaus-zen', 'target_kind' => 'ipv4', 'target' => '203.0.113.10', 'outcome' => 'listed', 'code' => '127.0.0.2', 'checked_at' => now()]);
 
@@ -81,6 +82,11 @@ it('the scheduled command runs the monitor, records the run and obeys the staff 
         {
             return 'fake';
         }
+
+        public function isOwnResolver(): bool
+        {
+            return true;
+        }
     });
 
     $this->artisan('onhost:mail:blocklist')->assertSuccessful();
@@ -96,4 +102,20 @@ it('lists the curated catalogue without SORBS and with every Spamhaus zone knowi
     expect(collect($lists)->pluck('zone')->filter(fn ($z) => str_contains($z, 'sorbs'))->all())->toBe([])
         ->and($lists['spamhaus-zen']['errors'])->toContain('127.255.255.254')->toContain('127.255.255.255')
         ->and($lists['spamhaus-dbl']['errors'])->toContain('127.255.255.254');
+});
+
+it('warns when the resolver answered none of the questions of the last day', function () {
+    ReputationCheck::query()->create(['list_key' => 'spamcop', 'target_kind' => 'ipv4', 'target' => '203.0.113.10', 'outcome' => 'failed', 'checked_at' => now()]);
+    ReputationCheck::query()->create(['list_key' => 'psbl', 'target_kind' => 'ipv4', 'target' => '203.0.113.10', 'outcome' => 'failed', 'checked_at' => now()]);
+
+    $row = collect(app(ReputationHealth::class)->checks())->firstWhere('check', ReputationHealth::RESOLVER);
+
+    expect($row['ok'])->toBeFalse()->and($row['detail'])->toContain('no answer')->and($row['remedy'])->toContain('ONHOST_DNSBL_RESOLVER');
+});
+
+it('stays OK while some answers fail and the rest arrive', function () {
+    ReputationCheck::query()->create(['list_key' => 'spamcop', 'target_kind' => 'ipv4', 'target' => '203.0.113.10', 'outcome' => 'failed', 'checked_at' => now()]);
+    ReputationCheck::query()->create(['list_key' => 'psbl', 'target_kind' => 'ipv4', 'target' => '203.0.113.10', 'outcome' => 'clean', 'checked_at' => now()]);
+
+    expect(collect(app(ReputationHealth::class)->checks())->firstWhere('check', ReputationHealth::RESOLVER)['ok'])->toBeTrue();
 });

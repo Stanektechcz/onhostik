@@ -42,8 +42,14 @@ node-side change goes through the node agent (§7), which stays off (`ONHOST_ANT
     **errors, not listings**. The catalogue knows each list's error answers; an error marks the list `refused` for that run and
     raises the doctor row *mail blocklist resolver is accepted*, never an incident.
   - Hence the platform asks through **its own resolver** (`ONHOST_DNSBL_RESOLVER`, an unbound/PowerDNS recursor on the platform
-    host with a stable, attributable reverse name), not through the system resolver of a cloud VM. Empty = the system resolver
-    (with the doctor row WARN once a list refuses).
+    host with a stable, attributable reverse name), not through the system resolver of a cloud VM. Empty = the first
+    `nameserver` of resolv.conf, asked over the same UDP client (`dns_get_record()` cannot tell NXDOMAIN from SERVFAIL or a
+    timeout, and "no answer" must never read as "not listed"). The lists that refuse public resolvers (`own_resolver` in the
+    catalogue: Spamhaus without a DQS key, Barracuda — registered resolvers only —, SURBL, URIBL) are **never asked** through the
+    system resolver or a well-known public one named in `ONHOST_DNSBL_RESOLVER` (8.8.8.8, 1.1.1.1, 9.9.9.9, …): their pairs are
+    recorded `refused` and the doctor row WARNs. An answer outside `127.0.0.0/8` (a resolver rewriting NXDOMAIN, a wildcard zone)
+    is an error for every list. A question waits at most `ONHOST_DNSBL_TIMEOUT` (kept between 0.5 and 5 s) and a run stops
+    asking after `ONHOST_DNSBL_MAX_RUN_SECONDS` (default 1 800); the rest waits for the next hour, oldest first.
   - **Spamhaus DQS** (Data Query Service): free for low volume after sign-up; the query is `<reversed ip>.<KEY>.zen.dq.spamhaus.net`
     (domains: `<domain>.<KEY>.dbl.dq.spamhaus.net`). The key is an **optional secret** (`ONHOST_SPAMHAUS_DQS_KEY`, never logged,
     never in an audit row or event — the platform stores the public zone name only). With a key, the Spamhaus rows use DQS and the

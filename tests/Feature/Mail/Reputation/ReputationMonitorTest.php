@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Services\Mail\Reputation\Models\ReputationCheck;
@@ -37,11 +38,20 @@ function reputationDns(array $answers): object
         /** @var list<string> */
         public array $asked = [];
 
+        /** false = the questions would go through the system or a public resolver */
+        public bool $own = true;
+
+        /** seconds each question takes (the run's time budget) */
+        public int $seconds = 0;
+
         public function __construct(public array $answers) {}
 
         public function a(string $name): DnsblAnswer
         {
             $this->asked[] = $name;
+            if ($this->seconds > 0) {
+                Carbon::setTestNow(now()->addSeconds($this->seconds));
+            }
             $key = mb_strtolower($name);
             if (array_key_exists($key, $this->answers) && $this->answers[$key] === null) {
                 return DnsblAnswer::failed('timeout');
@@ -53,6 +63,11 @@ function reputationDns(array $answers): object
         public function describe(): string
         {
             return 'fake resolver';
+        }
+
+        public function isOwnResolver(): bool
+        {
+            return $this->own;
         }
     };
     app()->instance(DnsblLookup::class, $fake);
@@ -227,4 +242,61 @@ it('checks the extra sending addresses the operator names (the transactional rel
 
     expect(ReputationListing::query()->where('target', '198.51.100.25')->value('list_key'))->toBe('barracuda')
         ->and(ReputationListing::query()->value('node_id'))->toBeNull();
+});
+
+it('never reads an answer outside 127/8 as a listing or as clean: a resolver rewriting NXDOMAIN, a wildcard zone', function () {
+    $dns = reputationDns(['10.113.0.203.bl.spamcop.net' => ['127.0.0.2']]);
+    sendingNode(['public_ipv4' => '203.0.113.10']);
+    app(ReputationMonitor::class)->run();
+
+    $dns->answers = ['10.113.0.203.bl.spamcop.net' => ['198.51.100.7']]; // an ad server instead of NXDOMAIN
+    $this->travel(61)->minutes();
+    $result = app(ReputationMonitor::class)->run();
+
+    expect($result['cleared'])->toBe(0)->and($result['refused'])->toBeGreaterThanOrEqual(1)
+        ->and(ReputationListing::query()->sole()->state)->toBe('open')
+        ->and(ReputationCheck::query()->where('list_key', 'spamcop')->value('outcome'))->toBe('refused');
+});
+
+it('never asks the lists that refuse public resolvers without an own resolver, and the doctor says so', function () {
+    $dns = reputationDns([]);
+    $dns->own = false;
+    sendingNode(['public_ipv4' => '203.0.113.10']);
+    [, $org] = $this->customerWithOrganization();
+    featureMailService($org, 'shop.cz');
+
+    $result = app(ReputationMonitor::class)->run();
+
+    $asked = implode("\n", $dns->asked);
+    expect($asked)->not->toContain('spamhaus')->not->toContain('barracudacentral')->not->toContain('uribl')->not->toContain('surbl')
+        ->toContain('10.113.0.203.bl.spamcop.net')->toContain('shop.cz.dbl.nordspam.com')
+        ->and($result['refused'])->toBe(5)->and($result['listed'])->toBe(0)
+        ->and(ReputationCheck::query()->where('list_key', 'spamhaus-zen')->value('outcome'))->toBe('refused')
+        ->and(ReputationCheck::query()->where('list_key', 'uribl')->value('outcome'))->toBe('refused');
+    $row = collect(app(ReputationHealth::class)->checks())->firstWhere('check', ReputationHealth::RESOLVER);
+    expect($row['ok'])->toBeFalse()->and($row['detail'])->toContain('Spamhaus ZEN')->and($row['remedy'])->toContain('ONHOST_DNSBL_RESOLVER');
+});
+
+it('asks Spamhaus through DQS even without an own resolver (the key is the attribution)', function () {
+    $key = 'testdqskey00000000000000';
+    config()->set('onhost.antispam.dnsbl.spamhaus_dqs_key', $key);
+    $dns = reputationDns([]);
+    $dns->own = false;
+    sendingNode(['public_ipv4' => '203.0.113.10']);
+
+    app(ReputationMonitor::class)->run();
+
+    expect($dns->asked)->toContain("10.113.0.203.{$key}.zen.dq.spamhaus.net")
+        ->and(implode("\n", $dns->asked))->not->toContain('barracudacentral');
+});
+
+it('stops asking when the run reaches its time budget and leaves the rest for the next run', function () {
+    config()->set('onhost.antispam.dnsbl.max_run_seconds', 10);
+    $dns = reputationDns([]);
+    $dns->seconds = 4;
+    sendingNode(['public_ipv4' => '203.0.113.10']);
+
+    $result = app(ReputationMonitor::class)->run();
+
+    expect($result['checked'])->toBe(3)->and(count($dns->asked))->toBe(3)->and($result['deferred'])->toBeGreaterThan(0);
 });

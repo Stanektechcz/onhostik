@@ -17,7 +17,9 @@ use Onhost\Platform\Outbox\OutboxPublisher;
 /**
  * SP1a (phase V, V-R1): asks the curated blocklists about every sending address and every customer mail domain
  * (`ReputationTargets`), through the operator's resolver (`DnsblLookup`), each (list, target) pair at most once per
- * `min_interval_minutes` and the longest-unasked first, within `max_queries_per_run` (query etiquette, proposal §2).
+ * `min_interval_minutes` and the longest-unasked first, within `max_queries_per_run` and `max_run_seconds` (query
+ * etiquette, proposal §2). A list that refuses public resolvers is never asked without an own resolver (or DQS): its pairs
+ * are recorded `refused`, which the doctor row "mail blocklist resolver is accepted" reports.
  *
  * A listing opens when a list starts answering (`mail.reputation.listed`, audited) and is cleared when it answers "not
  * listed" again (`mail.reputation.cleared`); an error answer (refused querier) or no answer changes nothing. The node's
@@ -45,15 +47,26 @@ final class ReputationMonitor
         }
         $due = $this->duePairs($lists, $targets);
         $budget = max(1, (int) config('onhost.antispam.dnsbl.max_queries_per_run', 2000));
-        $stats['deferred'] = max(0, count($due) - $budget);
-        foreach (array_slice($due, 0, $budget) as [$listKey, $target]) {
+        $deadline = now()->addSeconds(max(1, (int) config('onhost.antispam.dnsbl.max_run_seconds', 1800)));
+        $ownResolver = $this->dns->isOwnResolver();
+        foreach ($due as $i => [$listKey, $target]) {
+            if ($stats['checked'] >= $budget || now()->greaterThanOrEqualTo($deadline)) {
+                $stats['deferred'] = count($due) - $i; // the oldest first next time
+
+                break;
+            }
             $question = BlocklistCatalog::questionFor($listKey, $target['kind'], $target['target']);
             if ($question === null) {
                 continue;
             }
-            $answer = $this->dns->a($question);
-            $stats['checked']++;
-            $result = $answer->failed ? ['outcome' => 'failed', 'code' => null, 'weight' => null] : BlocklistCatalog::classify($listKey, $answer->addresses);
+            if (! $ownResolver && BlocklistCatalog::needsOwnResolver($listKey)) {
+                // never asked through the system or a public resolver: the list refuses it, and its answer would say nothing
+                $result = ['outcome' => 'refused', 'code' => null, 'weight' => null];
+            } else {
+                $answer = $this->dns->a($question);
+                $stats['checked']++;
+                $result = $answer->failed ? ['outcome' => 'failed', 'code' => null, 'weight' => null] : BlocklistCatalog::classify($listKey, $answer->addresses);
+            }
             ReputationCheck::query()->updateOrCreate(['list_key' => $listKey, 'target' => $target['target']], [
                 'target_kind' => $target['kind'], 'outcome' => $result['outcome'], 'code' => $result['code'], 'checked_at' => now(),
             ]);

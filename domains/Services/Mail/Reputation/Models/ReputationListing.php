@@ -4,9 +4,17 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Services\Mail\Reputation\Models;
 
+use Illuminate\Support\Carbon;
 use Onhost\Platform\Eloquent\Model;
 
-/** One blocklist listing of a sending address or a customer mail domain, open until the list stops answering (SP1a). */
+/**
+ * One blocklist listing of a sending address or a customer mail domain, open until the list stops answering (SP1a).
+ *
+ * @property Carbon $first_seen_at
+ * @property Carbon $last_seen_at
+ * @property ?Carbon $cleared_at
+ * @property list<string>|null $service_ids
+ */
 final class ReputationListing extends Model
 {
     protected static string $idPrefix = 'mrl';

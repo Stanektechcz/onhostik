@@ -33,6 +33,10 @@ final class ReputationHealth
         $minor = ReputationListing::query()->where('state', ReputationListing::OPEN)->where('weight', BlocklistCatalog::MINOR)->count();
         $refused = ReputationCheck::query()->where('outcome', 'refused')->where('checked_at', '>', now()->subDay())->distinct()->pluck('list_key')
             ->map(fn (string $key) => (string) (BlocklistCatalog::list($key)['name'] ?? $key))->sort()->values()->all();
+        // questions asked within the last day and not one of them answered: the resolver is down or unreachable
+        $recent = ReputationCheck::query()->where('checked_at', '>', now()->subDay());
+        $silent = (clone $recent)->exists() && ! (clone $recent)->where('outcome', '!=', 'failed')->exists();
+        $resolverOk = $refused === [] && ! $silent;
 
         return [
             [
@@ -46,9 +50,13 @@ final class ReputationHealth
                 'remedy' => $domains === [] ? '' : 'check the listed domain\'s site and mailboxes for abuse, then ask the list for removal',
             ],
             [
-                'area' => 'mail', 'check' => self::RESOLVER, 'ok' => $refused === [], 'blocking' => false,
-                'detail' => $refused === [] ? 'asked through the '.$this->dns->describe() : 'refused by '.implode(', ', $refused).' through the '.$this->dns->describe().' (public or over-quota resolver) — those lists say nothing about us now',
-                'remedy' => $refused === [] ? '' : 'set ONHOST_DNSBL_RESOLVER to an own recursive resolver with an attributable reverse name, or ONHOST_SPAMHAUS_DQS_KEY for Spamhaus, then php artisan config:cache',
+                'area' => 'mail', 'check' => self::RESOLVER, 'ok' => $resolverOk, 'blocking' => false,
+                'detail' => match (true) {
+                    $silent => 'no answer from the '.$this->dns->describe().' to any blocklist question of the last day — nothing is known about our listings',
+                    $refused !== [] => 'refused by '.implode(', ', $refused).' through the '.$this->dns->describe().' (no own resolver, a public or over-quota one) — those lists say nothing about us now',
+                    default => 'asked through the '.$this->dns->describe(),
+                },
+                'remedy' => $resolverOk ? '' : 'set ONHOST_DNSBL_RESOLVER to an own recursive resolver with an attributable reverse name (reachable over UDP 53), or ONHOST_SPAMHAUS_DQS_KEY for Spamhaus, then php artisan config:cache',
             ],
         ];
     }

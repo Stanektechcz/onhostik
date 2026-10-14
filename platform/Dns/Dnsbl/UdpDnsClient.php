@@ -131,7 +131,7 @@ final class UdpDnsClient
             $answer = @fread($socket, 4096);
             $meta = stream_get_meta_data($socket);
 
-            return $answer === false || $answer === '' || ($meta['timed_out'] ?? false) ? null : $answer;
+            return $answer === false || $answer === '' || $meta['timed_out'] ? null : $answer;
         } finally {
             fclose($socket);
         }

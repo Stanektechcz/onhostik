@@ -14,6 +14,10 @@ namespace Onhost\Domain\Services\Mail\Reputation;
  *   `info` = lists networks by policy, not by behaviour (UCEPROTECT L2/L3, Spamhaus PBL): shown, never an incident or a doctor row.
  * - `codes`: the weight of single answer codes where they differ from the list's (ZEN's PBL codes are `info`).
  * - `errors`: answers that are NOT listings — the querier was refused (public resolver, volume) or asked wrongly.
+ *   Besides these, any answer outside 127.0.0.0/8 is an error for every list (a resolver rewriting NXDOMAIN to an ad
+ *   server, a wildcard zone) — never a listing and never "not listed".
+ * - `own_resolver`: the list refuses (or cannot attribute) questions through public resolvers — it is asked only through an
+ *   own resolver (`DnsblLookup::isOwnResolver()`), or through DQS when the list has a `dqs` zone and a key is set.
  * - `dqs`: the Spamhaus Data Query Service zone used instead when ONHOST_SPAMHAUS_DQS_KEY is set.
  * - `delist`: `expiry` (the list drops it after the cause stops), `form` (a person submits the list's removal form — the
  *   platform prepares the request, it never fills a captcha), `api` (none today).
@@ -29,15 +33,16 @@ final class BlocklistCatalog
     private const SPAMHAUS_ERRORS = ['127.255.255.252', '127.255.255.254', '127.255.255.255'];
 
     /**
-     * @var array<string, array{zone:string, name:string, kinds:list<string>, weight:string, codes?:array<string,string>, errors:list<string>, dqs?:string, delist:string, url:string}>
+     * @var array<string, array{zone:string, name:string, kinds:list<string>, weight:string, codes?:array<string,string>, errors:list<string>, own_resolver?:bool, dqs?:string, delist:string, url:string}>
      */
     public const LISTS = [
         // ── major: addresses ────────────────────────────────────────────────────────────────────────────────────────────
         'spamhaus-zen' => ['zone' => 'zen.spamhaus.org', 'name' => 'Spamhaus ZEN', 'kinds' => ['ipv4', 'ipv6'], 'weight' => self::MAJOR,
             'codes' => ['127.0.0.10' => self::INFO, '127.0.0.11' => self::INFO], // PBL: the range should not send directly (policy)
-            'errors' => self::SPAMHAUS_ERRORS, 'dqs' => 'zen', 'delist' => 'form', 'url' => 'https://check.spamhaus.org/'],
+            'errors' => self::SPAMHAUS_ERRORS, 'own_resolver' => true, 'dqs' => 'zen', 'delist' => 'form', 'url' => 'https://check.spamhaus.org/'],
         'barracuda' => ['zone' => 'b.barracudacentral.org', 'name' => 'Barracuda BRBL', 'kinds' => ['ipv4'], 'weight' => self::MAJOR,
-            'errors' => [], 'delist' => 'form', 'url' => 'https://www.barracudacentral.org/rbl/removal-request'],
+            'errors' => [], 'own_resolver' => true, // answers only resolvers registered at barracudacentral.org
+            'delist' => 'form', 'url' => 'https://www.barracudacentral.org/rbl/removal-request'],
         'spamcop' => ['zone' => 'bl.spamcop.net', 'name' => 'SpamCop', 'kinds' => ['ipv4'], 'weight' => self::MAJOR,
             'errors' => [], 'delist' => 'expiry', 'url' => 'https://www.spamcop.net/bl.shtml'],
         'mailspike' => ['zone' => 'bl.mailspike.net', 'name' => 'Mailspike BL', 'kinds' => ['ipv4'], 'weight' => self::MAJOR,
@@ -46,12 +51,12 @@ final class BlocklistCatalog
             'errors' => [], 'delist' => 'form', 'url' => 'https://psbl.org/remove'],
         // ── major: domains ──────────────────────────────────────────────────────────────────────────────────────────────
         'spamhaus-dbl' => ['zone' => 'dbl.spamhaus.org', 'name' => 'Spamhaus DBL', 'kinds' => ['domain'], 'weight' => self::MAJOR,
-            'errors' => [...self::SPAMHAUS_ERRORS, '127.0.1.255'], 'dqs' => 'dbl', 'delist' => 'form', 'url' => 'https://check.spamhaus.org/'],
+            'errors' => [...self::SPAMHAUS_ERRORS, '127.0.1.255'], 'own_resolver' => true, 'dqs' => 'dbl', 'delist' => 'form', 'url' => 'https://check.spamhaus.org/'],
         'surbl' => ['zone' => 'multi.surbl.org', 'name' => 'SURBL multi', 'kinds' => ['domain'], 'weight' => self::MAJOR,
-            'errors' => ['127.0.0.1'], 'delist' => 'form', 'url' => 'https://www.surbl.org/surbl-analysis'],
+            'errors' => ['127.0.0.1'], 'own_resolver' => true, 'delist' => 'form', 'url' => 'https://www.surbl.org/surbl-analysis'],
         'uribl' => ['zone' => 'multi.uribl.com', 'name' => 'URIBL multi', 'kinds' => ['domain'], 'weight' => self::MAJOR,
             'codes' => ['127.0.0.4' => self::INFO], // grey: bulk sender, not a spam source
-            'errors' => ['127.0.0.1'], 'delist' => 'form', 'url' => 'https://admin.uribl.com/'],
+            'errors' => ['127.0.0.1'], 'own_resolver' => true, 'delist' => 'form', 'url' => 'https://admin.uribl.com/'],
         // ── minor ─────────────────────────────────────────────────────────────────────────────────────────────────────
         'nixspam' => ['zone' => 'ix.dnsbl.manitu.net', 'name' => 'NiX Spam', 'kinds' => ['ipv4'], 'weight' => self::MINOR, 'errors' => [], 'delist' => 'expiry', 'url' => 'https://www.nixspam.net/'],
         'uceprotect-1' => ['zone' => 'dnsbl-1.uceprotect.net', 'name' => 'UCEPROTECT L1', 'kinds' => ['ipv4'], 'weight' => self::MINOR, 'errors' => [], 'delist' => 'expiry', 'url' => 'https://www.uceprotect.net/en/rblcheck.php'],
@@ -91,6 +96,17 @@ final class BlocklistCatalog
     }
 
     /**
+     * May the list be asked only through an own resolver? Not when it is asked through DQS: the key is the attribution there,
+     * and DQS answers through any resolver.
+     */
+    public static function needsOwnResolver(string $key): bool
+    {
+        $list = self::LISTS[$key] ?? null;
+
+        return $list !== null && ($list['own_resolver'] ?? false) === true && ! (isset($list['dqs']) && self::dqsKey() !== null);
+    }
+
+    /**
      * The name to ask: the target in the list's form, under its zone — or its DQS zone when a key is set. The key is part of
      * the question only; nothing stores or prints this name (the listing keeps the public zone).
      */
@@ -108,17 +124,24 @@ final class BlocklistCatalog
         if ($subject === null || $subject === '') {
             return null;
         }
-        $dqsKey = trim((string) config('onhost.antispam.dnsbl.spamhaus_dqs_key', ''));
-        $zone = isset($list['dqs']) && $dqsKey !== '' && preg_match('/^[a-z0-9]{20,40}$/', $dqsKey) === 1
-            ? $dqsKey.'.'.$list['dqs'].'.dq.spamhaus.net'
-            : $list['zone'];
+        $dqsKey = self::dqsKey();
+        $zone = isset($list['dqs']) && $dqsKey !== null ? $dqsKey.'.'.$list['dqs'].'.dq.spamhaus.net' : $list['zone'];
 
         return $subject.'.'.$zone;
     }
 
+    /** The Spamhaus DQS key when one is set and well-formed; a secret — it goes into the question and nowhere else. */
+    private static function dqsKey(): ?string
+    {
+        $key = trim((string) config('onhost.antispam.dnsbl.spamhaus_dqs_key', ''));
+
+        return $key !== '' && preg_match('/^[a-z0-9]{20,40}$/', $key) === 1 ? $key : null;
+    }
+
     /**
      * What the answer means for this list: `listed` with the code and its weight, `clean`, or `refused` when the list only
-     * answered with an error code (the querier was refused — never a listing, never "clean").
+     * answered with an error code (the querier was refused — never a listing, never "clean"), or when anything answered
+     * outside 127.0.0.0/8 (a resolver rewriting NXDOMAIN, a wildcard zone — the answer says nothing about the list).
      *
      * @param  list<string>  $addresses
      * @return array{outcome:string, code:?string, weight:?string}
@@ -127,6 +150,10 @@ final class BlocklistCatalog
     {
         $list = self::LISTS[$key];
         $errors = (array) $list['errors'];
+        $foreign = array_values(array_filter($addresses, fn (string $a) => ! str_starts_with($a, '127.')));
+        if ($foreign !== []) {
+            return ['outcome' => 'refused', 'code' => mb_substr($foreign[0], 0, 15), 'weight' => null];
+        }
         $listed = array_values(array_filter($addresses, fn (string $a) => str_starts_with($a, '127.') && ! in_array($a, $errors, true)));
         if ($listed === []) {
             $refused = array_values(array_filter($addresses, fn (string $a) => in_array($a, $errors, true)));

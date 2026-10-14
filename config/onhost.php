@@ -459,15 +459,17 @@ return [
         // addresses the platform sends mail from besides every node's public_ipv4/public_ipv6 tag (the transactional relay, …)
         'sending_addresses' => array_values(array_filter(array_map('trim', explode(',', (string) env('ONHOST_ANTISPAM_SENDING_ADDRESSES', ''))))),
         'dnsbl' => [
-            // an own recursive resolver (host or host:port) — blocklists refuse public resolvers; empty = the system resolver
+            // an own recursive resolver (host, host:port, [v6]:port) — blocklists refuse public resolvers; empty = the system resolver
+            // from resolv.conf, through which Spamhaus (without a DQS key), Barracuda, SURBL and URIBL are never asked
             'resolver' => (string) env('ONHOST_DNSBL_RESOLVER', ''),
-            'timeout_seconds' => (float) env('ONHOST_DNSBL_TIMEOUT', 2.0),
+            'timeout_seconds' => (float) env('ONHOST_DNSBL_TIMEOUT', 2.0), // per question, kept between 0.5 and 5 s
             // optional secret: Spamhaus Data Query Service key (free for low volume); never logged, never stored with a listing
             'spamhaus_dqs_key' => (string) env('ONHOST_SPAMHAUS_DQS_KEY', ''),
             // keys of BlocklistCatalog::LISTS the operator switched off
             'disabled' => array_values(array_filter(array_map('trim', explode(',', (string) env('ONHOST_DNSBL_DISABLED', ''))))),
             'min_interval_minutes' => (int) env('ONHOST_DNSBL_MIN_INTERVAL_MINUTES', 60), // each (list, target) pair at most this often
             'max_queries_per_run' => (int) env('ONHOST_DNSBL_MAX_QUERIES_PER_RUN', 2000),
+            'max_run_seconds' => (int) env('ONHOST_DNSBL_MAX_RUN_SECONDS', 1800), // a run stops asking after this; the rest waits for the next hour
         ],
     ],
 
