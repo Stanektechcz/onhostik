@@ -162,8 +162,9 @@ final class PaymentService
         } catch (QueryException $e) {
             // unique (provider, event_id) — duplicate delivery: exactly one business effect (S51). "Seen before" is not "settled",
             // though: the event id is `transId:STATUS`, and the customer knows their transId — a `PAID` posted before paying took
-            // the id, and the provider's real `PAID` was then dropped as a duplicate, leaving a paid order unpaid until the daily
-            // reconciliation. While the intent is not settled the provider is simply asked again; settling is idempotent.
+            // the id, and the provider's real `PAID` was then dropped as a duplicate, leaving a paid order unpaid until the payer's
+            // return or the pending-payment sweep (`onhost:payments:sweep`, every ten minutes, W6) re-read it. While the intent is
+            // not settled the provider is simply asked again; settling is idempotent.
             $intent = PaymentIntent::query()->where('provider', $providerKey)->where('provider_id', $verified['provider_id'])->first();
             if ($intent !== null && ! $intent->isSucceeded() && $this->syncFromProvider($intent, CommandContext::system("webhook:{$providerKey}")) === 'settled') {
                 return ['result' => 'settled', 'intent' => $intent->refresh()];
@@ -185,7 +186,7 @@ final class PaymentService
         return ['result' => $result, 'intent' => $intent->refresh()];
     }
 
-    /** Re-read provider status (source of truth) and apply it. Used by webhooks, return pages and reconciliation. */
+    /** Re-read provider status (source of truth) and apply it. Used by webhooks, return pages, the pending-payment sweep and reconciliation. */
     public function syncFromProvider(PaymentIntent $intent, CommandContext $context): string
     {
         $provider = $this->providers->get($intent->provider);
@@ -205,19 +206,51 @@ final class PaymentService
 
             return $this->settle($intent, $context, $status['method'] ?? $intent->method) ? 'settled' : 'already_settled';
         }
+        // W6 review: the model in hand may be stale — a webhook, the payer's return and the sweep can answer for one intent at once,
+        // and the provider call between the read and the write is the widest window there is. Every state write below re-reads the
+        // row under a lock and applies the provider's answer only to a state that can still take it, as settle() does; when the
+        // intent became final meanwhile (a concurrent settlement), its real state is returned and nothing is written or dispatched.
         if ($target === S::FAILED || $target === S::CANCELED) {
-            if (! in_array($intent->state, [S::SUCCEEDED, S::REFUNDED, S::PARTIALLY_REFUNDED, S::FAILED, S::CANCELED], true)) {
-                $intent->forceFill(['state' => $target, 'failure_reason' => $status['raw']['reason'] ?? $target])->save();
-                $this->events->dispatch(new PaymentFailed($intent, (string) ($status['raw']['reason'] ?? $target)));
+            $reason = (string) ($status['raw']['reason'] ?? $target);
+            $closed = $this->transitionLocked($intent, $target, ['failure_reason' => $status['raw']['reason'] ?? $target], fn (string $state) => ! in_array($state, [S::SUCCEEDED, S::REFUNDED, S::PARTIALLY_REFUNDED, S::CHARGEBACK, S::FAILED, S::CANCELED], true));
+            if ($closed === null) {
+                return in_array($intent->state, [S::FAILED, S::CANCELED], true) ? strtolower($target) : strtolower($intent->state);
             }
+            $this->events->dispatch(new PaymentFailed($closed, $reason));
 
             return strtolower($target);
         }
-        if ($intent->state !== $target && S::machine()->canTransition($intent->state, $target)) {
-            $intent->forceFill(['state' => $target])->save();
+        if ($intent->state !== $target) {
+            $this->transitionLocked($intent, $target, [], fn (string $state) => $state !== $target && S::machine()->canTransition($state, $target));
+            if ($intent->isSucceeded()) {
+                return strtolower($intent->state);
+            }
         }
 
         return strtolower($target);
+    }
+
+    /**
+     * Writes `$target` (and `$extra`) to the intent under a row lock when `$allowed` accepts the state the row holds now; the model
+     * in hand is refreshed from the row either way. Returns the written intent, or null when the row's state did not allow it.
+     *
+     * @param  array<string,mixed>  $extra
+     * @param  callable(string):bool  $allowed
+     */
+    private function transitionLocked(PaymentIntent $intent, string $target, array $extra, callable $allowed): ?PaymentIntent
+    {
+        $written = DB::transaction(function () use ($intent, $target, $extra, $allowed) {
+            $row = PaymentIntent::query()->lockForUpdate()->findOrFail($intent->id);
+            if (! $allowed((string) $row->state)) {
+                return null;
+            }
+            $row->forceFill(['state' => $target] + $extra)->save();
+
+            return $row;
+        }, 3);
+        $intent->setRawAttributes(PaymentIntent::query()->findOrFail($intent->id)->getAttributes(), true);
+
+        return $written === null ? null : $intent;
     }
 
     /**

@@ -50,6 +50,7 @@ use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Domain\Partners\Commands\PartnerCommand;
 use Onhost\Domain\Partners\PartnerService;
 use Onhost\Domain\Payments\BankStatementImporter;
+use Onhost\Domain\Payments\PendingPaymentSweep;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Provisioning\CapacityForecast;
 use Onhost\Domain\Provisioning\CapacityPlanner;
@@ -350,6 +351,22 @@ Artisan::command('onhost:bank:sync {--from=} {--to=}', function (BankStatementIm
     return 0;
 })->purpose('Download new incoming transfers from the Fio bank API and settle the proformas / top-ups they pay');
 
+Artisan::command('onhost:payments:sweep {--limit= : intents re-read in this run (default onhost.payments.sweep.batch)}', function (PendingPaymentSweep $sweep) {
+    // W6 (TASK-0228): a provider without credentials or an intent the provider cannot answer is a warning in the log, never exit 1
+    $limit = $this->option('limit');
+    $limit = is_int($limit) ? (string) $limit : $limit;
+    if ($limit !== null && (! is_string($limit) || preg_match('/^[1-9][0-9]{0,5}$/', $limit) !== 1)) {
+        $this->error('--limit must be a whole number from 1 to 999999 (intents re-read in this run).');
+
+        return 1;
+    }
+    $s = $sweep->run($limit !== null ? (int) $limit : null);
+    $this->info(sprintf('payments sweep: checked %d, settled %d, failed %d, open %d, errors %d, skipped %s',
+        $s['checked'], $s['settled'], $s['failed'], $s['open'], $s['errors'], $s['skipped'] === [] ? '-' : implode(' ', $s['skipped'])));
+
+    return 0;
+})->purpose('Re-read the provider status of card payments left pending (lost notification and lost return) and settle, fail or cancel them');
+
 Artisan::command('onhost:webhooks:retry', function (WebhookDispatcher $webhooks) {
     $this->table(['queued', 'dead'], [$webhooks->retryDue()]);
 })->purpose('Queue the due webhook attempts (backoff retries); endpoints no longer active end their deliveries');
@@ -535,6 +552,7 @@ Schedule::command('onhost:registrar:reconcile')->dailyAt(sprintf('%02d:00', (int
 Schedule::command('onhost:bank:sync')->everyFiveMinutes()->withoutOverlapping()->onOneServer()->when(fn () => (string) config('onhost.payments.bank.fio_token', '') !== '');
 Schedule::command('onhost:billing:expire-holds')->everyTenMinutes()->onOneServer();
 Schedule::command('onhost:orders:settle')->everyTenMinutes()->withoutOverlapping()->onOneServer();
+Schedule::command('onhost:payments:sweep')->everyTenMinutes()->withoutOverlapping()->onOneServer();
 // a service left in SUSPENDING/RESUMING/RESIZING by a step the panel refused accepts nothing until it is put back; nothing is sent to a panel
 Schedule::command('onhost:services:release-stranded --apply --minutes=30')->everyTenMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:services:rescue-expire')->everyTenMinutes()->withoutOverlapping()->onOneServer();
