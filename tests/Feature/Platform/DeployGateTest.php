@@ -316,7 +316,7 @@ it('holds the runbook\'s staging environment spec to every outward credential', 
     $dir = deployGateTempDir();
     file_put_contents($dir.'/spec', (string) preg_replace('/<[^>]*>/', 'filled-by-test', $m[1]));
     $base = "APP_ENV=staging\nAPP_DEBUG=false\nAPP_URL=https://staging.onhost.cz\nDB_CONNECTION=pgsql\nQUEUE_CONNECTION=redis\nCACHE_STORE=redis\n"
-        ."SESSION_DRIVER=redis\nONHOST_SECRETS_DRIVER=db\nREDIS_PREFIX=onhost-staging-\nCACHE_PREFIX=onhost-staging-cache-\nDB_DATABASE=onhost_staging\n"
+        ."SESSION_DRIVER=redis\nONHOST_SECRETS_DRIVER=db\nONHOST_SELL_DEFAULT=true\nREDIS_PREFIX=onhost-staging-\nCACHE_PREFIX=onhost-staging-cache-\nDB_DATABASE=onhost_staging\n"
         ."MAIL_MAILER=log\nPAYMENT_GATEWAY=comgate\nCOMGATE_TEST=true\nCOMGATE_RECURRING=false\nCOMGATE_MERCHANT=filled-by-test\nCOMGATE_SECRET=test-merchant\n"
         ."GOPAY_RECURRING=false\nSTRIPE_RECURRING=false\nWEDOS_TEST_MODE=true\nONHOST_ACME_DIRECTORY=https://acme-staging-v02.api.letsencrypt.org/directory\n"
         ."ONHOST_VIES_ENABLED=false\nONHOST_FOUR_EYES=false\nONHOST_PLATFORM_BACKUP_DISK=filled-by-test\nONHOST_EGRESS_DENY_CIDRS=0.0.0.0/0,::/0\n";

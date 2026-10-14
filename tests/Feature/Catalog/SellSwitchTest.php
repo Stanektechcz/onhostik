@@ -8,7 +8,11 @@ use Database\Seeders\TaxRuleSeeder;
 use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Catalog\CatalogService;
 use Onhost\Domain\Catalog\Models\Product;
+use Onhost\Domain\Catalog\PricingRules;
 use Onhost\Domain\Catalog\SellSwitch;
+use Onhost\Domain\Identity\StepUp\StepUpService;
+use Onhost\Domain\Services\Models\Service;
+use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\PlanChangeService;
 use Onhost\Platform\Errors\DomainError;
 
@@ -78,4 +82,56 @@ it('does not block the plan change of an existing service when its family is off
 
     $options = app(PlanChangeService::class)->options($service->fresh(), 'CZK');
     expect(collect($options['plans'])->pluck('plan_key')->all())->toContain('standard');
+});
+
+function sellSwitchCartQuote($test, array $item)
+{
+    $test->putJson('/v1/cart', ['items' => [$item], 'commit_months' => 1, 'currency' => 'CZK'])->assertOk();
+
+    return $test->postJson('/v1/cart/quote');
+}
+
+it('lets an upgrade of the own active service through the quote with the family off, and refuses every other upgrade and a new line', function () {
+    [$owner, $org] = $this->customerWithOrganization([], ['street' => 'Dlouhá 1', 'city' => 'Praha', 'postal_code' => '11000', 'billing_email' => 'billing@example.cz']);
+    $service = featureWebService($org, 'aapanel');
+    $catalog = app(CatalogService::class);
+    $start = $catalog->resolve('web-hosting', 'start', 'CZK', 'month');
+    $service->forceFill(['plan_version_id' => $start['version']->id, 'entitlements' => $start['version']->entitlements])->save();
+    $subscription = Subscription::query()->create([
+        'organization_id' => $org->id, 'service_id' => $service->id, 'plan_version_id' => $start['version']->id, 'price_id' => $start['price']->id, 'currency' => 'CZK', 'period' => 'month', 'amount_minor' => $start['price']->renewalAmount()->minor,
+        'state' => Subscription::ACTIVE, 'current_period_start' => now()->subDays(15), 'current_period_end' => now()->addDays(15), 'next_renewal_at' => now()->addDays(8), 'auto_renew' => true, 'renewal_priority' => 'normal',
+    ]);
+    $service->forceFill(['subscription_id' => $subscription->id])->save();
+    $row = fn (array $over) => Service::query()->create($over + ['organization_id' => $org->id, 'product_key' => 'web-hosting', 'family' => 'web', 'name' => 'Web', 'hostname' => 'x'.bin2hex(random_bytes(3)).'.cz', 'state' => ServiceStateMachine::ACTIVE, 'region_code' => 'cz1', 'entitlements' => [], 'desired_spec' => [], 'sla_class' => 'standard', 'activated_at' => now()]);
+    [, $other] = $this->customerWithOrganization();
+    $foreign = $row(['organization_id' => $other->id]);
+    $cancelled = $row(['state' => ServiceStateMachine::TERMINATED]);
+    $suspended = $row(['state' => ServiceStateMachine::SUSPENDED]);
+
+    config(['onhost-sell.default' => false, 'onhost-sell.families' => []]);
+    $this->actingAs($owner, 'sanctum');
+    $upgrade = fn (string $id) => sellSwitchCartQuote($this, ['product_key' => 'web-hosting', 'plan_key' => 'standard', 'qty' => 1, 'period' => 'month', 'config' => ['upgrade_of' => $id]]);
+
+    $upgrade($service->id)->assertOk();
+    $upgrade($foreign->id)->assertNotFound();
+    $upgrade($cancelled->id)->assertStatus(409)->assertJsonPath('error', 'plan_change_state_invalid');
+    $upgrade($suspended->id)->assertStatus(409)->assertJsonPath('error', 'plan_change_state_invalid');
+    sellSwitchCartQuote($this, ['product_key' => 'web-hosting', 'plan_key' => 'standard', 'qty' => 1, 'period' => 'month'])->assertStatus(409)->assertJsonPath('error', 'product_not_sellable');
+});
+
+it('keeps the add-on mapping visible and intact for staff while the add-on family is off', function () {
+    config(['onhost.identity.four_eyes' => false]);
+    $staff = $this->staff('platform_owner');
+    app(StepUpService::class)->grant($staff, 'totp', null, '127.0.0.1');
+    $this->actingAs($staff, 'sanctum');
+    $mapping = fn () => collect($this->getJson('/v1/staff/pricing')->assertOk()->json('data.products'))->mapWithKeys(fn ($p) => [$p['key'] => $p['addon_products']]);
+
+    $this->putJson('/v1/staff/pricing/addon-products', ['product_key' => 'wordpress', 'addon_products' => ['backup-plus']])->assertOk();
+    config(['onhost-sell.default' => true, 'onhost-sell.families' => ['addon' => false]]);
+
+    expect($mapping()['wordpress'])->toBe(['backup-plus'])
+        ->and(app(PricingRules::class)->addonProducts('wordpress'))->toBe([]); // the customer-facing reading is filtered
+
+    $this->putJson('/v1/staff/pricing/addon-products', ['product_key' => 'web-hosting', 'addon_products' => ['backup-plus']])->assertOk();
+    expect($mapping()['wordpress'])->toBe(['backup-plus'])->and($mapping()['web-hosting'])->toBe(['backup-plus']);
 });

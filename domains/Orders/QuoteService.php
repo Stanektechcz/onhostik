@@ -262,8 +262,15 @@ final class QuoteService
             $planKey = (string) ($item['plan_key'] ?? '');
             $requestedPeriod = isset($item['period']) ? (string) $item['period'] : null;
             $period = $requestedPeriod ?? ($commitMonths >= 12 ? 'year' : 'month');
-            $resolved = $this->catalog->resolve($productKey, $planKey, $currency, $period, ! empty($config['upgrade_of']));
-            $change = ! empty($config['upgrade_of']) ? $this->planChange($organization, (string) $config['upgrade_of'], $resolved['product'], $planKey, $resolved['version'], $requestedPeriod) : null;
+            $change = null;
+            if (! empty($config['upgrade_of'])) {
+                // a plan change of the customer's own running service is no new sale: the launch sell switch is waived, but only on this
+                // path, where planChange() throws for a stranger's, cancelled or suspended service before the line is used
+                $resolved = $this->catalog->resolve($productKey, $planKey, $currency, $period, true);
+                $change = $this->planChange($organization, (string) $config['upgrade_of'], $resolved['product'], $planKey, $resolved['version'], $requestedPeriod);
+            } else {
+                $resolved = $this->catalog->resolve($productKey, $planKey, $currency, $period);
+            }
             if ($change !== null && $change['period'] !== $period) {
                 $period = $change['period'];
                 $resolved = $this->catalog->resolve($productKey, $planKey, $currency, $period, true); // a plan change keeps the subscription's billing period unless the line asks for the other one

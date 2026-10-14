@@ -271,7 +271,7 @@ final class CatalogPreflight
             'pricing.regions.set' => $this->rules->regions(),
             'lifecycle.set' => $this->lifecycle->all(),
             'pricing.domain_discount.set', 'pricing.domain_discount.delete' => $this->rules->domainDiscounts()[strtolower(ltrim(trim((string) $command->get('tld')), '.'))] ?? null,
-            'pricing.addon_products.set' => $this->rules->addonProducts((string) $command->get('product_key')),
+            'pricing.addon_products.set' => $this->rules->addonProducts((string) $command->get('product_key'), applySellSwitch: false),
             'pricing.penpot.set' => app(PenpotOffer::class)->rules(),
             'promo.upsert', 'promo.delete' => self::promoRow(strtoupper(trim((string) ($command->op() === 'promo.upsert' ? $command->get('promo.code') : $command->get('code'))))),
             'option.upsert' => self::optionRow((string) $command->get('product_key'), (string) $command->get('option.key')),
