@@ -1,11 +1,11 @@
-# Staging rehearsal, 2026-10-18: protocol (phase V, V1: A–C — attempt 1 of `259cbea6` stopped at B, attempt 2 of `82bc988f` waiting)
+# Staging rehearsal, 2026-10-18: protocol (phase V, V1: A–C — attempt 1 of `259cbea6` stopped at B, attempt 2 of `82bc988f` passed)
 
 Protocol of phase V on staging (`staging.onhost.cz`, 45.67.217.22), filed for the protocol day 2026-10-18 (the days up to 2026-10-17
 already have a protocol). It continues [staging-rehearsal-2026-10-17.md](staging-rehearsal-2026-10-17.md).
 **Attempt 1** ran on 2026-10-14 between 10:45 and 10:47 UTC under the owner's "T-ano" for `259cbea6` and stopped at step B.
-**Attempt 2** is a skeleton for the A–C cycle of the new frozen target `82bc988f` per the owner's document
+**Attempt 2** is the A–C cycle of the new frozen target `82bc988f` per the owner's document
 `GENERALKA-V-A-C-deploy-prikazy-2026-10-14.md` (desktop; it replaces `GENERALKA-T-…` for this cycle); attempt 2 ran on the owner's "T-ano 82bc988f + řádek B" (2026-10-14 12:20 UTC)
-and passed A–C4 and V2; C4b (registrar credit after the next full hour) is recorded below.
+and passed A–C4, V2 and C4b (registrar credit after the next full hour, read 13:10 UTC): **V1 PASS**.
 **Outputs only, no secrets**: `app.env` is not read; no password, TOTP, private key, cookie value or log content is printed (only exception
 class names and a secret-reference prefix). Metric values are left out (names and counts only).
 
@@ -40,7 +40,7 @@ Findings of attempt 1:
    resolver with `127.255.255.254`. Staging has 0 nodes, so nothing was reported. Handled by the antispam package (SP1a, TASK-0223,
    not part of `82bc988f`); an own resolver or a Spamhaus DQS key is needed before that package is verified on staging.
 
-## Pokus 2 (82bc988f, 2026-10-14) — PASS (A–C4, V2); C4b pending
+## Pokus 2 (82bc988f, 2026-10-14) — PASS (A–C4, V2, C4b)
 
 ### Header
 
@@ -84,7 +84,7 @@ Findings of attempt 1:
 | C2 deployer | — | Z (C2) | rc 0; `app.env matches expected-env`; `source-sha` = `82bc988f…` | PASS — viz *Výsledek pokusu 2* |
 | C3 gated deploy | — | Z (C3) | rc 0; **`VERDICT pass`**; no HARD-FAIL / GATED-FAIL / ROW-FAIL; migrations `001200` and `001210` DONE; `EXPECTED` includes the V-B row; `CLEARED` only rows already OK (bank statement import, R9 tokens, as at R3); `current release` = `82bc988f` | PASS — viz *Výsledek pokusu 2* |
 | C4 verification | — | S | see *C4 expected values* | PASS — viz *Výsledek pokusu 2* |
-| C4b after the next full hour | — | S | `onhost:registrar:credit` `failures_in_a_row` 0 with `last_success_at` set; budget row OK | PENDING — čtení naplánované po 13:00 UTC |
+| C4b after the next full hour | — | S | `onhost:registrar:credit` `failures_in_a_row` 0 with `last_success_at` set; budget row OK | PASS — viz *Výsledek pokusu 2* |
 | V2 public site (read) | — | S | see *V2 expected values* | PASS — viz *Výsledek pokusu 2* |
 | D restore drill | — | V | not part of V1 (DR-1, the owner types the DB role's password) | NEPROBĚHLO — čeká na DR-1 |
 | Rollback | — | — | only on a failed step: DB from `/root/v-2026-10/onhost_staging_b-before-v.dump`, then deploy `fda0cedf` | not needed (no step failed) |
@@ -101,7 +101,7 @@ Findings of attempt 1:
 | *no known metering gap* | WARN, **2** gaps (`php_workers, backup_days`); *the metering gap ratchet is not growing* OK; *every catalogue revision is applied* WARN as before, without `2026-10-game-plans-without-pids` | PASS — viz *Výsledek pokusu 2* |
 | `/metrics` (S3) | after ~90 s: `onhost_schedule_last_success_seconds{command="…"}` with real scheduled commands; `command="none"` count **0** | PASS — viz *Výsledek pokusu 2* |
 | status grid (S2) | `D.cs.status` rows with `u` in percent; `bad` holds only day indexes **0–29** (empty without an incident in 30 days) | PASS — viz *Výsledek pokusu 2* |
-| registrar credit (V1b) | after the next full hour: `failures_in_a_row` 0, the budget row OK and the gate's `expected-nonok` row `CLEARED` | PENDING (C4b) |
+| registrar credit (V1b) | after the next full hour: `failures_in_a_row` 0, the budget row OK and the gate's `expected-nonok` row `CLEARED` | PASS (C4b; `CLEARED` shows at the next gate) |
 
 Commands (shell preparation of the owner document; read-only):
 
@@ -153,19 +153,21 @@ art onhost:catalog:revise                                                       
   1×; `changes: [],` 1×. `onhost:catalog:revise` (suchý běh, bez `--apply`): revize `2026-09-honest-promises` (db-s/db-m −pitr_days
   −connections, e-shop a další) a `2026-09-shared-php-workers` **na stagingu nejsou aplikované**; nikdo nedrží staré verze. Zapsáno jako
   stav, nic se neaplikovalo (aplikace = čtyři oči / vlastník). Data plánů db-s/db-m tedy na stagingu dál nesou `pitr_days`.
-- **C4b:** čtení naplánované po další celé hodině (výsledek se dopíše).
+- **C4b 13:10:** `onhost:registrar:credit` proběhl 13:00:09 bez chyby (`failures_in_a_row` 0, `last_success_at` nastaven); doctor
+  *every scheduled job ran within its budget* **OK 92/92**. Řádek V-B v `expected-nonok` tím přestal být potřeba; brána příštího
+  cyklu ho ukáže jako `CLEARED`. **V1 = PASS.**
 - **Nespuštěno:** D (DR-1) a HS-2 — kroky vlastníka. Produkce: nic. `/root/t-2026-10` zůstává (úklid ST-2).
 
 ### Findings
 
 1. Obě revize katalogu z 2026-09 čekají na stagingu na `--apply` (čtyři oči); do té doby řádek *every catalogue revision is applied* zůstává WARN.
-2. Řádek V-B zmizí po prvním úspěšném běhu `onhost:registrar:credit` na `82bc988f`; příští brána ho ukáže jako `CLEARED`.
+2. Řádek V-B: první úspěšný běh `onhost:registrar:credit` na `82bc988f` proběhl 13:00:09 (C4b); příští brána ho ukáže jako `CLEARED`.
 3. Další cyklus po sloučení SP1a (PR #221) přinese nový WARN „mail blocklist resolver is accepted“, dokud staging nemá vlastní resolver nebo klíč DQS.
 
 ### Left for the owner (codes of the SEZNAM)
 
-T-ano for `82bc988f` with V-B (one `expected-nonok` row), DR-1 (step D), HS-2 (HSTS on the vhost), PP-1 … PP-7, ST-1, ST-2 (incl.
-`/root/r-2026-10` and `/root/t-2026-10` after a successful cycle), ST-5, ST-7, ST-8 rest, WF-2. After a passing attempt 2 the production
+DR-1 (step D), HS-2 (HSTS on the vhost), PP-1 … PP-7, ST-1, ST-2 (incl.
+`/root/r-2026-10` and `/root/t-2026-10` after a successful cycle), ST-5, ST-7, ST-8 rest, WF-2. Attempt 2 passed, so the production
 document `PRODUKCE-prikazy-…` moves to `82bc988f` (prepared diff on the desktop: `PRODUKCE-prikazy-repoint-diff-2026-10-14.md`).
 Production: nothing ran.
 
