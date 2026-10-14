@@ -160,6 +160,32 @@ discount, promo code and plan change of the only operator waits for a second per
 list freezes (withdrawals and `onhost:catalog:state draft` keep working). With the switch off, the only operator's
 price changes take the time lock above: plan them a day ahead.
 
+## Quick reference: who, which switch, how staff are made (W5)
+
+| Question | Answer (from the code) |
+| --- | --- |
+| Who may approve | Staff holding `iam.approval.decide` **and** the permission of the action itself (`iam_admin`, `platform_owner`; for prices also `catalog.manage`). Never the requester. |
+| Which actions need two people | Permissions rated CRITICAL (`PermissionCatalog::effectiveRisk`), plus price and plan changes (`CatalogCommand::requiresApproval()`). |
+| The switch | `ONHOST_FOUR_EYES` (config `onhost.four_eyes`), default **true**. Set it to `false` only for a single operator. |
+| Single-operator exception | Applies only with the switch `false` **and** exactly one active holder of `iam.approval.decide` (`ApprovalService::waivesFor`). With two or more approvers nobody is waived. |
+| Time lock | `ONHOST_FOUR_EYES_TIME_LOCK_HOURS` (config `onhost.four_eyes_time_lock_hours`), default **24**, never below 1. The sole approver's own critical action is refused first, and runs when repeated after the lock. |
+| Adding a further approver | `onhost:staff:create` with a role that carries `iam.approval.decide`, while somebody already decides approvals, opens a time-locked request instead of the account (`StaffAccountCommandHandler`); the approvers hear `iam.approval.time_locked` and may cancel it. Repeat the same command (same e-mail, name, role) after the lock to make the account. |
+
+### Creating staff
+
+```
+php artisan onhost:staff:create ops@example.com --name="Ops" --role=platform_owner   # hidden password prompt
+php artisan onhost:staff:create ops@example.com --role=sre --stdin                   # password from standard input
+```
+
+The password must have **at least 12 characters** (shorter is refused, `password_too_short`). The first approver of an
+installation, and staff whose role decides no approvals, are made at once; each person enrols MFA at the first sign-in.
+Do not share one password between people: `onhost:demo:accounts` refuses roles that decide approvals for this reason.
+
+Tests: `tests/Feature/Identity/FourEyesApprovalTest.php` (the solo operator and the 24 h lock),
+`tests/Feature/Identity/RiskFloorTest.php` (IF-10 waiver and lock), `tests/Feature/Identity/StaffCreateDeciderTest.php`
+(time lock on a further approver).
+
 ## Risk never goes below the catalogue (TASK-0037)
 
 The bus runs every operation at the higher of what its command declares and the risk of its permission
