@@ -8,6 +8,7 @@ use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Http\Client\Request as HttpRequest;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Notification;
+use Onhost\Domain\Catalog\CatalogService;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Orders\Models\Order;
@@ -39,18 +40,37 @@ beforeEach(function () {
         'onhost-sell.default' => false, 'onhost-sell.families' => ['web' => true], // W3: launch sells one family
         'onhost.payments.default' => 'comgate',
         'onhost.payments.comgate.merchant' => '123456', 'onhost.payments.comgate.secret_ref' => 'env://W8LAUNCHCG', 'onhost.payments.comgate.test' => true,
-        'onhost.payments.comgate.callback_allowlist' => array_filter(explode(',', '')), // W1: COMGATE_CALLBACK_IPS empty, as the config reads it
         'onhost.payments.sweep.providers' => ['comgate'], 'onhost.payments.sweep.grace_minutes' => 10,
         'onhost.payments.sweep.max_age_hours' => 72, 'onhost.payments.sweep.batch' => 50,
     ]);
+    // W1: COMGATE_CALLBACK_IPS empty, read through the real config file rather than a copy of its parsing
+    $GLOBALS['w8LaunchCallbackIps'] = getenv('COMGATE_CALLBACK_IPS');
+    w8LaunchCallbackIps('');
+    expect(config('onhost.payments.comgate.callback_allowlist'))->toBe([]);
 });
 
 afterEach(function () {
+    $previous = $GLOBALS['w8LaunchCallbackIps'] ?? false;
+    w8LaunchCallbackIps($previous === false ? null : (string) $previous);
     foreach (['W8LAUNCHCG_MERCHANT', 'W8LAUNCHCG_SECRET'] as $key) {
         putenv($key);
         unset($_ENV[$key], $_SERVER[$key]);
     }
 });
+
+/** Sets COMGATE_CALLBACK_IPS (null removes it) and loads the Comgate config from config/onhost.php again, as a fresh boot would. */
+function w8LaunchCallbackIps(?string $value): void
+{
+    if ($value === null) {
+        putenv('COMGATE_CALLBACK_IPS');
+        unset($_ENV['COMGATE_CALLBACK_IPS'], $_SERVER['COMGATE_CALLBACK_IPS']);
+    } else {
+        putenv('COMGATE_CALLBACK_IPS='.$value);
+        $_ENV['COMGATE_CALLBACK_IPS'] = $_SERVER['COMGATE_CALLBACK_IPS'] = $value;
+    }
+    $fresh = require config_path('onhost.php');
+    config(['onhost.payments.comgate.callback_allowlist' => $fresh['payments']['comgate']['callback_allowlist']]);
+}
 
 /** Comgate: creating the payment answers the redirect, the status read answers `$gate['status']` for the order's total and counts. */
 function w8LaunchComgateFake(array &$gate): void
@@ -79,7 +99,7 @@ function w8LaunchGuestOrder(object $test, array $item, string $email, string $ke
         'customer' => ['email' => $email, 'name' => 'Lenka Launch', 'country' => 'CZ', 'street' => 'Dlouhá 12', 'city' => 'Praha', 'postal_code' => '110 00'],
         'items' => [['line_id' => 'l1'] + $item],
         'commit_months' => 1, 'currency' => 'CZK',
-        'consents' => ['terms' => ['version' => '2026-09'], 'privacy' => [], 'dpa' => [], 'withdrawal_waiver' => []],
+        'consents' => ['terms' => ['version' => '2026-09'], 'privacy' => [], 'dpa' => [], 'withdrawal_waiver' => [], 'registrar_terms' => ['person' => 'Lenka Launch'], 'registry_terms_cz' => ['person' => 'Lenka Launch']],
         'payment' => ['mode' => 'gateway', 'provider' => 'comgate', 'method' => 'card'], 'terms' => true,
     ]);
 }
@@ -151,4 +171,50 @@ it('refuses a guest order for a product of a switched-off family before anything
     // the same person orders what is on sale and gets the account then
     w8LaunchGuestOrder($this, ['product_key' => 'web-hosting', 'plan_key' => 'start'], 'vojta@launch.cz', 'w8-launch-3')->assertCreated();
     expect(User::query()->where('email', 'vojta@launch.cz')->exists())->toBeTrue();
+});
+
+it('refuses what the quote would refuse before the account exists: unknown product, unknown plan, no current price', function (array $item, int $status, string $error) {
+    $gate = [];
+    w8LaunchComgateFake($gate);
+
+    if ($item['w8_retire_price'] ?? false) { // the monthly CZK price is no longer in force
+        unset($item['w8_retire_price']);
+        app(CatalogService::class)->resolve('web-hosting', 'standard', 'CZK', 'month')['price']->forceFill(['effective_to' => now()->subMinute()])->save();
+    }
+    $refused = w8LaunchGuestOrder($this, $item, 'nikdo@launch.cz', 'w8-launch-4')->assertStatus($status);
+
+    expect($refused->json('error'))->toBe($error)
+        ->and(User::query()->where('email', 'nikdo@launch.cz')->exists())->toBeFalse()
+        ->and(Order::query()->count())->toBe(0)
+        ->and($gate['created'])->toBe(0);
+})->with([
+    'unknown product' => [['product_key' => 'no-such-product', 'plan_key' => 'standard'], 404, 'not_found'],
+    'unknown plan' => [['product_key' => 'web-hosting', 'plan_key' => 'no-such-plan'], 404, 'not_found'],
+    'no current price' => [['product_key' => 'web-hosting', 'plan_key' => 'standard', 'w8_retire_price' => true], 409, 'price_unavailable'],
+]);
+
+it('refuses a plan change line from somebody without an account with 422, before the account exists', function () {
+    $gate = [];
+    w8LaunchComgateFake($gate);
+
+    $refused = w8LaunchGuestOrder($this, ['product_key' => 'web-hosting', 'plan_key' => 'standard', 'config' => ['upgrade_of' => 'svc_01m4w8launchupgradeline00']], 'zmena@launch.cz', 'w8-launch-5')
+        ->assertStatus(422);
+
+    expect($refused->json('error'))->toBe('upgrade_needs_account')
+        ->and(User::query()->where('email', 'zmena@launch.cz')->exists())->toBeFalse()
+        ->and(Order::query()->count())->toBe(0)
+        ->and($gate['created'])->toBe(0);
+});
+
+it('lets a guest order a domain alone while every product family is switched off', function () {
+    config(['onhost-sell.default' => false, 'onhost-sell.families' => []]);
+    $gate = [];
+    w8LaunchComgateFake($gate);
+
+    $placed = w8LaunchGuestOrder($this, ['product_key' => 'domain', 'config' => ['fqdn' => 'w8-launch-domena.cz', 'period_years' => 1]], 'domena@launch.cz', 'w8-launch-6')
+        ->assertCreated();
+
+    expect($placed->json('state'))->toBe(OrderStateMachine::PENDING_PAYMENT)
+        ->and(User::query()->where('email', 'domena@launch.cz')->exists())->toBeTrue()
+        ->and($gate['created'])->toBe(1);
 });

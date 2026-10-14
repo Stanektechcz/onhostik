@@ -36,6 +36,12 @@ use Onhost\Platform\Outbox\OutboxPublisher;
  */
 final class OrganizationService
 {
+    /** The account currency a new organization starts with when none is given: EUR in Slovakia, CZK elsewhere. */
+    public static function defaultCurrency(?string $country): string
+    {
+        return ($country ?? 'CZ') === 'SK' ? 'EUR' : 'CZK';
+    }
+
     public function __construct(
         private readonly AuditRecorder $audit,
         private readonly OutboxPublisher $outbox,
@@ -59,7 +65,7 @@ final class OrganizationService
                 'city' => $attributes['city'] ?? null,
                 'postal_code' => $attributes['postal_code'] ?? null,
                 'country' => strtoupper((string) ($attributes['country'] ?? 'CZ')),
-                'currency' => strtoupper((string) ($attributes['currency'] ?? (($attributes['country'] ?? 'CZ') === 'SK' ? 'EUR' : 'CZK'))),
+                'currency' => strtoupper((string) ($attributes['currency'] ?? self::defaultCurrency($attributes['country'] ?? null))),
                 'locale' => $attributes['locale'] ?? $owner->locale,
                 'customer_class' => ! empty($attributes['ico']) || ! empty($attributes['vat_id']) ? 'b2b' : 'b2c',
                 'partner_organization_id' => $attributes['partner_organization_id'] ?? null,

@@ -10,7 +10,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
-use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Identity\EmailVerificationGuard;
 use Onhost\Domain\Identity\Models\EmailVerificationToken;
 use Onhost\Domain\Identity\Models\User;
@@ -23,7 +22,6 @@ use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Domain\Partners\PartnerService;
 use Onhost\Domain\Payments\CardPayments;
 use Onhost\Domain\Risk\Turnstile;
-use Onhost\Domain\Services\Limits\LimitRaises;
 use Onhost\Domain\Tax\VatNumberChecks;
 use Onhost\Domain\Tax\VatStanding;
 use Onhost\Platform\Audit\AuditRecorder;
@@ -83,7 +81,8 @@ final class CheckoutController extends ApiController
         if (($data['payment']['mode'] ?? null) === 'gateway') {
             app(CardPayments::class)->assertAvailable(isset($data['payment']['provider']) ? (string) $data['payment']['provider'] : null);
         }
-        $this->assertNewSalesSellable($data['items']);
+        // W8: what the quote would refuse is refused before the account exists (an account without an order used to stay behind)
+        $quotes->assertNewCustomerCart(array_values($data['items']), $data['currency'] ?? OrganizationService::defaultCurrency(strtoupper((string) ($data['customer']['country'] ?? 'CZ'))), (int) ($data['commit_months'] ?? 1));
 
         $c = $data['customer'];
         $email = strtolower(trim((string) $c['email']));
@@ -141,29 +140,6 @@ final class CheckoutController extends ApiController
         $this->startSession($request, $user);
 
         return response()->json(array_merge($result, ['account' => ['created' => true, 'user' => Presenters::user($user), 'organization' => Presenters::organization($organization, 'owner')]]), 201);
-    }
-
-    /**
-     * W8 (TASK-0234): a product the launch sell switch keeps off (W3) is refused BEFORE the account exists. The quote runs only
-     * after the account is created (it needs the organization's VAT standing), so the same refusal from the quote used to leave
-     * a guest account behind without an order and without the set-password mail — and the next try with a sellable product
-     * then failed with `account_exists`. Same rule and error as CatalogService::resolve() for a new sale; a domain, a limit raise
-     * and a plan change of an own service are not new sales of a product family, the quote decides those.
-     *
-     * @param  array<int|string,mixed>  $items
-     */
-    private function assertNewSalesSellable(array $items): void
-    {
-        foreach ($items as $item) {
-            $productKey = (string) ($item['product_key'] ?? '');
-            if (in_array($productKey, ['domain', LimitRaises::PRODUCT], true) || ! empty($item['config']['upgrade_of'])) {
-                continue;
-            }
-            $product = Product::query()->where('key', $productKey)->first();
-            if ($product !== null && ! $product->isSellable()) {
-                throw new DomainError('product_not_sellable', "Product {$productKey} is not currently sellable.", 409);
-            }
-        }
     }
 
     private function startSession(Request $request, User $user): void
