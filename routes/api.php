@@ -34,6 +34,7 @@ use App\Http\Controllers\Api\V1\RewardsController;
 use App\Http\Controllers\Api\V1\ServiceAccessController;
 use App\Http\Controllers\Api\V1\ServiceAccountController;
 use App\Http\Controllers\Api\V1\ServiceController;
+use App\Http\Controllers\Api\V1\Staff\AccountingExportController;
 use App\Http\Controllers\Api\V1\Staff\ApprovalController;
 use App\Http\Controllers\Api\V1\Staff\ChargebackController;
 use App\Http\Controllers\Api\V1\Staff\ComgateController;
@@ -44,6 +45,7 @@ use App\Http\Controllers\Api\V1\Staff\CustomerController;
 use App\Http\Controllers\Api\V1\Staff\IncidentController as StaffIncidentController;
 use App\Http\Controllers\Api\V1\Staff\MarketplaceController as StaffMarketplaceController;
 use App\Http\Controllers\Api\V1\Staff\OnCallController;
+use App\Http\Controllers\Api\V1\Staff\OperationsOverviewController;
 use App\Http\Controllers\Api\V1\Staff\OwnerRecoveryController;
 use App\Http\Controllers\Api\V1\Staff\PartnerController as StaffPartnerController;
 use App\Http\Controllers\Api\V1\Staff\PaymentsController;
@@ -525,8 +527,10 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
         Route::put('placements', [ProvisioningController::class, 'upsertPlacement']);
         Route::delete('placements/{placement}', [ProvisioningController::class, 'deletePlacement']);
         Route::get('payments/bank', [PaymentsController::class, 'bank']);
+        Route::get('finance/exports/{kind}', [AccountingExportController::class, 'show']); // R2 (P-R36): CSV for the accountant
         Route::post('payments/bank/lines', [PaymentsController::class, 'recordBankLine']);
         Route::post('payments/bank/sync', [PaymentsController::class, 'syncBank']);
+        Route::post('payments/bank/statements', [PaymentsController::class, 'importBankStatement']); // J-R7 (M3): a statement file of Česká spořitelna
         Route::get('payments/comgate', [ComgateController::class, 'show']); // H-R8: credentials present?, mode, last check — never a secret
         Route::post('payments/comgate/check', [ComgateController::class, 'check']); // connection | 1 Kč test payment (step-up)
         Route::put('payments/comgate/test-mode', [ComgateController::class, 'setTestMode']); // four eyes
@@ -693,6 +697,7 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
         Route::post('partners/payouts/{payout}/reject', [StaffPartnerController::class, 'rejectPayout']);
         Route::post('partners/payouts/{payout}/pay', [StaffPartnerController::class, 'payPayout']);
         Route::post('partners/tiers/recompute', [StaffPartnerController::class, 'recomputeTiers']);
+        Route::post('partners/commissions/{commission}/cancel-duplicate', [StaffPartnerController::class, 'cancelDuplicateCommission']); // I-R6 (K5): four eyes
         Route::get('partners/requests', [StaffPartnerController::class, 'requests']); // contract change requests (audit §5m-1)
         Route::post('partners/requests/{partnerRequest}/decide', [StaffPartnerController::class, 'decideRequest']);
         Route::get('partners/{partner}', [StaffPartnerController::class, 'show']);
@@ -721,6 +726,11 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
         Route::put('content/changelog', [StaffContentController::class, 'upsertChangelog']);
         Route::put('content/stock', [StaffContentController::class, 'upsertStock']);
     });
+    // ── P16 (phase R): the read-only shift overview of the staff page "Provoz" (sections by permission, OperationsOverview) ──
+    Route::prefix('staff')->middleware('staff')->group(function (): void { // D2: staff guard (EnsureStaff)
+        Route::get('operations/overview', [OperationsOverviewController::class, 'show']);
+    });
+    // ── end P16 ──
     // ── TASK-0039 (permission program P0-08 IF-8, P0-14 IF-16): staff act as staff on /v1/staff only — the customer routes treat a
     // member of staff as the customer they act as there. The same controllers, in staff mode (ApiContext::staffMode): lifting
     // ONhost's holds, staff parameters of an action, a restore on the customer's behalf; the panel sign-on as a bus command ──

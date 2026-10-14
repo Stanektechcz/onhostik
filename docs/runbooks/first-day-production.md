@@ -1,6 +1,7 @@
 # The first day in production
 
-Hour by hour, what the operator looks at on the first day after the release of go-live (G10, TASK-0119). It starts where
+Hour by hour, what the operator looks at on the first day after the release of go-live (G10, TASK-0119). The steps before H0 and
+their order are [production-plan-2026-10.md](production-plan-2026-10.md) (phase J); this page starts at its step 13. It starts where
 [go-live-checklist.md](go-live-checklist.md) (sections 0 and 10) ends: every step there is done, the final doctor run had 0 FAIL, and the
 owner's signed tag is deployed by `onhost-deploy` ([release-and-rollback.md](release-and-rollback.md)). **This page was prepared
 and has not been run**: the times are offsets from the minute the deploy printed `OK` (call it **H0**), the commands are the ones the
@@ -19,6 +20,11 @@ check in the incident log of the day (`POST /v1/staff/incidents` for anything th
   (checklist G-13); the on-call rota has a name in it (`OnhostNobodyOnCall` is the alert for the opposite).
 * Deploy outside business hours: whether Comgate retries a payment callback that got a 503 during the maintenance window is
   **ASSUMED no** (staging-launch.md, question 12) — which is why the payment check below reconciles by hand.
+
+**Phase Q (2026-10-13) additions:** support and these checks follow the support hours Mon–Fri 08:00–17:00 (P-R37), so H0 falls on
+a working-day evening (P-R10) and H+1 … H+24 inside working hours. Two doctor rows are new: *HSTS is sent once and as configured*
+(P11 — WARN `2×` until the vhost's own HSTS is switched off, [hsts.md](hsts.md)) and *every scheduled job ran within its budget*
+(P14). From day two on, [day-2-operations.md](day-2-operations.md) is the routine.
 
 ## H0 to H+1 — it is up and it is what we released
 

@@ -258,6 +258,12 @@
     <h2>Bankovní platby</h2>
     <p class="lead">Převody nemají webhook: příchozí platby se párují podle variabilního symbolu a částky na čekající zálohové faktury a dobití kreditu. S tokenem Fio API (<code>ONHOST_BANK_FIO_TOKEN</code>) se výpis stahuje automaticky každých 5 minut; platbu z výpisu jiné banky zaznamenejte ručně níže. Spárování zaplatí zálohovou fakturu a spustí zřízení služeb (u dobití připíše kredit) a vystaví doklad o přijetí platby. Stejný řádek výpisu se nikdy nezaúčtuje dvakrát.</p>
     <div class="actions" style="margin:0 0 12px;align-items:center"><button class="btn" type="button" id="bank-sync">Stáhnout výpis z banky (Fio)</button><span class="hint" id="bank-fio"></span></div>
+    <h3>Import výpisu z České spořitelny</h3>
+    <p class="hint">Výpis stažený z internetového bankovnictví ve formátu camt.053 (XML) nebo ABO/GPC, nejvýš 2 MB. Započítají se jen připsané příchozí platby; stejný soubor nahraný znovu nic nezaúčtuje dvakrát. Nespárované řádky přiřaďte ručně níže. Do banky se nic nezapisuje. CSV z George zatím nepodporujeme.</p>
+    <form id="bank-import" class="grid" style="margin:0 0 12px" autocomplete="off">
+      <div class="field span2"><label for="bk-file">Soubor výpisu</label><input id="bk-file" type="file" accept=".xml,.gpc,.abo,.txt" required></div>
+      <div class="actions span2"><button class="btn primary" type="submit">Nahrát a spárovat</button></div>
+    </form>
     <h3>Čeká na platbu převodem</h3>
     <table id="bank-pending">
       <thead><tr><th>VS</th><th>Částka</th><th>Účel</th><th>Zákazník</th><th>Vytvořeno</th><th></th></tr></thead>
@@ -875,6 +881,32 @@
         var d = r.data || r;
         var text = { matched: 'Platba spárována a zaúčtována', already_matched: 'Tento řádek už byl spárován dříve', duplicate: 'Řádek už byl zaznamenán', amount_mismatch: 'Částka nesouhlasí s očekávanou — založena položka k odsouhlasení', no_symbol: 'Bez variabilního symbolu nelze párovat', unmatched: 'K tomuto symbolu nečeká žádná platba' }[d.result] || d.result;
         say(text, d.result === 'matched'); log('Bankovní platba', d); $('bank-form').reset(); return loadBank();
+      })
+      .catch(function (e) { say(e.message, false); log('Chyba', e.payload || e.message); });
+  });
+  /* J-R7 (M3): a statement file of Česká spořitelna (camt.053 / ABO-GPC) as multipart; the server parses it inside the command */
+  function apiUpload(path, form) {
+    return fetch(API + path, {
+      method: 'POST', credentials: 'same-origin', body: form,
+      headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': csrf, 'X-XSRF-TOKEN': xsrf(), 'X-Requested-With': 'XMLHttpRequest', 'Idempotency-Key': key() }
+    }).then(function (r) {
+      return r.text().then(function (t) {
+        var j = {}; try { j = t ? JSON.parse(t) : {}; } catch (e) { j = { message: t.slice(0, 200) }; }
+        if (!r.ok) { var e = new Error(j.message || r.statusText); e.error = j.error; e.status = r.status; e.errors = j.errors; e.payload = j; e.approvalId = j.approval_id; throw e; }
+        return j;
+      });
+    });
+  }
+  $('bank-import').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var f = $('bk-file').files[0]; if (!f) return;
+    var form = new FormData(); form.append('file', f);
+    guarded(function () { return apiUpload('/staff/payments/bank/statements', form); })
+      .then(function (r) {
+        var d = r.data || r;
+        var waiting = (d.unmatched || 0) + (d.no_symbol || 0) + (d.amount_mismatch || 0);
+        say('Výpis načten (' + d.format + '): ' + d.lines + ' příchozích plateb, ' + d.recorded + ' nových, ' + d.matched + ' spárováno, ' + waiting + ' čeká na ruční přiřazení, ' + d.duplicates + ' už bylo zaznamenáno dříve', true);
+        log('Import výpisu', d); $('bank-import').reset(); return loadBank();
       })
       .catch(function (e) { say(e.message, false); log('Chyba', e.payload || e.message); });
   });

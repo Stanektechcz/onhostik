@@ -34,6 +34,8 @@
   function vatRate() { var D = window.ONHOST_DATA, r = D && typeof D.vat === 'function' ? D.vat() : null; return typeof r === 'number' ? r : 0.21; }
   function gross(cmp, v) { var k = 1 + vatRate(); return cmp && typeof cmp.czk === 'function' ? cmp.czk(Math.round(v * k) / k) : (Math.round(v * k).toLocaleString('cs-CZ') + ' Kč'); }
   function net(cmp, v) { return cmp && typeof cmp.mny === 'function' ? cmp.mny(v) : (Math.round(v).toLocaleString('cs-CZ') + ' Kč'); }
+  /* N1: a seller who charges no VAT (ONHOST_DATA.vatPayer() === false, L-10) shows final prices — no "s DPH", no "bez DPH" line */
+  function nonPayer() { var D = window.ONHOST_DATA; return !!(D && typeof D.vatPayer === 'function' && D.vatPayer() === false); }
   function snap(o, v) {
     var step = Number(o.step) || 1, min = o.min != null ? Number(o.min) : 0, max = o.max != null ? Number(o.max) : Infinity;
     v = min + Math.ceil(Math.max(0, Number(v) - min) / step) * step;
@@ -85,6 +87,9 @@
     var g = group ? (byEgg[st.egg] && group.eggs.indexOf(st.egg) >= 0 ? byEgg[st.egg] : byEgg[group.eggs[0]]) : null;
     var catLabel = {}; (d.categories || []).forEach(function (c) { catLabel[c.key] = c.label; });
     var artStyle = function (x) { return 'position:relative;aspect-ratio:460/215;overflow:hidden;display:flex;align-items:flex-end;' + (x.art ? 'background:#1a1918;' : (TILE_ART[x.key] || 'background:linear-gradient(135deg,#1a1918,#4a4644);')); };
+    /* K7-6 (M2): the art as a background of its box, so the browser never fetches "{{ … }}" before the template is filled in;
+     * only a plain URL (no quote, bracket or space) reaches the style */
+    var artImg = function (x) { var u = String(x.art || ''); return /^[A-Za-z0-9_\-.\/:%?=&~+]+$/.test(u) ? 'position:absolute;inset:0;width:100%;height:100%;background:center / cover no-repeat url("' + u + '")' : 'display:none'; };
 
     var tiles = (d.groups || []).filter(function (x) {
       return (cat === 'all' || x.category === cat) && (!q || (x.label + ' ' + x.note).toLowerCase().indexOf(q) >= 0);
@@ -92,7 +97,7 @@
       var active = !!(group && group.key === x.key), multi = x.eggs.length > 1;
       return {
         label: x.label, note: x.note, cat: catLabel[x.category] || '', from: gross(cmp, x.from), fromLabel: _('Již od', 'From'), per: _('/měs', '/mo'),
-        art: x.art || '', hasArt: !!x.art, noArt: !x.art, artStyle: artStyle(x), artText: ART_TEXT[x.key] || x.label,
+        art: x.art || '', hasArt: !!x.art, noArt: !x.art, artStyle: artStyle(x), artImg: artImg(x), artText: ART_TEXT[x.key] || x.label,
         badge: multi ? (cq(_, x.eggs.length, ['typ serveru', 'typy serveru', 'typů serveru'], ['server type', 'server types'])) : '', hasBadge: multi,
         cta: active ? _('Vybráno ✓', 'Selected ✓') : _('Konfigurovat', 'Configure'),
         ctaStyle: 'font-family:var(--font-heading);font-weight:800;font-size:13px;padding:8px 12px;white-space:nowrap;' + (active ? 'background:' + ACC + ';color:#f3f2f2' : 'border:2px solid ' + FG + ';color:' + FG),
@@ -112,15 +117,15 @@
       searchPh: _('Hledat hru…', 'Search games…'), q: st.q || '', onSearch: function (e) { update(cmp, { q: e.target.value }); },
       tiles: tiles, noTiles: tiles.length === 0, noTilesText: _('Takovou hru zatím nenabízíme. Napište nám, přidáme ji.', 'We do not offer that game yet. Tell us and we will add it.'),
       sliders: [], rows: [], versions: [], inputs: [], variants: [], presets: [], hasVariants: false, hasVersions: false, hasInputs: false,
-      summary: _('Váš server', 'Your server'), unit: _('/ měsíc s DPH', '/ month incl. VAT'),
+      summary: _('Váš server', 'Your server'), unit: nonPayer() ? _('/ měsíc', '/ month') : _('/ měsíc s DPH', '/ month incl. VAT'),
       note: _('Parametry změníte kdykoli v panelu, účtujeme měsíčně a bez závazku. Počet hráčů je orientační.', 'Change the parameters any time in the panel; billed monthly with no commitment. Player count is indicative.'),
       cta: _('Přidat do košíku', 'Add to cart'), change: _('← Změnit hru', '← Change game'),
       onChange: function (e) { stop(e); scrollTo('game-offer'); },
-      perks: [_('Anti-DDoS ochrana v ceně', 'Anti-DDoS included'), _('Konzole, SFTP a plánované restarty', 'Console, SFTP and scheduled restarts'), _('Servery v Praze, podpora 24/7', 'Servers in Prague, 24/7 support')]
+      perks: [_('Konzole, SFTP a plánované restarty', 'Console, SFTP and scheduled restarts'), _('Podpora přes panel a e-mail', 'Support through the panel and e-mail')] // N1: no location or hours a document states; O1: no "Anti-DDoS included" — no node configuration or contract documents a mitigation
     };
     if (!g) { out.price = ''; out.net = ''; return out; }
 
-    out.gameTitle = group.label; out.gameNote = group.note; out.gameArt = group.art || ''; out.gameHasArt = !!group.art; out.gameNoArt = !group.art; out.gameArtStyle = artStyle(group) + 'width:168px;flex:0 0 auto;';
+    out.gameTitle = group.label; out.gameNote = group.note; out.gameArt = group.art || ''; out.gameHasArt = !!group.art; out.gameNoArt = !group.art; out.gameArtStyle = artStyle(group) + 'width:168px;flex:0 0 auto;'; out.gameArtImg = artImg(group);
     if (group.eggs.length > 1) {
       out.hasVariants = true;
       out.variants = group.eggs.map(function (k) {
@@ -164,7 +169,7 @@
         on: function (e) { var next = Object.assign({}, state(cmp).env || {}); next[i.env] = String(e.target.value || '').trim(); update(cmp, { group: group.key, egg: g.key, env: next }); } });
     });
     out.hasInputs = out.inputs.length > 0; out.inputsLabel = _('Údaje, které hra potřebuje', 'What the game needs');
-    out.price = gross(cmp, total); out.net = _('bez DPH ', 'excl. VAT ') + net(cmp, total);
+    out.price = gross(cmp, total); out.net = nonPayer() ? '' : _('bez DPH ', 'excl. VAT ') + net(cmp, total);
     out.blocked = missing.length ? _('Před objednáním doplňte: ', 'Fill in before ordering: ') + missing.join(', ') : '';
     out.ctaStyle = 'display:block;text-align:center;font-size:16px;padding:16px 22px;' + (missing.length ? 'opacity:.45;pointer-events:none' : '');
     out.buy = function (e) {

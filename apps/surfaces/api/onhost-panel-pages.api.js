@@ -285,7 +285,7 @@
   }
 
   /* ── archives of cancelled services (audit §5ab) ──────────────────────── */
-  function archiveFee(a, cs) { return a.paid ? '' : money({ minor: a.fee_minor, currency: a.currency }, cs); }
+  function archiveFee(a, cs) { return a.paid || !(Number(a.fee_minor) > 0) ? '' : money({ minor: a.fee_minor, currency: a.currency }, cs); } // P-R30: free by default — no "za 0 Kč"
   function downloadArchive(cmp, _, a, cs) {
     return function () {
       var fee = archiveFee(a, cs);
@@ -359,7 +359,7 @@
           c2: _('archiv', 'archive'), state: left || _('archiv', 'archive'), stateStyle: H.pill(a.days_left != null && a.days_left < 15 ? 'warn' : 'off'),
           barStyle: H.bar(a.days_left == null ? 50 : Math.max(5, Math.min(100, a.days_left)), a.days_left != null && a.days_left < 15 ? 'warn' : 'ok'),
           metric: day(a.retention_until, cs), rowStyle: H.rowStyle,
-          action: a.paid ? _('Stáhnout', 'Download') : _('Stáhnout za ', 'Download for ') + archiveFee(a, cs), actionCls: 'btn btn-secondary', onAction: downloadArchive(cmp, _, a, cs)
+          action: !archiveFee(a, cs) ? _('Stáhnout', 'Download') : _('Stáhnout za ', 'Download for ') + archiveFee(a, cs), actionCls: 'btn btn-secondary', onAction: downloadArchive(cmp, _, a, cs)
         };
       })),
       filters: [], readOnly: true,

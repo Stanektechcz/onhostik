@@ -30,6 +30,7 @@ final class BankCommandHandler implements CommandHandler
                 ];
             })(),
             'bank.sync' => $this->importer->syncFio($context, $command->get('from') ?: null, $command->get('to') ?: null),
+            'bank.statement.import' => $this->importer->importFile((string) $command->get('statement', ''), (string) $command->get('filename', ''), $context),
             default => throw new DomainError('bank_op_unknown', "Unknown bank operation {$command->op()}.", 422),
         };
     }

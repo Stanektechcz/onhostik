@@ -256,6 +256,14 @@ Docker runs) and then:
   certificate. Verify with the same options: `./verify-node.sh --shared-host --caddy-bind 127.0.0.1 --http-port 8080 --https-port 8443`
   (the host's other listeners and its firewall policy are then WARN, not FAIL).
 
+**Behind a front proxy that terminates TLS itself (`--local-certs`, J2/TASK-0154).** When the front proxy already holds the public
+certificate for `*.penpot.onhost.cz` (staging Path A: aaPanel nginx with a wildcard certificate), Caddy does not need public
+certificates at all: `provision-node.sh --local-certs` writes `local_certs` into the global options, so every stack site gets a
+certificate of Caddy's own local CA and no Let's Encrypt order is made per stack (no rate limit, no ACME pass-through (a) through
+a proxy whose WAF may answer it). The front proxy talks to `https://127.0.0.1:8443` with `proxy_ssl_server_name on`,
+`proxy_ssl_name $host` and `proxy_ssl_verify off` (the hop is loopback). Verify with `./verify-node.sh … --local-certs` (checks the
+option, skips the Let's Encrypt reachability check). A node that serves visitors directly keeps the default (public certificates).
+
 Node capacity on a shared host is what is left for Penpot, not the server's size: enter that in `capacity`, or the scheduler
 oversells the game servers' memory.
 
@@ -265,15 +273,17 @@ The `docker` group is root on the host. Where that is not acceptable (a shared h
 rootless Docker daemon and the adapter talks to it through the instance option **`docker_host`**:
 
 1. As root: `apt-get install docker-ce-rootless-extras uidmap dbus-user-session`; give the user subuid/subgid ranges
-   (`/etc/subuid`, `/etc/subgid`); `loginctl enable-linger onhost` (the daemon survives the end of SSH sessions); do **not** add the
-   user to the `docker` group (remove it if `provision-node.sh` did: `gpasswd -d onhost docker`).
+   (`/etc/subuid`, `/etc/subgid`); `loginctl enable-linger onhost` (the daemon survives the end of SSH sessions). Run
+   `provision-node.sh` with **`--no-docker-group`** (J2/TASK-0154): it never puts the user into `docker` and takes it out if an earlier
+   run (or anything else) did, so a re-run reports 0 changes — CI runs the script for real twice on a throw-away runner and checks
+   both (`infra/penpot/ci/provision-twice.sh`, job `deploy-scripts`).
 2. As the user: `dockerd-rootless-setuptool.sh install`, then `systemctl --user enable --now docker`. The socket is
    `/run/user/<uid>/docker.sock` (`id -u onhost`).
 3. Instance option `docker_host: "unix:///run/user/<uid>/docker.sock"`. The adapter exports it as `DOCKER_HOST` in front of every
    command it sends; anything that is not a plain absolute `unix:///` path is refused before a command is sent (the node's health
    says `docker_host`). Without the option the system daemon is used (the default).
-4. Verify: `./verify-node.sh --docker-host unix:///run/user/<uid>/docker.sock …` (no docker-group check; Docker access is tested
-   with that socket).
+4. Verify: `./verify-node.sh --docker-host unix:///run/user/<uid>/docker.sock …` (Docker access is tested with that socket; a user
+   that is still in the `docker` group is a **FAIL** — that group reaches the system daemon, which is what rootless avoids).
 
 What changes with rootless Docker: the volumes live under `~onhost/.local/share/docker`, so the XFS quota helper (which looks at
 `/var/lib/docker` and runs as root) does not apply — leave `quota_command` empty (doctor WARN: storage only measured) or put the
@@ -319,7 +329,19 @@ credential" — so a staging Penpot is done as Path A, in this order, each step 
    `$STATE/expect-freeze` aside, `onhost:provisioning:thaw`, run the test, then freeze again, put `expect-freeze` back and stop and
    mask the lane. The scheduler does not run on Path A: probe and back up by hand (`php artisan onhost:penpot:sweep`). Add the lane
    to `$STATE/expected-units` only if the owner decides it stays on.
-7. **Smoke test** with a sandbox organization (staff assisted order), then `docs/manual-tests/11-penpot.md` on staging.
+7. **Smoke test** with a sandbox organization (staff assisted order, or the paper parent below), then
+   `docs/manual-tests/11-penpot.md` on staging.
+
+### The paper parent of the staging E2E — J2, TASK-0154
+
+Penpot is ordered for a running service of the same organization (`PenpotParents`), and staging has no web panel to build one.
+`php artisan onhost:penpot:paper-parent <sandbox-org-slug> [--product=web-hosting] [--plan=start] [--reason=…]` writes **one**
+service row: family web/managed, `ACTIVE`, label `penpot-e2e-parent`, tag `staging_paper_parent`, without a provider instance,
+node, binding, order or subscription — the reconciler skips it, nothing bills it, nothing is written to a panel. It goes through
+the CommandBus (`penpot.paper_parent.create`, audited, refused attempts included) and refuses: a person or token (command line
+only), `APP_ENV=production`, an organization that is not a sandbox, a product that is not web hosting. A second run returns the
+same row. `--end=<service id>` closes it (`penpot.paper_parent.end`, `TERMINATED` without a workflow) — only a row with that tag,
+and only after its Penpot is cancelled (the Penpot's own workflow removes the stack).
 
 Undo: delete the node row and the instance, remove the vault entry, mask the lane again, take the two rows out of
 `expected-nonok`. The host stays Path A (its database once held a node key); going back to Path B is a fresh Path B install.

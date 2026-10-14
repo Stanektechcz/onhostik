@@ -32,7 +32,7 @@ use Onhost\Platform\Outbox\OutboxPublisher;
  *
  *  • **restore it onto a new paid service — free of charge.** The archive is pushed back into the new service by the
  *    `archive.restore` operation; nothing is charged, whatever the archive's size.
- *  • **download it as one compressed file — for a fee** (500 Kč by default, "Nastavení systému → Životní cyklus
+ *  • **download it as one compressed file — for a fee** (none by default since P-R30, "Nastavení systému → Životní cyklus
  *    služeb"). The fee is charged once per archive; ordering a new service afterwards does not refund it, and an
  *    archive already paid for stays downloadable for the rest of its retention.
  *
@@ -114,6 +114,10 @@ final class ServiceArchiveService
                 app(CreditOrderPolicy::class)->assertMaySpend($organization, $context, 'Požádejte vlastníka o stažení archivu.');
                 $this->chargeFee($organization, $backup, Money::minor($fee, $currency), $context);
                 $charged = true;
+            } elseif (! app(CreditOrderPolicy::class)->maySpend($organization, $context)) {
+                // P-R30 made the download free by default; who may take all the data of a cancelled service away does not widen with it:
+                // the owner and the billing admin, as when it cost a fee (TASK-0021)
+                throw new DomainError('archive_download_not_allowed', 'Závěrečný archiv si může stáhnout jen vlastník organizace nebo její fakturační správce.', 403);
             }
             $backup->forceFill(['meta' => array_merge((array) $backup->meta, ['download' => array_merge((array) data_get($backup->meta, 'download', []), ['paid' => true, 'paid_at' => now()->toIso8601String(), 'fee_minor' => $fee, 'currency' => $currency])])])->save();
         }

@@ -58,6 +58,7 @@ final class StaffReadAudit
         'v1/staff/data-requests' => ['data_requests', null, null],
         'v1/staff/domains' => ['domains', null, null],
         'v1/staff/dunning' => ['dunning', null, null],
+        'v1/staff/finance/exports/{kind}' => ['accounting_export', null, null], // R2: every document's buyer and every payment of a month
         'v1/staff/integrations/{instance}' => ['integration', 'provider_instance', null], // the controller records it itself
         'v1/staff/leads' => ['leads', null, null], // a lead is a person's name and contact
         'v1/staff/marketplace/listings' => ['marketplace_listings', null, null],
@@ -120,6 +121,7 @@ final class StaffReadAudit
         'v1/staff/oncall/alerts' => 'on-call alerts of the platform',
         'v1/staff/oncall/shifts' => 'staff on-call shifts',
         'v1/staff/oncall/shifts.ics' => 'staff on-call shifts (calendar)',
+        'v1/staff/operations/overview' => 'P16 shift overview: counts, states and times of the platform jobs, backups, nodes and panels; no customer data',
         'v1/staff/placements' => 'plan placement rules',
         'v1/staff/payments/comgate' => 'the Comgate gateway mode and its last check (H-R8): no customer, no secret',
         'v1/staff/pricing' => 'the price list',

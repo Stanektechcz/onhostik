@@ -441,7 +441,7 @@ Opravy proti starším tabulkám:
 | P2-11 Paginace bez tiebreakeru | hotovo | #69 | – |
 | P2-12 Partnerská provize bez ochranné lhůty | hotovo | #89 | Rozhodnutí financí R7 o dvojím naúčtování. |
 | P2-13 Úklid aaPanelu při ukončení | hotovo v kódu | #90 | Ověření na serveru zbývá (operátor). |
-| P2-14 Outbox dead letters bez alertu | otevřeno | – | Chybí vyhrazený alert. |
+| P2-14 Outbox dead letters bez alertu | hotovo | #108 | Uzavřeno 2026-10-14 (V-STALE), důkaz: pravidla `OnhostOutboxDeadLetters` a `OnhostOutboxDeadLettersOld` v `infra/monitoring/slo-alerts.yml:43,48`, metriky v `HealthController.php:90-91`, řádek doctoru `OutboxDeadLetters.php:45` (`GoLiveChecks.php:59`), test `OutboxDeadLetterAlertTest.php:65`. |
 | P2-15 StaffReadAudit | otevřeno | – | Je jen ve 4 controllerech. |
 | P2-16 Verifikační mail obchází MailOutbox | otevřeno (záměr) | – | Obchází záměrně. |
 | P2-17 Staging: openapi jen porovnávat | hotovo | #67 | – |
@@ -454,12 +454,12 @@ Opravy proti starším tabulkám:
 | Nález | Stav | PR | Vlastník / poznámka |
 |---|---|---|---|
 | P3-1 Přístupnost: `lang`, `:focus-visible` | hotovo | #64 | `window.prompt` je samostatně v P3-2. |
-| P3-2 `window.prompt` | otevřeno | – | Asi 98 výskytů. |
-| P3-3 České plurály | otevřeno | – | Neověřeno. |
-| P3-4 Mrtvý modul `OnhostDomains` | otevřeno | – | – |
+| P3-2 `window.prompt` | hotovo | #114, #118 | Uzavřeno 2026-10-14 (V-STALE), důkaz: jediné volání `window.prompt` je záložní větev `OnhostDialog.form` bez DOM (`onhost-session-bridge.js:49`); hlídá to `H2UiTruthTest.php:34-46`, sdílený dialog mají všechny staff Blade stránky (`H2UiTruthTest.php:48`, `dialog-bridge.blade.php`). |
+| P3-3 České plurály | hotovo | #114 (základ TASK-0070 #64) | Uzavřeno 2026-10-14 (V-STALE), důkaz: sdílený pomocník `OnhostI18n.plural` s formami 1 / 2–4 / 5+ (`onhost-session-bridge.js:22-31`), použitý v `onhost-cart.api.js:33` a `onhost-panel-account.api.js:44-47`; PHP strana `CatalogPresentation.php:170` (nulu odfiltruje už `:165`); test `SurfaceLocaleA11yTest.php:60-62` spouští `tests/js/czech-plural.harness.mjs`. |
+| P3-4 Mrtvý modul `OnhostDomains` | hotovo | #117 | Uzavřeno 2026-10-14 (V-STALE), důkaz: prototyp `onhost-domains.js` je v `apps/surfaces/_archive/` (`_archive/README.md:9`), nic ho nenačítá (`ArchivedPrototypeTest.php:12-20`); produkt používá `api/onhost-domains.api.js`. V `SurfaceRenderer.php:623` zůstává jen záměrná výměna značky `<script>`. |
 | P3-5 DNS scopy | hotovo | #72 | – |
 | P3-6 Politika verzí API | hotovo | #69 | – |
-| P3-7 Executable bit `staging.sh` | otevřeno | – | – |
+| P3-7 Executable bit `staging.sh` | hotovo | – | Uzavřeno 2026-10-14 (V-STALE), důkaz: `git ls-files -s infra/aapanel/staging.sh` = `100755`, soubor přidal commit `0a02770d` (2026-09-28, TASK-0050) rovnou s tímto režimem (`7a5ca68c` je blob, ne commit) a žádná změna ho nesnížila. Na Windows pracovní kopii bit není vidět. |
 
 ### Sloučená práce fáze F
 
@@ -689,3 +689,276 @@ Stav nad `origin/development` po sloučení PR #116 až #121 (úkoly TASK-0121 a
 * Resize aaPanelu (známý limit).
 * Rozšířit `ExistenceOracleTest`.
 * Nestabilní testy: #74 (Discord) a #96 (`LexiconCoverageTest`), věc jiných relací.
+
+## Stav po fázi J a K (2026-10-12)
+
+Stav nad `origin/development` po sloučení PR #146 až #158 (fáze J: TASK-0151 až TASK-0156; fáze K: TASK-0157 až TASK-0163). Fáze I
+(PR #126–#145) má svůj zápis v `ROZHODNUTI.md` (I-R1 … I-R19). Rozhodnutí vlastníka J-R1, J-R2, J-R3 jsou v `ROZHODNUTI.md`. **Na
+stagingu ani v produkci se ve fázích J a K nic nespustilo** (staging stále `e711b7c7`); kroky čekají na „ano“ vlastníka podle
+`GENERALKA-K-A-C-deploy-prikazy-2026-10-12.md` (zmrazený cíl `fa2ea75d`, nahrazuje dokument J) a `GENERALKA-Penpot-D-G-prikazy.md`.
+
+### Sloučená práce fází J a K
+
+| PR | Úkol | Obsah |
+|---|---|---|
+| #146 | J0, TASK-0151 | Zelené CI, generátory bez driftu, nový job `php85` (Pest SQLite + deployer na PHP 8.5). |
+| #147 | J8, TASK-0152 | J-R1: příběh „první rok“, eko čísla a sklad EPYC staženy z `#/technika` a `#/ceny-a-sla`. |
+| #148 | J9, TASK-0153 | Plán produkčního spuštění `docs/runbooks/production-plan-2026-10.md`, kostra `PRODUKCE-prikazy` (nespouštět). |
+| #150 | J2, TASK-0154 | Uzel Penpot bez skupiny docker, `local_certs`, idempotence skriptu (chyba porovnání módů), papírový rodič `onhost:penpot:paper-parent`. |
+| #151 | J4, TASK-0155 | Patička s identitou a ČOI, karta jen s funkční bránou, `payment_card_unavailable` 409. |
+| #152 | J1, TASK-0156 | Preflight cíle deploye a protokol `staging-rehearsal-2026-10-11.md`. |
+| #153 | K0, TASK-0157 | `CatalogCompatibilityTest` vybíral „cizí“ produkt neseřazeně (PostgreSQL vybral Penpot). |
+| #154 | K0b, TASK-0159 | Odhad vratky (chargeback) k danému okamžiku počítal den v UTC, ne účetní den — CI červené 22–24 UTC a o den vyšší odhad. |
+| #155 | K5, TASK-0158 | Storno jedné provize (I-R6, J-R3): migrace 000949 odloží novější řádek před 000950, příkaz `partner.commission.cancel_duplicate` (HIGH, step-up, čtyři oči). |
+| #156 | K8b, TASK-0160 | J-R2: eko čísla a sklad/sestavy EPYC staženy ze stránek služeb; GPU bez „7 / 24 volných karet“ (I-R16). |
+| #157 | K7, TASK-0161 | Kontrola v prohlížeči (lokální sandbox): zjištění K7-1 … K7-7. |
+| #158 | K7-1, TASK-0162 | Karty ceníku (`#/ceny`) končily v košíku jako nespárovaná „VPS Standard“. |
+| — | K12, TASK-0163 | Tento zápis, J-R2/J-R3, ruční testy (karta bez brány, papírový rodič, dvojí provize), řádky 6 a 12 Comgate, cíl generálky. |
+
+### Co zůstává (podrobně v `PROMPT-faze-L-2026-10-12.md` na ploše vlastníka)
+
+* Generálka na stagingu (K3): A–C, `--legal`, D–G Penpot, R3–R24, R25, G2 — každý krok s „ano“ vlastníka.
+* Kontrola v prohlížeči na stagingu (po C) a vady K7-2 … K7-7 (ceník, stránka „Podmínky, GDPR a cookies“, texty pokladny, drobnosti).
+* Rozhodnutí vlastníka 2–10 (`ROZHODNUTI-podklady-J-2026-10-11.md`): prostředí pro Comgate, vlastní ISO, zálohy compute/PBS, výpisy ČS
+  (K6), advokát (K10), provozní vstupy, Penpot, produkce, úklid stagingu.
+* Nestabilní testy: #96 (`LexiconCoverageTest`, jiná relace); `DeployGateTest` pod paralelní zátěží lokálně (samostatně projde).
+
+## Stav po fázi L a M (2026-10-12)
+
+Stav nad `origin/development` po sloučení PR #161 až #168 (fáze L: TASK-0164 až TASK-0167; fáze M: TASK-0168 až TASK-0173).
+Rozhodnutí vlastníka J-R4 … J-R12 jsou v `ROZHODNUTI.md`, provedení J-R7 a J-R9 je tam doplněné. **Na stagingu ani v produkci se ve
+fázích L a M z této práce nic nespustilo**; staging vede jiná relace (`staging-rehearsal-2026-10-11.md`). Návod
+`GENERALKA-Penpot-D-G-prikazy.md` na ploše vlastníka nově toleruje instanci registrátora bez přihlašovacích údajů (`wedos-main`) v D0/F0
+(pokyn vlastníka 2026-10-12; plánovač Penpot umisťuje jen na uzel role `penpot` instance `penpot`).
+
+### Sloučená práce fází L a M
+
+| PR | Úkol | Obsah |
+|---|---|---|
+| #161 | TASK-0165 | Protokol generálky na stagingu 2026-10-12 (Path A). |
+| #162 | L2, TASK-0164 | Ceník `#/ceny` z katalogu (srovnávací tabulka, roční cena, FAQ podle VOP/SLA), košík „Webhosting Standard“. |
+| #163 | L5, TASK-0166 | Staff konzole čte jen to, co navigace dovolí (`OnhostApi.reads()`). |
+| #164 | L12a, TASK-0167 | Rozhodnutí J-R4 … J-R12. |
+| #165 | M1, TASK-0168 | Stránka „Podmínky, GDPR a cookies“ ukazuje dokumenty v platnosti (`PublicLegalLinks::documents`, `ONHOST_DATA.legalDocs`), řádek otevře dokument; pás SLA 99,9 % / 4 h. |
+| #166 | M3, TASK-0170 | J-R7: import výpisu České spořitelny (camt.053, ABO/GPC), idempotence, ochrana před XXE, oprávnění `billing.reconcile`. |
+| #167 | M2, TASK-0171 | J-R9: texty pokladny (karta jen s bránou, DPH podle režimu, bez bonusu k dobití, tlačítko podle košíku, „49,00 CZK“), obrázek hry bez dotazu na `{{ gcx.gameArt }}`. |
+| #168 | M2b, TASK-0172 | Doplněk „CDN a WAF“ jen s nastaveným účtem CDN (R4), jinak „Připravujeme“ a `cdn_unavailable` 409. |
+| — | M8, TASK-0173 | Tento zápis, ROZHODNUTI J-R7/J-R9, ruční testy F1.7 a F7-19, řádky 1/3/12 Comgate. |
+
+### Co zůstává
+
+* M4 kontrola v prohlížeči na stagingu (po C) a M5 zbytek generálky — jen s „ano“ vlastníka ke každému kroku, a jen když staging
+  nevede jiná relace.
+* M6 právní texty po advokátovi (J-R8), M7 Comgate po zřízení účtu (J-R4/J-R9) — čekají na vstupy.
+* Vstup ke J-R7: vzorový výpis ČS (ověřit, kde ČS v camt.053 nese VS, a pozice GPC); CSV z George se nepodporuje.
+* Účet CDN (Cloudflare), pokud se má doplněk „CDN a WAF“ prodávat.
+* Stejná nedoložená čísla na dalších stránkách služeb: 99,99 % a 15 min v `onhost-svc-compute.js` a `onhost-svc-dev.js`, obecné
+  „technik odpovídá do deseti minut“ a „Zkuste to 14 dní. Bez karty“ stránek služeb, „Servery v Praze, podpora 24/7“ a „/ měsíc s DPH“
+  v konfigurátoru her.
+* Lokální stroj: běhy testů padají na „stránkovací soubor příliš malý“, když běží jiné relace — důkazem je matice CI.
+
+## Stav po fázi N (2026-10-12)
+
+Stav nad `origin/development` po sloučení PR #170 (N1, TASK-0174) a tohoto zápisu (N7, TASK-0175). **Na stagingu ani v produkci se ve
+fázi N nic nespustilo**: N2 (kontrola v prohlížeči na stagingu, = M4) a N3 (zbytek generálky, = M5) nemají „ano“ vlastníka a staging
+vede jiná relace. N0: CI na `development` po sloučení #165 až #169 bylo zelené (merge #169 `cc207eb8`: tests včetně pest-postgres a
+php 8.5, e2e smoke, security).
+
+### Sloučená práce fáze N
+
+| PR | Úkol | Obsah |
+|---|---|---|
+| #170 | N1, TASK-0174 | Zbytek nedoložených čísel (J-R2, L-03): pás SLA stránek compute 99,99 % / „< 15 min“ → SLA 2026-09 Standard 99,9 % / 4 h; VPS bez „root do 55 s“, „0 % přeprodej CPU“, „99,99 % dostupnost 2025“; správa serverů bez 15/60 min a „SLA 99,99 % s kreditem“ (reakce podle třídy SLA, kompenzace kreditem); obecné texty stránek služeb bez „technik odpovídá do deseti minut“ a „Zkuste to 14 dní. Bez karty“ (výpověď ke konci období, 14 dní na odstoupení podle VOP); konfigurátor her bez „Servery v Praze, podpora 24/7“ a neplátci „/ měsíc“ bez „bez DPH“. Prototypy beze změny, demo režim beze změny. |
+| — | N7, TASK-0175 | Tento zápis, J-R2 doplněné o N1, ruční test F1.8. |
+
+### Co zůstává
+
+* N2 a N3 (staging) — jen s „ano“ vlastníka ke každému kroku a jen když staging nevede jiná relace.
+* N4 výpis ČS podle vzorku (J-R7), N5 právní texty po advokátovi (J-R8), N6 Comgate po zřízení účtu (J-R4/J-R9) — čekají na vstupy.
+* Další nedoložené texty, které seznam N1 nejmenoval (kandidáti pro další fázi, vzor `ServicePageClaimsSeam`): v pásu SLA stránek
+  compute „2× N+1 napájení a chlazení“ a „10 Gbit/s v základu“; titulek VPS „ne s přeprodaným výkonem“ a „Steal time pod 0,5 %, měříme
+  to veřejně“; u správy serverů „zásahy 24/7“ (podporní hodiny jsou otevřený vstup J-R9); perk her „Anti-DDoS ochrana v ceně“; „SLA
+  99,99 %“ v tarifech inference, vektorové databáze a úložiště a v tabulkách VPS/dedikovaných serverů (dokud je nepřekryje katalog);
+  na hlavní stránce `ctaTitle` „Prvních 14 dní zdarma“, `authRegBtn` „… začít 14 dní zdarma“ a `authProofTitle` „14 dní zdarma, bez
+  rizika“ (zkušební doba neexistuje, VOP čl. 2 bod 2).
+
+## Stav po fázi O (2026-10-12)
+
+Stav nad `origin/development` po sloučení PR #173 (O1, TASK-0177), #175 (oprava košíku z kontroly na stagingu, TASK-0178) a tohoto
+zápisu (O8, TASK-0180). **Na stagingu ani v produkci se ve fázi O nic nespustilo**: O3 (kontrola v prohlížeči na stagingu) a O4
+(zbytek generálky) nemají „ano“ vlastníka. O0: CI na `development` po #170, #171 a #172 (`62e76c44`, protokol stagingu TASK-0176
+jiné relace) bylo zelené (tests včetně pest-postgres a php 8.5, e2e smoke, security).
+
+### Sloučená práce fáze O
+
+| PR | Úkol | Obsah |
+|---|---|---|
+| #173 | O1, TASK-0177 | Další nedoložené texty (J-R2, L-03): pás SLA compute bez „2× N+1“ a „10 Gbit/s“; VPS bez „nepřeprodáváme“ a „steal time pod 0,5 %“ (katalog: sdílená jádra, vyhrazená má VDS); „SLA 99,99 %“ v tarifech a tabulkách bez katalogu (inference, vektorová DB, object storage, stránky řešení) → „podle individuální smlouvy“; úvodní stránka a registrace bez „14 dní zdarma“; konfigurátor her bez „Anti-DDoS ochrana v ceně“ (nic ji nedokládá). Prototypy i demo režim beze změny. |
+| #175 | TASK-0178 | Kontrola na stagingu 2026-10-13, B2: řádek „VPS Standard“ v košíku opravilo už L2 (TASK-0164, po vydání `fa2ea75d`); doplněk `backup-plus`, který webhosting prodává záměrně, se jmenoval „Zálohy VPS (PBS)“ — teď „Rozšířené zálohy“ (seeder + migrace `001160`, změněný název týmem zůstává). |
+| — | O8, TASK-0180 | Tento zápis, J-R2 doplněné o O1, ruční test F1.9 (a F1.8 bez perku Anti-DDoS). |
+
+### Co zůstává
+
+* O2 podporní hodiny (vstup 4): „zásahy 24/7“ u správy serverů, „30 min reakce podpory 24/7“ v pásu stránek řešení, `tbHours`.
+* O3 a O4 (staging) — jen s „ano“ vlastníka ke každému kroku a jen když staging nevede jiná relace; O5 výpis ČS (J-R7), O6 právní
+  texty po advokátovi (J-R8), O7 Comgate po zřízení účtu (J-R4/J-R9).
+* Ostatní texty o DDoS (vstup 8): KPI „1,2 Tbps anti-DDoS“, profily „pro každou hru“, „detekce do tří sekund“
+  (`onhost-svc-other.js`, stránka herních komunit v `onhost-svc-more.js`), `gmBadge` „Anti-DDoS 1,2 Tbps · 24/7“, řádky menu a
+  vyhledávání „anti-DDoS v ceně“, karta „Ochrana proti DDoS na hraně“, odrážka katalogu „Anti-DDoS upstream L3/L4“ u herních tarifů.
+* Benchmarky VPS (Geekbench „1 842 pts“, „VPS s přeprodanými jádry“) a „2N napájení, chlazení N+1“ u colocation.
+
+## Stav po fázi P, část 1 (2026-10-13)
+
+Pokyn vlastníka 2026-10-13 „Rozhodni a zapracuj všechny vstupy ze seznamu“: každá položka `SEZNAM-vstupu-vlastnika-2026-10-13.md`
+je rozhodnuta na doporučeném výchozím jako **P-R1 … P-R75** v `ROZHODNUTI.md` (PR #179, TASK-0183). Údaje, které dodá jen vlastník
+(soubory, data, tajemství, odpovědi advokáta, účetní a Comgate, kroky v cizích systémech), zůstávají čekající se svým kódem.
+
+| PR | Úkol | Co se změnilo |
+|---|---|---|
+| #179 | TASK-0183 | P-R1 … P-R75 v `ROZHODNUTI.md`. |
+| #180 | TASK-0184 (P1, P2, P3) | Podpora po–pá 8:00–17:00 přes panel a e-mail (P-R37) na celém veřejném webu včetně stránky podpory a pásů SLA; DDoS u her bez nedoložených čísel (P-R69) včetně odrážky katalogu (migrace `0001_01_01_001170`, jen nedržené verze); VPS benchmark a colocation 2N/N+1 staženy (P-R70). |
+| #181 | TASK-0185 | Přirážka EU 0 % (P-R29), stažení závěrečného archivu zdarma (P-R30); bezplatné stažení dál jen vlastník nebo fakturační správce. |
+
+**Staging a produkce:** koordinátorská relace fáze P na stagingu ani v produkci nic nespustila. Jiná relace vlastníka provedla
+2026-10-13 s „ano ke stagingu“ jen čtecí běh (režim S) a kontrolu v prohlížeči jako host (protokol
+[`staging-rehearsal-2026-10-15.md`](../../runbooks/staging-rehearsal-2026-10-15.md), PR #183, TASK-0187): na hostitel se nic
+nezapsalo (jediný stav je anonymní košík hosta), nic se nenasadilo a staging je dál na `199071b8` (doctor 0 FAIL / 28 WARN).
+Nálezy protokolu vedly k rozhodnutím P-R76 … P-R78 (balíky Q2–Q4) a ke stavu „hotovo“ u P-R62 (G2) a P-R63 (ST-4).
+V produkci se nic nespustilo.
+
+**Zbývá (fáze Q, `PROMPT-faze-Q-2026-10-13.md` na ploše):** P11 HSTS z konfigurace (P-R74), P20 `onhost_ref` varianta C (P-R75),
+P10, P12–P19, zbytky textů (Q1), a balíky se vstupem P4–P8 podle SEZNAMu.
+
+## Stav po fázi Q (2026-10-13)
+
+Fáze Q dokončuje balíky fáze P bez vstupu vlastníka (`PROMPT-faze-Q-2026-10-13.md`). Rozhodnutí P-R76 … P-R78 (zjištění kontroly
+stagingu) jsou v `ROZHODNUTI.md`. Souhlas vlastníka 2026-10-13 „pokračuj fází Q, ano ke stagingu“ pokryl nový cyklus A–C (Path B)
+a ST-6; vše ostatní na stagingu a celá produkce dál čeká na samostatné „ano“.
+
+| PR | Úkol | Co se změnilo |
+|---|---|---|
+| #184 | TASK-0188 (Q0) | P-R76 … P-R78; P-R62 (G2) a P-R63 (ST-4) hotovo; věta o stagingu ve fázi P podle protokolu 2026-10-15. |
+| #187 | TASK-0192 | CI na `development` znovu zelené: pět testů s pevným datem seedovalo ceny před cestou v čase (od 2026-10-13 12:00 UTC 409 „No month price“). |
+| #185 | TASK-0189 (Q2, P-R76) | Doplňky `priority_support` („reakce do 10 minut, 24/7“) a `waf_cdn` („anycast cache“) se neprodávají (seeder + migrace `001180`, jen seedovaná slova; držitelé beze změny). |
+| #186 | TASK-0190 (Q4, P-R78) | Spec deployeru připouští `ONHOST_TOKEN_ORGANIZATION_REQUIRED` true/false; skutečný běh `write_expected_env` + `env-assert` v CI. |
+| #188 | TASK-0191 (Q1, Q3, P-R77) | Stránky O nás, Enterprise a Datacentra nahrazeny celé podle dokumentů v platnosti; bez NOC 24/7, TIER III, ISO 27001, NIS2, CDN 1,2 Tbps, Anti-DDoS Pro, vymyšleného incidentu 480 Gbps, tlačítka „Vyzkoušet zdarma“ a čísel vektorové DB. |
+| #189 | TASK-0193 (P11, P-R74) | HSTS z konfigurace (bez preload a includeSubDomains), řádek doctoru *HSTS is sent once and as configured*, runbook `hsts.md`. |
+| #190 | TASK-0195 (P17) | `day-2-operations.md`, první den srovnán, `RunbookCommandsTest` (našel neexistující `onhost:provisioning:jobs`). |
+| #191 | TASK-0196 (P10, P-R73) | Návrh `aapanel-waf-log-privacy.md` (log WAF 0666, od července, `log_save` nefunguje); provedení je krok vlastníka. |
+| #192 | TASK-0197 | Protokol stagingu 2026-10-16: A–C `36009513` (VERDICT pass, 85 migrací) a ST-6. |
+| #193 | TASK-0198 (P20, P-R75) | `onhost_ref` vypnutá výchozím přepínačem; kód z `?ref=` jde v požadavku na registraci. |
+| #194 | TASK-0194 (P14) | Každá plánovaná úloha zapisuje poslední úspěch a má rozpočet stáří; řádek doctoru a metriky pro alerty. |
+| #195 | TASK-0199 (P12) | Alerty pro úlohy po rozpočtu, certifikáty, import výpisu a disk; `promtool test rules` na každé pravidlo v CI; runbook monitorovací VM. |
+
+**Staging (VERIFIED, protokol 2026-10-16):** `36009513ca39f980f670af9da021030923e31e9a` přes bránu (VERDICT pass), migrace 83 → 85,
+doctor 0 FAIL; ST-6 hotovo (řádek R9 OK, `env-assert` rc 0, doctor 0 FAIL / 121 OK / 27 WARN). P11–P14, P20 a další PR po #188
+na stagingu **nejsou** (přijdou dalším cyklem A–C; řádek HSTS bude WARN `2×`, dokud vlastník nevypne HSTS na vhostu).
+**V produkci se nic nespustilo.**
+
+**Zbývá (fáze R, `PROMPT-faze-R-2026-10-13.md` na ploše):** P13 (cvičná obnova skriptem, CI na PostgreSQL), P15a/b (E2E cesty),
+P16 (staff stránka „Provoz“), P18 (cutover a `PRODUKCE-prikazy`), P19 (měření po spuštění), zbytky textů nalezené v Q1 (stavová
+stránka a postmortemy, DNS anycast, kariéra), a balíky se vstupem P4–P8 podle SEZNAMu.
+
+## Stav po fázi R (2026-10-13)
+
+Fáze R dokončuje balíky fází P/Q bez vstupu vlastníka (`PROMPT-faze-R-2026-10-13.md`). Nové rozhodnutí nepřibylo; odkazy jsou
+v `ROZHODNUTI.md`, oddíl *Fáze R*. Nové „ano“ ke stagingu nepřišlo, takže cyklus A–C (R3) **neproběhl**; na stagingu se jen četlo
+(režim S, 2026-10-13: `36009513`, doctor 0 FAIL / 27 WARN, vhost stále posílá HSTS).
+
+| PR | Úkol | Co se změnilo |
+|---|---|---|
+| #198 | TASK-0201 (R0) | #195/#196 sloučené, CI zelené; zametení časovaných bomb celou sadou s hodinami posunutými na 2027-04-01 (`ONHOST_TEST_CLOCK`): žádný test s pevným datem nepadá; 16 falešných poplachů zapsaných v `.ai/TESTING.md`. |
+| #197 | TASK-0202 (P13) | Cvičná obnova: `export-db`, `restore-drill.sh` (role aplikace, superuser odmítnut), `drill-record`, řádek doctoru, metriky, alerty; CI job `restore-drill` na skutečném PostgreSQL. |
+| #199 | TASK-0204 (R1) | Stavová stránka, postmortemy (46 200 Kč / 214 zákazníků), kroky kreditu, kariéra a DNS anycast podle SLA 2026-09. |
+| #200 | TASK-0203 (P16) | Staff stránka *Provoz* (`/sprava/nastaveni/provozni-prehled`), jen čtení, sekce podle oprávnění. |
+| #201 | TASK-0205 (P19) | Návrh `metering-after-launch.md`: 7 mezer, balíky M1–M5, harmonogram P-R24 s náhledy a rollbackem. |
+| #202 | TASK-0206 (P15) | E2E cesta webhostingu placeného převodem (camt.053 i GPC) od objednávky po obnovení; návrh pro staging. |
+| #203 | TASK-0207 (R2) | CSV dokladů a plateb za měsíc pro účetní (finance, ochrana proti vzorcům, záznam čtení). |
+| #204 | TASK-0208 (P18) | Plán produkce na cíl `fda0cedf`, `PRODUKCE-prikazy-2026-10-13.md` na ploše (NESPOUŠTĚT); test skriptů a přepínačů plánu. |
+
+**Zmrazený cíl fáze R:** `fda0cedf443a3c603ef2aeae1a6184fbaf7dfc6a` (merge #203). Dokument pro další cyklus stagingu:
+`GENERALKA-R-A-C-deploy-prikazy-2026-10-13.md` (krok B přidá 2 WARN řádky — HSTS a cvičná obnova; volitelný krok D = první cvičná
+obnova, heslo role zadává vlastník). **V produkci se nic nespustilo.**
+
+**Zbývá:** R3 (A–C `fda0cedf`, nové „ano“), kroky vlastníka z `GENERALKA-Q-V-HSTS-WAF-prikazy-2026-10-13.md`, balíky se vstupem
+P4–P8, metering M1 (aliasy, jedno čtení na stagingu), zbytky textů nalezené v R1 (seznam v úkolu TASK-0204).
+
+## Stav po fázi S (2026-10-14)
+
+Fáze S (`PROMPT-faze-S-2026-10-13.md`): vlastník dal „ano R3“; cyklus A–C stagingu proběhl přes SSH a staging běží na
+**`fda0cedf`** (protokol `docs/runbooks/staging-rehearsal-2026-10-17.md`; doctor 0 FAIL / 122 OK / 29 WARN, migrace 86). Krok D
+(cvičná obnova, heslo role zadává vlastník) souhlas nemá a neproběhl. Odkazy na rozhodnutí: `ROZHODNUTI.md`, oddíl *Fáze S*.
+
+| PR | Úkol | Co se změnilo |
+|---|---|---|
+| #206 | TASK-0212 (S3) | `/metrics` pod PHP-FPM neznal žádnou plánovanou úlohu (`command="none"`, rozvrh je v `routes/console.php`); plánovač nechává rozpočty v cache, web je čte — alert `OnhostScheduledJobOverdue` může vystřelit. |
+| #207 | TASK-0210 (S1) | Aliasy pošty jsou limit tarifu (`alias.create`), počítají se jen řádky `type = alias` (ISPConfig vrací přesměrování i catch-all z téže tabulky); `alias.delete` s ID přesměrování odmítnut; `KNOWN_GAPS` 7 → 6. |
+| #208 | TASK-0211 (S2) | Zbytek textů R1 podle dokumentů v platnosti; stavová mřížka za 30 dní (dřív 90 dní ve 30 sloupcích). |
+| #209 | TASK-0213 (S9) | Protokol stagingu, tento oddíl, odkazy v `ROZHODNUTI.md`. |
+
+S0: CI na `development` zelené (`1c4853f5`), #204/#205 sloučené, zámky TASK-0201 … TASK-0209 uvolněné; zametení s hodinami
+2027-04-01 (`ONHOST_TEST_CLOCK`): 3 192 testů, 16 pádů — všechny ze seznamu falešných poplachů v `.ai/TESTING.md`, žádná nová
+časovaná bomba. **V produkci se nic nespustilo.** PR fáze S čekají na sloučení (sloučení bez review automatický režim odmítl;
+slučuje vlastník nebo koordinátor).
+
+**Zbývá:** D (DR-1), HS-2, balíky se vstupem P4–P8, měření M2–M5, zbytky textů nalezené v S2 (seznam v úkolu TASK-0211).
+
+## Stav po fázi T (2026-10-14)
+
+Fáze T (`PROMPT-faze-T-2026-10-14.md`): T0 — PR #206–#209 sloučené (MRG-1, koordinátor s pověřením vlastníka), CI na `development`
+zelené (`2848db64`, včetně pest-postgres 1–4, php 8.5, monitoring, restore-drill), zámky TASK-0210 … TASK-0213 uvolněné. Na stagingu
+se jen četlo (`fda0cedf`, doctor 0 FAIL / 121 OK / 30 WARN, migrace 86; herní verze s `pids` nikdo nedrží). **V produkci se nic
+nespustilo.** Odkazy na rozhodnutí: `ROZHODNUTI.md`, oddíl *Fáze T*.
+
+| PR | Úkol | Co se změnilo |
+|---|---|---|
+| #210 | TASK-0214 (T2) | Herní tarify neprodávají strop procesů, který nic nedrží: seeder bez `pids`, migrace `001200`, revize `2026-10-game-plans-without-pids`; `KNOWN_GAPS` 6 → 5. |
+| #211 | TASK-0215 (T4) | Zbytky textů ze S2 přes `PhaseTCopySeam` (prototypy byte-identické); veřejné swapy fáze T běží až po `PublicContentSeam`. |
+| #212 | TASK-0216 (T3) | Měsíční přenos VPS/VDS z Proxmoxu proti `traffic_tb` (měkký limit, nová metrika rodiny `cloud`); oznámení plného měkkého limitu neříká, že se nic nedá přidat. |
+| #213 | TASK-0217 (T9) | Tento oddíl a odkazy v `ROZHODNUTI.md`. |
+
+**Nový zmrazený cíl:** `a5b827cb192177cd36949003746dec26fd0d07fc` (merge #212) — dokument `GENERALKA-T-A-C-deploy-prikazy-2026-10-14.md`
+(A–C beze změny skriptů, migrace 87, žádný nový řádek `expected-nonok`, C4 navíc `/metrics` se skutečnými příkazy a mřížka 30 dní).
+Čeká na nové „ano“ (T-ano). `PRODUKCE-prikazy-2026-10-13.md` míří dál na `fda0cedf` — po cyklu T na stagingu se přesune na nový cíl.
+
+**Zbývá:** T-ano, D (DR-1), HS-2, balíky se vstupem P4–P8, M4 (`spam_filter`), M5 (`php_workers`), CD-3 (doplněk CDN z katalogu → zavře
+`traffic_tb` i `bot_management`), zbytky textů nalezené v T4 (seznam v úkolu TASK-0215), ověření přenosu na Proxmoxu (PX-1).
+
+## Stav po fázi U (2026-10-14)
+
+Fáze U (`PROMPT-faze-U-2026-10-14.md`): U0 — CI na `development` po #213 zelené (`cffda3a2`), zámky TASK-0214 … TASK-0217 uvolněné.
+Vlastník nedal „T-ano“, proto **U1 neproběhl**: na stagingu se jen četlo (2026-10-14: `VERSION` = `current` = `fda0cedf`, migrace 86,
+produkt `cdn` aktivní se seedovanými texty, 0 předplatných a 0 služeb `cdn`). **V produkci se nic nespustilo.** Sloučil koordinátor
+s pověřením vlastníka (MRG-1) po zelené celé matici CI. Odkazy na rozhodnutí: `ROZHODNUTI.md`, oddíl *Fáze U*.
+
+| PR | Úkol | Co se změnilo |
+|---|---|---|
+| #214 | TASK-0218 (U2 = CD-3) | Doplněk „CDN a WAF“ (`cdn`) z prodeje: seeder `draft`, datová migrace `001210` (jen dokud stojí seedovaný stav a texty; plány, verze, ceny a držená předplatná beze změny; `down()`); `KNOWN_GAPS` 5 → 3 (`traffic_tb`, `bot_management`); `MetricRegistry` `traffic_tb` bez `gap_families`, `bot_management` zůstává GAP pro držené. |
+| #215 | TASK-0219 (U3) | Zbytky textů z T4 přes `PhaseUCopySeam`: databáze bez PITR (lead, štítky, karty, tabulka, výhoda), WordPress bez „4 200 instalací“ a „0 rozbitých updatů“, VPS „přenos podle tarifu“ místo „neměřený“, bez „vlastní páteře Praha–Brno“, changelog API jen z `docs/api/CHANGELOG.md`; řádek tendru „Enterprise podle individuální smlouvy“ (oprava v `PhaseRCopySeam`, P-R37). `slaData()` se nevykresluje (ověřeno). |
+| #216 | TASK-0220 (U4 = M4) | `spam_filter` poštovních tarifů jako fair use s důvodem; ceník „Antispam rspamd s pravidly serveru (fair use)“ místo úrovně „policies“; `KNOWN_GAPS` 3 → 2 (`php_workers`, `backup_days`). |
+| — | TASK-0221 (U9) | Tento oddíl a odkazy v `ROZHODNUTI.md`. |
+
+**Nový zmrazený cíl:** `259cbea6f3ab7e673436778dccaf251c66de21ce` (merge #216) — dokument `GENERALKA-T-A-C-deploy-prikazy-2026-10-14.md`
+obnovený na tento cíl (skripty beze změny, migrace 86 → **88**: `001200` a `001210`, žádný nový řádek `expected-nonok`; C4 navíc `cdn` =
+`draft` a 2 známé mezery). Čeká dál na „T-ano“. `PRODUKCE-prikazy-2026-10-13.md` míří dál na `fda0cedf` — po cyklu na stagingu se přesune.
+
+**Zbývá:** T-ano (U1), D (DR-1), HS-2, balíky se vstupem P4–P8, M5 (`php_workers`), `backup_days` (pravidla vlastníka vypnutá),
+ověření přenosu VM na Proxmoxu (PX-1); per-tarifní politika rspamd jen na volbu vlastníka (balík se stagingem).
+
+## Stav po fázi V (2026-10-14) — ROZPRACOVÁNO
+
+**Kostra, ne závěr.** Fáze V (`PLAN-faze-V-az-Z-2026-10-14.md`) běží; tento oddíl dopíše balíček V9 na konci fáze. Řádky označené
+„rozpracováno“ nemají ověřený výsledek a nesmí se číst jako hotové. Odkazy na rozhodnutí: `ROZHODNUTI.md`, oddíl *Fáze V* (zatím
+nezaložen; zámek drží TASK-0223).
+
+| Balíček | Úkol | Stav | Co se změnilo |
+|---|---|---|---|
+| V0 | – | hotovo | CI na `development` po PR #218 zelené na `82bc988f`; zámky TASK-0218 … TASK-0221 volné. |
+| V1 | – | rozpracováno | Doplní V9. |
+| V2 | – | rozpracováno | Doplní V9. |
+| V-DHS2 | – | rozpracováno | Doplní V9. |
+| V-STALE | TASK-0224 | hotovo (PR draft) | Uzavřeny P2-14, P3-2, P3-3, P3-4 a P3-7 v tabulce fáze F, vždy s důkazem `soubor:řádek`; v kódu žádný rozpor nenalezen. |
+| SP1a | TASK-0223 | rozpracováno (jiná relace) | Doplní V9 podle výsledku úkolu. |
+
+**Zbývá (do V9):** výsledky V1, V2, V-DHS2 a SP1a, odkazy na PR, nový zmrazený cíl, záznam rozhodnutí do `ROZHODNUTI.md` a `SEZNAM`,
+prompt fáze W.

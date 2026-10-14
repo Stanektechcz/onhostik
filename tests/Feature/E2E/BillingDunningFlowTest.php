@@ -57,13 +57,15 @@ require_once __DIR__.'/../../Support/E2E/E2EHelpers.php';
 const E2E_BILLING_VENDORS = ['ispconfig', 'comgate', 'wedos', 'proxmox', 'pterodactyl'];
 
 beforeEach(function () {
+    // noon UTC, well clear of the 00:00–06:00 hours in which a calendar day in Prague and in UTC differ. The clock goes first: the
+    // seeders date prices now()->subDay(), and seeded before the travel they lay in the future of the fixed clock once the real
+    // time passed 2026-10-13 12:00 UTC (CI red on development from then on, TASK-0192)
+    $this->travelTo(Carbon::parse('2026-10-12 12:00:00', 'UTC'));
     e2eSeedPlatform();
     e2eWebInfrastructure();
     e2eComgateEnvironment();
     config()->set('onhost.dns.parking_ipv4', '89.187.160.1');
     Http::preventStrayRequests();
-    // noon UTC, well clear of the 00:00–06:00 hours in which a calendar day in Prague and in UTC differ
-    $this->travelTo(Carbon::parse('2026-10-12 12:00:00', 'UTC'));
 });
 
 /** What a customer reads must never name the vendor behind the platform. */

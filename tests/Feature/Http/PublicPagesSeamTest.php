@@ -6,6 +6,10 @@ use Database\Seeders\CatalogSeeder;
 use Illuminate\Support\Facades\Artisan;
 
 /** Public product pages and the web hosting landing sell the catalogue (seam #23): plans, specs, comparison and SKUs come from the data layer. */
+beforeEach(function () {
+    config(['onhost.cdn.cloudflare.secret_ref' => 'env://CLOUDFLARE']); // the CDN add-on is sold only with a CDN account (K7-5, TASK-0172)
+});
+
 it('generates catalogue-driven plans, comparison tables and SKUs for the public product pages', function () {
     $this->seed([CatalogSeeder::class]);
     $js = $this->get('/surfaces/onhost-data.js')->assertOk()->getContent();
@@ -28,7 +32,8 @@ it('generates catalogue-driven plans, comparison tables and SKUs for the public 
     // opens with is delivered by the platform itself and stays (audit §5ac)
     expect($pages['ssl']['keep_first'])->toBe(1)->and($pages['ssl']['unavailable'])->toBeTrue()
         ->and($pages['ssl'])->not->toHaveKey('plans')->and($pages['ssl']['note'])->toContain('DV')->toContain('zdarma');
-    expect($pages['cdn']['plans'][1])->toMatchArray(['name' => 'Shield', 'price' => 890, 'tag' => 'Nejoblíbenější']);
+    // the CDN add-on is off sale (draft, phase U CD-3): its page keeps the narrated plans without prices or order buttons
+    expect($pages['cdn']['unavailable'] ?? null)->toBeTrue()->and($pages['cdn'])->not->toHaveKey('plans');
     expect($pages['backup']['plans'])->toHaveCount(3)->and($pages['vps']['plans'][0]['specs'])->toContain('2 vCPU', '4 GB RAM', '80 GB NVMe');
     expect($pages['domains'])->toMatchArray(['keep_last' => 1])->and($pages['domains']['plans'][0])->toMatchArray(['name' => '.cz', 'price' => 0, 'priceLabel' => '179 Kč', 'goto' => 'home', 'unitYear' => true])->and($pages['domains']['plans'][0]['specs'])->toContain('DNSSEC')->and($pages['domains']['plans'][0]['priceNote'])->toContain('obnova 179 Kč / rok');
     expect(json_encode($pages))->not->toMatch('/wedos|subreg|aapanel|ispconfig/i');
@@ -48,7 +53,7 @@ it('generates catalogue-driven plans, comparison tables and SKUs for the public 
     // cart rules, per-line add-ons, confirmation with payment instructions, billing address (seam #24)
     expect($html)->toContain('get COMMITS() { return window.OnhostCart')->toContain('coItemAddons: window.OnhostCart')->toContain('window.OnhostCart.doneCopy(window.__onhostOrder, cs).title')->toContain('{{ co.doneRows }}')->toContain('{{ co.lblAddress }}')->toContain('Alespoň 12 znaků, písmena i číslice.')->toContain('/surfaces/api/onhost-cart.api.js');
     // payment methods the platform really takes, an honest ETA per method, and the signed-in customer's identity pre-filled
-    expect($html)->toContain("['card', 'Karta', 'Visa, Mastercard · platební brána'], ['bank', 'Bankovní převod', 'QR platba, zálohová faktura']\n")->not->toContain("['wallet', 'Apple Pay")->not->toContain("['paypal', 'PayPal'")->not->toContain("['sepa', 'SEPA inkaso'")
+    expect($html)->toContain("[['card', 'Karta', 'Visa, Mastercard · platební brána']]), ['bank', 'Bankovní převod', 'QR platba, zálohová faktura']\n")->not->toContain("['wallet', 'Apple Pay")->not->toContain("['paypal', 'PayPal'")->not->toContain("['sepa', 'SEPA inkaso'")
         ->toContain('window.OnhostCart.eta(this.state, true)')->toContain('window.OnhostCart.prefill() : {})');
     $cart = (string) file_get_contents((string) $this->get('/surfaces/api/onhost-cart.api.js')->assertOk()->baseResponse->getFile());
     expect($cart)->toContain('window.OnhostCart = {')->toContain('registrace na ')->toContain('obnova ')->toContain('prefill: function ()')->toContain('po připsání platby');

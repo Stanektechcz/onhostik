@@ -81,7 +81,6 @@ final class StaffNavigation
         'ai.ops.read' => 'dormant: no staff endpoint yet',
         'feature_flag.manage' => 'dormant: no staff endpoint yet',
         'billing.limit_raise.waive' => 'bus: a free limit raise from the customer detail (four eyes)',
-        'staff.backup.read' => 'no staff endpoint yet',
     ];
 
     public function __construct(private readonly Authorizer $authorizer) {}
@@ -122,6 +121,10 @@ final class StaffNavigation
                 N::get('staff/leads', 'staff.customer.read'), N::write('post', 'staff/leads/{lead}/transition', 'staff.order.manage'),
             ], all: ['staff.customer.read', 'staff.order.manage']),
             // ── operations: incidents, maintenance, on-call, the status page ──
+            // P16 (phase R): the shift overview — each section by its own permission (OperationsOverview::SECTIONS), read only
+            new N('opsoverview', 'operations', 5, 'gauge', ['cs' => 'Provoz', 'en' => 'Operations overview'], N::SCREEN_PAGE, '/sprava/nastaveni/provozni-prehled', [
+                N::get('staff/operations/overview', [$ops, 'staff.backup.read', 'billing.reconcile', $instances]),
+            ], any: [$ops, 'staff.backup.read', 'billing.reconcile', $instances]),
             new N('incidents', 'operations', 10, 'siren', ['cs' => 'Incidenty', 'en' => 'Incidents'], N::SCREEN_VIEW, 'incidents', [
                 N::get('staff/incidents', 'incident.manage'), N::get('staff/incidents/{incident}', 'incident.manage'), N::get('staff/incidents/components', 'incident.manage'),
                 N::get('staff/incidents/metrics', 'report.read'),
@@ -195,7 +198,8 @@ final class StaffNavigation
             ], all: ['partner.manage']),
             // ── finance ──
             new N('bank', 'finance', 10, 'bank', ['cs' => 'Bankovní platby', 'en' => 'Bank payments'], N::SCREEN_PAGE, '/sprava/nastaveni/integrace', [
-                N::get('staff/payments/bank', 'billing.reconcile'),
+                N::get('staff/payments/bank', 'billing.reconcile'), N::write('post', 'staff/payments/bank/statements', 'billing.reconcile'), // J-R7 (M3): ČS statement import
+                N::get('staff/finance/exports/{kind}', 'billing.reconcile'), // R2 (P-R36): the month's documents and payments as CSV for the accountant
             ], all: ['billing.reconcile']),
             // H-R8: the Comgate gateway check (credentials present?, mode, connection, 1 Kč test payment) in the settings page
             new N('comgate', 'finance', 15, 'bank', ['cs' => 'Platební brána Comgate', 'en' => 'Comgate gateway'], N::SCREEN_PAGE, '/sprava/nastaveni/integrace', [

@@ -52,6 +52,7 @@ final class MetricRegistry
      *     status: string,
      *     reason: string|null,
      *     kept_under?: array<string, string>,
+     *     gap_families?: array<string, string>,
      * }>
      */
     public const REGISTRY = [
@@ -131,9 +132,9 @@ final class MetricRegistry
         ],
         'aliases' => [
             'entitlement' => ['aliases'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::HARD, 'families' => ['mail'],
-            'sources' => ['ispconfig' => null],
-            'interval_minutes' => null, 'drives_guard' => false, 'status' => self::GAP,
-            'reason' => 'ISPConfig has no limit_mailalias field, and ServiceService\'s alias.create action never calls the generic $limit() count check that mailbox.create/database.create use — a mail plan\'s "aliases" number is never read outside the price list.',
+            // S1 (phase S, P19 gap M1): was a GAP — ISPConfig has no limit_mailalias and alias.create counted nothing
+            'sources' => ['ispconfig' => 'ServiceFeatures puts the plan\'s aliases number on the "aliases" feature and alias.create runs ServiceService\'s generic $limit(\'aliases\',...) count check first (the queued step counts again via _limit when the panel was away); IspConfigWebProvider::listAliases() keeps only rows of type alias — ISPConfig\'s mail_alias_get returns forwards and the catch-all of the same mail_forwarding table too'],
+            'interval_minutes' => null, 'drives_guard' => false, 'status' => self::ENFORCED_ONLY, 'reason' => null,
         ],
         'dedicated_outbound_ip' => [
             'entitlement' => ['dedicated_outbound_ip'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::NONE, 'families' => ['mail'],
@@ -176,11 +177,14 @@ final class MetricRegistry
             'sources' => ['penpot' => 'PenpotDockerProvider refuses a stack the node has no room for (assertDiskRoom) and applies the node\'s storage quota helper (options.quota_command, XFS project quota) with storage_gb; a node without the helper is a doctor finding ("every Penpot node limits the storage of a stack")'],
             'interval_minutes' => null, 'drives_guard' => false, 'status' => self::ENFORCED_ONLY, 'reason' => null,
         ],
+        // phase T, metering M2: measured for VPS/VDS (family cloud) — a soft limit, it warns and never cuts off. The CDN add-on sold the
+        // same key with nothing measuring it there; since phase U (CD-3, migration 001210) it is off sale (draft), so the key left
+        // PlanPromises::KNOWN_GAPS. `families` still leaves `addon` out: isKept() says no if the CDN is put back on sale, and the guard names it
         'traffic_tb' => [
-            'entitlement' => ['traffic_tb'], 'unit' => 'bytes_month', 'scope' => 'service', 'limit_kind' => self::NONE, 'families' => ['cloud', 'addon'],
-            'sources' => ['proxmox' => null, 'cdn' => null],
-            'interval_minutes' => null, 'drives_guard' => false, 'status' => self::GAP,
-            'reason' => 'UsageWatch only measures "traffic" for web/managed families; cloud services (VPS/VDS) and the CDN add-on never have their monthly transfer read or capped anywhere.',
+            'entitlement' => ['traffic_tb'], 'unit' => 'bytes_month', 'scope' => 'service', 'limit_kind' => self::SOFT, 'families' => ['cloud'],
+            'sources' => ['proxmox' => 'ProxmoxComputeProvider::usage() with a period sums the VM\'s rrddata (timeframe month, cf AVERAGE) netin + netout × step since the start of the calendar month; UsageWatch compares it with traffic_tb as the soft metric "transfer" (warns from 85 %, never blocks, throttles or orders). New on the family: it tells the customer only once onhost.metering.enforce_new_metrics is on (P-R24); before that it is sampled and shown as observed. Units, step and survival across a restart/migration ASSUMED until PX-1.'],
+            'interval_minutes' => 60, 'drives_guard' => false, 'status' => self::MEASURED,
+            'reason' => null,
         ],
         'snapshots' => [
             'entitlement' => ['snapshots'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::HARD, 'families' => ['cloud'],
@@ -206,14 +210,14 @@ final class MetricRegistry
             'entitlement' => ['spam_filter'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::NONE, 'families' => ['mail'],
             'sources' => ['ispconfig' => null],
             'interval_minutes' => null, 'drives_guard' => false, 'status' => self::GAP,
-            'reason' => 'Only CatalogPresentation names the antispam tier ("rspamd" vs "rspamd + policies"); no mail workflow writes an rspamd policy set from it.',
+            'reason' => 'Declared fair use (PlanPromises::FAIR_USE, metering M4 default, phase U U4): the catalogue still carries the tier ("rspamd" vs "rspamd + policies"), but no mail workflow writes an rspamd policy set from it, so CatalogPresentation words both as the server\'s antispam with its own rules — "Antispam rspamd s pravidly serveru (fair use)" — never as a per-plan policy. A per-plan policy (ISPConfig spamfilter_user + policy id) is the owner\'s choice and would need staging.',
         ],
-        // ---- CDN add-on (no executor at all) ---------------------------------------------------------------
+        // ---- CDN add-on (no executor at all; off sale since phase U, CD-3 — the row stays for subscriptions customers hold) ----------
         'bot_management' => [
             'entitlement' => ['bot_management'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::NONE, 'families' => ['addon'],
             'sources' => ['cdn' => null],
             'interval_minutes' => null, 'drives_guard' => false, 'status' => self::GAP,
-            'reason' => 'The cdn product is seeded with executor=null (CatalogSeeder::addonProducts) — there is no adapter for it at all, so nothing configures bot management.',
+            'reason' => 'The cdn product is seeded with executor=null (CatalogSeeder::addonProducts) — there is no adapter for it at all, so nothing configures bot management. Off sale since phase U (CD-3, migration 001210): only subscriptions customers already hold still carry it.',
         ],
         // ---- game (Pterodactyl) -------------------------------------------------------------------------------
         'cpu_pct' => [
@@ -225,7 +229,7 @@ final class MetricRegistry
             'entitlement' => ['pids'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::NONE, 'families' => ['game'],
             'sources' => ['pterodactyl' => null],
             'interval_minutes' => null, 'drives_guard' => false, 'status' => self::GAP,
-            'reason' => 'Sold in every game plan\'s limits bag; PterodactylGameProvider\'s resource limits (memory/swap/disk/io/cpu/threads/oom_disabled) have no PID-count field, so it is never sent to the panel.',
+            'reason' => 'Not sold any more (phase T, metering M3): Pterodactyl\'s server limits (memory/swap/disk/io/cpu/threads/oom_disabled) have no PID-count field, so it was never sent to the panel. The seeder no longer writes it, migration 001200 took the seeded number off unheld game plan versions and the revision 2026-10-game-plans-without-pids publishes versions without it; the row stays for the versions customers already hold (PlanPromises::grandfatheredGaps).',
         ],
         'backups' => [
             'entitlement' => ['backups'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::HARD, 'families' => ['game'],
@@ -294,7 +298,7 @@ final class MetricRegistry
         ],
     ];
 
-    /** @return array{entitlement:list<string>, unit:string, scope:string, limit_kind:string, families:list<string>, sources:array<string,string|null>, interval_minutes:int|null, drives_guard:bool, status:string, reason:string|null}|null */
+    /** @return array{entitlement:list<string>, unit:string, scope:string, limit_kind:string, families:list<string>, sources:array<string,string|null>, interval_minutes:int|null, drives_guard:bool, status:string, reason:string|null, kept_under?: array<string, string>, gap_families?: array<string, string>}|null */
     public static function get(string $key): ?array
     {
         return self::REGISTRY[$key] ?? null;

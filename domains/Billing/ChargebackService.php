@@ -89,7 +89,10 @@ final class ChargebackService
     {
         $percent ??= $this->percent();
         $subscription = Subscription::query()->where('service_id', $service->id)->whereNotIn('state', [Subscription::CANCELLED])->orderByDesc('created_at')->first();
-        $today = $asOf?->startOfDay() ?? CarbonImmutable::parse(AccountingClock::date()); // a withdrawal counts from the day the notice was sent (TASK-0025)
+        // a withdrawal counts from the day the notice was sent (TASK-0025) — the ACCOUNTING day of that moment, as everywhere else: the UTC
+        // day of a given moment was one day short between 22:00/23:00 and midnight UTC, so a chargeback and a withdrawal estimate of one
+        // moment differed by a day of proration (TASK-0159)
+        $today = CarbonImmutable::parse(AccountingClock::date($asOf));
         $items = OrderItem::query()->where('service_id', $service->id)->get();
         $itemIds = $items->pluck('id')->all();
         // a change of the billing period was priced MINUS the unused rest of the period before it (PlanChangeService): every line

@@ -202,8 +202,9 @@ final class PartnerService
     {
         $now ??= now();
         $from = $now->copy()->subMonths(3)->startOfMonth();
-        // G6: a fragment a payout split off carries its commission's base again — the base is counted once, on the commission
-        $volume = (int) PartnerCommission::query()->where('partner_id', $partner->id)->where('kind', '!=', 'reversal')->where('fragment', false)->where('invoice_paid_at', '>=', $from)->where('invoice_paid_at', '<', $now->copy()->startOfMonth())->sum('base_minor');
+        // G6: a fragment a payout split off carries its commission's base again — the base is counted once, on the commission;
+        // K5: the newer row of a double commission (set aside, I-R6) is not volume either
+        $volume = (int) PartnerCommission::query()->where('partner_id', $partner->id)->where('kind', '!=', 'reversal')->where('fragment', false)->whereNull('duplicate_of_id')->where('invoice_paid_at', '>=', $from)->where('invoice_paid_at', '<', $now->copy()->startOfMonth())->sum('base_minor');
         $monthly = intdiv($volume, 3);
         $tier = 'bronze';
         foreach ((array) config('onhost.partners.tiers', []) as [$name, $threshold]) {
@@ -369,6 +370,20 @@ final class PartnerService
             'top' => $clients->sortByDesc(fn ($c) => $c['mrr']->minor)->take(5)->values()->all(),
             'feed' => $feed->sortByDesc('when')->values()->take(8)->all(),
         ];
+    }
+
+    /**
+     * The newer rows of double commissions set aside for finance (migration 000949, I-R6) and not cancelled yet — the staff partner
+     * detail lists them; each is cancelled through `POST /v1/staff/partners/commissions/{id}/cancel-duplicate` (K5).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function duplicateCommissions(Partner $partner): array
+    {
+        $cancelled = PartnerCommission::query()->where('partner_id', $partner->id)->whereNotNull('cancels_id')->pluck('cancels_id')->all();
+
+        return PartnerCommission::query()->where('partner_id', $partner->id)->whereNotNull('duplicate_of_id')->whereNotIn('id', $cancelled)->orderBy('created_at')->get()
+            ->map(fn (PartnerCommission $c) => ['id' => $c->id, 'duplicate_of' => $c->duplicate_of_id, 'invoice_id' => $c->duplicate_invoice_id, 'kind' => $c->kind, 'amount' => Money::minor($c->amount_minor, $c->currency), 'state' => $c->state])->values()->all();
     }
 
     /** Monthly commission table (`#/provize`). */

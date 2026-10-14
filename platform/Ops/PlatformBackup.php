@@ -45,13 +45,14 @@ final class PlatformBackup
         }
         $files = [];
         try {
+            $counts = $this->counts(); // P13: taken before the dump, so the restore drill can check the restored copy holds at least these
             $dump = $this->dumpDatabase($work);
             $files[$dump['name']] = $this->store($set, $dump['name'], $dump['path']);
             $archive = $this->archiveFiles($work);
             if ($archive !== null) {
                 $files['files.tar.gz'] = $this->store($set, 'files.tar.gz', $archive);
             }
-            $manifest = ['created_at' => now()->toIso8601String(), 'database' => $dump['driver'], 'app_version' => (string) config('app.version', ''), 'files' => $files];
+            $manifest = ['created_at' => now()->toIso8601String(), 'database' => $dump['driver'], 'app_version' => (string) config('app.version', ''), 'counts' => $counts, 'files' => $files];
             $this->disk()->put($set.'/manifest.json', (string) json_encode($manifest, JSON_PRETTY_PRINT));
         } finally {
             foreach (glob($work.'/*') ?: [] as $leftover) {
@@ -149,6 +150,24 @@ final class PlatformBackup
         }
 
         return ['last' => $last, 'verified' => $verified, 'disk' => (string) config('onhost.platform_backup.disk', 'local'), 'retention_days' => (int) config('onhost.platform_backup.retention_days', 30)];
+    }
+
+    /**
+     * Row counts the restore drill compares the restored copy with (RestoreDrill::record()).
+     *
+     * @return array<string,int>
+     */
+    public function counts(): array
+    {
+        $schema = DB::getSchemaBuilder();
+        $counts = [];
+        foreach (['migrations', 'users', 'invoices', 'ledger_postings'] as $table) {
+            if ($schema->hasTable($table)) {
+                $counts[$table] = (int) DB::table($table)->count();
+            }
+        }
+
+        return $counts;
     }
 
     public function latestSet(): ?string

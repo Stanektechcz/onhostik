@@ -38,6 +38,12 @@
 #   --caddy-source official|distro   Caddy from the Caddy project's apt repository (default) or the distribution's package
 #   --keep-host-key-algorithms leave sshd's HostKeyAlgorithms alone (default: ssh-ed25519 only, so ONE fingerprint exists to pin)
 #   --no-firewall              do not touch ufw (use when the provider's network firewall does it; verify-node.sh then warns)
+#   --no-docker-group          never put the deploy user into the docker group, and take it out if an earlier run did: the
+#                              node runs Docker ROOTLESS for that user (docs/runbooks/penpot.md 'Rootless Docker'); the docker
+#                              group is root over the host's system daemon (a shared host's game containers included)
+#   --local-certs              Caddy issues the stack certificates from its own local CA (global option local_certs): for a
+#                              node behind a front proxy that terminates TLS with the public certificate (staging Path A:
+#                              aaPanel nginx with *.penpot.<domain>), so no Let's Encrypt order is made per stack
 #   --require-quota            fail if /var/lib/docker is not an XFS filesystem mounted with prjquota
 #   --dry-run                  print what would change (and the content of every file it would write), change nothing (no root
 #                              needed)
@@ -59,6 +65,8 @@ HTTPS_PORT="443"
 CADDY_SOURCE="official"
 KEEP_HOSTKEY_ALGS=0
 FIREWALL=1
+DOCKER_GROUP=1
+LOCAL_CERTS=0
 REQUIRE_QUOTA=0
 DRY_RUN=0
 FORCE_OS=0
@@ -98,6 +106,8 @@ while [ "$#" -gt 0 ]; do
     --caddy-source) CADDY_SOURCE="${2:?}"; shift 2 ;;
     --keep-host-key-algorithms) KEEP_HOSTKEY_ALGS=1; shift ;;
     --no-firewall) FIREWALL=0; shift ;;
+    --no-docker-group) DOCKER_GROUP=0; shift ;;
+    --local-certs) LOCAL_CERTS=1; shift ;;
     --require-quota) REQUIRE_QUOTA=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     --force-os) FORCE_OS=1; shift ;;
@@ -151,6 +161,10 @@ run() { # run a command, or only show it
   "$@"
 }
 
+# same_mode PATH MODE: stat prints `644` for the `0644` this script asks for — compare the numbers, not the strings (a string
+# compare made every re-run rewrite every file and directory: CI's real double run found it, J2/TASK-0154)
+same_mode() { [ "$((8#$(stat -c '%a' "$1")))" -eq "$((8#$2))" ]; }
+
 # write_file PATH MODE OWNER:GROUP  (content on stdin): writes only when the content or the metadata differ; a dry run shows the
 # content it would write (nothing this script writes is a secret: a public key, rules, configuration)
 write_file() {
@@ -158,7 +172,7 @@ write_file() {
   LAST_WRITE_CHANGED=0
   tmp="$(mktemp)"
   cat >"$tmp"
-  if [ -f "$SYSROOT$path" ] && cmp -s "$tmp" "$SYSROOT$path" && [ "$(stat -c '%a' "$SYSROOT$path")" = "$mode" ] && [ "$(stat -c '%U:%G' "$SYSROOT$path")" = "$owner" ]; then
+  if [ -f "$SYSROOT$path" ] && cmp -s "$tmp" "$SYSROOT$path" && same_mode "$SYSROOT$path" "$mode" && [ "$(stat -c '%U:%G' "$SYSROOT$path")" = "$owner" ]; then
     rm -f "$tmp"; return 0
   fi
   LAST_WRITE_CHANGED=1
@@ -173,7 +187,7 @@ write_file() {
 
 ensure_dir() { # ensure_dir PATH MODE OWNER:GROUP
   local path="$1" mode="$2" owner="$3"
-  if [ -d "$path" ] && [ "$(stat -c '%a' "$path")" = "$mode" ] && [ "$(stat -c '%U:%G' "$path")" = "$owner" ]; then return 0; fi
+  if [ -d "$path" ] && same_mode "$path" "$mode" && [ "$(stat -c '%U:%G' "$path")" = "$owner" ]; then return 0; fi
   if [ "$DRY_RUN" -eq 1 ]; then log "  [dry-run] directory $path ($mode $owner)"; CHANGED=$((CHANGED + 1)); return 0; fi
   install -d -m "$mode" -o "${owner%%:*}" -g "${owner##*:}" "$path"
   changed "directory $path"
@@ -333,7 +347,8 @@ EOF
 fi
 
 # ---- 3. the platform's user (before anything is made its property) -----------------------------------------------------
-step "3. Deploy user '$DEPLOY_USER' (SSH key only, no password, member of docker)"
+if [ "$DOCKER_GROUP" -eq 1 ]; then step "3. Deploy user '$DEPLOY_USER' (SSH key only, no password, member of docker)"
+else step "3. Deploy user '$DEPLOY_USER' (SSH key only, no password, NOT in docker: rootless Docker, --no-docker-group)"; fi
 if ! id "$DEPLOY_USER" >/dev/null 2>&1; then
   run useradd --create-home --shell /bin/bash --comment "ONhost platform (Penpot node)" "$DEPLOY_USER"
   CHANGED=$((CHANGED + 1)); log "  created user $DEPLOY_USER"
@@ -341,7 +356,17 @@ fi
 if [ "$DRY_RUN" -eq 0 ]; then
   [ "$(id -u "$DEPLOY_USER")" -ne 0 ] || die "$DEPLOY_USER has uid 0"
   passwd -S "$DEPLOY_USER" 2>/dev/null | awk '{print $2}' | grep -q '^L' || { passwd -l "$DEPLOY_USER" >/dev/null; changed "password of $DEPLOY_USER locked"; }
-  id -nG "$DEPLOY_USER" | tr ' ' '\n' | grep -qx docker || { usermod -aG docker "$DEPLOY_USER"; changed "$DEPLOY_USER added to docker"; }
+fi
+# the docker group is root over the system daemon: with --no-docker-group the user never gets it and loses it if an earlier run
+# (or the package) gave it; both directions change only what differs, so a second run reports 0 changes
+IN_DOCKER_GROUP=0
+if id "$DEPLOY_USER" >/dev/null 2>&1 && id -nG "$DEPLOY_USER" 2>/dev/null | tr ' ' '\n' | grep -qx docker; then IN_DOCKER_GROUP=1; fi
+if [ "$DOCKER_GROUP" -eq 1 ] && [ "$IN_DOCKER_GROUP" -eq 0 ]; then
+  if [ "$DRY_RUN" -eq 1 ]; then log "  [dry-run] usermod -aG docker $DEPLOY_USER"; CHANGED=$((CHANGED + 1))
+  else usermod -aG docker "$DEPLOY_USER"; changed "$DEPLOY_USER added to docker"; fi
+elif [ "$DOCKER_GROUP" -eq 0 ] && [ "$IN_DOCKER_GROUP" -eq 1 ]; then
+  if [ "$DRY_RUN" -eq 1 ]; then log "  [dry-run] gpasswd -d $DEPLOY_USER docker"; CHANGED=$((CHANGED + 1))
+  else gpasswd -d "$DEPLOY_USER" docker >/dev/null; changed "$DEPLOY_USER removed from docker (--no-docker-group: rootless Docker)"; fi
 fi
 HOME_DIR="$(getent passwd "$DEPLOY_USER" 2>/dev/null | cut -d: -f6 || true)"; HOME_DIR="${HOME_DIR:-/home/$DEPLOY_USER}"
 ensure_dir "$HOME_DIR/.ssh" 0700 "$DEPLOY_USER:$DEPLOY_USER"
@@ -404,6 +429,8 @@ managed_caddyfile() {
   printf '%s. Re-running the script rewrites this file; an earlier one is %s.pre-onhost.\n' "$CADDY_MARKER" "$CADDYFILE"
   printf '{\n\thttp_port %s\n\thttps_port %s\n' "$HTTP_PORT" "$HTTPS_PORT"
   [ -z "$CADDY_BIND" ] || printf '\tdefault_bind %s\n' "$CADDY_BIND"
+  # behind a front proxy that holds the public certificate: the stacks get certificates of Caddy's own CA, no ACME order
+  [ "$LOCAL_CERTS" -eq 0 ] || printf '\tlocal_certs\n'
   printf '}\n\n'
   # default_bind does not reach the HTTP->HTTPS redirect server unless an http:// site exists (Caddy documentation)
   [ -z "$CADDY_BIND" ] || printf '# binds the redirect and ACME HTTP-01 server to %s as well\nhttp:// {\n}\n\n' "$CADDY_BIND"
@@ -434,6 +461,7 @@ case "$caddyfile_kind" in
     if [ -n "$CADDY_BIND" ] || [ "$HTTP_PORT" != 80 ] || [ "$HTTPS_PORT" != 443 ]; then
       warn "$CADDYFILE is the operator's own: set http_port $HTTP_PORT, https_port $HTTPS_PORT${CADDY_BIND:+ and default_bind $CADDY_BIND} in its global options block by hand"
     fi
+    [ "$LOCAL_CERTS" -eq 0 ] || warn "$CADDYFILE is the operator's own: add 'local_certs' to its global options block by hand"
     ;;
 esac
 
@@ -541,6 +569,15 @@ fi
 
 # ---- 7. what the operator needs next ----------------------------------------------------------------------------------
 step "7. Done ($CHANGED change(s); a second run must report 0)"
+verify_args="--deploy-user $DEPLOY_USER --ssh-port $SSH_PORT --http-port $HTTP_PORT --https-port $HTTPS_PORT${CADDY_BIND:+ --caddy-bind $CADDY_BIND}"
+[ "$SHARED_HOST" -eq 0 ] || verify_args="$verify_args --shared-host"
+[ "$LOCAL_CERTS" -eq 0 ] || verify_args="$verify_args --local-certs"
+if [ "$DOCKER_GROUP" -eq 0 ]; then
+  user_uid="$(id -u "$DEPLOY_USER" 2>/dev/null || echo '<uid>')"
+  verify_args="$verify_args --docker-host unix:///run/user/${user_uid}/docker.sock"
+  log "Rootless Docker for $DEPLOY_USER is set up next, by hand (docs/runbooks/penpot.md 'Rootless Docker'); provider option docker_host = unix:///run/user/${user_uid}/docker.sock"
+fi
+log "Next: ./verify-node.sh $verify_args --instances N, then docs/runbooks/penpot.md 'Building the node' step 4."
 if [ "$DRY_RUN" -eq 0 ]; then
   log "SSH host key fingerprints of this node (provider option ssh_fingerprint; compare with ssh-keyscan from a trusted machine):"
   for k in /etc/ssh/ssh_host_ed25519_key.pub /etc/ssh/ssh_host_ecdsa_key.pub /etc/ssh/ssh_host_rsa_key.pub; do
@@ -548,7 +585,4 @@ if [ "$DRY_RUN" -eq 0 ]; then
   done
   log "Provider option proxy_reload for this node: sudo -n systemctl reload caddy"
   log "Provider option quota_command (only with XFS prjquota): sudo -n $QUOTA_HELPER"
-  verify_args="--deploy-user $DEPLOY_USER --ssh-port $SSH_PORT --http-port $HTTP_PORT --https-port $HTTPS_PORT${CADDY_BIND:+ --caddy-bind $CADDY_BIND}"
-  [ "$SHARED_HOST" -eq 0 ] || verify_args="$verify_args --shared-host"
-  log "Next: ./verify-node.sh $verify_args --instances N, then docs/runbooks/penpot.md 'Building the node' step 4."
 fi

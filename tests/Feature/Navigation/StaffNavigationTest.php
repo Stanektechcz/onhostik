@@ -170,7 +170,8 @@ it('authorizes each system settings page like its navigation item (P1-4)', funct
     $this->get('/sprava/nastaveni/provoz')->assertOk();
     $this->get('/sprava/nastaveni/hromadne-akce')->assertOk();
     $this->get('/sprava/nastaveni/tarify')->assertForbidden();
-    $this->get('/sprava/nastaveni/integrace')->assertRedirect('/sprava/nastaveni/provoz');
+    $this->get('/sprava/nastaveni/provozni-prehled')->assertOk(); // P16: the shift overview (provisioning.operation.read)
+    $this->get('/sprava/nastaveni/integrace')->assertRedirect('/sprava/nastaveni/provozni-prehled'); // P16: their first page is now the overview
 
     [$customer] = $this->customerWithOrganization();
     $this->actingAs($customer);

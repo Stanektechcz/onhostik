@@ -10,6 +10,7 @@ use App\Http\Support\CreditClaimsSeam;
 use App\Http\Support\CurrentOrganization;
 use App\Http\Support\PublicApiDocs;
 use App\Http\Support\PublicContentSeam;
+use App\Http\Support\ServicePageClaimsSeam;
 use App\Http\Support\SurfaceRenderer;
 use Illuminate\Http\Request;
 use Onhost\Domain\Identity\Authorization\Authorizer;
@@ -123,7 +124,7 @@ final class SurfaceController extends Controller
         // the public /api and /dokumentace pages (audit 2026-10 D3): the limits, headers, endpoints, errors, webhook retry and the
         // two API guides come from the routes, the config and the dispatcher; the prototype's story stays in demo mode only
         if (in_array($path, ['onhost-public.js', 'onhost-docs.js'], true) && ! config('onhost.ui.demo', false)) {
-            $original = (string) file_get_contents($file);
+            $original = ServicePageClaimsSeam::apply((string) file_get_contents($file), $path); // Q1: no DDoS capacity on the SLA page
             $js = $path === 'onhost-public.js' ? PublicApiDocs::publicScript($original) : (PublicApiDocs::docsModule($original) ?? $original);
 
             return response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=300', 'X-Content-Type-Options' => 'nosniff']);
@@ -135,7 +136,12 @@ final class SurfaceController extends Controller
             return response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=300', 'X-Content-Type-Options' => 'nosniff']);
         }
         if ($path === 'onhost-svc-web.js' && ! config('onhost.ui.demo', false)) { // customer surfaces never name a registrar vendor (seam #20); an SLA credit is credited, not refunded (G8 item 9)
-            $js = CreditClaimsSeam::apply(str_replace("'Hetzner', 'Wedos']", "'Hetzner', 'Forpsi']", (string) file_get_contents($file)), ['svc-web']);
+            $js = CreditClaimsSeam::apply(str_replace("'Hetzner', 'Wedos']", "'Hetzner', 'Forpsi']", ServicePageClaimsSeam::apply((string) file_get_contents($file), $path)), ['svc-web']); // P1: SLA band
+
+            return response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=300', 'X-Content-Type-Options' => 'nosniff']);
+        }
+        if (ServicePageClaimsSeam::covers($path) && ! config('onhost.ui.demo', false)) { // J-R2 (K8b): the invented eco figures and EPYC stock claims are not served
+            $js = ServicePageClaimsSeam::apply((string) file_get_contents($file), $path);
 
             return response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=300', 'X-Content-Type-Options' => 'nosniff']);
         }

@@ -293,7 +293,8 @@ final class ServiceFeatures
                 break;
             case 'mail':
                 $out += [
-                    'mailboxes' => $on($adapter === null || $adapter instanceof MailProvider, (int) ($ent['mailboxes'] ?? 5)), 'aliases' => $on($adapter === null || $adapter instanceof MailProvider),
+                    // S1: the plan's number of aliases is a limit like its mailboxes (Mail Business 50, Mail Enterprise 500)
+                    'mailboxes' => $on($adapter === null || $adapter instanceof MailProvider, (int) ($ent['mailboxes'] ?? 5)), 'aliases' => $on($adapter === null || $adapter instanceof MailProvider, ((int) ($ent['aliases'] ?? 0)) ?: null),
                     'dkim' => $on($adapter === null || $adapter instanceof MailProvider), 'sending' => $on($adapter === null || $adapter instanceof MailProvider),
                     // mail tools (MailToolsProvider): forwards, catch-all, autoresponders, spam policies and lists, filters, mailing lists, fetchmail, mailbox backups, usage and webmail
                     'forwards' => $on($adapter instanceof MailToolsProvider), 'catchall' => $on($adapter instanceof MailToolsProvider), 'autoresponder' => $on($adapter instanceof MailToolsProvider), 'spam' => $on($adapter instanceof MailToolsProvider),

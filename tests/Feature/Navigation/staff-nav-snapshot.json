@@ -5,6 +5,7 @@
         "ticket",
         "customers",
         "leads",
+        "opsoverview",
         "incidents",
         "maintenance",
         "oncall",
@@ -58,6 +59,7 @@
     "infrastructure_admin": [
         "dash",
         "customers",
+        "opsoverview",
         "fleet",
         "jobsadm",
         "automation",
@@ -79,6 +81,7 @@
     "network_admin": [
         "dash",
         "customers",
+        "opsoverview",
         "fleet",
         "jobsadm",
         "automation",
@@ -99,6 +102,7 @@
     "domain_dns_admin": [
         "dash",
         "customers",
+        "opsoverview",
         "fleet",
         "jobsadm",
         "automation",
@@ -111,6 +115,7 @@
     "shared_hosting_admin": [
         "dash",
         "customers",
+        "opsoverview",
         "fleet",
         "jobsadm",
         "automation",
@@ -131,6 +136,7 @@
     "managed_hosting_admin": [
         "dash",
         "customers",
+        "opsoverview",
         "fleet",
         "jobsadm",
         "automation",
@@ -151,6 +157,7 @@
     "apps_platform_admin": [
         "dash",
         "customers",
+        "opsoverview",
         "fleet",
         "jobsadm",
         "automation",
@@ -172,6 +179,7 @@
     "cloud_vps_admin": [
         "dash",
         "customers",
+        "opsoverview",
         "fleet",
         "jobsadm",
         "automation",
@@ -193,6 +201,7 @@
     "game_admin": [
         "dash",
         "customers",
+        "opsoverview",
         "fleet",
         "jobsadm",
         "automation",
@@ -214,6 +223,7 @@
     "mail_admin": [
         "dash",
         "customers",
+        "opsoverview",
         "fleet",
         "jobsadm",
         "automation",
@@ -234,6 +244,7 @@
     "database_admin": [
         "dash",
         "customers",
+        "opsoverview",
         "fleet",
         "jobsadm",
         "automation",
@@ -252,6 +263,7 @@
     "backup_dr_admin": [
         "dash",
         "customers",
+        "opsoverview",
         "fleet",
         "jobsadm",
         "automation",
@@ -271,6 +283,7 @@
     "sre": [
         "dash",
         "customers",
+        "opsoverview",
         "incidents",
         "maintenance",
         "oncall",
@@ -298,6 +311,7 @@
     "incident_commander": [
         "dash",
         "customers",
+        "opsoverview",
         "incidents",
         "oncall",
         "probes",
@@ -338,6 +352,7 @@
     "billing_finance_admin": [
         "dash",
         "customers",
+        "opsoverview",
         "slo",
         "chargebacks",
         "loyalty",
@@ -358,6 +373,7 @@
     "billing_operator": [
         "dash",
         "customers",
+        "opsoverview",
         "slo",
         "bank",
         "dunning",
@@ -371,6 +387,7 @@
         "ticket",
         "customers",
         "leads",
+        "opsoverview",
         "incidents",
         "oncall",
         "probes",
@@ -392,6 +409,7 @@
         "queue",
         "ticket",
         "customers",
+        "opsoverview",
         "fleet",
         "jobsadm",
         "automation",
@@ -406,6 +424,7 @@
         "ticket",
         "customers",
         "leads",
+        "opsoverview",
         "fleet",
         "jobsadm",
         "automation",
@@ -422,6 +441,7 @@
         "ticket",
         "customers",
         "leads",
+        "opsoverview",
         "incidents",
         "oncall",
         "probes",
@@ -475,6 +495,7 @@
     "auditor_read_only": [
         "dash",
         "customers",
+        "opsoverview",
         "slo",
         "fleet",
         "jobsadm",

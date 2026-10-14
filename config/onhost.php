@@ -70,7 +70,7 @@ return [
         'deletion' => [
             'grace_days' => (int) env('ONHOST_DELETE_GRACE_DAYS', 30),          // the customer may bring a deactivated service back within this window
             'identity_checks' => (int) env('ONHOST_DELETE_IDENTITY_CHECKS', 5), // identifiers that must match before anything is deleted
-            'download_fee_minor' => ['CZK' => (int) env('ONHOST_ARCHIVE_DOWNLOAD_FEE_CZK', 50000), 'EUR' => (int) env('ONHOST_ARCHIVE_DOWNLOAD_FEE_EUR', 2000)],
+            'download_fee_minor' => ['CZK' => (int) env('ONHOST_ARCHIVE_DOWNLOAD_FEE_CZK', 0), 'EUR' => (int) env('ONHOST_ARCHIVE_DOWNLOAD_FEE_EUR', 0)], // P-R30 (LG-6, Data Act): free from launch
         ],
     ],
     // a rescue session boots the server from an image of the operator's ISO storage and ends by itself (H233)
@@ -320,7 +320,7 @@ return [
     // regional pricing (audit §5j-8): country groups with a suggested currency and a percentage on the catalogue price (staff override the table in Nastavení → Ceny)
     'pricing' => ['regions' => [
         ['key' => 'sk', 'label' => 'Slovensko', 'countries' => ['SK'], 'currency' => 'EUR', 'adjust_pct' => 0],
-        ['key' => 'eu', 'label' => 'EU', 'countries' => ['DE', 'AT', 'PL', 'HU', 'SI', 'HR', 'NL', 'BE', 'FR', 'IT', 'ES', 'PT', 'IE', 'FI', 'SE', 'DK', 'EE', 'LV', 'LT', 'LU', 'RO', 'BG', 'GR', 'CY', 'MT'], 'currency' => 'EUR', 'adjust_pct' => (float) env('ONHOST_PRICING_EU_ADJUST', 5)],
+        ['key' => 'eu', 'label' => 'EU', 'countries' => ['DE', 'AT', 'PL', 'HU', 'SI', 'HR', 'NL', 'BE', 'FR', 'IT', 'ES', 'PT', 'IE', 'FI', 'SE', 'DK', 'EE', 'LV', 'LT', 'LU', 'RO', 'BG', 'GR', 'CY', 'MT'], 'currency' => 'EUR', 'adjust_pct' => (float) env('ONHOST_PRICING_EU_ADJUST', 0)], // P-R29 (LG-5, geo-blocking): no EU surcharge
     ]],
 
     // sandbox tenants (audit §5j-9): provisioning routed to lab instances (`options.sandbox`), a promo credit to test with, no loyalty, no commissions
@@ -452,8 +452,25 @@ return [
         'imap_port' => (int) env('ONHOST_MAIL_IMAP_PORT', 993),
         'pop3_port' => (int) env('ONHOST_MAIL_POP3_PORT', 995),
         'smtp_port' => (int) env('ONHOST_MAIL_SMTP_PORT', 587),
-        // the lists asked about every node's sending address (BlocklistCheck); zone => the name an operator knows it by
-        'blocklists' => ['zen.spamhaus.org' => 'Spamhaus ZEN', 'bl.spamcop.net' => 'SpamCop', 'b.barracudacentral.org' => 'Barracuda'],
+    ],
+
+    // ── SP1 antispam and sending reputation (phase V, owner decision V-R1; docs/proposals/antispam-reputation.md) ──────────
+    'antispam' => [
+        // addresses the platform sends mail from besides every node's public_ipv4/public_ipv6 tag (the transactional relay, …)
+        'sending_addresses' => array_values(array_filter(array_map('trim', explode(',', (string) env('ONHOST_ANTISPAM_SENDING_ADDRESSES', ''))))),
+        'dnsbl' => [
+            // an own recursive resolver (host, host:port, [v6]:port) — blocklists refuse public resolvers; empty = the system resolver
+            // from resolv.conf, through which Spamhaus (without a DQS key), Barracuda, SURBL and URIBL are never asked
+            'resolver' => (string) env('ONHOST_DNSBL_RESOLVER', ''),
+            'timeout_seconds' => (float) env('ONHOST_DNSBL_TIMEOUT', 2.0), // per question, kept between 0.5 and 5 s
+            // optional secret: Spamhaus Data Query Service key (free for low volume); never logged, never stored with a listing
+            'spamhaus_dqs_key' => (string) env('ONHOST_SPAMHAUS_DQS_KEY', ''),
+            // keys of BlocklistCatalog::LISTS the operator switched off
+            'disabled' => array_values(array_filter(array_map('trim', explode(',', (string) env('ONHOST_DNSBL_DISABLED', ''))))),
+            'min_interval_minutes' => (int) env('ONHOST_DNSBL_MIN_INTERVAL_MINUTES', 60), // each (list, target) pair at most this often
+            'max_queries_per_run' => (int) env('ONHOST_DNSBL_MAX_QUERIES_PER_RUN', 2000),
+            'max_run_seconds' => (int) env('ONHOST_DNSBL_MAX_RUN_SECONDS', 1800), // a run stops asking after this; the rest waits for the next hour
+        ],
     ],
 
     'dns' => [
@@ -559,6 +576,10 @@ return [
     ],
 
     'partners' => [
+        // P20 (P-R75 / RF-1, variant C until the lawyer answers LG-4): the 30-day referral cookie `onhost_ref` needs consent unless it
+        // is strictly necessary, and there is no consent banner — off by default; the code of a `?ref=` link travels in the sign-up
+        // request instead. true = variant A (cookie set, read at sign-up, listed on the privacy page).
+        'referral_cookie' => (bool) env('ONHOST_PARTNERS_REFERRAL_COOKIE', false),
         // [tier, monthly paid volume threshold (minor units), revenue-share %] — prototype Onhost-partner.dc.html
         'tiers' => [['bronze', 0, 15], ['silver', 2500000, 18], ['gold', 5000000, 22], ['platinum', 12000000, 26]],
         'min_payout_minor' => 100000,
@@ -696,17 +717,30 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
         'allow_ips' => array_filter(explode(',', (string) env('ONHOST_METRICS_ALLOW_IPS', '127.0.0.1,::1'))),
     ],
 
+    // TASK-0179: the cookie list under the privacy page (App\Http\Support\CookieInventory). The hosting's aaPanel WAF sets
+    // `server_session_<hash>` on every site it protects (staging 2026-10-13, B1); set false only on a host whose WAF cookie is off.
+    'privacy' => ['hosting_waf_cookie' => true],
+
+    // P11 (P-R74, HS-1): Strict-Transport-Security is sent by the application only, as configured here (the aaPanel vhost's own
+    // header is switched off by the owner, docs/runbooks/hsts.md). `includeSubDomains` stays off until every subdomain of the
+    // apex has valid TLS; `preload` is sent only together with includeSubDomains and a max-age of at least one year (the preload
+    // list refuses anything else) and is a hard-to-undo commitment. The doctor row "HSTS is sent once and as configured" checks it.
+    'security' => [
+        'hsts' => [
+            'enabled' => (bool) env('ONHOST_HSTS_ENABLED', true),
+            'max_age' => (int) env('ONHOST_HSTS_MAX_AGE', 31536000),
+            'include_subdomains' => (bool) env('ONHOST_HSTS_INCLUDE_SUBDOMAINS', false),
+            'preload' => (bool) env('ONHOST_HSTS_PRELOAD', false),
+        ],
+    ],
+
     'content' => [
         'changelog_year' => 2026,
         // I-R18 (TASK-0149): customer references live in the database (content_references), edited in Nastavení → Blog a reference
         'domain_page_tlds' => ['cz', 'com', 'eu'], // the TLDs the domain page leads with
         'game_product' => 'game',                 // the product the game configurator sells
         'plans_product' => 'web-hosting',
-        // marketing comparison table (prototype onhost-data.js compare(cs)); columns: parameter, start, pro, scale
-        'compare' => [
-            'cs' => [['vCPU', '2', '6', '16'], ['RAM', '4 GB', '16 GB', '64 GB'], ['NVMe disk', '80 GB', '320 GB', '1 TB'], ['Přenos dat', 'neomezeně', 'neomezeně', 'neomezeně'], ['Zálohy', '7 dní', '30 dní', '30 dní + replika'], ['CI/CD runner', '—', '1× shared', '2× dedikovaný'], ['Anti-DDoS', '100 Gbps', '600 Gbps', '1,2 Tbps'], ['SLA', '99,9 %', '99,95 %', '99,99 %'], ['Reakce podpory', '8 h', '30 min', '10 min / telefon']],
-            'en' => [['vCPU', '2', '6', '16'], ['RAM', '4 GB', '16 GB', '64 GB'], ['NVMe disk', '80 GB', '320 GB', '1 TB'], ['Transfer', 'unlimited', 'unlimited', 'unlimited'], ['Backups', '7 days', '30 days', '30 days + replica'], ['CI/CD runner', '—', '1× shared', '2× dedicated'], ['Anti-DDoS', '100 Gbps', '600 Gbps', '1.2 Tbps'], ['SLA', '99.9%', '99.95%', '99.99%'], ['Support response', '8 h', '30 min', '10 min / phone']],
-        ],
+        // the pricing page's comparison table is built from these plans (PricingPageSeam::compare, K7-2); the prototype's static VPS table is gone
         'tender_docs' => [
             'cs' => [
                 ['Technická specifikace', 'Konfigurace, lokality, parametry sítě a zálohování v podobě, kterou lze vložit do zadávací dokumentace.'],

@@ -26,6 +26,10 @@
   function money(cmp, v) { return cmp && typeof cmp.mny === 'function' ? cmp.mny(v) : (Math.round(v).toLocaleString('cs-CZ') + ' Kč'); }
   /* the VAT rate of the tax rules (ONHOST_DATA.vat(), TASK-0064/0070); the statutory 21 % only when the platform has no active rule set */
   function vatRate() { var d = D(), v = d && typeof d.vat === 'function' ? d.vat() : null; return typeof v === 'number' ? v : 0.21; }
+  /* L-10 / J-R9 (M2): a seller who is not a VAT payer shows final prices — no "s DPH" / "bez DPH"; unknown counts as a payer */
+  function nonPayer() { var d = D(); return !!(d && typeof d.vatPayer === 'function' && d.vatPayer() === false); }
+  /* an amount the bank must receive exactly as written (never converted to the display currency): 49,00 CZK / 49.00 CZK */
+  function exact(v, cs) { var n = Number(v); return isFinite(n) ? n.toLocaleString(cs ? 'cs-CZ' : 'en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : String(v); }
   function yearsWord(n, cs) { var I = window.OnhostI18n; return I ? I.plural(n, cs ? ['rok', 'roky', 'let'] : ['year', 'years'], cs ? 'cs' : 'en') : (cs ? (n === 1 ? 'rok' : (n < 5 ? 'roky' : 'let')) : (n === 1 ? 'year' : 'years')); }
   function chip(active) {
     return 'border:1px solid ' + (active ? 'var(--acc,#ec3013)' : 'color-mix(in srgb,var(--fg,#201e1d) 28%,transparent)') + ';background:' + (active ? 'color-mix(in srgb,var(--acc,#ec3013) 10%,transparent)' : 'transparent') +
@@ -259,7 +263,7 @@
       id: it.id, name: it.name,
       meta: _('registrace na ' + y + ' ' + yearsWord(y, true) + (pct ? ' · sleva ' + pct + ' %' : '') + ' · obnova ' + money(cmp, renew) + ' / rok', 'registration for ' + y + ' ' + yearsWord(y, false) + (pct ? ' · ' + pct + '% off' : '') + ' · renewal ' + money(cmp, renew) + ' / yr'),
       qty: '1', unit: money(cmp, it.price) + _(' / rok', ' / yr'),
-      line: money(cmp, line), lineVat: _('s DPH ', 'incl. VAT ') + money(cmp, line * (1 + vatRate())),
+      line: money(cmp, line), lineVat: nonPayer() ? '' : _('s DPH ', 'incl. VAT ') + money(cmp, line * (1 + vatRate())),
       discount: pct ? '− ' + pct + ' %' : '',
       discountStyle: pct ? 'font-size:11px;font-family:var(--font-heading);font-weight:800;color:var(--accInk,#ae1800)' : 'display:none',
       inc: function () {}, dec: function () {},
@@ -515,13 +519,13 @@
   function doneRows(o, cmp, cs) {
     var _ = function (a, b) { return cs ? a : b; }, rows = [];
     if (!o) return rows;
-    if (o.total != null) rows.push({ k: _('Celkem k platbě (s DPH)', 'Total due (incl. VAT)'), v: money(cmp, Number(o.total) / 100) + (o.currency && o.currency !== 'CZK' ? ' ' + o.currency : '') });
+    if (o.total != null) rows.push({ k: nonPayer() ? _('Celkem k platbě', 'Total due') : _('Celkem k platbě (s DPH)', 'Total due (incl. VAT)'), v: money(cmp, Number(o.total) / 100) + (o.currency && o.currency !== 'CZK' ? ' ' + o.currency : '') });
     var b = o.bank_instructions;
     if (b) {
       if (b.account_number) rows.push({ k: _('Číslo účtu', 'Account number'), v: b.account_number });
       if (b.iban) rows.push({ k: 'IBAN', v: b.iban + (b.bic ? ' · ' + b.bic : '') });
       if (b.variable_symbol) rows.push({ k: _('Variabilní symbol', 'Variable symbol'), v: b.variable_symbol });
-      if (b.amount) rows.push({ k: _('Částka převodu', 'Transfer amount'), v: b.amount + ' ' + (b.currency || 'CZK') });
+      if (b.amount) rows.push({ k: _('Částka převodu', 'Transfer amount'), v: exact(b.amount, cs) + ' ' + (b.currency || 'CZK') });
       if (b.message) rows.push({ k: _('Zpráva pro příjemce', 'Message for the recipient'), v: b.message });
     }
     return rows;
@@ -586,6 +590,11 @@
       var out = { email: u.email || '', name: u.name || '', ico: o.ico || '', dic: o.dic || o.vat_id || '', street: o.street || '', city: o.city || '', zip: o.postal_code || '' };
       if (o.type === 'company' || o.ico) out.company = o.name || '';
       return out;
+    },
+    /* K7-5 (M2): the pay button promises a server start only when the cart holds a server (a cloud or game product) */
+    payLabel: function (state, cs) {
+      var server = (state && state.cartItems || []).some(function (it) { var f = familyOf(it); return f === 'cloud' || f === 'game'; });
+      return server ? (cs ? 'Zaplatit a spustit server' : 'Pay and launch the server') : (cs ? 'Zaplatit objednávku' : 'Pay for the order');
     },
     /* what happens after the order, by payment method: a transfer starts nothing until the money arrives */
     eta: function (state, cs) {

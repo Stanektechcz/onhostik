@@ -14,6 +14,7 @@ recorded in the hash-chained audit log. Never edit rows in the database during a
 | [provider-calls-audit.md](provider-calls-audit.md) | Read-only check whether an ISPConfig record was acted on by a service that did not own it (the TASK-0005 hole, before the fix); incident steps |
 | [pricing.md](pricing.md) | Discounts, promo codes, add-ons, plan versions, catalogue revisions (`onhost:catalog:revise`), paid limit raises and what a plan may promise |
 | [go-live-checklist.md](go-live-checklist.md) | Everything production needs before the first paying customer, with the state of each item and the operator steps of the default-off switches |
+| [production-plan-2026-10.md](production-plan-2026-10.md) | The production launch plan of phase J (prepared, not run): the order on the production host (B6 audit → gated deploy → `--legal` → TOTP → revisions → rates → tokens → webhooks → dead letters → doctor), the state of B1–B13 and G-1 … G-15 on 2026-10-11, the Comgate pre-launch variant and the order of the legal publication |
 | [first-day-production.md](first-day-production.md) | Hour-by-hour checks of the first production day (doctor, dead letters, payments and Comgate reconciliation, dunning, webhook lane, metrics) and the rollback triggers |
 | [production-readiness-audit.md](production-readiness-audit.md) | Findings with evidence (§7 table), what is fixed, what stays open |
 | [security-boundaries.md](security-boundaries.md) | The rules the customer-facing edge keeps (parameter allow-lists, egress, keys and tokens, roles, money) — read before adding an endpoint |
@@ -34,6 +35,8 @@ recorded in the hash-chained audit log. Never edit rows in the database during a
 | [penpot.md](penpot.md) | Penpot for web hosting (H8): the delivery model (one compose stack per service on a dedicated Penpot node), the server prerequisites before the first sale, the node build scripts (`infra/penpot/`) with run order, sizing and rollback, secrets, backups, outages, upgrades |
 | [staging-rehearsal-2026-10.md](staging-rehearsal-2026-10.md) | The go-live rehearsal on staging (H6): numbered steps R0–R24 with precondition, command, expected result, doctor rows, rollback and the owner's yes per step, plus the protocol table to fill in — prepared, not executed |
 | [staging-rehearsal-2026-10-07.md](staging-rehearsal-2026-10-07.md) | Protocol of the rehearsal (phase I, I6): header, step log R0–R24 with the owner's yes per step, the R1/R23 doctor rows, outputs only (no secrets) — skeleton, no step run yet |
+| [staging-rehearsal-2026-10-11.md](staging-rehearsal-2026-10-11.md) | Protocol of the phase J rehearsal (J3): frozen deploy target and gate prediction of J1, step log A–C, `--legal`, Penpot D–G, R3–R24, R25, G2 with the owner's yes per step — opened, no step run yet |
+| [staging-rehearsal-2026-10-12.md](staging-rehearsal-2026-10-12.md) | Protocol of the 2026-10-12 run: A–C deploy of `fa2ea75d` (gate pass, 82 migrations), `--legal`, Penpot stopped at D0 (`wedos-main` instance), R3–R25 (R23: 0 FAIL, 29 WARN; skipped steps with reasons), G2; what is left for the owner |
 
 On-call rotation, escalation contacts and SLA classes are in `docs/sre/` and `config/onhost.php` (`sla`).
 

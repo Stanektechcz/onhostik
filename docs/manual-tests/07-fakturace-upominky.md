@@ -479,6 +479,55 @@ portálu, jednou s cizí doménou (`https://example.com/…`).
 
 ---
 
+## F7-18 Dvojí provize: odložení před 000950 a storno se čtyřma očima (I-R6, J-R3, TASK-0158)
+
+**Jen na testovací databázi** (staging nebo lokální kopie) s ručně připravenou dvojicí provizí ke stejné faktuře; v produkci
+jen podle runbooku `partner-commission-grace.md`.
+
+**Kroky**
+
+1. Deploy (migrace `000949` před `000950`) vypíše `partner_commissions: N newer row(s) of a double commission set aside (I-R6) … <id>`.
+2. Staff detail partnera (`GET /v1/staff/partners/{partner}`, pole `duplicates`) ukáže odložený řádek ve stavu `duplicate`.
+3. Finance (BillingFinanceAdmin) pošle `POST /v1/staff/partners/commissions/{commission}/cancel-duplicate` s důvodem (10–500 znaků):
+   nejdřív `step_up_required`, po ověření `approval_required` s `approval_id`.
+4. Druhá osoba žádost schválí ve frontě schválení (`GET /v1/staff/approvals`, `POST /v1/staff/approvals/{approval}/decision`);
+   finance zopakuje požadavek s `approval_ids`.
+
+**Očekávaný výsledek:** odložený řádek je `cancelled`, vznikne nový řádek `reversal` se zápornou částkou (`cancels_id`), částka
+původního řádku se nezmění; partner dostane oznámení „Zdvojená provize opravena: faktura …“ (událost
+`partner.commission.duplicate_cancelled`); v auditu `partner.commission.cancel_duplicate` s důvodem, step-upem a schválením.
+Řádek, který už byl vyplacený, zůstane `paid` a reverze je mínus na příští výplatě.
+
+**Negativní varianty:** žadatel schvaluje sám sebe → odmítnuto; druhé storno téhož řádku → `409 commission_already_cancelled`;
+storno platného (staršího) řádku → `422 commission_not_duplicate`; novější řádek v otevřené výplatě → migrace `000949` se zastaví
+dřív, než cokoli změní (výplatu dokončit nebo zamítnout, deploy znovu).
+
+## F7-19 Import výpisu z České spořitelny (J-R7, M3, TASK-0170)
+
+**Předpoklady:** staff účet s oprávněním `billing.reconcile` (BillingOperator); zákazník s čekajícím dobitím nebo zálohovou
+fakturou převodem (VS a částka v Nastavení → Bankovní platby → „Čeká na platbu převodem“); výpis z internetového bankovnictví ČS
+ve formátu camt.053 (XML) nebo ABO/GPC, kde je ta platba připsaná.
+
+**Kroky**
+
+1. Nastavení → Bankovní platby → „Import výpisu z České spořitelny“, vyberte soubor a „Nahrát a spárovat“
+   (`POST /v1/staff/payments/bank/statements`).
+2. Zpráva: „Výpis načten (camt.053 / gpc): N příchozích plateb, N nových, X spárováno, Y čeká na ruční přiřazení, 0 už bylo
+   zaznamenáno dříve“. V tabulce „Poslední řádky výpisu“ jsou nové řádky; spárovaný je „spárováno“.
+3. Nahrajte stejný soubor znovu.
+
+**Očekávaný výsledek:** spárované dobití je připsané (zákazník vidí kredit, doklad o přijetí platby), zálohová faktura zaplacená
+a služba se zřizuje; druhé nahrání: „0 nových“, nic se nezaúčtuje dvakrát. Odchozí platby se nezapočítají. V auditu
+`payment.bank_statement.import` s počty a hashem souboru (obsah souboru tam není).
+
+**Negativní varianty:** uživatel bez `billing.reconcile` → 403; CSV z George → `422 bank_statement_format`; soubor nad 2 MB nebo nad
+5000 řádků → 422; XML s `<!DOCTYPE` nebo entitou → `422 bank_statement_unsafe` a nic se nezapíše; platba s jinou částkou →
+„čeká na ruční přiřazení“ a položka k odsouhlasení.
+
+**Kde hledat při selhání:** `domains/Payments/Statements/BankStatementFile.php`, `domains/Payments/BankStatementImporter.php`;
+automaticky `tests/Feature/Payments/BankStatementImportTest.php`. Neověřeno na skutečném výpisu ČS (vstup vlastníka J-R7):
+pokud ČS nese VS v camt.053 jinde, řádky přijdou jako „bez symbolu“ — pošlete vzorový výpis.
+
 ## Pokrytí E2E testem
 
 | Případ | Test v `BillingDunningFlowTest` |
@@ -492,3 +541,5 @@ portálu, jednou s cizí doménou (`https://example.com/…`).
 | F7-08b | `LoyaltyRedeemFlowTest`: „redeems points in the cart, spends them with the card payment, shows them on the document and gives them back with a credit note“ |
 | F7-13, F7-14 | mimo E2E; viz `PaidInvoiceWordingTest`, `ReinstateDoctorTest` (G6) |
 | F7-15, F7-16, F7-17 | mimo E2E; viz `RefundsNotPaidOutTest`, `RefundEstimateTest`, `ComgateReturnUrlTest`, `QuoteLinesAllowListTest` (H3) |
+| F7-18 | mimo E2E; viz `CommissionDuplicateTest` (K5) |
+| F7-19 | mimo E2E; viz `BankStatementImportTest` (M3) |

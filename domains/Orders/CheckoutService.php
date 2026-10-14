@@ -20,6 +20,7 @@ use Onhost\Domain\Orders\Models\Quote;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Payments\Models\PaymentIntent;
 use Onhost\Domain\Payments\PaymentService;
+use Onhost\Domain\Services\CdnAvailability;
 use Onhost\Domain\Services\Limits\LimitRaisePolicy;
 use Onhost\Domain\WalletLedger\Models\WalletHold;
 use Onhost\Domain\WalletLedger\WalletService;
@@ -78,6 +79,7 @@ final class CheckoutService
         }
         LimitRaisePolicy::assertOrderable($quote, $source, $context); // customers order a raise once the switch is on; a free raise is staff's (TASK-0022)
         PenpotLine::assertStillOrderable($quote, $organization); // a quote lives two hours: the node and the parent are asked again (H-R7)
+        CdnAvailability::assertQuotable((array) $quote->lines); // K7-5 / R4: the CDN account, asked again when the quote is paid
         if ($mode === 'postpaid' && $this->wallets->approvedCreditLine($organization->id, $quote->currency)->isZero()) {
             throw new DomainError('postpaid_not_approved', 'Postpaid billing requires an approved credit line.', 403);
         }

@@ -27,8 +27,8 @@ use Onhost\Platform\Commands\CommandContext;
  */
 
 beforeEach(function () {
+    $this->travelTo(Carbon::parse('2026-11-25 12:00:00', 'UTC')); // first: seeded prices are dated now()->subDay() (TASK-0192)
     $this->seed([CatalogSeeder::class, TaxRuleSeeder::class, LegalEntitySeeder::class]);
-    $this->travelTo(Carbon::parse('2026-11-25 12:00:00', 'UTC'));
 });
 
 function l05Service(Organization $org, string $class): Service

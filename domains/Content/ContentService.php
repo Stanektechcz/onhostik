@@ -44,6 +44,12 @@ final class ContentService
     /** I-R16 (owner, 2026-10-08): GPU cards are planned, not sold — no rental row, price or stock count for them is served. */
     public const NOT_ON_SALE_STOCK = ['l40s', 'h100'];
 
+    /**
+     * J-R1 (owner, 2026-10-11): the stock rows the prototype seed invented, as `sku => [available, price_minor]`. A database seeded
+     * before 2026-10-11 still holds them; such a row is not served while it is untouched — once staff change its count or price it is.
+     */
+    public const PROTOTYPE_STOCK = ['epyc-9354' => [24, 890000], 'epyc-9124' => [41, 490000], 'storage-240' => [0, 640000]];
+
     /** @return list<array<string,mixed>> `{ slug, cat, title, excerpt, date, read, author, featured }` */
     public function posts(string $locale, ?string $category = null, string $kind = 'blog'): array
     {
@@ -123,7 +129,9 @@ final class ContentService
     /** `[name, spec, price, unit, availability, state][]` */
     public function stock(string $locale): array
     {
-        return StockItem::query()->whereNotIn('sku', self::NOT_ON_SALE_STOCK)->orderBy('sort')->get()->map(function (StockItem $s) use ($locale) {
+        $invented = fn (StockItem $s): bool => isset(self::PROTOTYPE_STOCK[$s->sku]) && self::PROTOTYPE_STOCK[$s->sku] === [(int) $s->available, (int) $s->price_minor];
+
+        return StockItem::query()->whereNotIn('sku', self::NOT_ON_SALE_STOCK)->orderBy('sort')->get()->reject($invented)->map(function (StockItem $s) use ($locale) {
             $price = Money::minor($s->price_minor, $s->currency)->format($locale);
             $unit = $locale === 'cs' ? 'nájem / měsíc' : 'rental / month';
             $availability = match (true) {

@@ -137,6 +137,7 @@ it('refuses a marketplace order and the approval of paid support work to an org_
 });
 
 it('refuses the paid download of an archive to a member without the right', function () {
+    config(['onhost.services.deletion.download_fee_minor' => ['CZK' => 50000, 'EUR' => 2000]]); // a fee staff set (none by default since P-R30)
     [, $org] = $this->customerWithOrganization();
     $operator = creditGateMember($org, 'cloud_operator');
     $backup = Backup::query()->create([
@@ -244,4 +245,18 @@ it('refuses switching a subscription\'s auto-renewal on to a member without the 
     expect($refused?->error)->toBe('credit_spend_not_allowed')->and((bool) $subscription->refresh()->auto_renew)->toBeFalse();
     expect((bool) $subscriptions->setAutoRenew($subscription, true, $this->contextFor($owner, $org))->auto_renew)->toBeTrue();
     expect((bool) $subscriptions->setAutoRenew($subscription->refresh(), false, $this->contextFor($admin, $org))->auto_renew)->toBeFalse();
+});
+
+it('keeps the free download of a final archive to the people who could pay for it before (phase P, P-R30 does not widen access)', function () {
+    [, $org] = $this->customerWithOrganization();
+    $operator = creditGateMember($org, 'cloud_operator');
+    $backup = Backup::query()->create([
+        'service_id' => 'srv_free', 'organization_id' => $org->id, 'kind' => 'final', 'state' => 'completed', 'protected' => true,
+        'started_at' => now()->subDay(), 'finished_at' => now()->subDay(), 'size_bytes' => 1024, 'retention_until' => now()->addDays(60), 'meta' => ['set' => 'x', 'family' => 'web'],
+    ]);
+
+    // taking all the data of a cancelled service away stays with the owner and the billing admin, even when it costs nothing
+    $refused = creditGateRefusal(fn () => app(ServiceArchiveService::class)->download($backup, $this->contextFor($operator, $org)));
+    expect($refused?->error)->toBe('archive_download_not_allowed')->and($refused?->status)->toBe(403)
+        ->and((bool) data_get($backup->refresh()->meta, 'download.paid', false))->toBeFalse();
 });

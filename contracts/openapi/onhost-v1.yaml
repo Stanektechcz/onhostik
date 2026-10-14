@@ -134,6 +134,9 @@ tags:
     name: staff-dunning
     description: 'Operations of the staff-dunning area.'
   -
+    name: staff-finance
+    description: 'Operations of the staff-finance area.'
+  -
     name: staff-game
     description: 'Operations of the staff-game area.'
   -
@@ -163,6 +166,9 @@ tags:
   -
     name: staff-oncall
     description: 'Operations of the staff-oncall area.'
+  -
+    name: staff-operations
+    description: 'Operations of the staff-operations area.'
   -
     name: staff-orders
     description: 'Operations of the staff-orders area.'
@@ -22134,6 +22140,66 @@ paths:
             schema:
               type: object
               additionalProperties: true
+  '/staff/finance/exports/{kind}':
+    get:
+      operationId: getStaffFinanceExportsByKind
+      tags:
+        - staff-finance
+      summary: 'GET /staff/finance/exports/{kind}'
+      parameters:
+        -
+          name: kind
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        '422':
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+      x-token-scope: null
   /staff/game:
     get:
       operationId: getStaffGame
@@ -26325,6 +26391,60 @@ paths:
             schema:
               type: object
               additionalProperties: true
+  /staff/operations/overview:
+    get:
+      operationId: getStaffOperationsOverview
+      tags:
+        - staff-operations
+      summary: 'GET /staff/operations/overview'
+      parameters:
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        '422':
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+      x-token-scope: null
   /staff/orders:
     get:
       operationId: getStaffOrders
@@ -26778,6 +26898,81 @@ paths:
         -
           session: []
       x-token-scope: null
+  '/staff/partners/commissions/{commission}/cancel-duplicate':
+    post:
+      operationId: postStaffPartnersCommissionsByCommissionCancelDuplicate
+      tags:
+        - staff-partners
+      summary: 'POST /staff/partners/commissions/{commission}/cancel-duplicate'
+      parameters:
+        -
+          name: commission
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        '422':
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '200':
+          description: 'Success (idempotent replay or synchronous result)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+      x-token-scope: null
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
   /staff/partners/payouts:
     get:
       operationId: getStaffPartnersPayouts
@@ -27681,6 +27876,75 @@ paths:
       tags:
         - staff-payments
       summary: 'POST /staff/payments/bank/lines'
+      parameters:
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        '422':
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '200':
+          description: 'Success (idempotent replay or synchronous result)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+      x-token-scope: null
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /staff/payments/bank/statements:
+    post:
+      operationId: postStaffPaymentsBankStatements
+      tags:
+        - staff-payments
+      summary: 'POST /staff/payments/bank/statements'
       parameters:
         -
           $ref: '#/components/parameters/IdempotencyKey'
