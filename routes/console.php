@@ -8,6 +8,11 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schedule;
 use Illuminate\Support\Facades\URL;
+use Onhost\Domain\Advisories\AdvisoryCases;
+use Onhost\Domain\Advisories\AdvisoryIngest;
+use Onhost\Domain\Advisories\AdvisoryMatcher;
+use Onhost\Domain\Advisories\Models\AdvisoryCase;
+use Onhost\Domain\Advisories\SoftwareInventory;
 use Onhost\Domain\Billing\ChargebackAnalyst;
 use Onhost\Domain\Billing\DunningService;
 use Onhost\Domain\Billing\MeteringService;
@@ -591,6 +596,9 @@ Schedule::command('onhost:nodes:usage')->everyFifteenMinutes()->withoutOverlappi
 Schedule::command('onhost:sites:integrity')->dailyAt('04:40')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:dns:check')->dailyAt('05:10')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:mail:blocklist')->hourlyAt(25)->withoutOverlapping()->onOneServer(); // SP1a: every sending address and customer mail domain, each pair at most hourly
+Schedule::command('onhost:advisories:sync')->cron('30 5,12,19 * * *')->timezone('Europe/Prague')->withoutOverlapping(120)->onOneServer(); // SN: every security feed, the inventory, the matches — three times a day
+Schedule::command('onhost:advisories:quick')->hourlyAt(45)->withoutOverlapping(50)->onOneServer(); // SN: exploited now (KEV) and WordPress every hour in between
+Schedule::command('onhost:advisories:advance')->everyFiveMinutes()->withoutOverlapping()->onOneServer(); // SN: the next wave of an approved fix
 Schedule::command('onhost:digest:staff-daily')->dailyAt('07:15')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:ledger:verify')->dailyAt('05:00')->onOneServer();
 
@@ -747,6 +755,47 @@ Artisan::command('onhost:dns:check {--limit=200}', function (PublicDnsCheck $che
     $ledger->record('dns.check', $result);
     $this->table(['checked', 'problems', 'repaired', 'told', 'errors'], [$result]);
 })->purpose('Compare what public DNS answers for every customer domain with what the platform published for it: repair our own zones, tell the customer about the DNS they hold elsewhere');
+
+Artisan::command('onhost:advisories:sync {--no-inventory : match against the inventory as it is, without reading the sites again}', function (AdvisoryIngest $ingest, SoftwareInventory $inventory, AdvisoryMatcher $matcher, AdvisoryCases $cases, AutomationLedger $ledger) {
+    if ($ledger->off('advisories.sync')) {
+        $this->warn('switched off by staff (console → automation)');
+
+        return;
+    }
+    $stock = $this->option('no-inventory') ? [] : $inventory->refresh();
+    $read = $ingest->run();
+    $matched = $matcher->run();
+    foreach ($ledger->off('advisories.remediate') ? [] : AdvisoryCase::query()->where('state', AdvisoryCase::APPROVED)->get() as $case) {
+        $cases->advance($case);
+    }
+    $result = ['feeds' => $read['feeds'], 'failed' => $read['failed'], 'advisories' => $read['advisories'], 'sites' => $stock['sites'] ?? 0, 'matches' => $matched['matches'], 'cases_opened' => $matched['cases_opened']];
+    $ledger->record('advisories.sync', $result);
+    $this->table(array_keys($result), [$result]);
+})->purpose('Read every security feed from where it stopped, refresh the software inventory, match advisories against it and open cases (SN)');
+
+Artisan::command('onhost:advisories:quick', function (AdvisoryIngest $ingest, AdvisoryMatcher $matcher, AutomationLedger $ledger) {
+    if ($ledger->off('advisories.sync')) {
+        $this->warn('switched off by staff (console → automation)');
+
+        return;
+    }
+    $read = $ingest->run(['kev', 'cvelist', 'wordfence']);
+    $matched = $matcher->run();
+    $this->table(['feeds', 'failed', 'advisories', 'cases_opened'], [[$read['feeds'], $read['failed'], $read['advisories'], $matched['cases_opened']]]);
+})->purpose('Hourly between the full runs: CISA KEV (exploited now) and the WordPress feed, matched against the inventory as it is (SN)');
+
+Artisan::command('onhost:advisories:advance', function (AdvisoryCases $cases, AutomationLedger $ledger) {
+    if ($ledger->off('advisories.remediate')) {
+        $this->warn('switched off by staff (console → automation)');
+
+        return;
+    }
+    $approved = AdvisoryCase::query()->where('state', AdvisoryCase::APPROVED)->get();
+    foreach ($approved as $case) {
+        $cases->advance($case);
+    }
+    $ledger->record('advisories.remediate', ['cases' => $approved->count()]);
+})->purpose('Settle the running wave of every approved security fix, halt on a failure, start the next wave or finish (SN)');
 
 Artisan::command('onhost:mail:blocklist', function (ReputationMonitor $monitor, AutomationLedger $ledger) {
     if ($ledger->off('mail.blocklist')) {

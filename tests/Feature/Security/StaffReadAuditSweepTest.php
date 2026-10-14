@@ -8,6 +8,8 @@ use Illuminate\Http\Response;
 use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route as Router;
+use Onhost\Domain\Advisories\Models\Advisory;
+use Onhost\Domain\Advisories\Models\AdvisoryCase;
 use Onhost\Domain\Compliance\Models\AbuseCase;
 use Onhost\Domain\Compliance\Models\CyberIncident;
 use Onhost\Domain\Organizations\Models\Organization;
@@ -43,6 +45,8 @@ function staffReadSweepFixtures(Organization $org, Service $service, string $tic
     $cyber = CyberIncident::query()->create(['number' => 'SEC-2026-9001', 'title' => 'Credential leak', 'detected_at' => now(), 'jurisdictions' => ['CZ']]);
     $bulk = BulkJob::query()->create(['action' => 'php.set', 'params' => ['version' => '8.3'], 'filter' => ['organization_id' => $org->id], 'state' => 'finished', 'items' => []]);
     $partner = Partner::query()->create(['organization_id' => $org->id, 'code' => 'G7SWEEP', 'state' => 'active']);
+    $advisory = Advisory::query()->create(['key' => 'CVE-2026-9001', 'sources' => ['nvd'], 'title' => 'Sweep', 'severity' => 'high', 'affected' => []]);
+    $advisoryCase = AdvisoryCase::query()->create(['advisory_id' => $advisory->id, 'state' => AdvisoryCase::NEW, 'severity' => 'high']);
     $operation = Operation::query()->create(['service_id' => $service->id, 'organization_id' => $org->id, 'kind' => ServiceActionWorkflow::kind(), 'workflow' => ServiceActionWorkflow::class, 'state' => Operation::FAILED, 'queue' => 'default', 'idempotency_key' => 'g7-sweep-op', 'desired' => ['action' => 'restart'], 'queued_at' => now()->subHour(), 'finished_at' => now()->subHour(), 'attempts' => 1, 'error' => ['message' => 'nope', 'retryable' => false]]);
 
     return [
@@ -53,6 +57,7 @@ function staffReadSweepFixtures(Organization $org, Service $service, string $tic
         'v1/staff/integrations/{instance}' => 'v1/staff/integrations/'.pveLab()->id,
         'v1/staff/partners/{partner}' => "v1/staff/partners/{$partner->id}",
         'v1/staff/provisioning/jobs/{operation}' => "v1/staff/provisioning/jobs/{$operation->id}",
+        'v1/staff/security/advisory-cases/{case}' => "v1/staff/security/advisory-cases/{$advisoryCase->id}",
         'v1/staff/security/incidents/{case}' => "v1/staff/security/incidents/{$cyber->id}",
         'v1/staff/tickets/{ticket}' => "v1/staff/tickets/{$ticketId}",
         'v1/staff/tickets/{ticket}/work-offers' => "v1/staff/tickets/{$ticketId}/work-offers",

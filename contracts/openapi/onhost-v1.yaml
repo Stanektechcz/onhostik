@@ -32194,6 +32194,528 @@ paths:
             schema:
               type: object
               additionalProperties: true
+  /staff/security/advisories:
+    get:
+      operationId: getStaffSecurityAdvisories
+      tags:
+        - staff-security
+      summary: 'GET /staff/security/advisories'
+      parameters:
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        '422':
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+      x-token-scope: null
+  /staff/security/advisories/health:
+    get:
+      operationId: getStaffSecurityAdvisoriesHealth
+      tags:
+        - staff-security
+      summary: 'GET /staff/security/advisories/health'
+      parameters:
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        '422':
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+      x-token-scope: null
+  /staff/security/advisory-cases:
+    get:
+      operationId: getStaffSecurityAdvisoryCases
+      tags:
+        - staff-security
+      summary: 'GET /staff/security/advisory-cases'
+      parameters:
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        '422':
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+      x-token-scope: null
+  '/staff/security/advisory-cases/{case}':
+    get:
+      operationId: getStaffSecurityAdvisoryCasesByCase
+      tags:
+        - staff-security
+      summary: 'GET /staff/security/advisory-cases/{case}'
+      parameters:
+        -
+          name: case
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        '422':
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+      x-token-scope: null
+  '/staff/security/advisory-cases/{case}/approve':
+    post:
+      operationId: postStaffSecurityAdvisoryCasesByCaseApprove
+      tags:
+        - staff-security
+      summary: 'POST /staff/security/advisory-cases/{case}/approve'
+      parameters:
+        -
+          name: case
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        '422':
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '200':
+          description: 'Success (idempotent replay or synchronous result)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+      x-token-scope: null
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  '/staff/security/advisory-cases/{case}/blog-draft':
+    post:
+      operationId: postStaffSecurityAdvisoryCasesByCaseBlogDraft
+      tags:
+        - staff-security
+      summary: 'POST /staff/security/advisory-cases/{case}/blog-draft'
+      parameters:
+        -
+          name: case
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        '422':
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '200':
+          description: 'Success (idempotent replay or synchronous result)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+      x-token-scope: null
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  '/staff/security/advisory-cases/{case}/notify':
+    post:
+      operationId: postStaffSecurityAdvisoryCasesByCaseNotify
+      tags:
+        - staff-security
+      summary: 'POST /staff/security/advisory-cases/{case}/notify'
+      parameters:
+        -
+          name: case
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        '422':
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '200':
+          description: 'Success (idempotent replay or synchronous result)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+      x-token-scope: null
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  '/staff/security/advisory-cases/{case}/triage':
+    post:
+      operationId: postStaffSecurityAdvisoryCasesByCaseTriage
+      tags:
+        - staff-security
+      summary: 'POST /staff/security/advisory-cases/{case}/triage'
+      parameters:
+        -
+          name: case
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        '422':
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '200':
+          description: 'Success (idempotent replay or synchronous result)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+      x-token-scope: null
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
   /staff/security/incidents:
     get:
       operationId: getStaffSecurityIncidents

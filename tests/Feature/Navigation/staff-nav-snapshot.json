@@ -47,6 +47,7 @@
         "security_incidents",
         "abuse",
         "data_requests",
+        "security_news",
         "approvals",
         "mfa_reset"
     ],
@@ -131,6 +132,7 @@
         "bulk",
         "chargebacks",
         "comgate",
+        "security_news",
         "approvals"
     ],
     "managed_hosting_admin": [
@@ -152,6 +154,7 @@
         "bulk",
         "chargebacks",
         "comgate",
+        "security_news",
         "approvals"
     ],
     "apps_platform_admin": [
@@ -306,6 +309,7 @@
         "comgate",
         "sla_credits",
         "reports",
+        "security_news",
         "approvals"
     ],
     "incident_commander": [
@@ -330,6 +334,7 @@
         "customers",
         "chargebacks",
         "security_incidents",
+        "security_news",
         "approvals"
     ],
     "abuse_trust_safety": [

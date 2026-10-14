@@ -37,6 +37,7 @@ final class NotificationService
         'legal-change' => 'legal.notice', // L-24: a new version of the contract documents, told ahead of its effective day
         'complaint-received' => 'legal.notice', 'complaint-resolved' => 'legal.notice', // L-15: § 19 ZOS confirmations of a complaint on a durable medium
         'ownership-offered' => 'account', 'ownership-transferred' => 'account', 'owner-recovery-opened' => 'security.login', 'member-mfa-reset' => 'security.login', // TASK-0042: the owner recovery notice is a security notice
+        'security-advisory' => 'service', 'security-advisory-fixed' => 'service', // SN: mandatory templates, sent whatever the preference
         'access-restored' => 'account', // TASK-0044: the person whose access a snapshot gave back
     ];
 

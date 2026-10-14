@@ -82,6 +82,8 @@ final class StaffReadAudit
         'v1/staff/renewals' => ['renewals', null, null],
         'v1/staff/resource-mappings' => ['resource_mappings', null, null],
         'v1/staff/security/incidents' => ['cyber_incidents', null, null],
+        'v1/staff/security/advisory-cases' => ['advisory_cases', null, null], // SN: the customer sites a vulnerability hits
+        'v1/staff/security/advisory-cases/{case}' => ['advisory_case', 'advisory_case', null], // one case spans many customers
         'v1/staff/security/incidents/{case}' => ['cyber_incident', 'cyber_incident', null],
         'v1/staff/services' => ['services', null, null],
         'v1/staff/sla-credits' => ['sla_credits', null, null],
@@ -109,6 +111,8 @@ final class StaffReadAudit
         'v1/staff/incidents' => 'platform incidents',
         'v1/staff/incidents/components' => 'status page components',
         'v1/staff/incidents/metrics' => 'incident metrics',
+        'v1/staff/security/advisories' => 'published vulnerability advisories (CISA, NVD, Wordfence, OSV): public data, no customer named',
+        'v1/staff/security/advisories/health' => 'feed freshness and inventory counts per ecosystem, no customer named',
         'v1/staff/incidents/{incident}' => 'a platform incident',
         'v1/staff/integrations' => 'provider instances of the platform',
         'v1/staff/integrations/schema' => 'provider configuration schema',

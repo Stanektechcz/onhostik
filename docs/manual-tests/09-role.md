@@ -24,13 +24,13 @@ Postranní menu konzole vzniká z `StaffNavigation`: položka se zobrazí, když
 
 | Role (klíč) | Název | Počet oprávnění | Položek menu |
 |---|---|---|---|
-| `platform_owner` | PlatformOwner / SuperAdmin | 114 | 49 |
+| `platform_owner` | PlatformOwner / SuperAdmin | 117 | 50 |
 | `iam_admin` | IAMAdmin | 9 | 4 |
 | `infrastructure_admin` | InfrastructureAdmin | 15 | 20 |
 | `network_admin` | NetworkAdmin | 6 | 19 |
 | `domain_dns_admin` | DomainDNSAdmin | 7 | 11 |
-| `shared_hosting_admin` | SharedHostingAdmin | 8 | 19 |
-| `managed_hosting_admin` | ManagedHostingAdmin | 8 | 19 |
+| `shared_hosting_admin` | SharedHostingAdmin | 9 | 20 |
+| `managed_hosting_admin` | ManagedHostingAdmin | 9 | 20 |
 | `apps_platform_admin` | AppsPlatformAdmin | 8 | 20 |
 | `cloud_vps_admin` | CloudVPSAdmin | 9 | 20 |
 | `game_admin` | GameAdmin | 8 | 20 |
@@ -38,9 +38,9 @@ Postranní menu konzole vzniká z `StaffNavigation`: položka se zobrazí, když
 | `database_admin` | DatabaseAdmin | 6 | 11 |
 | `ai_platform_admin` | AIPlatformAdmin | 5 | 4 |
 | `backup_dr_admin` | BackupDRAdmin | 9 | 18 |
-| `sre` | SRE | 12 | 26 |
+| `sre` | SRE | 14 | 27 |
 | `incident_commander` | IncidentCommander | 8 | 15 |
-| `security_soc` | SecuritySOC | 7 | 5 |
+| `security_soc` | SecuritySOC | 10 | 6 |
 | `abuse_trust_safety` | AbuseTrustSafety | 4 | 5 |
 | `compliance_legal` | ComplianceLegal | 6 | 8 |
 | `billing_finance_admin` | BillingFinanceAdmin | 19 | 19 |
@@ -58,7 +58,7 @@ Postranní menu konzole vzniká z `StaffNavigation`: položka se zobrazí, když
 
 Break-glass only; never a daily account.
 
-**Očekávané menu konzole** (položek: 49):
+**Očekávané menu konzole** (položek: 50):
 
 - **Přehled**: Přehled
 - **Podpora**: Fronta tiketů, Detail tiketu
@@ -68,10 +68,10 @@ Break-glass only; never a daily account.
 - **Obchod**: Obnovy a expirace, Kredity a platby, Věrnost a kampaně, Marketplace
 - **Finance**: Bankovní platby, Platební brána Comgate, Upomínky a pohledávky, Odstoupení od smlouvy, SLA kredity, Partneři, Výplaty partnerům, Reporty a výhled
 - **Produkt**: Ceník, slevy a doplňky, Tarify a verze, Navigace klientského panelu, Životní cyklus služeb, Šablony zpráv a odchozí pošta, Obsah webu, Blog a reference
-- **Bezpečnost a compliance**: Bezpečnostní incidenty a lhůty, Zneužití (DSA), Žádosti o data
+- **Bezpečnost a compliance**: Bezpečnostní incidenty a lhůty, Zneužití (DSA), Žádosti o data, Bezpečnostní novinky
 - **Identita a schvalování**: Schvalování, Reset MFA
 
-**Oprávnění** (114): `abuse.case.manage`, `ai.ops.read`, `ai.policy.manage`, `api_token.manage`, `apps.deploy`, `audit.read`, `audit.read.global`, `backup.delete`, `backup.download`, `backup.policy.manage`, `backup.read`, `backup.restore`, `billing.budget.manage`, `billing.credit.adjust`, `billing.credit.adjust_mass`, `billing.credit_line.manage`, `billing.dunning.manage`, `billing.invoice.manage`, `billing.invoice.read`, `billing.limit_raise.waive`, `billing.payment_method.manage`, `billing.reconcile`, `billing.refund.execute`, `billing.refund.execute_large`, `billing.tax_rule.manage`, `billing.wallet.read`, `billing.wallet.spend`, `billing.wallet.topup`, `capacity.manage`, `capacity.read`, `catalog.manage`, `catalog.order.create`, `compliance.case.manage`, `compliance.legal_hold.manage`, `compute.vm.delete`, `compute.vm.manage`, `content.manage`, `data_export.request`, `database.manage`, `dns.dnssec.manage`, `dns.global.write`, `dns.zone.read`, `dns.zone.write`, `domain.critical.manage`, `domain.manage`, `domain.read`, `domain.registrant.change`, `domain.registrar.manage`, `domain.transfer_out.execute`, `feature_flag.manage`, `game.manage`, `iam.access_review.manage`, `iam.approval.decide`, `iam.break_glass`, `iam.jit.approve`, `iam.jit.request`, `iam.mfa.reset`, `iam.role.manage`, `iam.user.manage`, `incident.manage`, `incident.publish`, `ipam.manage`, `mail.manage`, `maintenance.manage`, `node.manage`, `notification.mass.send`, `notification.template.manage`, `organization.close`, `organization.manage`, `organization.members.manage`, `organization.read`, `partner.manage`, `partner.portal.read`, `project.manage`, `provider.instance.manage`, `provider.instance.read`, `provider.secret.view`, `provisioning.drift.resolve`, `provisioning.freeze`, `provisioning.operation.cancel`, `provisioning.operation.read`, `provisioning.operation.retry`, `report.read`, `secret.rotate`, `security.event.read`, `security.incident.manage`, `security.settings.manage`, `service.console`, `service.credentials.rotate`, `service.data.delete`, `service.delete`, `service.manage`, `service.operate`, `service.read`, `sla.credit.manage`, `staff.backup.read`, `staff.billing.read`, `staff.chargeback.decide`, `staff.console`, `staff.customer.manage`, `staff.customer.read`, `staff.inbox.read`, `staff.order.manage`, `staff.service.delete`, `staff.service.manage`, `staff.support.ticket.read`, `support.chat.use`, `support.customer_impersonate`, `support.kb.manage`, `support.queue.manage`, `support.ticket.assign`, `support.ticket.manage`, `support.ticket.read`, `support.ticket.write`
+**Oprávnění** (117): `abuse.case.manage`, `ai.ops.read`, `ai.policy.manage`, `api_token.manage`, `apps.deploy`, `audit.read`, `audit.read.global`, `backup.delete`, `backup.download`, `backup.policy.manage`, `backup.read`, `backup.restore`, `billing.budget.manage`, `billing.credit.adjust`, `billing.credit.adjust_mass`, `billing.credit_line.manage`, `billing.dunning.manage`, `billing.invoice.manage`, `billing.invoice.read`, `billing.limit_raise.waive`, `billing.payment_method.manage`, `billing.reconcile`, `billing.refund.execute`, `billing.refund.execute_large`, `billing.tax_rule.manage`, `billing.wallet.read`, `billing.wallet.spend`, `billing.wallet.topup`, `capacity.manage`, `capacity.read`, `catalog.manage`, `catalog.order.create`, `compliance.case.manage`, `compliance.legal_hold.manage`, `compute.vm.delete`, `compute.vm.manage`, `content.manage`, `data_export.request`, `database.manage`, `dns.dnssec.manage`, `dns.global.write`, `dns.zone.read`, `dns.zone.write`, `domain.critical.manage`, `domain.manage`, `domain.read`, `domain.registrant.change`, `domain.registrar.manage`, `domain.transfer_out.execute`, `feature_flag.manage`, `game.manage`, `iam.access_review.manage`, `iam.approval.decide`, `iam.break_glass`, `iam.jit.approve`, `iam.jit.request`, `iam.mfa.reset`, `iam.role.manage`, `iam.user.manage`, `incident.manage`, `incident.publish`, `ipam.manage`, `mail.manage`, `maintenance.manage`, `node.manage`, `notification.mass.send`, `notification.template.manage`, `organization.close`, `organization.manage`, `organization.members.manage`, `organization.read`, `partner.manage`, `partner.portal.read`, `project.manage`, `provider.instance.manage`, `provider.instance.read`, `provider.secret.view`, `provisioning.drift.resolve`, `provisioning.freeze`, `provisioning.operation.cancel`, `provisioning.operation.read`, `provisioning.operation.retry`, `report.read`, `secret.rotate`, `security.advisory.manage`, `security.advisory.read`, `security.advisory.remediate`, `security.event.read`, `security.incident.manage`, `security.settings.manage`, `service.console`, `service.credentials.rotate`, `service.data.delete`, `service.delete`, `service.manage`, `service.operate`, `service.read`, `sla.credit.manage`, `staff.backup.read`, `staff.billing.read`, `staff.chargeback.decide`, `staff.console`, `staff.customer.manage`, `staff.customer.read`, `staff.inbox.read`, `staff.order.manage`, `staff.service.delete`, `staff.service.manage`, `staff.support.ticket.read`, `support.chat.use`, `support.customer_impersonate`, `support.kb.manage`, `support.queue.manage`, `support.ticket.assign`, `support.ticket.manage`, `support.ticket.read`, `support.ticket.write`
 
 **Kontrolní seznam**
 
@@ -213,7 +213,7 @@ Odmítnuté akce (musí skončit chybou):
 
 ISPConfig / web / db.
 
-**Očekávané menu konzole** (položek: 19):
+**Očekávané menu konzole** (položek: 20):
 
 - **Přehled**: Přehled
 - **Zákazníci**: Zákazníci
@@ -221,9 +221,10 @@ ISPConfig / web / db.
 - **Infrastruktura**: Infrastruktura, Běhové úlohy, Automatizace, Odchylky a úklid, Herní uzly, Šablony her, Alokace a porty, Provisioning fronta, Integrace providerů, Umístění tarifů, Registrátoři domén, Provoz a operace, Hromadné akce
 - **Obchod**: Kredity a platby
 - **Finance**: Platební brána Comgate
+- **Bezpečnost a compliance**: Bezpečnostní novinky
 - **Identita a schvalování**: Schvalování
 
-**Oprávnění** (8): `iam.jit.request`, `provider.instance.read`, `provisioning.drift.resolve`, `provisioning.operation.read`, `provisioning.operation.retry`, `staff.console`, `staff.customer.read`, `staff.service.manage`
+**Oprávnění** (9): `iam.jit.request`, `provider.instance.read`, `provisioning.drift.resolve`, `provisioning.operation.read`, `provisioning.operation.retry`, `security.advisory.read`, `staff.console`, `staff.customer.read`, `staff.service.manage`
 
 **Kontrolní seznam**
 
@@ -247,7 +248,7 @@ Odmítnuté akce (musí skončit chybou):
 
 aaPanel managed pool.
 
-**Očekávané menu konzole** (položek: 19):
+**Očekávané menu konzole** (položek: 20):
 
 - **Přehled**: Přehled
 - **Zákazníci**: Zákazníci
@@ -255,9 +256,10 @@ aaPanel managed pool.
 - **Infrastruktura**: Infrastruktura, Běhové úlohy, Automatizace, Odchylky a úklid, Herní uzly, Šablony her, Alokace a porty, Provisioning fronta, Integrace providerů, Umístění tarifů, Registrátoři domén, Provoz a operace, Hromadné akce
 - **Obchod**: Kredity a platby
 - **Finance**: Platební brána Comgate
+- **Bezpečnost a compliance**: Bezpečnostní novinky
 - **Identita a schvalování**: Schvalování
 
-**Oprávnění** (8): `iam.jit.request`, `provider.instance.read`, `provisioning.drift.resolve`, `provisioning.operation.read`, `provisioning.operation.retry`, `staff.console`, `staff.customer.read`, `staff.service.manage`
+**Oprávnění** (9): `iam.jit.request`, `provider.instance.read`, `provisioning.drift.resolve`, `provisioning.operation.read`, `provisioning.operation.retry`, `security.advisory.read`, `staff.console`, `staff.customer.read`, `staff.service.manage`
 
 **Kontrolní seznam**
 
@@ -506,16 +508,17 @@ Odmítnuté akce (musí skončit chybou):
 
 Metrics/incidents/maintenance.
 
-**Očekávané menu konzole** (položek: 26):
+**Očekávané menu konzole** (položek: 27):
 
 - **Přehled**: Přehled
 - **Zákazníci**: Zákazníci
 - **Provoz**: Provoz, Incidenty, Kalendář odstávek, Pohotovost (on-call), Sondy a komponenty, SLO a dostupnost
 - **Infrastruktura**: Infrastruktura, Běhové úlohy, Automatizace, Odchylky a úklid, Herní uzly, Šablony her, Alokace a porty, Provisioning fronta, Kapacita a nákup uzlů, Integrace providerů, Umístění tarifů, Registrátoři domén, Provoz a operace, Hromadné akce
 - **Finance**: Platební brána Comgate, SLA kredity, Reporty a výhled
+- **Bezpečnost a compliance**: Bezpečnostní novinky
 - **Identita a schvalování**: Schvalování
 
-**Oprávnění** (12): `capacity.read`, `iam.jit.request`, `incident.manage`, `incident.publish`, `maintenance.manage`, `provider.instance.read`, `provisioning.freeze`, `provisioning.operation.read`, `provisioning.operation.retry`, `report.read`, `sla.credit.manage`, `staff.customer.read`
+**Oprávnění** (14): `capacity.read`, `iam.jit.request`, `incident.manage`, `incident.publish`, `maintenance.manage`, `provider.instance.read`, `provisioning.freeze`, `provisioning.operation.read`, `provisioning.operation.retry`, `report.read`, `security.advisory.manage`, `security.advisory.read`, `sla.credit.manage`, `staff.customer.read`
 
 **Kontrolní seznam**
 
@@ -571,15 +574,15 @@ Odmítnuté akce (musí skončit chybou):
 
 Detections/quarantine/forensics.
 
-**Očekávané menu konzole** (položek: 5):
+**Očekávané menu konzole** (položek: 6):
 
 - **Přehled**: Přehled
 - **Zákazníci**: Zákazníci
 - **Obchod**: Kredity a platby
-- **Bezpečnost a compliance**: Bezpečnostní incidenty a lhůty
+- **Bezpečnost a compliance**: Bezpečnostní incidenty a lhůty, Bezpečnostní novinky
 - **Identita a schvalování**: Schvalování
 
-**Oprávnění** (7): `audit.read.global`, `iam.jit.request`, `provisioning.freeze`, `security.event.read`, `security.incident.manage`, `staff.customer.read`, `staff.service.manage`
+**Oprávnění** (10): `audit.read.global`, `iam.jit.request`, `provisioning.freeze`, `security.advisory.manage`, `security.advisory.read`, `security.advisory.remediate`, `security.event.read`, `security.incident.manage`, `staff.customer.read`, `staff.service.manage`
 
 **Kontrolní seznam**
 
@@ -588,6 +591,8 @@ Povolené akce (musí uspět):
 - [ ] Otevřít přehled zákazníků (Customer 360) (`GET /v1/staff/customers`, `staff.customer.read`): úspěch.
 - [ ] Pozastavit nebo obnovit zákaznickou službu (`POST /v1/staff/services/{service}/actions`, `staff.service.manage`): úspěch.
 - [ ] Vést bezpečnostní incident (`GET /v1/staff/security/incidents`, `security.incident.manage`, riziko HIGH: čerstvý step-up): úspěch.
+- [ ] Číst bezpečnostní novinky a jejich případy (SN) (`GET /v1/staff/security/advisory-cases`, `security.advisory.read`): úspěch.
+- [ ] Schválit opravu zranitelnosti na webech zákazníků (SN) (`POST /v1/staff/security/advisory-cases/{case}/approve`, `security.advisory.remediate`, riziko HIGH: čerstvý step-up): úspěch.
 
 Odmítnuté akce (musí skončit chybou):
 

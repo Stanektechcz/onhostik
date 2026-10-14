@@ -156,6 +156,20 @@ final class NotificationRouter
             'service.migration.failed' => $this->internal($m, 'infra', 'Stěhování serveru '.($p['label'] ?? '').' selhalo', (string) ($p['error'] ?? '').' · '.($p['source_node'] ?? '').' → '.($p['target_node'] ?? ''), '/sprava#/gprov', 'hot'),
             'service.suspended' => $this->customer($m, 'service', 'Služba byla pozastavena', (string) ($p['reason'] ?? ''), '/panel/sluzby', 'hot', $email, 'service-suspended', ['duvod' => (string) ($p['reason'] ?? ''), 'url' => "{$portal}/panel/fakturace"]),
             'service.resumed' => $this->customer($m, 'service', 'Služba byla obnovena', '', '/panel/sluzby'),
+            // SN security advisories: staff hear a new case (hot when critical or exploited now), the customer hears what, where and why
+            'security.advisory.matched' => $this->internal($m, 'security', 'Zranitelnost '.($p['cve'] ?? '').' se týká '.(int) ($p['matches'] ?? 0).' míst', mb_substr((string) ($p['title'] ?? ''), 0, 200).' · závažnost '.($p['severity'] ?? '?').(! empty($p['kev']) ? ' · aktivně zneužívaná' : ''), '/sprava/nastaveni/bezpecnost', ! empty($p['urgent']) ? 'hot' : 'warn'),
+            'security.remediation.halted' => $this->internal($m, 'security', 'Oprava zranitelnosti '.($p['cve'] ?? '').' zastavena', (string) ($p['reason'] ?? '').' · upozorněno zákazníků: '.(int) ($p['told'] ?? 0), '/sprava/nastaveni/bezpecnost', 'hot'),
+            'security.remediation.finished' => $this->internal($m, 'security', 'Oprava zranitelnosti '.($p['cve'] ?? '').' doběhla', 'opraveno míst: '.(int) ($p['fixed'] ?? 0).' · stav '.($p['state'] ?? ''), '/sprava/nastaveni/bezpecnost'),
+            'security.advisory.service_affected' => (function () use ($m, $p, $email, $portal): void {
+                [$software, $next] = self::advisoryNotice($p);
+                $this->customer($m, 'service', 'Bezpečnostní chyba na webu '.($p['site'] ?? ''), $software.' · '.$next, '/panel/sluzby', ($p['outcome'] ?? '') === 'scheduled' ? 'warn' : 'hot', $email, 'security-advisory', [
+                    'web' => (string) ($p['site'] ?? ''), 'software' => $software, 'chyba' => trim((string) ($p['cve'] ?? '').' '.mb_substr((string) ($p['title'] ?? ''), 0, 160)), 'zavaznost' => self::advisorySeverity($p), 'co_udelat' => $next, 'odkaz' => (string) ($p['link'] ?? '—'), 'url' => "{$portal}/panel/sluzby",
+                ]);
+            })(),
+            'security.advisory.service_fixed' => (function () use ($m, $p, $email, $portal): void {
+                [$software] = self::advisoryNotice($p);
+                $this->customer($m, 'service', 'Bezpečnostní oprava na webu '.($p['site'] ?? '').' je hotová', $software.' · aktualizováno, web prošel kontrolou', '/panel/sluzby', 'info', $email, 'security-advisory-fixed', ['web' => (string) ($p['site'] ?? ''), 'software' => $software, 'chyba' => (string) ($p['cve'] ?? ''), 'url' => "{$portal}/panel/podpora"]);
+            })(),
             'service.terminated' => $this->customer($m, 'service', 'Služba byla ukončena', 'Zálohy držíme po dobu retenční lhůty.', '/panel/sluzby', 'warn'),
             // the deletion lifecycle (audit §5ab): deactivation, the restore window, the removal and the archive
             'service.restore_test.failed' => $this->customerAndStaff($m, $p, 'Záloha se nepodařilo obnovit na zkoušku', 'Pravidelný test obnovy u služby '.($p['label'] ?? '').' neprošel: '.($p['problem'] ?? '').' Vaše data ani databáze jsme nijak nezměnili — test běží stranou. Díváme se na to.'),
@@ -874,6 +888,34 @@ final class NotificationRouter
         } catch (\Throwable) {
             return $date;
         }
+    }
+
+    /**
+     * SN: what a security notice says about the software and what happens next — taken from the case's structured fields only.
+     *
+     * @param  array<string,mixed>  $p
+     * @return array{0:string, 1:string}
+     */
+    private static function advisoryNotice(array $p): array
+    {
+        $items = array_map(fn ($i) => trim((string) ($i['software'] ?? '').' '.(string) ($i['version'] ?? '')), (array) ($p['items'] ?? []));
+        $fixed = implode(' / ', array_unique(array_filter(array_map(fn ($i) => (string) ($i['fixed_in'] ?? ''), (array) ($p['items'] ?? [])))));
+        $software = implode(', ', array_filter($items)) ?: 'software webu';
+        $next = match ((string) ($p['outcome'] ?? '')) {
+            'scheduled' => 'Opravu nasadíme sami'.($fixed !== '' ? ' (verze '.$fixed.' nebo novější)' : '').'. Jde o větší aktualizaci, web se po ní může chovat jinak; po dokončení ho prosím zkontrolujte.',
+            'halted' => 'Naši automatickou aktualizaci jsme zastavili, protože se na jednom z webů nepodařila. Aktualizujte prosím software sami'.($fixed !== '' ? ' alespoň na verzi '.$fixed : '').' a web zkontrolujte, nebo napište podpoře.',
+            default => $fixed !== ''
+                ? 'Automaticky to za vás opravit nemůžeme. Aktualizujte prosím software alespoň na verzi '.$fixed.' (před tím web zazálohujte), nebo napište podpoře.'
+                : 'Opravená verze zatím nevyšla. Pokud software nepotřebujete, dočasně ho vypněte; jakmile oprava vyjde, aktualizujte ho.',
+        };
+
+        return [$software, $next.(! empty($p['exploited']) ? ' Chyba se už aktivně zneužívá, prosíme o rychlou reakci.' : '')];
+    }
+
+    /** @param array<string,mixed> $p */
+    private static function advisorySeverity(array $p): string
+    {
+        return ['critical' => 'kritická', 'high' => 'vysoká', 'medium' => 'střední', 'low' => 'nízká'][(string) ($p['severity'] ?? '')] ?? 'neurčená';
     }
 
     private static function when(mixed $iso): string

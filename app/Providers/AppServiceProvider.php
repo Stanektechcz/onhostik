@@ -15,6 +15,7 @@ use Illuminate\Queue\Events\Looping;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
+use Onhost\Domain\Advisories\AdvisoryIngest;
 use Onhost\Domain\Identity\Models\PersonalAccessToken;
 use Onhost\Domain\Platform\QueueLaneHeartbeat;
 use Onhost\Domain\Platform\ScheduleHealth;
@@ -24,8 +25,14 @@ use Onhost\Platform\Dns\RecordResolver;
 use Onhost\Platform\Dns\SystemRecordResolver;
 use Onhost\Platform\Http\DnsHostResolver;
 use Onhost\Platform\Http\HostResolver;
+use Onhost\Platform\Redaction\Redactor;
 use Onhost\Platform\Tls\CertificateReader;
 use Onhost\Platform\Tls\PeerCertificateReader;
+use Onhost\Providers\Advisories\CisaKevFeed;
+use Onhost\Providers\Advisories\CveListFeed;
+use Onhost\Providers\Advisories\NvdFeed;
+use Onhost\Providers\Advisories\OsvLookup;
+use Onhost\Providers\Advisories\WordfenceFeed;
 
 final class AppServiceProvider extends ServiceProvider
 {
@@ -34,6 +41,8 @@ final class AppServiceProvider extends ServiceProvider
         $this->app->bind(HostResolver::class, DnsHostResolver::class); // what a customer-named destination resolves to (EgressGuard)
         $this->app->bind(RecordResolver::class, SystemRecordResolver::class); // what the internet answers for a customer's domain (PublicDnsCheck)
         $this->app->bind(DnsblLookup::class, ResolverDnsblLookup::class); // SP1a: blocklist questions through the operator's own resolver
+        // SN: the vulnerability feeds and lookup databases the advisory ingest reads (providers/Advisories behind the contracts)
+        $this->app->bind(AdvisoryIngest::class, fn ($app) => new AdvisoryIngest([$app->make(CisaKevFeed::class), $app->make(NvdFeed::class), $app->make(CveListFeed::class), $app->make(WordfenceFeed::class)], [$app->make(OsvLookup::class)], $app->make(Redactor::class)));
         $this->app->bind(CertificateReader::class, PeerCertificateReader::class); // what a node really serves for a site (CertificateWatch)
         $this->app->singleton(SurfaceRenderer::class, fn () => new SurfaceRenderer((string) config('onhost.ui.surfaces_path', base_path('apps/surfaces'))));
         $this->app->singleton(QueueLaneHeartbeat::class); // one per worker process: it remembers when it last stamped each lane (TASK-0045)
