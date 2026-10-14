@@ -210,7 +210,7 @@ final class MetricRegistry
             'entitlement' => ['spam_filter'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::NONE, 'families' => ['mail'],
             'sources' => ['ispconfig' => null],
             'interval_minutes' => null, 'drives_guard' => false, 'status' => self::GAP,
-            'reason' => 'Only CatalogPresentation names the antispam tier ("rspamd" vs "rspamd + policies"); no mail workflow writes an rspamd policy set from it.',
+            'reason' => 'Declared fair use (PlanPromises::FAIR_USE, metering M4 default, phase U U4): the catalogue still carries the tier ("rspamd" vs "rspamd + policies"), but no mail workflow writes an rspamd policy set from it, so CatalogPresentation words both as the server\'s antispam with its own rules — "Antispam rspamd s pravidly serveru (fair use)" — never as a per-plan policy. A per-plan policy (ISPConfig spamfilter_user + policy id) is the owner\'s choice and would need staging.',
         ],
         // ---- CDN add-on (no executor at all; off sale since phase U, CD-3 — the row stays for subscriptions customers hold) ----------
         'bot_management' => [
