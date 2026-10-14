@@ -548,6 +548,8 @@ QUEUE_CONNECTION=redis
 CACHE_STORE=redis
 SESSION_DRIVER=redis
 ONHOST_SECRETS_DRIVER=db
+# TASK-0229: the sell-switch matrix is fail-closed; staging must keep selling (A–C drills, smoke orders, Penpot paper-parent)
+ONHOST_SELL_DEFAULT=true
 REDIS_PREFIX?
 CACHE_PREFIX?
 REDIS_PREFIX!=<production REDIS_PREFIX, question 14>

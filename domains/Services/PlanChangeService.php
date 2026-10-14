@@ -60,7 +60,7 @@ final class PlanChangeService
         $plans = [];
         foreach ($product?->plans->where('state', 'active')->sortBy('sort') ?? [] as $plan) {
             try {
-                $resolved = $this->catalog->resolve($product->key, $plan->key, $currency, $period);
+                $resolved = $this->catalog->resolve($product->key, $plan->key, $currency, $period, true);
             } catch (DomainError) {
                 continue; // no price for this period or currency: not offered here
             }
@@ -81,7 +81,7 @@ final class PlanChangeService
             $monthly = null;
             foreach (['month', 'year'] as $candidate) {
                 try {
-                    $net = $this->catalog->resolve($product->key, $currentPlan, $currency, $candidate)['price']->renewalAmount();
+                    $net = $this->catalog->resolve($product->key, $currentPlan, $currency, $candidate, true)['price']->renewalAmount();
                 } catch (DomainError) {
                     continue;
                 }

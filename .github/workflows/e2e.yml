@@ -48,6 +48,7 @@ jobs:
           ONHOST_BACKUP_OFFSITE_DISK: ''
           MAIL_MAILER: log
           WEDOS_TEST_MODE: 'true'
+          ONHOST_SELL_DEFAULT: 'true'
 
       - uses: actions/setup-node@v4
         with:
@@ -80,6 +81,7 @@ jobs:
           ONHOST_BACKUP_OFFSITE_DISK: ''
           MAIL_MAILER: log
           WEDOS_TEST_MODE: 'true'
+          ONHOST_SELL_DEFAULT: 'true'
 
       - uses: actions/upload-artifact@v4
         if: failure()

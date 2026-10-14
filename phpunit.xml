@@ -28,6 +28,7 @@
         <env name="APP_ENV" value="testing"/>
         <env name="ONHOST_STAFF_MFA_REQUIRED" value="true"/>
         <env name="ONHOST_UI_DEMO" value="false"/>
+        <env name="ONHOST_SELL_DEFAULT" value="true"/>
         <env name="ONHOST_SECRETS_DRIVER" value="env"/>
         <env name="APP_KEY" value="base64:Gk2rQ0mQ8x2kQ6c1a1v0pYQ7Gz8s9J4c3v1n0b5m6L8="/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>

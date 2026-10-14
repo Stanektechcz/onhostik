@@ -47,7 +47,7 @@ final class PricingController extends ApiController
             'products' => $products->map(fn (Product $p) => [
                 'key' => $p->key, 'name' => $p->localizedName('cs'), 'family' => $p->family, 'state' => $p->state, 'builder' => (bool) (($p->meta ?? [])['builder'] ?? false),
                 'plans' => $p->plans->where('state', 'active')->map(fn ($plan) => ['key' => $plan->key, 'name' => $plan->localizedName('cs')])->values()->all(),
-                'addon_products' => $rules->addonProducts($p),
+                'addon_products' => $rules->addonProducts($p, applySellSwitch: false),
                 'options' => $p->options->sortBy('sort')->map(fn (ProductOption $o) => self::option($o))->values()->all(),
             ])->values()->all(),
             'addon_candidates' => $products->where('family', 'addon')->map(fn (Product $p) => ['key' => $p->key, 'name' => $p->localizedName('cs'), 'state' => $p->state])->values()->all(), // a draft add-on is listed and never offered to a customer
