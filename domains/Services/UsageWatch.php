@@ -186,11 +186,15 @@ final class UsageWatch
         if (in_array($service->family, ['cloud', 'game', 'data'], true)) {
             // VPS, game servers and managed databases report live usage; Proxmox gives no used disk at all, which is now
             // "not measured" instead of a VPS that was always at 0 % (audit §5f-3)
-            $metrics = $this->services->usage($service)->metrics;
+            // phase T, metering M2: a VPS/VDS plan sells a monthly transfer (traffic_tb, binary TB like traffic_gb's GB); the month's
+            // transfer of the VM since the start of the calendar month (UTC) comes from the node's RRD — a soft metric: it warns, never cuts off
+            $transferLimit = $service->family === 'cloud' ? (int) round((float) ($entitlements['traffic_tb'] ?? 0) * 1024 ** 4) : 0;
+            $metrics = $this->services->usage($service, $transferLimit > 0 ? now()->startOfMonth()->toIso8601String() : null)->metrics;
 
             return [
                 self::reading('disk', $metrics['disk_bytes'] ?? null, (int) (($entitlements['nvme_gb'] ?? $service->desired_spec['nvme_gb'] ?? 0) * 1024 ** 3), 'usage'),
                 self::reading('memory', $metrics['mem_bytes'] ?? null, (int) (($entitlements['ram_mb'] ?? $service->desired_spec['ram_mb'] ?? 0) * 1024 ** 2), 'usage'),
+                ...($transferLimit > 0 ? [self::reading('transfer', $metrics['transfer_bytes'] ?? null, $transferLimit, 'usage')] : []),
             ];
         }
         if ($service->family === 'mail') {
@@ -309,7 +313,7 @@ final class UsageWatch
     {
         return match ($key) {
             'disk' => $locale === 'cs' ? 'prostor' : 'disk space', 'traffic' => $locale === 'cs' ? 'přenos dat' : 'traffic', 'memory' => $locale === 'cs' ? 'paměť' : 'memory', 'mail' => $locale === 'cs' ? 'poštovní schránky' : 'mailboxes',
-            'inodes' => $locale === 'cs' ? 'počet souborů' : 'file count',
+            'inodes' => $locale === 'cs' ? 'počet souborů' : 'file count', 'transfer' => $locale === 'cs' ? 'měsíční přenos dat' : 'monthly transfer',
             WebDiskTotal::METRIC => $locale === 'cs' ? 'prostor tarifu celkem (soubory, databáze, pošta)' : 'plan storage in total (files, databases, mail)', default => $key,
         };
     }

@@ -1550,7 +1550,8 @@ final class ServiceService
             'issued_to_account' => $context->actorType === 'service_account' ? $context->actorId : null, 'issued_at' => now()->toIso8601String()], $ttl);
     }
 
-    public function usage(Service $service): Usage
+    /** @param  string|null  $periodStart  ISO 8601: also the transfer since then, where the adapter can read it (phase T, metering M2) */
+    public function usage(Service $service, ?string $periodStart = null): Usage
     {
         $binding = $service->primaryBinding();
         $instance = $service->provider_instance_id ? ProviderInstance::query()->find($service->provider_instance_id) : null;
@@ -1568,7 +1569,7 @@ final class ServiceService
             throw new DomainError('usage_unsupported', 'This service type reports no usage.', 422);
         }
 
-        return CustomerUsage::of($service, $adapter->usage($binding->ref()));
+        return CustomerUsage::of($service, $adapter->usage($binding->ref(), $periodStart));
     }
 
     public function transition(Service $service, string $to, CommandContext $context, ?string $note = null): Service

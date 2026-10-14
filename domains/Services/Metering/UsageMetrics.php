@@ -22,6 +22,9 @@ final class UsageMetrics
         'disk' => ['registry' => 'nvme_gb', 'unit' => 'bytes', 'watched' => ['web', 'managed', 'cloud', 'game']],
         'traffic' => ['registry' => 'traffic_gb', 'unit' => 'bytes_month', 'watched' => ['web', 'managed']],
         'inodes' => ['registry' => 'inodes', 'unit' => 'count', 'watched' => ['web', 'managed']],
+        // phase T, metering M2: the monthly transfer of a VM against traffic_tb (soft in MetricRegistry: it tells, never blocks or orders);
+        // never watched before on any family, so it tells the customer only once onhost.metering.enforce_new_metrics is on (P-R24, D+30)
+        'transfer' => ['registry' => 'traffic_tb', 'unit' => 'bytes_month', 'watched' => []],
         'memory' => ['registry' => 'ram_mb', 'unit' => 'bytes', 'watched' => ['cloud', 'game']],
         'mail' => ['registry' => 'quota_mb', 'unit' => 'bytes', 'watched' => ['mail']],
         // files + databases + mail of a web plan (WebDiskTotal); a watch metric only once enforced for the service
@@ -31,7 +34,7 @@ final class UsageMetrics
     /** The metrics read for each family (what a failed reading is recorded as missing). @var array<string, list<string>> */
     public const BY_FAMILY = [
         'web' => ['disk', 'traffic', 'inodes'], 'managed' => ['disk', 'traffic', 'inodes'],
-        'cloud' => ['disk', 'memory'], 'game' => ['disk', 'memory'], 'data' => ['disk', 'memory'], 'mail' => ['mail'],
+        'cloud' => ['disk', 'memory', 'transfer'], 'game' => ['disk', 'memory'], 'data' => ['disk', 'memory'], 'mail' => ['mail'],
     ];
 
     /**

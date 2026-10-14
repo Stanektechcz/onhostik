@@ -468,7 +468,46 @@ final class ProxmoxComputeProvider implements ComputeProvider, CustomIsoCapable,
             'disk_read_bytes' => (int) ($status['diskread'] ?? 0),
             'disk_write_bytes' => (int) ($status['diskwrite'] ?? 0),
             'uptime_s' => (int) ($status['uptime'] ?? 0),
-        ], now()->toISOString());
+        ] + ($periodStart === null ? [] : ['transfer_bytes' => $this->transfer($vm, (int) strtotime($periodStart), $periodEnd === null ? null : (int) strtotime($periodEnd))]),
+            now()->toISOString(), $periodStart, $periodEnd);
+    }
+
+    /**
+     * Bytes the VM received and sent from `$from` (until `$to`, or now), read from the node's RRD (phase T, metering M2): the month
+     * archive (`timeframe=month`, `cf=AVERAGE`) holds one point per step with `netin`/`netout` as the average rate in bytes per second
+     * over that step, so a step moved rate × step bytes. `status/current` counters are no use here: they start again with every boot.
+     * A point without data (the node was down, the VM did not exist yet) is skipped, never read as zero; with no point at all the answer
+     * is null — not measured. The step is taken from the points themselves. ASSUMED until it is checked on a real cluster (PX-1): the
+     * units, the archive's resolution (12 h, so the month boundary is exact to one step) and that the archive survives a restart and a
+     * migration inside the cluster (it is kept per VMID by the cluster file system).
+     */
+    private function transfer(ResourceRef $vm, int $from, ?int $to): ?int
+    {
+        $points = array_values(array_filter((array) $this->api->get("/nodes/{$vm->node}/qemu/{$vm->remoteId}/rrddata", ['timeframe' => 'month', 'cf' => 'AVERAGE'], 'qemu.rrddata'), 'is_array'));
+        usort($points, fn (array $a, array $b) => (int) ($a['time'] ?? 0) <=> (int) ($b['time'] ?? 0));
+        $times = array_map(fn (array $p) => (int) ($p['time'] ?? 0), $points);
+        $steps = [];
+        for ($i = 1, $n = count($times); $i < $n; $i++) {
+            if ($times[$i] > $times[$i - 1]) {
+                $steps[] = $times[$i] - $times[$i - 1];
+            }
+        }
+        if ($steps === []) {
+            return null;
+        }
+        $step = min($steps);
+        $until = $to ?? now()->getTimestamp();
+        $bytes = 0.0;
+        $seen = false;
+        foreach ($points as $i => $point) {
+            if ($times[$i] < $from || $times[$i] >= $until || (! is_numeric($point['netin'] ?? null) && ! is_numeric($point['netout'] ?? null))) {
+                continue;
+            }
+            $bytes += ((float) ($point['netin'] ?? 0) + (float) ($point['netout'] ?? 0)) * $step;
+            $seen = true;
+        }
+
+        return $seen ? (int) round($bytes) : null;
     }
 
     public function snapshot(ResourceRef $vm, string $name, ?string $description = null): ProviderResult

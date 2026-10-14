@@ -12,6 +12,7 @@ use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Organizations\GrantPolicy;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
+use Onhost\Domain\Services\Metering\UsageMetrics;
 use Onhost\Domain\Services\Metering\WebDiskTotal;
 use Onhost\Domain\Services\UsageWatch;
 use Onhost\Domain\Tax\VatNumber;
@@ -125,9 +126,11 @@ final class NotificationRouter
                     return;
                 }
                 $level = (string) ($p['level'] ?? 'warn');
-                $body = match ($level) { // a full plan is not a warning any more: the site cannot take more until there is room
-                    'full' => "Tarif je vyčerpaný, takže do služby zatím nejde přidávat další obsah. Uvolněte místo, nebo zvyšte tarif. {$offer}",
-                    'critical' => "Kapacita je téměř vyčerpaná. {$offer}",
+                $soft = UsageMetrics::isSoft((string) ($top['key'] ?? '')); // a soft limit (the monthly transfer of a VPS, phase T) tells, it never stops anything
+                $body = match (true) { // a full plan is not a warning any more: the site cannot take more until there is room
+                    $level === 'full' && $soft => "Limit tarifu je vyčerpaný. Službu kvůli tomu neomezujeme ani neodpojujeme. {$offer}",
+                    $level === 'full' => "Tarif je vyčerpaný, takže do služby zatím nejde přidávat další obsah. Uvolněte místo, nebo zvyšte tarif. {$offer}",
+                    $level === 'critical' => "Kapacita je téměř vyčerpaná. {$offer}",
                     default => "Blížíte se limitu tarifu. {$offer}",
                 };
                 $this->customer($m, 'service', $level === 'full' ? "Služba {$name} má vyčerpaný tarif ({$metric})" : "Služba {$name} využívá {$pct} % ({$metric})", $body, '/panel/sluzby', in_array($level, ['critical', 'full'], true) ? 'hot' : 'warn', $email, 'service-usage-high', ['sluzba' => $name, 'metrika' => $metric, 'procenta' => (string) $pct, 'nabidka' => $offer, 'url' => "{$portal}/panel/sluzby"]);
