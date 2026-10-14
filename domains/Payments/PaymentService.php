@@ -592,28 +592,25 @@ final class PaymentService
     }
 
     /**
-     * Daily settlement reconciliation (§64.6): provider settlement vs intents vs ledger. Scheduled nightly for yesterday by
-     * `onhost:payments:reconcile` (SettlementReconciliation, TASK-0235). The period is two instants; the provider is asked for the
-     * accounting days (Europe/Prague) they fall on, so the UTC instants of a Prague day do not ask it for the day before. The
-     * provider is asked before anything is written: a provider that fails leaves no run behind.
+     * Daily settlement reconciliation (§64.6): provider settlement vs intents vs ledger. Scheduled nightly by
+     * `onhost:payments:reconcile` (SettlementReconciliation, TASK-0235). The period is half-open, [start, end): the provider is
+     * asked for the accounting days (Europe/Prague) it covers, so the UTC instants of a Prague day never ask it for a day before
+     * or after.
+     *
+     * Three phases. The provider is asked first, then every intent it settled that is still open here is re-read (syncFromProvider,
+     * idempotent, its own transactions). Only then is the run written — run, settlement, items, mismatches and the outbox event —
+     * in one transaction: a failure leaves no run behind (so the day is tried again), and the event commits with the run it names
+     * (the outbox relay reads only committed rows). One run per provider and period start (unique index): a concurrent second
+     * run fails on it and writes nothing.
      */
     public function reconcile(string $providerKey, \DateTimeInterface $periodStart, \DateTimeInterface $periodEnd, CommandContext $context): ReconciliationRun
     {
         $provider = $this->providers->get($providerKey);
-        $items = $provider->reconcile(AccountingClock::date($periodStart), AccountingClock::date($periodEnd));
-        $run = ReconciliationRun::query()->create(['kind' => 'payments', 'period_start' => $periodStart, 'period_end' => $periodEnd, 'state' => 'completed', 'created_by' => $context->actorType.':'.($context->actorId ?? 'system'), 'summary' => ['provider' => $providerKey, 'items' => count($items)]]);
-        $settlement = Settlement::query()->create(['provider' => $providerKey, 'period_start' => $periodStart, 'period_end' => $periodEnd, 'currency' => $items[0]['amount']->currency->value ?? 'CZK', 'items_count' => count($items), 'state' => 'imported']);
-        $mismatches = 0;
-        $total = 0;
-        $fees = 0;
-        foreach ($items as $item) {
+        $items = $provider->reconcile(AccountingClock::date($periodStart), AccountingClock::date(CarbonImmutable::instance($periodEnd)->subMicrosecond()));
+        $intents = [];
+        foreach ($items as $i => $item) {
             $intent = PaymentIntent::query()->where('provider', $providerKey)->where('provider_id', $item['provider_id'])->first();
-            $state = 'matched';
-            if ($intent === null) {
-                $state = 'unmatched';
-                $mismatches++;
-                ReconciliationItem::query()->create(['run_id' => $run->id, 'kind' => 'settlement_without_intent', 'reference' => $item['provider_id'], 'actual_minor' => $item['amount']->minor, 'note' => 'Settlement item has no payment intent']);
-            } elseif (! $intent->isSucceeded()) {
+            if ($intent !== null && ! $intent->isSucceeded()) {
                 // Payment settled at the provider but never marked here (S53): sync now. One intent the provider cannot answer
                 // stays a mismatch for finance and does not stop the run (only the exception class is logged, never a payload).
                 try {
@@ -622,11 +619,35 @@ final class PaymentService
                     Log::warning('payments reconcile: intent not re-read', ['intent' => $intent->id, 'provider' => $providerKey, 'error' => get_class($e)]);
                 }
                 $intent->refresh();
-                if (! $intent->isSucceeded()) {
-                    $state = 'mismatch';
-                    $mismatches++;
-                    ReconciliationItem::query()->create(['run_id' => $run->id, 'kind' => 'settled_but_not_succeeded', 'reference' => $intent->id, 'expected_minor' => $intent->amount_minor, 'actual_minor' => $item['amount']->minor]);
-                }
+            }
+            $intents[$i] = $intent;
+        }
+
+        return DB::transaction(fn () => $this->recordReconciliation($providerKey, $periodStart, $periodEnd, $items, $intents, $context));
+    }
+
+    /**
+     * @param  list<array<string,mixed>>  $items
+     * @param  array<int, ?PaymentIntent>  $intents
+     */
+    private function recordReconciliation(string $providerKey, \DateTimeInterface $periodStart, \DateTimeInterface $periodEnd, array $items, array $intents, CommandContext $context): ReconciliationRun
+    {
+        $run = ReconciliationRun::query()->create(['kind' => 'payments', 'provider' => $providerKey, 'period_start' => $periodStart, 'period_end' => $periodEnd, 'state' => 'completed', 'created_by' => $context->actorType.':'.($context->actorId ?? 'system'), 'summary' => ['provider' => $providerKey, 'items' => count($items)]]);
+        $settlement = Settlement::query()->create(['provider' => $providerKey, 'period_start' => $periodStart, 'period_end' => $periodEnd, 'currency' => $items[0]['amount']->currency->value ?? 'CZK', 'items_count' => count($items), 'state' => 'imported']);
+        $mismatches = 0;
+        $total = 0;
+        $fees = 0;
+        foreach ($items as $i => $item) {
+            $intent = $intents[$i] ?? null;
+            $state = 'matched';
+            if ($intent === null) {
+                $state = 'unmatched';
+                $mismatches++;
+                ReconciliationItem::query()->create(['run_id' => $run->id, 'kind' => 'settlement_without_intent', 'reference' => $item['provider_id'], 'actual_minor' => $item['amount']->minor, 'note' => 'Settlement item has no payment intent']);
+            } elseif (! $intent->isSucceeded()) {
+                $state = 'mismatch';
+                $mismatches++;
+                ReconciliationItem::query()->create(['run_id' => $run->id, 'kind' => 'settled_but_not_succeeded', 'reference' => $intent->id, 'expected_minor' => $intent->amount_minor, 'actual_minor' => $item['amount']->minor]);
             } elseif ($intent->amount_minor !== $item['amount']->minor) {
                 $state = 'mismatch';
                 $mismatches++;
@@ -650,19 +671,29 @@ final class PaymentService
     }
 
     /**
-     * Intents that succeeded but whose payout never came. A gateway pays a day's payments out days later, so the run of day D
-     * asks only about intents paid `settlement_lag_days` before the period (Prague days), and an intent counts as paid out when
+     * Intents that succeeded but whose payout never came. A gateway pays a day's payments out days later, so the run of a period
+     * asks only about intents paid `settlement_lag_days` before it (Prague days, half-open), and an intent counts as paid out when
      * any settlement of the provider recorded so far carries it (this run's included) — a payout on D+2 raises nothing on D or
-     * D+2, and an intent never paid out is reported once, by the one run its paid day falls back to. A bank intent is paid out by
-     * the statement line that settled it, whatever day the line was booked (matching comes after booking).
+     * D+2, and an intent never paid out is reported once, by the one run its paid day falls to. That run asks only when every day
+     * of the lag before it has its run (the payouts of those days are known); without them it cannot tell late from missing and
+     * says nothing — the job's catch-up runs missed days oldest first, so the days are there. A bank intent is paid out by the
+     * statement line that settled it, whatever day the line was booked (matching comes after booking).
      *
      * @return Collection<int, PaymentIntent>
      */
     private function missingPayouts(string $providerKey, \DateTimeInterface $periodStart, \DateTimeInterface $periodEnd): Collection
     {
         $lag = max(0, (int) config("onhost.payments.reconcile.settlement_lag_days.{$providerKey}", 0));
-        $shift = fn (\DateTimeInterface $at) => CarbonImmutable::instance($at)->setTimezone(AccountingClock::timezone())->subDays($lag)->setTimezone(date_default_timezone_get());
-        $candidates = PaymentIntent::query()->where('provider', $providerKey)->where('state', S::SUCCEEDED)->whereBetween('paid_at', [$shift($periodStart), $shift($periodEnd)])
+        $local = fn (\DateTimeInterface $at) => CarbonImmutable::instance($at)->setTimezone(AccountingClock::timezone());
+        $utc = fn (CarbonImmutable $at) => $at->setTimezone(date_default_timezone_get());
+        for ($back = 1; $back <= $lag; $back++) {
+            $dayStart = $utc($local($periodStart)->startOfDay()->subDays($back));
+            if (! ReconciliationRun::query()->where('kind', 'payments')->where('provider', $providerKey)->where('period_start', $dayStart)->exists()) {
+                return new Collection;
+            }
+        }
+        $candidates = PaymentIntent::query()->where('provider', $providerKey)->where('state', S::SUCCEEDED)
+            ->where('paid_at', '>=', $utc($local($periodStart)->subDays($lag)))->where('paid_at', '<', $utc($local($periodEnd)->subDays($lag)))
             ->whereNotIn('id', BankStatementLine::query()->where('state', 'matched')->whereNotNull('matched_payment_intent_id')->select('matched_payment_intent_id'))
             ->get();
         if ($candidates->isEmpty()) {

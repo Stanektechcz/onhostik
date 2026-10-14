@@ -6,6 +6,7 @@ use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Console\Scheduling\Event as ScheduledEvent;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
@@ -15,7 +16,12 @@ use Onhost\Domain\Payments\Models\BankStatementLine;
 use Onhost\Domain\Payments\Models\PaymentIntent;
 use Onhost\Domain\Payments\Models\ReconciliationItem;
 use Onhost\Domain\Payments\Models\ReconciliationRun;
+use Onhost\Domain\Payments\Models\Settlement;
 use Onhost\Domain\Payments\Models\SettlementItem;
+use Onhost\Domain\Payments\PaymentService;
+use Onhost\Domain\Payments\ReconciliationHealth;
+use Onhost\Domain\Payments\SettlementReconciliation;
+use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Outbox\OutboxMessage;
 
 /*
@@ -30,6 +36,8 @@ beforeEach(function () {
     $this->seed([TaxRuleSeeder::class, LegalEntitySeeder::class]);
     config([
         'onhost.payments.reconcile.providers' => ['comgate', 'gopay', 'stripe', 'bank'],
+        // no lag unless a test sets one: the scheduled run then looks at yesterday only
+        'onhost.payments.reconcile.settlement_lag_days' => ['comgate' => 0, 'gopay' => 0, 'stripe' => 0, 'bank' => 0],
         'onhost.payments.gopay.secret_ref' => 'env://T235_RECON_GOPAY_ABSENT',
         'onhost.payments.stripe.secret_ref' => 'env://T235_RECON_STRIPE_ABSENT',
     ]);
@@ -111,7 +119,7 @@ it('reconciles yesterday in Prague once per provider and day, and a second run i
     $comgate = $runs->firstWhere('summary.provider', 'comgate');
     // the day's boundaries at the seller's seat, stored as instants in UTC (summer time: Prague is UTC+2)
     expect($comgate->period_start->toDateTimeString())->toBe('2026-10-13 22:00:00')
-        ->and($comgate->period_end->toDateTimeString())->toBe('2026-10-14 21:59:59')
+        ->and($comgate->period_end->toDateTimeString())->toBe('2026-10-14 22:00:00')
         ->and($comgate->state)->toBe('completed')->and($comgate->mismatches)->toBe(0);
 
     $this->artisan('onhost:payments:reconcile')
@@ -276,6 +284,99 @@ it('counts a bank payment paid out by its statement line whatever day the line w
     $this->artisan('onhost:payments:reconcile', ['--provider' => 'bank'])->expectsOutputToContain('mismatches 1')->assertExitCode(0);
 
     expect(ReconciliationItem::query()->where('kind', 'succeeded_without_settlement')->pluck('reference')->all())->toBe([$manual->id]);
+});
+
+it('writes nothing when the run fails half-way, so the day is reconciled again', function () {
+    [, $org] = $this->customerWithOrganization();
+    t235Intent($org, 'comgate', 'T235-HALF-0001', 'SUCCEEDED');
+    t235Intent($org, 'comgate', 'T235-HALF-0002', 'SUCCEEDED');
+    $days = [];
+    t235ComgateFake(['T235-HALF-0001' => 50000, 'T235-HALF-0002' => 50000, 'T235-HALF-STRANGER' => 100], [], $days);
+    $fail = true;
+    SettlementItem::creating(function (SettlementItem $item) use (&$fail) {
+        if ($fail && $item->provider_id === 'T235-HALF-0002') {
+            throw new RuntimeException('disk full');
+        }
+    });
+    Log::spy();
+
+    $this->artisan('onhost:payments:reconcile', ['--provider' => 'comgate'])->expectsOutputToContain('failed comgate')->assertExitCode(1);
+
+    Log::shouldHaveReceived('warning')->with('payments reconcile: provider failed', Mockery::on(fn (array $c) => $c['error'] === RuntimeException::class));
+    expect(ReconciliationRun::query()->count())->toBe(0)->and(Settlement::query()->count())->toBe(0)->and(SettlementItem::query()->count())->toBe(0)
+        ->and(ReconciliationItem::query()->count())->toBe(0)->and(OutboxMessage::query()->where('name', 'finance.reconciliation.mismatch')->count())->toBe(0);
+
+    $fail = false;
+    $this->artisan('onhost:payments:reconcile', ['--provider' => 'comgate'])->expectsOutputToContain('reconciled comgate')->assertExitCode(0);
+    expect(ReconciliationRun::query()->sole()->mismatches)->toBe(1)->and(SettlementItem::query()->count())->toBe(3)
+        ->and(OutboxMessage::query()->where('name', 'finance.reconciliation.mismatch')->count())->toBe(1);
+});
+
+it('refuses a second run of one provider and day in the database itself', function () {
+    $days = [];
+    t235ComgateFake([], [], $days);
+    [$start, $end] = SettlementReconciliation::bounds('2026-10-14');
+    app(PaymentService::class)->reconcile('comgate', $start, $end, CommandContext::system('test'));
+
+    expect(fn () => app(PaymentService::class)->reconcile('comgate', $start, $end, CommandContext::system('test')))->toThrow(UniqueConstraintViolationException::class);
+    expect(ReconciliationRun::query()->count())->toBe(1)->and(Settlement::query()->count())->toBe(1);
+});
+
+it('catches up a missed day, so a payment never paid out is still reported once', function () {
+    config(['onhost.payments.reconcile.settlement_lag_days.comgate' => 2]);
+    [, $org] = $this->customerWithOrganization();
+    $lost = t235PaidIntent($org, 'comgate', 'T235-MISS-0001', '2026-10-10 08:00:00');
+    t235ComgatePayouts([]);
+    foreach (['2026-10-10', '2026-10-11'] as $day) {
+        $this->artisan('onhost:payments:reconcile', ['--provider' => 'comgate', '--date' => $day])->assertExitCode(0);
+    }
+    // the 12th — the day the lost payment is due — was never run (the scheduler was down); the next scheduled run on the 15th:
+
+    $this->artisan('onhost:payments:reconcile', ['--provider' => 'comgate'])
+        ->expectsOutputToContain('payments reconcile 2026-10-12: reconciled comgate, already -, skipped -, failed -, mismatches 1')
+        ->expectsOutputToContain('payments reconcile 2026-10-13: reconciled comgate')
+        ->expectsOutputToContain('payments reconcile 2026-10-14: reconciled comgate')
+        ->assertExitCode(0);
+    $this->artisan('onhost:payments:reconcile', ['--provider' => 'comgate'])->expectsOutputToContain('payments reconcile 2026-10-12: reconciled -, already comgate')->assertExitCode(0);
+
+    expect(ReconciliationItem::query()->where('kind', 'succeeded_without_settlement')->pluck('reference')->all())->toBe([$lost->id])
+        ->and(ReconciliationRun::query()->count())->toBe(5);
+});
+
+it('takes a day as [00:00, next 00:00) in Prague, the summer-time change included', function () {
+    $this->travelTo(Carbon::parse('2026-10-27 12:00:00', 'UTC'));
+    [, $org] = $this->customerWithOrganization();
+    // bank payments marked paid with no statement line: each is reported by the run of the day it was paid on
+    $late = t235PaidIntent($org, 'bank', 't235-dst-a', '2026-10-24 21:59:59.5'); // 23:59:59.5 on the 24th (CEST)
+    $midnight = t235PaidIntent($org, 'bank', 't235-dst-b', '2026-10-24 22:00:00'); // 00:00 on the 25th
+    $lastSecond = t235PaidIntent($org, 'bank', 't235-dst-c', '2026-10-25 22:59:59'); // 23:59:59 on the 25th (CET since 03:00)
+    $next = t235PaidIntent($org, 'bank', 't235-dst-d', '2026-10-25 23:00:00'); // 00:00 on the 26th
+    foreach (['2026-10-24', '2026-10-25', '2026-10-26'] as $day) {
+        $this->artisan('onhost:payments:reconcile', ['--provider' => 'bank', '--date' => $day])->assertExitCode(0);
+    }
+
+    $reported = fn (string $start) => ReconciliationItem::query()->where('run_id', ReconciliationRun::query()->where('period_start', Carbon::parse($start, 'UTC'))->value('id'))->pluck('reference')->sort()->values()->all();
+    expect($reported('2026-10-23 22:00:00'))->toBe([$late->id])
+        ->and($reported('2026-10-24 22:00:00'))->toBe(collect([$midnight->id, $lastSecond->id])->sort()->values()->all())
+        ->and($reported('2026-10-25 23:00:00'))->toBe([$next->id]);
+    $dst = ReconciliationRun::query()->where('period_start', Carbon::parse('2026-10-24 22:00:00', 'UTC'))->sole();
+    expect($dst->period_end->toDateTimeString())->toBe('2026-10-25 23:00:00'); // a 25-hour day
+});
+
+it('names in the doctor a gateway with credentials that has no reconciliation for yesterday, and is OK without a gateway', function () {
+    $row = fn () => collect(app(ReconciliationHealth::class)->checks())->firstWhere('check', ReconciliationHealth::CHECK);
+    // 01:30 in Prague: the 05:15 run has not reconciled the 14th yet, the 13th is due
+    expect($row()['ok'])->toBeFalse()->and($row()['detail'])->toBe('comgate has no reconciliation for 2026-10-13')->and($row()['blocking'])->toBeFalse();
+
+    $days = [];
+    t235ComgateFake([], [], $days);
+    $this->artisan('onhost:payments:reconcile', ['--provider' => 'comgate', '--date' => '2026-10-13'])->assertExitCode(0);
+    expect($row()['ok'])->toBeTrue()->and($row()['detail'])->toBe('comgate reconciled for 2026-10-13');
+
+    // staging: no gateway holds credentials — nothing to reconcile, OK
+    t235ComgateCredentials(null, null);
+    $this->travelTo(Carbon::parse('2026-10-16 10:00:00', 'UTC'));
+    expect($row()['ok'])->toBeTrue()->and($row()['detail'])->toContain('no payment gateway holds credentials');
 });
 
 it('is scheduled once a day at a quiet hour in Prague, on one server and without overlap', function () {

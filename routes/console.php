@@ -368,12 +368,12 @@ Artisan::command('onhost:payments:sweep {--limit= : intents re-read in this run 
     return 0;
 })->purpose('Re-read the provider status of card payments left pending (lost notification and lost return) and settle, fail or cancel them');
 
-Artisan::command('onhost:payments:reconcile {--provider= : one provider (default: every one in onhost.payments.reconcile.providers)} {--date= : the accounting day YYYY-MM-DD, Europe/Prague (default: yesterday)}', function (SettlementReconciliation $reconciliation) {
+Artisan::command('onhost:payments:reconcile {--provider= : one provider (default: every one in onhost.payments.reconcile.providers)} {--date= : one accounting day YYYY-MM-DD, Europe/Prague (default: yesterday and every earlier day of the catch-up window without a run)}', function (SettlementReconciliation $reconciliation) {
     // TASK-0235: once per provider and day; a provider without credentials is skipped and one that fails does not stop the others.
-    // Exit 1 only when every provider tried failed: one gateway's outage is a log warning, a run that reconciled nothing is a failed job.
-    $day = $this->option('date');
-    $day = $day === null ? SettlementReconciliation::defaultDay() : (string) $day;
-    if (! SettlementReconciliation::isReconcilableDay($day)) {
+    // Exit 1 only when every provider tried failed: one gateway's outage is a log warning and a doctor row, a run that reconciled
+    // nothing is a failed job. Without --date the days missed since the last run (scheduler down, a provider failed) come first.
+    $date = $this->option('date');
+    if ($date !== null && ! SettlementReconciliation::isReconcilableDay((string) $date)) {
         $this->error('--date must be a past day as YYYY-MM-DD (Europe/Prague); today is not over yet.');
 
         return 1;
@@ -384,13 +384,19 @@ Artisan::command('onhost:payments:reconcile {--provider= : one provider (default
 
         return 1;
     }
-    $s = $reconciliation->run($day, $provider !== null ? [(string) $provider] : $reconciliation->configuredProviders());
+    $providers = $provider !== null ? [(string) $provider] : $reconciliation->configuredProviders();
+    $done = $failed = 0;
     $list = fn (array $keys) => $keys === [] ? '-' : implode(' ', $keys);
-    $this->info(sprintf('payments reconcile %s: reconciled %s, already %s, skipped %s, failed %s, mismatches %d',
-        $s['day'], $list($s['reconciled']), $list($s['already']), $list($s['skipped']), $list($s['failed']), $s['mismatches']));
+    foreach ($date !== null ? [(string) $date] : SettlementReconciliation::catchUpDays($providers) as $day) {
+        $s = $reconciliation->run($day, $providers);
+        $done += count($s['reconciled']) + count($s['already']);
+        $failed += count($s['failed']);
+        $this->info(sprintf('payments reconcile %s: reconciled %s, already %s, skipped %s, failed %s, mismatches %d',
+            $s['day'], $list($s['reconciled']), $list($s['already']), $list($s['skipped']), $list($s['failed']), $s['mismatches']));
+    }
 
-    return $s['failed'] !== [] && $s['reconciled'] === [] && $s['already'] === [] ? 1 : 0;
-})->purpose('Reconcile yesterday\'s provider settlements (bank statement lines included) with payment intents and the ledger, once per provider and day');
+    return $failed > 0 && $done === 0 ? 1 : 0;
+})->purpose('Reconcile yesterday\'s provider settlements (bank statement lines included) with payment intents and the ledger, once per provider and day, catching up missed days');
 
 Artisan::command('onhost:webhooks:retry', function (WebhookDispatcher $webhooks) {
     $this->table(['queued', 'dead'], [$webhooks->retryDue()]);

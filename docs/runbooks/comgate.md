@@ -110,43 +110,61 @@ is corrected.
 ## Daily settlement reconciliation (TASK-0235)
 
 `onhost:payments:reconcile` runs every day at 05:15 Europe/Prague (one server, no overlap) and reconciles **yesterday** — a day at
-the seller's seat, Europe/Prague, the same accounting day as documents (`AccountingClock`) — for every provider in
-`onhost.payments.reconcile.providers` (`ONHOST_PAYMENTS_RECONCILE_PROVIDERS`, default `comgate,gopay,stripe,bank`) through
-`PaymentService::reconcile()`. Comgate is asked `GET /transfer?date=<day>` and the detail of each transfer; GoPay and Stripe their
-statements; the bank needs no credentials, its settlements are the statement lines matched here. Each settled item is compared with
-its intent and the ledger:
+the seller's seat, Europe/Prague, the same accounting day as documents (`AccountingClock`), taken as the half-open interval
+[00:00, next 00:00) so a summer-time change gives a 23- or 25-hour day — for every provider in `onhost.payments.reconcile.providers`
+(`ONHOST_PAYMENTS_RECONCILE_PROVIDERS`, default `comgate,gopay,stripe,bank`) through `PaymentService::reconcile()`. Comgate is asked
+`GET /transfer?date=<day>` and the detail of each transfer; GoPay and Stripe their statements; the bank needs no credentials, its
+settlements are the statement lines matched here. Each settled item is compared with its intent and the ledger:
 
 * an intent the provider settled that is still open here is re-read and settled (`syncFromProvider`, the sweep's path);
-* every difference — a settlement without an intent, an amount that differs, a settled intent that stays open, an intent paid in
-  the day that is missing from the settlement — is a reconciliation item, and the run publishes `finance.reconciliation.mismatch`
+* every difference — a settlement without an intent, an amount that differs, a settled intent that stays open, a succeeded intent
+  whose payout never came (see *Payout lag*) — is a reconciliation item, and the run publishes `finance.reconciliation.mismatch`
   (finance inbox, `NotificationRouter`). Resolve it as in [billing-dunning.md](billing-dunning.md) (*Reconciliation*): never edit a
   posting.
 
-**Once per provider and day.** A provider that already has its run (`reconciliation_runs`, `kind=payments`, `summary.provider`,
-`period_start`) for the day is left alone, so a second run or a manual one is a no-op (`already`). By hand:
-`php artisan onhost:payments:reconcile --date=2026-10-13 --provider=comgate` (`--date` only a past day; today, a future day or a
-malformed one is refused with exit 1, as is an unknown provider).
+**Once per provider and day, all or nothing.** The provider is asked and open intents are re-read first; then the run, the
+settlement, its items, the mismatch items and the outbox event are written in **one transaction**, so a failure half-way leaves no
+run behind and the day is tried again (the event is committed with the run it names; the outbox relay reads only committed rows).
+`reconciliation_runs` has a unique index on (`kind`, `provider`, `period_start`) (migration 001230): a second run of the same
+provider and day — a manual one next to the scheduled one, or a second scheduler host — is refused by the database and reported
+as `already`; no shared cache is relied on.
 
-Output, one line: `payments reconcile <day>: reconciled <providers>, already <providers>, skipped <providers>, failed <providers>,
-mismatches N`. A provider without credentials is **skipped** with the warning `payments reconcile: provider skipped, no credentials`
-(the sweep's check). A provider that fails is logged as `payments reconcile: provider failed` with the provider, the day and the
-exception class only, and the others go on; it writes no run, so its day is run again by hand with `--date`. The job exits **1 only
-when every provider it tried failed** (none reconciled or already done); skipped ones are not tried. On staging, which has no gateway
-account, the card gateways are skipped and the bank is reconciled, so the job exits 0 and the doctor's *every scheduled job ran
-within its budget* stays OK.
+**Catch-up.** Without `--date` the job looks at yesterday and the days before it up to the largest settlement lag of its providers
+(defaults: six days), oldest first, and reconciles every one that has no run yet. A night the scheduler was down or a provider failed
+is therefore done the next night by itself. By hand, one day: `php artisan onhost:payments:reconcile --date=2026-10-13
+--provider=comgate` (`--date` only a past day; today, a future day or a malformed one is refused with exit 1, as is an unknown
+provider).
+
+Output, one line per day: `payments reconcile <day>: reconciled <providers>, already <providers>, skipped <providers>, failed
+<providers>, mismatches N`. A provider without credentials is **skipped** with the warning `payments reconcile: provider skipped, no
+credentials` (`GatewayCredentials`, the sweep's check). A provider that fails is logged as `payments reconcile: provider failed` with
+the provider, the day and the exception class only, and the others go on. The job exits **1 only when every provider it tried
+failed** (none reconciled or already done); skipped ones are not tried. On staging, which has no gateway account, the card gateways
+are skipped and the bank is reconciled, so the job exits 0 and the doctor's *every scheduled job ran within its budget* stays OK.
 
 **Payout lag.** A gateway pays a day's payments out days later, so a missing payout (`succeeded_without_settlement`) is asked about
 only once the provider's lag has passed: the run of day D checks the intents paid on D minus
 `onhost.payments.reconcile.settlement_lag_days` (Prague days), and an intent counts as paid out when any settlement of that provider
-recorded so far carries it. A payout two days late raises nothing; an intent never paid out is reported exactly once, by the one run
-its day falls to. A bank intent is paid out by the statement line that settled it, whatever day the line was booked. Defaults —
-**ASSUMED**, not verified with any account: Comgate 5 and GoPay 5 (they reconcile by transfer/statement date, paid after one or more
-working days; 5 covers a weekend with a holiday), Stripe 2 (its adapter lists balance transactions by charge creation), bank 0. A
-larger value only reports later, never falsely; correct them in `config/onhost.php` once real payouts are seen. `settlement_without_intent`
-and `amount_mismatch` are still checked in every run against that day's settlement.
+recorded so far carries it. The run of D asks only when each of the lag days before it has its run (otherwise late cannot be told
+from missing); the catch-up makes sure they do. A payout two days late raises nothing; an intent never paid out is reported exactly
+once, by the one run its day falls to. A bank intent is paid out by the statement line that settled it, whatever day the line was
+booked. Defaults — **ASSUMED**, not verified with any account: Comgate 5 and GoPay 5 (they reconcile by transfer/statement date,
+paid after one or more working days; 5 covers a weekend with a holiday), Stripe 2 (its adapter lists balance transactions by charge
+creation), bank 0. A larger value only reports later, never falsely. `settlement_without_intent` and `amount_mismatch` are still
+checked in every run against that day's settlement.
+
+**Verify the lag defaults against the first real payouts.** In the first weeks a gateway is live, compare for a sample of payments
+the day they were paid with the transfer date of the payout that carried them (Comgate merchant portal → *Převody*, or the
+`settled_at` of `settlement_items`). Set `settlement_lag_days` of the gateway to the longest delay seen plus a holiday margin
+(`config/onhost.php`, a reviewed change), and record the observation here. Too small a lag raises false
+`succeeded_without_settlement` items; too large only reports a lost payout later.
 
 ## Doctor
 
+* *every payment gateway with credentials was reconciled yesterday* (WARN only, `payments` area, `ReconciliationHealth`): a gateway
+  in `onhost.payments.reconcile.providers` that holds its credentials (the bank is not counted) and has no run for yesterday (before
+  06:00 Prague: the day before yesterday). Remedy: run the job with `--provider`, read `payments reconcile: provider failed`; the
+  next night's catch-up retries by itself. With no gateway holding credentials — **staging today** — the row is OK.
 * *card gateway live mode* reads the mode payments are really created in (administration override first, then `COMGATE_TEST`) and
   says who set it; it blocks a production deploy while the gateway is in test mode (as before).
 * *Comgate answered the last administration check* (WARN only): never checked, or the last check failed.
