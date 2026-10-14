@@ -152,7 +152,7 @@ art onhost:catalog:revise                                                       
 - **V2:** `CDN a WAF · připravujeme` 1×; `PITR (7|30|90) dní` v `onhost-svc-web.js` 0×; `Antispam rspamd s pravidly serveru (fair use)`
   1×; `changes: [],` 1×. `onhost:catalog:revise` (suchý běh, bez `--apply`): revize `2026-09-honest-promises` (db-s/db-m −pitr_days
   −connections, e-shop a další) a `2026-09-shared-php-workers` **na stagingu nejsou aplikované**; nikdo nedrží staré verze. Zapsáno jako
-  stav, nic se neaplikovalo (aplikace = čtyři oči / vlastník). Data plánů db-s/db-m tedy na stagingu dál nesou `pitr_days`.
+  stav, nic se neaplikovalo (aplikace = operátor na serveru, bez druhé osoby). Data plánů db-s/db-m tedy na stagingu dál nesou `pitr_days`.
 - **C4b 13:10:** `onhost:registrar:credit` proběhl 13:00:09 bez chyby (`failures_in_a_row` 0, `last_success_at` nastaven); doctor
   *every scheduled job ran within its budget* **OK 92/92**. Řádek V-B v `expected-nonok` tím přestal být potřeba; brána příštího
   cyklu ho ukáže jako `CLEARED`. **V1 = PASS.**
@@ -160,7 +160,7 @@ art onhost:catalog:revise                                                       
 
 ### Findings
 
-1. Obě revize katalogu z 2026-09 čekají na stagingu na `--apply` (čtyři oči); do té doby řádek *every catalogue revision is applied* zůstává WARN.
+1. Obě revize katalogu z 2026-09 čekají na stagingu na `--apply` (operátor na serveru, bez druhé osoby); do té doby řádek *every catalogue revision is applied* zůstává WARN.
 2. Řádek V-B: první úspěšný běh `onhost:registrar:credit` na `82bc988f` proběhl 13:00:09 (C4b); příští brána ho ukáže jako `CLEARED`.
 3. Další cyklus po sloučení SP1a (PR #221) přinese nový WARN „mail blocklist resolver is accepted“, dokud staging nemá vlastní resolver nebo klíč DQS.
 

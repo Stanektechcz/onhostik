@@ -76,7 +76,7 @@ site's `app.env` (`.env` of the release). After any change of an environment var
   * `ONHOST_DNSBL_RESOLVER`: an own recursive resolver (`host`, `host:port` or `[v6]:port`) with a reverse name that
     identifies you, reachable over UDP 53. Public resolvers (8.8.8.8, 1.1.1.1) and an empty value mean Spamhaus,
     Barracuda, SURBL and URIBL are never asked.
-  * `ONHOST_SPAMHAUS_DQS_KEY`: the key of Spamhaus' Data Query Service (free for low volume after sign-up). It is a secret:
+  * `ONHOST_SPAMHAUS_DQS_KEY`: the key of Spamhaus' Data Query Service (free or paid per Spamhaus' terms). It is a secret:
     never logged and never stored with a listing.
 
   Optional tuning keys with defaults: `ONHOST_DNSBL_TIMEOUT` (2 s), `ONHOST_DNSBL_DISABLED`,
@@ -95,13 +95,17 @@ site's `app.env` (`.env` of the release). After any change of an environment var
 * **Set:** nothing in the environment. Publish the revisions defined in code (`domains/Catalog/CatalogRevisions.php`;
   details in [pricing.md](pricing.md), *Catalogue revisions*).
 * **Run:**
-  1. Dry run, read-only: `art onhost:catalog:revise` lists the plans, the keys each loses, who keeps the old version and the
-     promo prices carried over. Read it.
-  2. `art onhost:catalog:revise --apply` publishes the new plan versions. It asks first; the publication is a critical
-     action, so it runs under four eyes (a second person, [approvals.md](approvals.md)) unless the single-operator switch is
-     set on the server.
+  1. Dry run, read-only: `art onhost:catalog:revise` covers every pending revision (or one id:
+     `art onhost:catalog:revise <id>`); it lists the plans, the keys each loses, who keeps the old version and the promo
+     prices carried over. Read it.
+  2. `art onhost:catalog:revise --apply` publishes the new plan versions. It runs as the system actor
+     (`cli:catalog:revise`) with no second person: shell access to the server is the gate, and the revision's content is
+     reviewed as code (see [pricing.md](pricing.md)). It asks for confirmation (`--yes` skips the question). `--apply` is
+     refused, publishing nothing, when a revision is not ready (the command prints `Not ready` and what to finish first).
 * **Verify, read-only:** run the dry run again, it answers *Nothing pending*; `art onhost:doctor` shows *every catalogue
   revision is applied* OK.
 * **Until done:** the old plan versions stay on sale, including the promises the revisions withdraw, and the doctor shows
   *every catalogue revision is applied* as a WARN.
-* **Undo:** publish the previous plan version in the plan editor; customers keep the version they hold either way.
+* **Undo:** publish the previous plan version in the plan editor; customers keep the version they hold either way. Note that
+  this makes the revision pending again, so the dry run lists it and the doctor WARN returns until it is applied or the
+  plan is taken off sale.
