@@ -124,7 +124,7 @@ final class BankStatementFile
                         'message' => $tx === null ? null : self::camtMessage($xp, $tx),
                         'account' => $own,
                     ];
-                    $line['external_id'] = $ref !== null && $ref !== '' ? 'cs:camt:'.$own.':'.$ref : 'cs:camt:h:'.self::digest($line, $lines);
+                    $line['external_id'] = $ref !== null && $ref !== '' ? 'cs:camt:'.$own.':'.$ref : 'cs:camt:h:'.self::digest($line, $lines, true);
                     $lines[] = $line;
                     self::guardCount(count($lines) + $skipped);
                 }
@@ -336,10 +336,10 @@ final class BankStatementFile
      * @param  array<string,mixed>  $line
      * @param  list<array<string,mixed>>  $before
      */
-    private static function digest(array $line, array $before): string
+    private static function digest(array $line, array $before, bool $camt = false): string
     {
-        $key = self::digestKey($line);
-        $same = count(array_filter($before, fn (array $b) => self::digestKey($b) === $key));
+        $key = self::digestKey($line, $camt);
+        $same = count(array_filter($before, fn (array $b) => self::digestKey($b, $camt) === $key));
 
         return substr(hash('sha256', $key.'#'.$same), 0, 40);
     }
@@ -349,9 +349,12 @@ final class BankStatementFile
      *
      * @param  array<string,mixed>  $line
      */
-    private static function digestKey(array $line): string
+    private static function digestKey(array $line, bool $camt = false): string
     {
-        return implode('|', [$line['account'] ?? '', $line['booked_at'], $line['amount'], $line['currency'], $line['variable_symbol'] ?? '', $line['counterparty'] ?? '']);
+        // camt: the raw remittance text stands in for the extracted variable symbol, so a better extraction never changes the id
+        $symbolOrText = $camt ? ($line['message'] ?? '') : ($line['variable_symbol'] ?? '');
+
+        return implode('|', [$line['account'] ?? '', $line['booked_at'], $line['amount'], $line['currency'], $symbolOrText, $line['counterparty'] ?? '']);
     }
 
     private static function ddmmrr(string $value): ?string

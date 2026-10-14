@@ -126,3 +126,17 @@ it('GPC: the external id does not change when the symbol comes from the message'
     $without = BankStatementFile::parse(bssGpcRow('', 'nic'))['lines'][0]['external_id'];
     expect($with)->toBe($without);
 });
+
+it('camt: a line without a bank reference keeps its external id wherever (or whether) a symbol is found', function () {
+    $idOf = fn (string $details) => BankStatementFile::parse(str_replace('<AcctSvcrRef>R1</AcctSvcrRef>', '', bssCamt([$details])))['lines'][0];
+    $text = $idOf('<RmtInf><Ustrd>platba za hosting</Ustrd></RmtInf>');
+    $withEndToEnd = $idOf('<Refs><EndToEndId>/VS/42</EndToEndId></Refs><RmtInf><Ustrd>platba za hosting</Ustrd></RmtInf>');
+    $withStrd = $idOf('<RmtInf><Strd><CdtrRefInf><Ref>77</Ref></CdtrRefInf></Strd><Ustrd>platba za hosting</Ustrd></RmtInf>');
+
+    expect($text['variable_symbol'])->toBeNull()->and($withEndToEnd['variable_symbol'])->toBe('42')->and($withStrd['variable_symbol'])->toBe('77');
+    expect($text['external_id'])->toStartWith('cs:camt:h:')->and($withEndToEnd['external_id'])->toBe($text['external_id'])->and($withStrd['external_id'])->toBe($text['external_id']);
+});
+
+it('camt: a line with a bank reference keeps the reference id', function () {
+    expect(BankStatementFile::parse(bssCamt(['<RmtInf><Ustrd>VS 5</Ustrd></RmtInf>']))['lines'][0]['external_id'])->toBe('cs:camt:CZ6508000000002000145399:R1');
+});
