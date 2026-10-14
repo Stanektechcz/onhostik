@@ -78,6 +78,9 @@ is corrected.
 * *card gateway live mode* reads the mode payments are really created in (administration override first, then `COMGATE_TEST`) and
   says who set it; it blocks a production deploy while the gateway is in test mode (as before).
 * *Comgate answered the last administration check* (WARN only): never checked, or the last check failed.
+* *Comgate notification allow-list is filled* (WARN only, `payments` area): empty `COMGATE_CALLBACK_IPS` means every notification is
+  refused and payments settle via return/sweep. On staging (no Comgate account) it belongs to `expected-nonok` as
+  `payments|Comgate notification allow-list is filled`.
 
 ## Not verified live
 
