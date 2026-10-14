@@ -113,9 +113,11 @@ TASK-0032 (deploy gate) is PR #26
 - **The panel lists services by state too** — „Vyžadují pozornost“, „Zřizují se“, „Rušené“ — through the category
   seam the sidebar already had; a view appears only when it holds something and never counts a service twice.
 
-- **The address a node sends mail from is asked of the blocklists** every day (`BlocklistCheck`): one spammer on a
-  shared node makes every other customer on it bounce. Operators hear it once a day per node with the list and the
-  code; the customer never does, because the address and the delisting are both ours.
+- **Every sending address and customer mail domain is asked of the blocklists** every hour (`ReputationMonitor`,
+  TASK-0223 SP1a, replaced the daily `BlocklistCheck`): node IPv4/IPv6 and customer mail domains against a curated
+  catalogue, through an own resolver (lists that refuse public resolvers are never asked through one), with a history
+  of listings, three doctor rows and metrics. One spammer on a shared node makes every other customer on it bounce.
+  Operators hear it once a day per node with the list and the code; the customer never does from here (SP1c decides).
 
 - **What public DNS answers is compared with what the platform published** (`PublicDnsCheck`, daily): the site's
   address, MX, SPF, DKIM and DMARC. A record missing from a zone the platform runs is repaired silently; what only

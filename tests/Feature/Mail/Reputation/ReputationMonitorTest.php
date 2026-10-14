@@ -300,3 +300,19 @@ it('stops asking when the run reaches its time budget and leaves the rest for th
 
     expect($result['checked'])->toBe(3)->and(count($dns->asked))->toBe(3)->and($result['deferred'])->toBeGreaterThan(0);
 });
+
+it('asks a pair again in the next hourly run although the run starts a few seconds earlier in the hour', function () {
+    $dns = reputationDns([]);
+    sendingNode(['public_ipv4' => '203.0.113.10']);
+    app(ReputationMonitor::class)->run();
+    $first = count($dns->asked);
+
+    $this->travel(50)->minutes();
+    app(ReputationMonitor::class)->run();
+    $tooEarly = count($dns->asked);
+
+    $this->travel(597)->seconds(); // 59:57 later: the scheduler's next :25 came before the hour was full
+    app(ReputationMonitor::class)->run();
+
+    expect($first)->toBeGreaterThan(0)->and($tooEarly)->toBe($first)->and(count($dns->asked))->toBe(2 * $first);
+});

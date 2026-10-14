@@ -29,6 +29,9 @@ use Onhost\Platform\Outbox\OutboxPublisher;
  */
 final class ReputationMonitor
 {
+    /** A pair is due this much before its interval is full: the hourly run starts a little earlier in the hour than the last one asked. */
+    private const DUE_SLACK_MINUTES = 5;
+
     public function __construct(
         private readonly DnsblLookup $dns,
         private readonly ReputationTargets $targets,
@@ -91,7 +94,8 @@ final class ReputationMonitor
      */
     private function duePairs(array $lists, array $targets): array
     {
-        $since = now()->subMinutes(max(1, (int) config('onhost.antispam.dnsbl.min_interval_minutes', 60)));
+        // a pair asked at :25:03 is due again at the next :25:00 — without the slack it would wait a second hour
+        $since = now()->subMinutes(max(1, (int) config('onhost.antispam.dnsbl.min_interval_minutes', 60) - self::DUE_SLACK_MINUTES));
         $last = [];
         foreach (ReputationCheck::query()->get(['list_key', 'target', 'checked_at']) as $check) {
             $last[$check->list_key."\0".$check->target] = $check->checked_at;

@@ -112,7 +112,7 @@ node-side change goes through the node agent (§7), which stays off (`ONHOST_ANT
 ## 5. Architecture
 
 ```
-            ┌──────────────── ReputationMonitor (onhost:mail:reputation, hourly) ───────────────┐
+            ┌──────────────── ReputationMonitor (onhost:mail:blocklist, hourly) ────────────────┐
  targets:   │ sending addresses (node tags public_ipv4/public_ipv6 + ONHOST_ANTISPAM_SENDING_ADDRESSES) │
             │ customer mail domains (mail_domain bindings of live services)                        │
             └───► DnsblLookup (own resolver, DQS key, cache, budget) ───► BlocklistCatalog (weights, │
@@ -199,8 +199,21 @@ Pull/push keeps root SSH away from the platform; the platform never runs a comma
 
 | Package | Content | Live? |
 | --- | --- | --- |
-| **SP1a** (TASK-0223) | this document, V-R1; `BlocklistCatalog`, own-resolver DNSBL lookup (UDP client, DQS key, cache, budget, error answers), `ReputationMonitor` over sending addresses (IPv4 + IPv6) and customer mail domains, `mail_reputation_listings`, `onhost:mail:reputation` (replaces the 3-list daily check), doctor rows, metrics | reads public DNS only |
+| **SP1a** (TASK-0223) | this document, V-R1; `BlocklistCatalog`, own-resolver DNSBL lookup (UDP client, DQS key, cache, budget, error answers), `ReputationMonitor` over sending addresses (IPv4 + IPv6) and customer mail domains, `mail_reputation_listings`, `onhost:mail:blocklist` hourly (replaces the 3-list daily check), doctor rows, metrics | reads public DNS only |
 | **SP1b** | `AntispamProvider` + ISPConfig / node-agent / fake implementations, `antispam_policies` (global / plan / service, customer bounds), policy at provisioning + drift, outbound limits, telemetry + detection, hold / lock / reset / purge through the bus, agent endpoints and script, `spam_filter` → `enforced_only` | agent off (`ONHOST_ANTISPAM_AGENT=false`) |
 | **SP1c** | incidents and the 72 h / 48 h timeline, cause search, remediation, prepared delist tickets, notifications (Lexicon CZ/EN), on-call alert, staff dashboard + API + navigation + StaffReadAudit + OpenAPI | — |
 | **SP1d** | SPF/DKIM/DMARC auto-setup and checks, PTR/HELO checks, Google Postmaster v2 and SNDS integrations (optional secrets) | read only |
 | **SP1e** | owner document for the staging verification (agent on one node, a test mailbox, a forced listing in a test zone) | after a separate "ano" |
+
+### Follow-ups from the SP1a review (for SP1b / SP1c)
+
+- **Listings whose target or list disappeared.** A node retired, a mail domain whose service ended, a list the operator
+  switched off (`ONHOST_DNSBL_DISABLED`) or removed from the catalogue: the pair is no longer asked, so its open listing
+  never clears. SP1c closes such listings with a reason (`target_gone` / `list_gone`) instead of `cleared`, and keeps them
+  out of the doctor rows and metrics.
+- **Truncated or mismatched DNS answers.** `UdpDnsClient::parse()` keeps the records of a truncated (TC) answer and checks
+  only the id, not the echoed question. Treat TC (or retry over TCP) and a question that is not the one asked as `failed`.
+- **Query volume and terms before any resolver goes live.** Before `ONHOST_DNSBL_RESOLVER` or `ONHOST_SPAMHAUS_DQS_KEY` is set
+  on staging or production: settle the real query volume per list against each list's free-use limits, and Spamhaus'
+  terms (the public mirrors are for non-commercial / low-volume use; a hosting provider is commercial, so DQS — free tier
+  or paid — is the expected route). Record the decision in `ROZHODNUTI.md` with the owner's "ano".
