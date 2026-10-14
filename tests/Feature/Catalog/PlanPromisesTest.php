@@ -148,6 +148,17 @@ it('names a GAP row in MetricRegistry, with a reason, for every KNOWN_GAPS key',
     foreach (array_keys(PlanPromises::KNOWN_GAPS) as $key) {
         $entry = MetricRegistry::get($key);
         expect($entry)->not->toBeNull("KNOWN_GAPS key '{$key}' has no MetricRegistry row at all");
+        // a row kept for some families and not for others (traffic_tb since phase T: VPS/VDS measured, the CDN add-on not) names the
+        // families it is still a gap for, each with its reason
+        if ($entry['status'] !== MetricRegistry::GAP) {
+            expect($entry['gap_families'] ?? [])->not->toBe([], "KNOWN_GAPS key '{$key}' is neither a GAP row nor names the families it is a gap for");
+            foreach ((array) ($entry['gap_families'] ?? []) as $family => $why) {
+                expect(in_array($family, $entry['families'], true))->toBeFalse("{$key}: gap family {$family} is also listed as kept")
+                    ->and((string) $why)->not->toBe('');
+            }
+
+            continue;
+        }
         expect($entry['status'])->toBe(MetricRegistry::GAP, "KNOWN_GAPS key '{$key}' is not recorded as a GAP in MetricRegistry")
             ->and((string) $entry['reason'])->not->toBe('', "KNOWN_GAPS key '{$key}' carries no MetricRegistry reason");
     }

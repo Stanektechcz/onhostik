@@ -114,7 +114,7 @@ final class PlanPromises
     public const KNOWN_GAPS = [
         'php_workers' => 'sold on wordpress/eshop (aaPanel), where the price list words it as the shared pool ("Sdílené PHP workery", decision 7); AaPanelWebProvider returns applied=false for every PHP-worker change, so the number itself is kept nowhere — see MetricRegistry',
         'spam_filter' => 'sold on mail plans; only the price list names the antispam tier, no mail config sets an rspamd policy from it — see MetricRegistry',
-        'traffic_tb' => 'sold on VPS/VDS and the CDN add-on; UsageWatch only measures traffic for web/managed families — see MetricRegistry',
+        'traffic_tb' => 'still sold on the CDN add-on (not on sale without a Cloudflare account, P-R46), whose product has no executor — nothing measures its transfer; VPS/VDS transfer is measured since phase T (M2, TASK-0216) — see MetricRegistry traffic_tb gap_families',
         'bot_management' => 'sold on the CDN add-on, whose product has no executor at all — nothing in the platform configures bot management — see MetricRegistry',
         'backup_days' => 'sold on web/managed, mail and db-s/db-m plans; kept only behind the owner\'s default-off rules — backups.as_sold (web/managed daily backups), mail.backup_retention (mailbox copies, TASK-0024) and backups.compute (managed databases, family `data`) — so with the rules off (the default) no family keeps it as sold — see MetricRegistry kept_under (found by family-scoping the registry check, audit §5ad)',
     ];

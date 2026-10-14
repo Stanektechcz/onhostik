@@ -52,6 +52,7 @@ final class MetricRegistry
      *     status: string,
      *     reason: string|null,
      *     kept_under?: array<string, string>,
+     *     gap_families?: array<string, string>,
      * }>
      */
     public const REGISTRY = [
@@ -176,11 +177,15 @@ final class MetricRegistry
             'sources' => ['penpot' => 'PenpotDockerProvider refuses a stack the node has no room for (assertDiskRoom) and applies the node\'s storage quota helper (options.quota_command, XFS project quota) with storage_gb; a node without the helper is a doctor finding ("every Penpot node limits the storage of a stack")'],
             'interval_minutes' => null, 'drives_guard' => false, 'status' => self::ENFORCED_ONLY, 'reason' => null,
         ],
+        // phase T, metering M2: measured for VPS/VDS (family cloud) — a soft limit, it warns and never cuts off. The CDN add-on sells the
+        // same key and nothing measures it there: `gap_families` names it, `families` leaves it out, so isKept() says no for it and the
+        // ratchet (PlanPromises::KNOWN_GAPS) keeps the key until the CDN is decided (P-R46, H-R2)
         'traffic_tb' => [
-            'entitlement' => ['traffic_tb'], 'unit' => 'bytes_month', 'scope' => 'service', 'limit_kind' => self::NONE, 'families' => ['cloud', 'addon'],
-            'sources' => ['proxmox' => null, 'cdn' => null],
-            'interval_minutes' => null, 'drives_guard' => false, 'status' => self::GAP,
-            'reason' => 'UsageWatch only measures "traffic" for web/managed families; cloud services (VPS/VDS) and the CDN add-on never have their monthly transfer read or capped anywhere.',
+            'entitlement' => ['traffic_tb'], 'unit' => 'bytes_month', 'scope' => 'service', 'limit_kind' => self::SOFT, 'families' => ['cloud'],
+            'sources' => ['proxmox' => 'ProxmoxComputeProvider::usage() with a period sums the VM\'s rrddata (timeframe month, cf AVERAGE) netin + netout × step since the start of the calendar month; UsageWatch compares it with traffic_tb as the soft metric "transfer" (warns from 85 %, never blocks, throttles or orders). New on the family: it tells the customer only once onhost.metering.enforce_new_metrics is on (P-R24); before that it is sampled and shown as observed. Units, step and survival across a restart/migration ASSUMED until PX-1.'],
+            'interval_minutes' => 60, 'drives_guard' => false, 'status' => self::MEASURED,
+            'reason' => null,
+            'gap_families' => ['addon' => 'The CDN add-on (not on sale without a Cloudflare account, P-R46) has no executor at all (CatalogSeeder::addonProducts): nothing reads or caps its monthly transfer.'],
         ],
         'snapshots' => [
             'entitlement' => ['snapshots'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::HARD, 'families' => ['cloud'],
@@ -294,7 +299,7 @@ final class MetricRegistry
         ],
     ];
 
-    /** @return array{entitlement:list<string>, unit:string, scope:string, limit_kind:string, families:list<string>, sources:array<string,string|null>, interval_minutes:int|null, drives_guard:bool, status:string, reason:string|null}|null */
+    /** @return array{entitlement:list<string>, unit:string, scope:string, limit_kind:string, families:list<string>, sources:array<string,string|null>, interval_minutes:int|null, drives_guard:bool, status:string, reason:string|null, kept_under?: array<string, string>, gap_families?: array<string, string>}|null */
     public static function get(string $key): ?array
     {
         return self::REGISTRY[$key] ?? null;
