@@ -177,15 +177,14 @@ final class MetricRegistry
             'sources' => ['penpot' => 'PenpotDockerProvider refuses a stack the node has no room for (assertDiskRoom) and applies the node\'s storage quota helper (options.quota_command, XFS project quota) with storage_gb; a node without the helper is a doctor finding ("every Penpot node limits the storage of a stack")'],
             'interval_minutes' => null, 'drives_guard' => false, 'status' => self::ENFORCED_ONLY, 'reason' => null,
         ],
-        // phase T, metering M2: measured for VPS/VDS (family cloud) — a soft limit, it warns and never cuts off. The CDN add-on sells the
-        // same key and nothing measures it there: `gap_families` names it, `families` leaves it out, so isKept() says no for it and the
-        // ratchet (PlanPromises::KNOWN_GAPS) keeps the key until the CDN is decided (P-R46, H-R2)
+        // phase T, metering M2: measured for VPS/VDS (family cloud) — a soft limit, it warns and never cuts off. The CDN add-on sold the
+        // same key with nothing measuring it there; since phase U (CD-3, migration 001210) it is off sale (draft), so the key left
+        // PlanPromises::KNOWN_GAPS. `families` still leaves `addon` out: isKept() says no if the CDN is put back on sale, and the guard names it
         'traffic_tb' => [
             'entitlement' => ['traffic_tb'], 'unit' => 'bytes_month', 'scope' => 'service', 'limit_kind' => self::SOFT, 'families' => ['cloud'],
             'sources' => ['proxmox' => 'ProxmoxComputeProvider::usage() with a period sums the VM\'s rrddata (timeframe month, cf AVERAGE) netin + netout × step since the start of the calendar month; UsageWatch compares it with traffic_tb as the soft metric "transfer" (warns from 85 %, never blocks, throttles or orders). New on the family: it tells the customer only once onhost.metering.enforce_new_metrics is on (P-R24); before that it is sampled and shown as observed. Units, step and survival across a restart/migration ASSUMED until PX-1.'],
             'interval_minutes' => 60, 'drives_guard' => false, 'status' => self::MEASURED,
             'reason' => null,
-            'gap_families' => ['addon' => 'The CDN add-on (not on sale without a Cloudflare account, P-R46) has no executor at all (CatalogSeeder::addonProducts): nothing reads or caps its monthly transfer.'],
         ],
         'snapshots' => [
             'entitlement' => ['snapshots'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::HARD, 'families' => ['cloud'],
@@ -213,12 +212,12 @@ final class MetricRegistry
             'interval_minutes' => null, 'drives_guard' => false, 'status' => self::GAP,
             'reason' => 'Only CatalogPresentation names the antispam tier ("rspamd" vs "rspamd + policies"); no mail workflow writes an rspamd policy set from it.',
         ],
-        // ---- CDN add-on (no executor at all) ---------------------------------------------------------------
+        // ---- CDN add-on (no executor at all; off sale since phase U, CD-3 — the row stays for subscriptions customers hold) ----------
         'bot_management' => [
             'entitlement' => ['bot_management'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::NONE, 'families' => ['addon'],
             'sources' => ['cdn' => null],
             'interval_minutes' => null, 'drives_guard' => false, 'status' => self::GAP,
-            'reason' => 'The cdn product is seeded with executor=null (CatalogSeeder::addonProducts) — there is no adapter for it at all, so nothing configures bot management.',
+            'reason' => 'The cdn product is seeded with executor=null (CatalogSeeder::addonProducts) — there is no adapter for it at all, so nothing configures bot management. Off sale since phase U (CD-3, migration 001210): only subscriptions customers already hold still carry it.',
         ],
         // ---- game (Pterodactyl) -------------------------------------------------------------------------------
         'cpu_pct' => [

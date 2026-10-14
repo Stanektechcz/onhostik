@@ -22,6 +22,7 @@ use Onhost\Platform\Money\Money;
 beforeEach(function () {
     config(['onhost.cdn.cloudflare.secret_ref' => 'env://CLOUDFLARE']); // the CDN add-on is sold only with a CDN account (K7-5, TASK-0172)
     $this->seed([CatalogSeeder::class, TaxRuleSeeder::class, LegalEntitySeeder::class]);
+    Product::query()->where('key', 'cdn')->update(['state' => 'active']); // off sale since phase U (CD-3, TASK-0218): the add-on mechanics here hold for it once it is back on sale
 });
 
 function pricingQuote($org, array $items, int $commit = 1, ?string $promo = null)

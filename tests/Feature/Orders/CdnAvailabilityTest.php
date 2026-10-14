@@ -7,6 +7,7 @@ use Database\Seeders\ContentSeeder;
 use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Support\Facades\Cache;
+use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Catalog\PricingRules;
 
 /*
@@ -45,6 +46,7 @@ it('does not offer or sell the CDN add-on without a CDN account', function () {
 
 it('offers and quotes the CDN add-on once a CDN account is configured', function () {
     config(['onhost.cdn.cloudflare.secret_ref' => 'env://CLOUDFLARE']);
+    Product::query()->where('key', 'cdn')->update(['state' => 'active']); // off sale since phase U (CD-3, TASK-0218): the account gate still holds once it is back
 
     expect(app(PricingRules::class)->addonProducts('web-hosting'))->toContain('cdn');
     [$owner] = $this->customerWithOrganization();

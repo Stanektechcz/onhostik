@@ -141,12 +141,12 @@ it('does not ask Proxmox for the transfer of a plan that sells none', function (
     expect(collect(app(UsageWatch::class)->readings($service))->firstWhere('metric', 'transfer'))->toBeNull()->and($asked)->toBe([]);
 });
 
-it('keeps traffic_tb for VPS/VDS and still names the CDN add-on that nothing measures', function () {
+it('keeps traffic_tb for VPS/VDS; the CDN add-on that nothing measures is off sale since phase U (CD-3)', function () {
     expect(MetricRegistry::get('traffic_tb')['status'])->toBe(MetricRegistry::MEASURED)
         ->and(MetricRegistry::isKept('traffic_tb', 'cloud'))->toBeTrue()
         ->and(MetricRegistry::isKept('traffic_tb', 'addon'))->toBeFalse()
-        ->and(MetricRegistry::get('traffic_tb')['gap_families'] ?? [])->toHaveKey('addon')
-        // the CDN add-on (not on sale, P-R46) still sells it, so the ratchet keeps the key until the CDN is decided
-        ->and(PlanPromises::KNOWN_GAPS)->toHaveKey('traffic_tb')
-        ->and(PlanPromises::KNOWN_GAPS['traffic_tb'])->toContain('CDN');
+        ->and(array_key_exists('gap_families', (array) MetricRegistry::get('traffic_tb')))->toBeFalse()
+        // nothing on sale sells it unkept any more, so the ratchet dropped the key (TASK-0218; CdnAddonDraftTest)
+        ->and(array_key_exists('traffic_tb', PlanPromises::KNOWN_GAPS))->toBeFalse()
+        ->and(PlanPromises::actualGaps(PlanPromises::readInSource()))->not->toContain('traffic_tb');
 });

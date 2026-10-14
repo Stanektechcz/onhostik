@@ -32,7 +32,8 @@ it('generates catalogue-driven plans, comparison tables and SKUs for the public 
     // opens with is delivered by the platform itself and stays (audit §5ac)
     expect($pages['ssl']['keep_first'])->toBe(1)->and($pages['ssl']['unavailable'])->toBeTrue()
         ->and($pages['ssl'])->not->toHaveKey('plans')->and($pages['ssl']['note'])->toContain('DV')->toContain('zdarma');
-    expect($pages['cdn']['plans'][1])->toMatchArray(['name' => 'Shield', 'price' => 890, 'tag' => 'Nejoblíbenější']);
+    // the CDN add-on is off sale (draft, phase U CD-3): its page keeps the narrated plans without prices or order buttons
+    expect($pages['cdn']['unavailable'] ?? null)->toBeTrue()->and($pages['cdn'])->not->toHaveKey('plans');
     expect($pages['backup']['plans'])->toHaveCount(3)->and($pages['vps']['plans'][0]['specs'])->toContain('2 vCPU', '4 GB RAM', '80 GB NVMe');
     expect($pages['domains'])->toMatchArray(['keep_last' => 1])->and($pages['domains']['plans'][0])->toMatchArray(['name' => '.cz', 'price' => 0, 'priceLabel' => '179 Kč', 'goto' => 'home', 'unitYear' => true])->and($pages['domains']['plans'][0]['specs'])->toContain('DNSSEC')->and($pages['domains']['plans'][0]['priceNote'])->toContain('obnova 179 Kč / rok');
     expect(json_encode($pages))->not->toMatch('/wedos|subreg|aapanel|ispconfig/i');

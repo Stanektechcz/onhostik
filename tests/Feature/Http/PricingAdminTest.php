@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Database\Seeders\CatalogSeeder;
 use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
+use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Catalog\Models\ProductOption;
 use Onhost\Domain\Catalog\Models\PromoCode;
 use Onhost\Domain\Identity\StepUp\StepUpService;
@@ -17,6 +18,7 @@ use Onhost\Platform\Money\Money;
 beforeEach(function () {
     config(['onhost.cdn.cloudflare.secret_ref' => 'env://CLOUDFLARE']); // the CDN add-on is sold only with a CDN account (K7-5, TASK-0172)
     $this->seed([CatalogSeeder::class, TaxRuleSeeder::class, LegalEntitySeeder::class]);
+    Product::query()->where('key', 'cdn')->update(['state' => 'active']); // off sale since phase U (CD-3, TASK-0218): the add-on mechanics here hold for it once it is back on sale
 });
 
 it('lets staff approve commitment and domain discounts, manage promo codes, add-on mappings and option prices', function () {

@@ -174,7 +174,7 @@ final class CatalogSeeder extends Seeder
             ['cdn-start', ['cs' => 'CDN Start', 'en' => 'CDN Start'], 19000, 190000, 790, 7900, false, 'standard', ['traffic_tb' => 1, 'pops' => 14, 'waf' => 'basic', 'ddos' => 'L3/L4'], []],
             ['shield', ['cs' => 'Shield', 'en' => 'Shield'], 89000, 890000, 3590, 35900, true, 'business', ['traffic_tb' => 10, 'pops' => 14, 'waf' => 'custom rules', 'bot_management' => true, 'ddos' => 'L3/L4 + L7'], []],
             ['shield-max', ['cs' => 'Shield Max', 'en' => 'Shield Max'], 289000, 2890000, 11590, 115900, false, 'ha', ['traffic_tb' => 50, 'pops' => 14, 'waf' => 'custom rules', 'bot_management' => true, 'anycast' => '/24', 'ddos' => 'dedicated scrubbing'], []],
-        ]);
+        ], state: 'draft'); // phase U (CD-3): no executor of its own and no Cloudflare account yet (P-R46) — nothing keeps its transfer or bot management; migration 001210 takes a running catalogue's product off sale
         $this->product('anti-ddos-pro', 'addon', null, 'subscription', ['cs' => 'Anti-DDoS Pro', 'en' => 'Anti-DDoS Pro'], ['cs' => 'L7 filtr, herní profily a ochrana portů nad rámec základní mitigace.', 'en' => 'L7 filtering, game profiles and port protection beyond the baseline mitigation.'], 93, ['upsell' => 'ddos'], [
             ['pro', ['cs' => 'Anti-DDoS Pro', 'en' => 'Anti-DDoS Pro'], 14900, 149000, 599, 5990, true, 'standard', ['l7' => true, 'game_profiles' => true, 'capacity_gbps' => 1200], []],
         ], state: 'draft'); // nothing in the control plane applies an L7 profile or a port filter; baseline mitigation is the network's, not a product
