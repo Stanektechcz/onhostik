@@ -28,6 +28,20 @@ The last result (without any credential; a credential echoed by the gateway is m
 Every run is a bus command: audit `payments.comgate.check` / `payments.comgate.test_mode.set`. The provider-call log redacts the
 `Authorization` header by name.
 
+## Payment notifications: the source allow-list (W1)
+
+`POST /v1/webhooks/payments/comgate` accepts a notification only from an address on `COMGATE_CALLBACK_IPS` (comma-separated; an
+address or a CIDR range, IPv4 or IPv6; entries are trimmed, blank ones and allow-all `/0` ranges are ignored). **An empty list
+refuses every notification** (`webhook_source_rejected`, HTTP 403) and Comgate is not asked about it; the administration's state
+then says so (`callback_allowlist: 0` with `callback_notice`). The list is required in production; the owner supplies Comgate's
+notification addresses (input CG-6). Until it is filled, a payment is confirmed only when the payer returns to the portal or by
+the daily reconciliation.
+
+The check reads the sender address Laravel resolves (`$request->ip()`). Behind a reverse proxy (nginx on another host, a load
+balancer, a CDN) `TRUSTED_PROXIES` **must** include that proxy, otherwise every notification appears to come from the proxy's
+address: either all are refused, or — if someone lists the proxy's address — anybody can send one through it. Never put the
+proxy's own address into `COMGATE_CALLBACK_IPS`.
+
 ## Doctor
 
 * *card gateway live mode* reads the mode payments are really created in (administration override first, then `COMGATE_TEST`) and

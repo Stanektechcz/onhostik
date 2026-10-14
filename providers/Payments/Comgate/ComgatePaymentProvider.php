@@ -15,6 +15,7 @@ use Onhost\Platform\Secrets\SecretStore;
 use Onhost\Providers\Contracts\PaymentProvider;
 use Onhost\Providers\Contracts\StoredMethodCharging;
 use Onhost\Providers\Payments\ReturnUrls;
+use Symfony\Component\HttpFoundation\IpUtils;
 
 /**
  * Comgate Payments API v2.0 (REST/JSON, HTTP Basic merchant:secret).
@@ -22,8 +23,9 @@ use Onhost\Providers\Payments\ReturnUrls;
  *   GET  /payment/transId/{transId}     status (source of truth for callbacks)
  *   POST /payment/transId/{transId}/refund
  *   GET  /transfer?date=YYYY-MM-DD, GET /transfer/{transferId}   settlement items
- * Push notifications are verified by re-reading the status; the optional secret and
- * IP allow-list are additional checks, never the only trust mechanism (§63.4).
+ * Push notifications are verified by re-reading the status; the optional secret and the
+ * source allow-list are additional checks, never the only trust mechanism (§63.4). The allow-list is required (W1): an
+ * empty `COMGATE_CALLBACK_IPS` refuses every notification, so the public route cannot make us call Comgate for anybody.
  *
  * Recurring card payments (audit §5f-1): a payment created with `initRecurring` becomes the stored method — its
  * `transId` is the token — and later charges are created with `initRecurringId` and no customer present.
@@ -176,14 +178,11 @@ final class ComgatePaymentProvider implements PaymentProvider, StoredMethodCharg
 
     public function verifyWebhook(Request $request): array
     {
+        $this->assertAllowedSource($request); // W1: first, so an unlisted sender learns nothing and never makes us call Comgate
         $payload = $request->isJson() ? (array) $request->json()->all() : $request->all();
         $transId = (string) ($payload['transId'] ?? '');
         if ($transId === '' || ! preg_match('/^[A-Z0-9\-]{4,40}$/i', $transId)) {
             throw new DomainError('webhook_invalid', 'Comgate notification is missing transId.', 400);
-        }
-        $allow = (array) config('onhost.payments.comgate.callback_allowlist', []);
-        if ($allow !== [] && ! in_array((string) $request->ip(), $allow, true)) {
-            throw new DomainError('webhook_source_rejected', 'Notification source is not allow-listed.', 403);
         }
         if (isset($payload['secret'])) {
             $creds = $this->credentials();
@@ -194,6 +193,39 @@ final class ComgatePaymentProvider implements PaymentProvider, StoredMethodCharg
         $status = strtoupper((string) ($payload['status'] ?? 'PENDING'));
 
         return ['event_id' => $transId.':'.$status, 'provider_id' => $transId, 'state' => $status, 'amount' => isset($payload['price'], $payload['curr']) ? Money::minor((int) $payload['price'], (string) $payload['curr']) : null, 'raw' => $payload];
+    }
+
+    /**
+     * The addresses Comgate notifications may come from (`COMGATE_CALLBACK_IPS`, W1): an address or a CIDR range, IPv4 or IPv6;
+     * entries trimmed, blank ones dropped. A range that covers every address (`/0`) is dropped too: it would re-open the
+     * endpoint to anybody. An empty result refuses every notification (fail closed).
+     *
+     * @return list<string>
+     */
+    public static function callbackAllowlist(): array
+    {
+        $configured = config('onhost.payments.comgate.callback_allowlist', []);
+        $entries = is_string($configured) ? explode(',', $configured) : (array) $configured;
+        $kept = [];
+        foreach ($entries as $entry) {
+            $entry = is_scalar($entry) ? trim((string) $entry) : '';
+            if ($entry !== '' && preg_match('~/0+$~', $entry) !== 1) {
+                $kept[] = $entry;
+            }
+        }
+
+        return $kept;
+    }
+
+    /** The sender must be on the allow-list; an empty list refuses everyone, with the same error as an unlisted address. */
+    private function assertAllowedSource(Request $request): void
+    {
+        $allow = self::callbackAllowlist();
+        $ip = (string) $request->ip();
+        // one answer for both: the public caller does not learn whether the list is empty (staff see it in ComgateCheck::status())
+        if ($allow === [] || $ip === '' || ! IpUtils::checkIp($ip, $allow)) {
+            throw new DomainError('webhook_source_rejected', 'Notification source is not allow-listed.', 403);
+        }
     }
 
     public function reconcile(string $periodStart, string $periodEnd): array
