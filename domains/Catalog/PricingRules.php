@@ -185,7 +185,7 @@ final class PricingRules
             return [];
         }
         // a product that is not on sale is not offered as an add-on either: the mapping outlives a product being taken off sale
-        $onSale = Product::query()->whereIn('key', $keys)->where('state', 'active')->pluck('key')->all();
+        $onSale = Product::query()->whereIn('key', $keys)->where('state', 'active')->get(['key', 'family'])->filter(fn (Product $p) => SellSwitch::allows($p->family))->pluck('key')->all();
         if (! CdnAvailability::configured()) { // K7-5 / R4: the CDN add-on only with a CDN account that delivers it
             $onSale = array_values(array_diff($onSale, [CdnAvailability::PRODUCT]));
         }

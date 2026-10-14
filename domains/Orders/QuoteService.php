@@ -262,11 +262,11 @@ final class QuoteService
             $planKey = (string) ($item['plan_key'] ?? '');
             $requestedPeriod = isset($item['period']) ? (string) $item['period'] : null;
             $period = $requestedPeriod ?? ($commitMonths >= 12 ? 'year' : 'month');
-            $resolved = $this->catalog->resolve($productKey, $planKey, $currency, $period);
+            $resolved = $this->catalog->resolve($productKey, $planKey, $currency, $period, ! empty($config['upgrade_of']));
             $change = ! empty($config['upgrade_of']) ? $this->planChange($organization, (string) $config['upgrade_of'], $resolved['product'], $planKey, $resolved['version'], $requestedPeriod) : null;
             if ($change !== null && $change['period'] !== $period) {
                 $period = $change['period'];
-                $resolved = $this->catalog->resolve($productKey, $planKey, $currency, $period); // a plan change keeps the subscription's billing period unless the line asks for the other one
+                $resolved = $this->catalog->resolve($productKey, $planKey, $currency, $period, true); // a plan change keeps the subscription's billing period unless the line asks for the other one
             }
             $product = $resolved['product'];
             $price = $resolved['price'];
