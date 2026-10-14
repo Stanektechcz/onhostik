@@ -708,6 +708,9 @@ HTML;
             foreach (PhaseTCopySeam::publicBlocks() as [$from, $to, $replacement]) {
                 $html = self::between($html, $from, $to, $replacement);
             }
+            // U3 (phase U): the leftovers T4 found — unmetered VPS transfer in the configurator, an own Prague–Brno backbone (PhaseUCopySeam)
+            $phaseU = PhaseUCopySeam::publicSwaps();
+            $html = self::swap(array_keys($phaseU), array_values($phaseU), $html);
         }
 
         // 4d. every surface's "sign out" is a prototype stub (localStorage + a toast): the bridge's OnhostSession.signOut()
