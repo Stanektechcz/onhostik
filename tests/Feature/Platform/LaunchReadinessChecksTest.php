@@ -32,6 +32,9 @@ it('warns that nothing is for sale while every switch is off', function () {
     expect($row['ok'])->toBeFalse()->and($row['blocking'])->toBeFalse()
         ->and($row['detail'])->toContain('nothing is for sale (ONHOST_SELL_DEFAULT off)')->toContain('web, mail, game');
     expect(launchDoctorRows()[LAUNCH_SELL_ROW]['status'])->toBe('WARN');
+
+    config(['onhost-sell.default' => true, 'onhost-sell.families' => ['web' => false, 'mail' => false]]);
+    expect((new LaunchReadinessChecks)->sellMatrix()['detail'])->toContain('switched off by its own')->not->toContain('ONHOST_SELL_DEFAULT off');
 });
 
 it('is OK and lists the open and the closed families when something sells', function () {
@@ -62,6 +65,10 @@ it('shows the Comgate row only when Comgate is the card gateway, and never as FA
     config(['onhost.payments.default' => 'comgate', 'onhost.payments.comgate.callback_allowlist' => '']);
     expect(launchDoctorRows()[LAUNCH_COMGATE_ROW]['status'])->toBe('WARN');
 
+    config(['onhost.payments.default' => 'gopay']);
+    expect(launchDoctorRows())->not->toHaveKey(LAUNCH_COMGATE_ROW);
+
+    config(['onhost.payments.default' => 'comgate']);
     app()->instance('env', 'production');
     config(['onhost-sell.default' => false, 'onhost-sell.families' => []]);
     $rows = launchDoctorRows();

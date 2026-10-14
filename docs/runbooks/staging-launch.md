@@ -739,6 +739,10 @@ HARD, GATED nor a liveness row and is not on this list (pre-mortem: the gate use
 the rows WARN on staging by design are exactly the ones production FAILs on). Draft it from the current doctor, then
 let the owner give each row its reason in the release record:
 
+Phase W2 adds one such row while staging has no Comgate account (empty `COMGATE_CALLBACK_IPS`, WARN by design): put the line
+`payments|Comgate notification allow-list is filled` on the list, with that reason. (`sales|product families are for sale`
+is OK on staging as long as `ONHOST_SELL_DEFAULT=true`.)
+
 ```bash
 cd $APP && $AS_WWW $P artisan onhost:doctor --json > /root/staging-doctor-s4b.json
 $P $DG nonok --report /root/staging-doctor-s4b.json --production 0      # candidates, one area|check per line

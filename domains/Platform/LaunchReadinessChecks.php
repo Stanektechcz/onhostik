@@ -31,7 +31,9 @@ final class LaunchReadinessChecks
         }
 
         if ($selling === []) {
-            return $this->row('sales', self::SELL_ROW, false, 'nothing is for sale (ONHOST_SELL_DEFAULT off) — every family is off: '.implode(', ', $off).'; set ONHOST_SELL_DEFAULT=true or a family ONHOST_SELL_<FAMILY>=true to open sales');
+            $cause = (bool) config('onhost-sell.default', false) ? 'every family is switched off by its own ONHOST_SELL_<FAMILY>=false' : 'ONHOST_SELL_DEFAULT off';
+
+            return $this->row('sales', self::SELL_ROW, false, 'nothing is for sale ('.$cause.') — off: '.implode(', ', $off).'; set ONHOST_SELL_DEFAULT=true or a family ONHOST_SELL_<FAMILY>=true to open sales');
         }
 
         return $this->row('sales', self::SELL_ROW, true, 'for sale: '.implode(', ', $selling).($off === [] ? '' : '; off: '.implode(', ', $off)));
