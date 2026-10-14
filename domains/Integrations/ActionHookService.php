@@ -28,10 +28,10 @@ use Onhost\Platform\Errors\DomainError;
  */
 final class ActionHookService
 {
-    /** Never an action that needs a fresh step-up (staging.push since TASK-0029): a URL called by a bot cannot give one. */
     /** Triggers within this many seconds of the first run are one operation. */
     private const BURST_SECONDS = 10;
 
+    /** Never an action that needs a fresh step-up (staging.push since TASK-0029): a URL called by a bot cannot give one. */
     public const ALLOWED = ['backup', 'power', 'deploy.run', 'staging.refresh', 'wp.update', 'wp.cache', 'cdn.purge', 'cron.run', 'ssl.issue', 'https.force', 'php.set', 'redirect.set', 'monitoring.set'];
 
     public function __construct(private readonly ServiceService $services, private readonly ServiceFeatures $features, private readonly Authorizer $authorizer, private readonly AuditRecorder $audit) {}

@@ -168,6 +168,20 @@ it('measures the action-hook burst window from the first run, not from a fixed t
     expect($later['operation_id'])->not->toBe($first['operation_id']);
 });
 
+it('dedupes two action-hook runs 33 ms apart across a ten-second boundary', function () {
+    [$user, $org] = $this->customerWithOrganization();
+    $service = featureWebService($org, 'aapanel');
+    Http::fake(fn ($request) => str_contains((string) parse_url($request->url(), PHP_URL_QUERY), 'table=backup') ? Http::response(['data' => []]) : Http::response(['status' => true, 'msg' => 'ok']));
+    $this->actingAs($user, 'sanctum');
+    $created = $this->postJson('/v1/hooks/actions', ['service_id' => $service->id, 'name' => 'Hranice', 'action' => 'backup', 'params' => ['kind' => 'manual']])->assertCreated()->json();
+    $url = '/v1/hooks/run/'.$created['token'];
+
+    $this->travelTo(now()->startOfMinute()->addSeconds(29)->addMilliseconds(997));
+    $first = $this->post($url)->assertAccepted()->json();
+    $this->travelTo(now()->startOfMinute()->addSeconds(30)->addMilliseconds(30));
+    expect($this->post($url)->json('operation_id'))->toBe($first['operation_id']);
+});
+
 it('delivers platform events to a Discord channel webhook as embeds', function () {
     [$user, $org] = $this->customerWithOrganization();
     Http::fake(['discord.com/api/webhooks/*' => Http::response('', 204)]);
