@@ -21,6 +21,7 @@ use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\Orders\Models\Quote;
 use Onhost\Domain\Orders\OrderStateMachine;
 use Onhost\Domain\Orders\QuoteService;
+use Onhost\Domain\Services\Penpot\PenpotInstances;
 use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Errors\DomainError;
@@ -59,7 +60,9 @@ it('refuses a combination the catalogue does not offer while it is still a cart:
 
     $off = Product::query()->where('key', 'vps')->firstOrFail();
     $webAddons = app(PricingRules::class)->addonProducts('web-hosting'); // the refusals are built from what the catalogue really holds
-    $foreign = Product::query()->whereNotIn('key', array_merge($webAddons, ['web-hosting', 'domain']))->where('state', 'active')->get()->first(fn (Product $p) => $p->plans()->where('state', 'active')->exists());
+    // Penpot answers with its own refusal (no qualified node → penpot_unavailable) before the compatibility check, and
+    // an unordered query let PostgreSQL pick it (TASK-0157): leave it out and order by key, so every engine picks the same.
+    $foreign = Product::query()->whereNotIn('key', array_merge($webAddons, ['web-hosting', 'domain', PenpotInstances::PRODUCT]))->where('state', 'active')->orderBy('key')->get()->first(fn (Product $p) => $p->plans()->where('state', 'active')->exists());
     expect($foreign)->not->toBeNull();
     $foreignPlan = $foreign->plans()->where('state', 'active')->firstOrFail()->key;
 

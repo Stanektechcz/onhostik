@@ -49,6 +49,7 @@ function staffReadSweepFixtures(Organization $org, Service $service, string $tic
         'v1/staff/abuse-cases/{case}' => "v1/staff/abuse-cases/{$abuse->id}",
         'v1/staff/bulk-jobs/{job}' => "v1/staff/bulk-jobs/{$bulk->id}",
         'v1/staff/customers/{organization}' => "v1/staff/customers/{$org->id}",
+        'v1/staff/finance/exports/{kind}' => 'v1/staff/finance/exports/documents?month='.now()->subMonthNoOverflow()->format('Y-m'), // R2: a CSV of last month
         'v1/staff/integrations/{instance}' => 'v1/staff/integrations/'.pveLab()->id,
         'v1/staff/partners/{partner}' => "v1/staff/partners/{$partner->id}",
         'v1/staff/provisioning/jobs/{operation}' => "v1/staff/provisioning/jobs/{$operation->id}",

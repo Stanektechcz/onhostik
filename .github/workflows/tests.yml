@@ -138,6 +138,45 @@ jobs:
       - name: Pest on PostgreSQL (shard ${{ matrix.shard }} of 4)
         run: php artisan test --compact --shard=${{ matrix.shard }}/4
 
+  # Staging (and the planned production host) run PHP 8.5, while every other job here pins 8.3 — the lowest version
+  # composer.json allows. This job runs the same SQLite suite and the gated deployer A → B → A on PHP 8.5, so a
+  # language change (deprecation turned error, removed function) shows up here and not first on the server (J0, TASK-0151).
+  php85:
+    name: php 8.5 (pest + deployer)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: mbstring, intl, sqlite3, pdo_sqlite, gd, bcmath, sodium
+          coverage: none
+          tools: composer
+
+      - name: Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-php85-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-php85-${{ runner.os }}-
+
+      - name: Install PHP dependencies (the committed lock, on PHP 8.5)
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Prepare the application
+        run: touch .env
+
+      - name: Pest on PHP 8.5
+        run: php artisan test --compact
+
+      - name: Deployer end to end on PHP 8.5 (A → B → A)
+        run: PHP_BIN="$(command -v php)" COMPOSER_BIN="$(command -v composer)" bash infra/aapanel/ci/deploy-e2e.sh "$RUNNER_TEMP/deploy-e2e"
+
   pest-postgres:
     needs: pest-postgres-shard
     if: ${{ always() }}
@@ -152,6 +191,60 @@ jobs:
   # The gated deployer (TASK-0032): syntax, ShellCheck, and a real release A → B → A of this tree through the installed
   # deployer (maintenance mode, composer --no-dev, migrations, config/route/event caches, openapi, backup + verify,
   # doctor gate, HTTP checks through the bypass); only systemctl, chown and the PHP-FPM reload are stubbed.
+  # P12 (phase Q): the alert rules are checked and unit-tested by the real promtool, the Alertmanager config by amtool
+  monitoring:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Alert rules (promtool check + test) and Alertmanager config (amtool)
+        run: bash infra/monitoring/ci/promtool.sh "$RUNNER_TEMP/monitoring"
+
+  # P13 (phase R): the restore drill for real — back up this tree's PostgreSQL with pg_dump, restore the newest set into a
+  # throw-away database through infra/aapanel/restore-drill.sh, measure it, drop it, and check the doctor row; an unbalanced
+  # ledger must fail the drill and a tampered dump must be refused (infra/aapanel/ci/restore-drill-ci.sh)
+  restore-drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: onhost_restore_ci
+          POSTGRES_USER: onhost
+          POSTGRES_PASSWORD: onhost
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U onhost"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_DATABASE: onhost_restore_ci
+      DB_USERNAME: onhost
+      DB_PASSWORD: onhost
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, intl, pgsql, pdo_pgsql, gd, bcmath, sodium
+          coverage: none
+          tools: composer
+
+      - name: PostgreSQL client tools (pg_dump, pg_restore, psql)
+        run: command -v pg_restore >/dev/null || { sudo apt-get update -q && sudo apt-get install -y -q postgresql-client; }
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Restore drill against a disposable PostgreSQL
+        run: bash infra/aapanel/ci/restore-drill-ci.sh "$RUNNER_TEMP/restore-drill"
+
   deploy-scripts:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -166,12 +259,22 @@ jobs:
           tools: composer
 
       - name: Shell syntax
-        run: for f in infra/aapanel/*.sh infra/aapanel/ci/*.sh infra/penpot/*.sh; do bash -n "$f" || exit 1; done
+        run: for f in infra/aapanel/*.sh infra/aapanel/ci/*.sh infra/penpot/*.sh infra/penpot/ci/*.sh; do bash -n "$f" || exit 1; done
 
       - name: ShellCheck (warnings and errors)
         run: |
           command -v shellcheck >/dev/null || { sudo apt-get update -q && sudo apt-get install -y -q shellcheck; }
-          shellcheck -S warning infra/aapanel/*.sh infra/aapanel/ci/*.sh infra/penpot/*.sh
+          shellcheck -S warning infra/aapanel/*.sh infra/aapanel/ci/*.sh infra/penpot/*.sh infra/penpot/ci/*.sh
 
       - name: Deployer end to end (A → B → A)
         run: PHP_BIN="$(command -v php)" COMPOSER_BIN="$(command -v composer)" bash infra/aapanel/ci/deploy-e2e.sh "$RUNNER_TEMP/deploy-e2e"
+
+      # Q4 (TASK-0190, P-R78): the staging spec of the deployer accepts the token switch on, off or unset (ST-6) and nothing else —
+      # the real write_expected_env of staging.sh against a staging-like app.env, held by the real deploy-gate.php env-assert
+      - name: Deployer spec accepts the operator switches (expected-env)
+        run: PHP_BIN="$(command -v php)" bash infra/aapanel/ci/expected-env-switches.sh "$RUNNER_TEMP/expected-env"
+
+      # J2 (TASK-0154): provision-node.sh for real on this throw-away runner, as staging Path A runs it (shared host, Caddy on
+      # loopback with local_certs, no docker group): the second run must report 0 changes and the user must stay out of docker
+      - name: Penpot node provisioning, real run twice (idempotence)
+        run: sudo --preserve-env=CI bash infra/penpot/ci/provision-twice.sh "$RUNNER_TEMP/penpot-node"

@@ -136,6 +136,7 @@ function penpotNodeDryRun(array $host, array $args): array
     $active = ($host['docker_active'] ?? false) ? 1 : 0;
     $installed = implode(' ', $host['installed'] ?? []);
     $version = $host['docker_version'] ?? '28.1.1';
+    $groups = $host['user_groups'] ?? '';
     $listen = implode("\n", array_map(fn (int $p) => "LISTEN 0 511 0.0.0.0:{$p} 0.0.0.0:*", $host['listen'] ?? []));
     $stubs = [
         'systemctl' => "#!/bin/sh\ncase \"\$*\" in *is-active*docker*) exit \$(( 1 - {$active} ));; *is-active*) exit 3;; esac\nexit 0\n",
@@ -144,6 +145,8 @@ function penpotNodeDryRun(array $host, array $args): array
         'dpkg' => "#!/bin/sh\ncase \"\$1\" in --print-architecture) echo amd64; exit 0;; -s) for p in {$installed}; do [ \"\$p\" = \"\$2\" ] && exit 0; done; exit 1;; esac\nexit 1\n",
         'dpkg-query' => "#!/bin/sh\necho '5:{$version}-1~debian.12~bookworm'\n",
         'gpg' => "#!/bin/sh\nexit 1\n",
+        // the platform user: absent unless the host names its groups (J2: an earlier run may have put it into docker)
+        'id' => "#!/bin/sh\ncase \"\$1\" in -u) echo 0; exit 0;; -nG) echo '{$groups}'; exit 0;; esac\n[ -n '{$groups}' ] && exit 0\nexit 1\n",
     ];
     foreach ($stubs as $name => $body) {
         file_put_contents($bin.'/'.$name, $body);
@@ -268,4 +271,48 @@ it('replaces only the package default Caddyfile, never an operator\'s own', func
     expect($stock['rc'])->toBe(0, $stock['out'])->and($stock['out'])->toContain('Managed by ONhost provision-node.sh')
         ->and($own['rc'])->toBe(0, $own['out'])->and($own['out'])->not->toContain('Managed by ONhost provision-node.sh')
         ->and($own['out'])->toContain("append 'import /etc/caddy/onhost-penpot/*.caddy'");
+});
+
+it('with --no-docker-group never puts the platform user into docker and takes it out of a group an earlier run gave it (J2)', function () {
+    if (penpotNodeBash() === null) {
+        $this->markTestSkipped('no bash available');
+    }
+    $shared = ['docker_active' => true, 'installed' => ['docker-ce', 'docker-compose-plugin']];
+    $flags = ['--shared-host', '--no-docker-group', '--caddy-bind', '127.0.0.1', '--http-port', '8081', '--https-port', '8444'];
+
+    $fresh = penpotNodeDryRun($shared, $flags);
+    $member = penpotNodeDryRun($shared + ['user_groups' => 'onhost docker'], $flags);
+    $clean = penpotNodeDryRun($shared + ['user_groups' => 'onhost'], $flags);
+    $default = penpotNodeDryRun($shared + ['user_groups' => 'onhost'], ['--caddy-bind', '127.0.0.1', '--http-port', '8081', '--https-port', '8444']);
+
+    expect($fresh['rc'])->toBe(0, $fresh['out'])->and($fresh['out'])->toContain('useradd')->not->toContain('usermod -aG docker')
+        ->and($member['rc'])->toBe(0, $member['out'])->and($member['out'])->toContain('[dry-run] gpasswd -d onhost docker')
+        ->and($clean['rc'])->toBe(0, $clean['out'])->and($clean['out'])->not->toContain('gpasswd')->not->toContain('usermod -aG docker')
+        ->and($default['rc'])->toBe(0, $default['out'])->and($default['out'])->toContain('[dry-run] usermod -aG docker onhost');
+    // the next step it prints names the rootless socket, so verify-node.sh checks the rootless daemon, not the group
+    expect($fresh['out'])->toContain('--docker-host unix:///run/user/');
+});
+
+it('gives Caddy local certificates behind a front proxy that terminates TLS only when asked (J2)', function () {
+    if (penpotNodeBash() === null) {
+        $this->markTestSkipped('no bash available');
+    }
+    $local = penpotNodeDryRun([], ['--caddy-bind', '127.0.0.1', '--http-port', '8081', '--https-port', '8444', '--local-certs']);
+    $public = penpotNodeDryRun([], ['--caddy-bind', '127.0.0.1', '--http-port', '8081', '--https-port', '8444']);
+
+    expect($local['rc'])->toBe(0, $local['out'])->and($local['out'])->toContain("| \tlocal_certs")
+        ->and($public['rc'])->toBe(0, $public['out'])->and($public['out'])->not->toContain('local_certs');
+    $verify = penpotNodeScript('verify-node.sh');
+    expect($verify)->toContain('--local-certs')->toContain('local_certs')
+        // a rootless node whose user can still reach the system daemon is a failure, not a warning
+        ->toContain('fail "member of the docker group although Docker is rootless');
+});
+
+it('compares file modes as numbers, so a re-run on an unchanged node reports 0 changes (J2; proved for real in CI)', function () {
+    $provision = penpotNodeScript('provision-node.sh');
+
+    // `stat -c %a` prints 644 for the 0644 the script asks for: a string compare rewrote every file on every run
+    expect($provision)->toContain('same_mode()')
+        ->not->toMatch('/stat -c \'%a\' "\$(SYSROOT)?\$path"\)" = "\$mode"/');
+    expect((string) file_get_contents(base_path('.github/workflows/tests.yml')))->toContain('infra/penpot/ci/provision-twice.sh');
 });

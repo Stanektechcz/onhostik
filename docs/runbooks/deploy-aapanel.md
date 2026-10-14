@@ -252,7 +252,7 @@ ukazuje, kterou cestou soubory přišly. Denní odstraňování po vypršení lh
 Služba, která uvázla v `TERMINATING` (starší nasazení bez záložní cesty k souborům), se rozjede takto:
 
 ```bash
-$P artisan onhost:provisioning:jobs 2>/dev/null || true   # případnou zaseknutou operaci zrušte v administraci (Provoz)
+$P artisan onhost:doctor 2>/dev/null | grep -iE "operation|stranded" || true   # stav operací jen ke čtení (řádky doctoru; dřív neexistující provisioning:jobs, P17); zaseknutou operaci zrušte v administraci (Provoz)
 $P artisan onhost:services:purge --service=<srv_…> --force --reason="dokončení zrušení po opravě archivu"
 ```
 

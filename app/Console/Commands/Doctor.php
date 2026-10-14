@@ -34,8 +34,10 @@ use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\OrderStateMachine;
 use Onhost\Domain\Payments\ComgateCheck;
 use Onhost\Domain\Platform\GoLiveChecks;
+use Onhost\Domain\Platform\HstsHealth;
 use Onhost\Domain\Platform\IsolationChecks;
 use Onhost\Domain\Platform\QueueLaneHeartbeat;
+use Onhost\Domain\Platform\ScheduleHealth;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Provisioning\CollectorHeartbeat;
 use Onhost\Domain\Provisioning\Models\IntegrationHealth;
@@ -54,6 +56,7 @@ use Onhost\Domain\Services\Addons;
 use Onhost\Domain\Services\DeletionPolicy;
 use Onhost\Domain\Services\FinalArchive;
 use Onhost\Domain\Services\Limits\LimitRaises;
+use Onhost\Domain\Services\Mail\Reputation\ReputationHealth;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\BackupPolicy;
 use Onhost\Domain\Services\Models\Service;
@@ -72,6 +75,7 @@ use Onhost\Domain\Tax\VatPayerMode;
 use Onhost\Domain\WalletLedger\AutoTopup;
 use Onhost\Platform\Files\VirusScanner;
 use Onhost\Platform\Ops\PlatformBackup;
+use Onhost\Platform\Ops\RestoreDrill;
 use Onhost\Platform\Settings\SettingsStore;
 use Onhost\Providers\Payments\Comgate\ComgateMode;
 
@@ -137,6 +141,15 @@ final class Doctor extends Command
             $this->addChecked($check);
         }
         // ── end E11 ──
+        foreach (app(HstsHealth::class)->checks() as $check) { // P11 (P-R74): HSTS once, from the application, as configured
+            $this->addChecked($check);
+        }
+        foreach (app(ScheduleHealth::class)->checks() as $check) { // P14: every scheduled job within its age budget
+            $this->addChecked($check);
+        }
+        foreach (app(ReputationHealth::class)->checks() as $check) { // SP1a (V-R1): sending addresses and customer domains on no major blocklist
+            $this->addChecked($check);
+        }
 
         $fails = count(array_filter($this->rows, fn ($r) => $r['status'] === 'FAIL'));
         $warns = count(array_filter($this->rows, fn ($r) => $r['status'] === 'WARN'));
@@ -452,6 +465,9 @@ final class Doctor extends Command
         $backup = app(PlatformBackup::class)->status(); // go-live §1: a verified backup younger than a day
         $verifiedAt = isset($backup['verified']['at']) ? CarbonImmutable::parse((string) $backup['verified']['at']) : null;
         $this->add('storage', 'platform backup verified within 26 h', $verifiedAt !== null && $verifiedAt->gt(now()->subHours(26)), $verifiedAt !== null ? 'set '.$backup['verified']['set'].' verified '.$verifiedAt->diffForHumans().' on disk '.$backup['disk'] : (isset($backup['last']['at']) ? 'last backup '.$backup['last']['at'].' not verified yet — onhost:platform:backup:verify' : 'no backup yet — onhost:platform:backup runs daily 02:15'), false);
+        foreach (app(RestoreDrill::class)->checks() as $check) { // P13: a restore that was really tried, within 35 days
+            $this->addChecked($check);
+        }
         $this->add('storage', 'platform backup disk off the server', ! $this->production || $backup['disk'] !== 'local', $backup['disk'].($backup['disk'] === 'local' ? ' (production: an S3-compatible disk — ONHOST_PLATFORM_BACKUP_DISK)' : ''), false);
         try {
             DB::select('select 1');
@@ -597,7 +613,9 @@ final class Doctor extends Command
         $this->add('payments', 'stored cards for automatic top-ups', app(AutoTopup::class)->supported(), app(AutoTopup::class)->supported() ? 'a gateway charges stored methods (recurring)' : 'no gateway charges stored methods — automatic top-ups only notify (COMGATE_MERCHANT + COMGATE_RECURRING)', false);
         $bank = (array) config('onhost.payments.bank');
         $this->add('payments', 'bank account for transfers', ($bank['iban'] ?? '') !== '' && ($bank['account_number'] ?? '') !== '', 'ONHOST_BANK_IBAN / ONHOST_BANK_ACCOUNT printed on proformas and top-up instructions');
-        $this->add('payments', 'bank statement import', ($bank['fio_token'] ?? '') !== '', ($bank['fio_token'] ?? '') !== '' ? 'Fio API token set — onhost:bank:sync runs every 5 minutes' : 'ONHOST_BANK_FIO_TOKEN missing — transfers must be recorded by hand in Nastavení → Bankovní platby');
+        // J-R7 (M3): without a Fio token the statement file of Česká spořitelna is imported in the console — not a missing piece any more
+        $this->add('payments', 'bank statement import', true, (($bank['fio_token'] ?? '') !== '' ? 'Fio API token set — onhost:bank:sync runs every 5 minutes' : 'no Fio API token')
+            .'; a statement file from Česká spořitelna (camt.053 or ABO/GPC) is imported in Nastavení → Bankovní platby, unmatched lines are assigned there by hand', false);
     }
 
     private function documents(): void

@@ -20,6 +20,7 @@ use Onhost\Domain\Orders\QuoteService;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Domain\Partners\PartnerService;
+use Onhost\Domain\Payments\CardPayments;
 use Onhost\Domain\Risk\Turnstile;
 use Onhost\Domain\Tax\VatNumberChecks;
 use Onhost\Domain\Tax\VatStanding;
@@ -73,6 +74,12 @@ final class CheckoutController extends ApiController
                 'order_id' => $replay->id, 'number' => $replay->number, 'state' => $replay->state, 'redirect_url' => $replay->meta['redirect_url'] ?? null, 'payment_intent_id' => $replay->payment_intent_id, 'bank_instructions' => $replay->meta['bank_instructions'] ?? null,
                 'account' => ['created' => false, 'user' => null, 'organization' => null],
             ]);
+        }
+
+        // C-R10e (J4): a card order while the gateway has no credentials is refused BEFORE the account exists — it used to create
+        // the account, then fail at the gateway with a provider error and leave a signed-in account without an order
+        if (($data['payment']['mode'] ?? null) === 'gateway') {
+            app(CardPayments::class)->assertAvailable(isset($data['payment']['provider']) ? (string) $data['payment']['provider'] : null);
         }
 
         $c = $data['customer'];

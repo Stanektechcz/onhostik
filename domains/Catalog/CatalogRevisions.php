@@ -164,6 +164,20 @@ final class CatalogRevisions
             'withdraw_undelivered_options' => ['ipv4'],
             'wording' => '/schrán|mailbox|IPv4/iu',
         ],
+        // phase T, metering M3 (docs/proposals/metering-after-launch.md §2): the PID cap of the game plans is kept by nothing — Pterodactyl
+        // has no per-server PID field. Migration 001200 takes the seeded number off the versions nobody holds; this revision publishes a
+        // new version where a held version is still the current one (a held version is a contract and keeps it).
+        '2026-10-game-plans-without-pids' => [
+            'reason' => 'Měření M3 (fáze T): herní tarify uváděly v limitech strop počtu procesů (pids), který Pterodactyl u serveru nenastaví a nic jiného nehlídá — nové verze bez něj; ceny beze změny, stávající smlouvy beze změny.',
+            'plans' => [
+                'game/game-custom' => ['pids'],
+                'game/game-8' => ['pids'],
+                'game/game-16' => ['pids'],
+                'game/game-32' => ['pids'],
+            ],
+            'rewrite' => [],
+            'products' => [],
+        ],
     ];
 
     /**

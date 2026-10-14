@@ -13,6 +13,7 @@ use Onhost\Platform\Errors\ProviderException;
 use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Money\Money;
 use Onhost\Platform\Outbox\OutboxPublisher;
+use RuntimeException;
 
 /**
  * Registrar credit runway (blueprint §46.6): samples `credit-info`, estimates the
@@ -24,7 +25,13 @@ final class RegistrarCreditMonitor
 {
     public function __construct(private readonly RegistrarClient $registrar, private readonly CatalogService $catalog, private readonly OutboxPublisher $outbox) {}
 
-    /** @return list<RegistrarCreditSnapshot> one snapshot per usable registrar (a registrar outage does not stop the others) */
+    /**
+     * One snapshot per usable registrar. Neither an outage nor a registrar whose secrets are missing (the secret store
+     * throws a plain RuntimeException) stops the others or fails the scheduled job; the provider health probe is what
+     * reports the integration as down, exactly as `onhost:registrar:poll` skips the same case.
+     *
+     * @return list<RegistrarCreditSnapshot>
+     */
     public function sampleAll(): array
     {
         $out = [];
@@ -33,6 +40,8 @@ final class RegistrarCreditMonitor
                 $out[] = $this->sample($instance);
             } catch (ProviderException $e) {
                 Log::warning('registrar credit sample failed', ['instance' => $instance->key, 'error' => $e->errorCode->value]);
+            } catch (RuntimeException $e) {
+                Log::warning('registrar credit sample failed', ['instance' => $instance->key, 'error' => get_class($e)]);
             }
         }
 

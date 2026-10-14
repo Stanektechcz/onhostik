@@ -19,7 +19,7 @@ it('replaces every undocumented factual claim of the public site with what the c
         expect($live)->not->toContain($claim);
     }
     expect($live)->toContain("text: '99,9 %', label: cs ? 'smluvní dostupnost Standard'")->toContain("label: cs ? 'dní na odstoupení'")
-        ->toContain("tbHours: 'Podpora přes panel a e-mail',")->toContain('chips: []');
+        ->toContain("tbHours: 'Podpora po–pá 8–17 · panel a e-mail',")->toContain('chips: []');
 
     // every anchor of the seam hit the prototype as expected (a changed prototype is noticed, not silently skipped)
     $report = collect(app(SurfaceRenderer::class)->anchorReport('public'))->filter(fn (array $a) => str_contains($a['anchor'], 'Šest lokalit') || str_contains($a['anchor'], 'zbývá 7 z 24') || str_contains($a['anchor'], '{ to: 99.99'));

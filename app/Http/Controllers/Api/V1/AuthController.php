@@ -56,7 +56,7 @@ final class AuthController extends ApiController
         $ip = $request->ip();
         $agent = mb_substr((string) $request->userAgent(), 0, 250);
         $sessionId = $this->api->sessionId($request);
-        $refCookie = $request->cookie(RememberReferral::COOKIE);
+        $refCookie = RememberReferral::enabled() ? $request->cookie(RememberReferral::COOKIE) : null; // P20: an old cookie is not read while the switch is off
         [$user, $organization, $context] = DB::transaction(function () use ($data, $organizations, $token, $ip, $agent, $sessionId, $refCookie): array {
             $user = User::query()->create(['name' => $data['name'], 'email' => strtolower($data['email']), 'password' => $data['password'], 'locale' => $data['locale'] ?? 'cs', 'timezone' => 'Europe/Prague', 'is_staff' => false, 'state' => 'active']);
             $context = new CommandContext('user', $user->id, null, null, $ip, $agent, $sessionId, correlationId: CommandContext::currentCorrelationId());

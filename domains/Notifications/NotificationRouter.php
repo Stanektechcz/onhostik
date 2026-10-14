@@ -12,6 +12,7 @@ use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Organizations\GrantPolicy;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
+use Onhost\Domain\Services\Metering\UsageMetrics;
 use Onhost\Domain\Services\Metering\WebDiskTotal;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\UsageWatch;
@@ -127,9 +128,11 @@ final class NotificationRouter
                     return;
                 }
                 $level = (string) ($p['level'] ?? 'warn');
-                $body = match ($level) { // a full plan is not a warning any more: the site cannot take more until there is room
-                    'full' => "Tarif je vyčerpaný, takže do služby zatím nejde přidávat další obsah. Uvolněte místo, nebo zvyšte tarif. {$offer}",
-                    'critical' => "Kapacita je téměř vyčerpaná. {$offer}",
+                $soft = UsageMetrics::isSoft((string) ($top['key'] ?? '')); // a soft limit (the monthly transfer of a VPS, phase T) tells, it never stops anything
+                $body = match (true) { // a full plan is not a warning any more: the site cannot take more until there is room
+                    $level === 'full' && $soft => "Limit tarifu je vyčerpaný. Službu kvůli tomu neomezujeme ani neodpojujeme. {$offer}",
+                    $level === 'full' => "Tarif je vyčerpaný, takže do služby zatím nejde přidávat další obsah. Uvolněte místo, nebo zvyšte tarif. {$offer}",
+                    $level === 'critical' => "Kapacita je téměř vyčerpaná. {$offer}",
                     default => "Blížíte se limitu tarifu. {$offer}",
                 };
                 $this->customer($m, 'service', $level === 'full' ? "Služba {$name} má vyčerpaný tarif ({$metric})" : "Služba {$name} využívá {$pct} % ({$metric})", $body, '/panel/sluzby', in_array($level, ['critical', 'full'], true) ? 'hot' : 'warn', $email, 'service-usage-high', ['sluzba' => $name, 'metrika' => $metric, 'procenta' => (string) $pct, 'nabidka' => $offer, 'url' => "{$portal}/panel/sluzby"]);
@@ -337,13 +340,19 @@ final class NotificationRouter
             'partner.commission.cancelled' => $this->customer($m, 'partner', 'Provize zrušena: faktura '.($p['invoice'] ?? ''), 'Klient dostal peníze zpět do 30 dnů od zaplacení (dobropis '.($p['credit_note'] ?? '').'); provize '.$money($p['amount'] ?? null).' se nevyplatí.', '/partner#/provize', 'info'),
             'partner.commission.reduced' => $this->customer($m, 'partner', 'Provize snížena: faktura '.($p['invoice'] ?? ''), 'Klient dostal část peněz zpět do 30 dnů od zaplacení (dobropis '.($p['credit_note'] ?? '').'); provize je nižší o '.$money($p['amount'] ?? null).', zbývá '.$money($p['left'] ?? null).'.', '/partner#/provize', 'info'),
             'partner.commission.adjusted' => $this->customer($m, 'partner', 'Provize opravena: faktura '.($p['invoice'] ?? ''), 'Klient dostal peníze zpět po ochranné lhůtě (dobropis '.($p['credit_note'] ?? '').'); '.$money($p['amount'] ?? null).' se odečte od příští výplaty.', '/partner#/provize', 'warn'),
+            // I-R6 (K5, TASK-0158): finance cancelled the newer row of a double commission (set aside by the deploy)
+            'partner.commission.duplicate_cancelled' => $this->customer($m, 'partner', 'Zdvojená provize opravena: faktura '.($p['invoice'] ?? ''), match ($p['outcome'] ?? 'cancelled') {
+                'deducted' => 'Provize k této faktuře byla vyplacena dvakrát. '.$money($p['amount'] ?? null).' se odečte od příští výplaty.',
+                'credited' => 'Oprava provize k této faktuře byla zapsaná dvakrát. '.$money($p['amount'] ?? null).' přičteme k příští výplatě.',
+                default => 'Provize k této faktuře byla zapsaná dvakrát. Druhý zápis ('.$money($p['amount'] ?? null).') jsme zrušili, vyplacen nebude.',
+            }, '/partner#/provize', ($p['outcome'] ?? 'cancelled') === 'deducted' ? 'warn' : 'info'),
             // the whole account is going to be erased: said in the panel at once, with the date and the way to stop it
             'compliance.data_request.deletion_scheduled' => $this->customer($m, 'legal.notice', 'Účet bude smazán', 'Smazání účtu proběhne '.self::when($p['execute_after'] ?? null).'. Do té doby ho můžete zrušit v nastavení.', '/panel/nastaveni', 'warn'),
             'compliance.data_export.ready' => $this->customer($m, 'legal.notice', 'Export dat je připraven', 'Ke stažení '.($p['days'] ?? 30).' dní.', '/panel/nastaveni', 'info', $email, 'data-export', ['url' => "{$portal}/panel/nastaveni", 'dni' => $p['days'] ?? 30]),
             // a plan version decides what new customers get and pay (H01): finance hears about it, it is not an alarm
             'catalog.plan.version_published', 'catalog.plan.version_activated' => $this->internal($m, 'finance', self::internalTitle($m->name, $p), 'Změněno: '.implode(', ', array_merge((array) ($p['changed']['entitlements'] ?? []), (array) ($p['changed']['limits'] ?? []), (array) ($p['changed']['prices'] ?? []))).' · důvod: '.($p['reason'] ?? ''), '/sprava/fakturace', 'warn'),
             'platform.mail.failing', 'platform.mail.recovered',
-            'node.blocklisted', 'service.name_unproved', 'service.certificate.problem', 'service.resume.incomplete', 'service.suspend.incomplete', 'service.purge.leftover', 'service.termination.failed', 'service.verified_restore.cleanup_failed',
+            'node.blocklisted', 'mail.reputation.listed', 'service.name_unproved', 'service.certificate.problem', 'service.resume.incomplete', 'service.suspend.incomplete', 'service.purge.leftover', 'service.termination.failed', 'service.verified_restore.cleanup_failed',
             'registrar.credit.low', 'integration.down', 'integration.maintenance.lifted', 'integration.maintenance.overdue', 'security.ssh_key.revocation.stuck', 'platform.load_shedding.started', 'platform.load_shedding.ended', 'platform.queue.stalled', 'platform.queue.backlog', 'node.drained', 'node.resumed', 'node.qualified', 'node.disk.low', 'service.integrity.suspicious', 'node.synthetic.leftover', 'service.relocated', 'capacity.unavailable', 'ipam.exhausted', 'ipam.threshold', 'ipam.rdns.unpublished', 'ipam.rdns.failed', 'provisioning.drift.detected', 'operation.failed', 'finance.reconciliation.mismatch', 'registrar.notification.dead', 'domain.reconcile.missing_remote', 'domain.reconcile.unknown_remote', 'payment.orphan_callback', 'security.incident.opened', 'abuse.case.opened', 'compliance.timer.due', 'compliance.timer.missed', 'sla.burn_rate', 'sla.budget.exhausted', 'maintenance.unapproved' => $this->internal($m, self::internalKind($m->name), self::internalTitle($m->name, $p), self::internalBody($p), self::internalSurface($m->name), 'hot'),
             // marketplace (audit §5j-1): the partner gets the brief, the customer the delivery; disputes reach support and the partner
             'marketplace.ordered' => $this->customer($m, 'order', 'Objednávka z marketplace: '.($p['title'] ?? ''), 'Partner dostal zadání; dodání do '.self::when($p['due_at'] ?? null).'. Zaplaceno z kreditu ('.$money($p['total'] ?? null).').', '/panel/nastaveni', 'info'),
@@ -853,7 +862,7 @@ final class NotificationRouter
             str_starts_with($event, 'integration.'), str_starts_with($event, 'provisioning.'), str_starts_with($event, 'operation.'), str_starts_with($event, 'capacity.'), str_starts_with($event, 'ipam.') => 'infra',
             str_starts_with($event, 'security.'), str_starts_with($event, 'abuse.'), str_starts_with($event, 'compliance.') => 'security',
             str_starts_with($event, 'sla.'), str_starts_with($event, 'maintenance.') => 'infra',
-            str_starts_with($event, 'node.'), str_starts_with($event, 'service.'), str_starts_with($event, 'platform.') => 'infra', // they used to land under finance
+            str_starts_with($event, 'node.'), str_starts_with($event, 'service.'), str_starts_with($event, 'platform.'), str_starts_with($event, 'mail.') => 'infra', // they used to land under finance
             default => 'finance',
         };
     }
@@ -921,6 +930,7 @@ final class NotificationRouter
             'node.drained' => 'Uzel '.($p['name'] ?? '').' odstaven z umísťování'.(! empty($p['automatic']) ? ' (automaticky)' : ''),
             'node.resumed' => 'Uzel '.($p['name'] ?? '').' opět přijímá služby',
             'node.disk.low' => 'Uzlu '.($p['node'] ?? '').' dochází místo na disku ('.($p['free_pct'] ?? '?').' % volného)',
+            'mail.reputation.listed' => (($p['kind'] ?? '') === 'domain' ? 'Poštovní doména zákazníka ' : 'Odesílací adresa ').($p['target'] ?? '').' je na blocklistu '.($p['list'] ?? '').' ('.($p['code'] ?? '').', '.($p['weight'] ?? '').')',
             'node.blocklisted' => 'Odesílací adresa uzlu '.($p['name'] ?? '').' ('.($p['address'] ?? '').') je na blocklistu: '.($p['lists'] ?? '').' — pošta zákazníků z tohoto uzlu se bude vracet',
             'service.integrity.suspicious' => 'Web '.($p['hostname'] ?? $p['label'] ?? '').' vypadá napadeně ('.implode(', ', (array) ($p['kinds'] ?? [])).')',
             'service.resume.incomplete' => 'Služba '.($p['name'] ?? '').' je po obnovení zase živá, ale panel odmítl zapnout zpět: '.implode(', ', (array) ($p['kinds'] ?? [])).' — zákazník zaplatil a tohle mu nejede',
@@ -971,7 +981,7 @@ final class NotificationRouter
             str_starts_with($event, 'registrar.'), str_starts_with($event, 'domain.') => '/sprava/sluzby',
             str_starts_with($event, 'integration.'), str_starts_with($event, 'provisioning.'), str_starts_with($event, 'operation.'), str_starts_with($event, 'capacity.'), str_starts_with($event, 'ipam.') => '/sprava/uzly',
             str_starts_with($event, 'security.'), str_starts_with($event, 'abuse.'), str_starts_with($event, 'compliance.'), str_starts_with($event, 'sla.'), str_starts_with($event, 'maintenance.') => '/sprava/incidenty',
-            str_starts_with($event, 'node.'), str_starts_with($event, 'platform.') => '/sprava/uzly',
+            str_starts_with($event, 'node.'), str_starts_with($event, 'platform.'), str_starts_with($event, 'mail.') => '/sprava/uzly',
             str_starts_with($event, 'service.') => '/sprava/sluzby',
             default => '/sprava/fakturace',
         };

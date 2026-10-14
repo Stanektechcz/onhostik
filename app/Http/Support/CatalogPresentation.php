@@ -149,6 +149,7 @@ final class CatalogPresentation
 
         return match ($key) {
             'nvme_gb', 'quota_gb_per_mailbox' => $v.' GB', 'php_memory_mb' => $v.' MB', 'ram_mb' => (is_numeric($v) ? (int) $v >= 1024 ? rtrim(rtrim(number_format((int) $v / 1024, 1, '.', ''), '0'), '.').' GB' : $v.' MB' : $v),
+            'spam_filter' => $cs ? 'rspamd, pravidla serveru' : 'rspamd, server rules', // M4 (U4): the tier is not a per-plan policy
             'backup_days', 'pitr_days', 'retention_days', 'logs_retention_days' => $v.' '.self::days((int) $v, $cs), 'traffic_tb' => $v.' TB', 'traffic_gb' => $v.' GB', 'inodes' => number_format((int) $v, 0, ',', ' '), 'capacity_gbps' => $v.' Gbps', 'interval_hours' => $v.' h',
             'products' => is_numeric($v) && (int) $v >= 999999 ? ($cs ? 'neomezeně' : 'unlimited') : ($cs ? 'doporučeno do '.number_format((int) $v, 0, ',', ' ') : 'recommended up to '.number_format((int) $v, 0, '.', ',')),
             'cron_concurrency' => self::scheduledTasks((int) $v, $cs), 'backup_frequency' => self::backupInterval($v, $cs, false),
@@ -187,7 +188,7 @@ final class CatalogPresentation
             'backup' => $value === 'addon' ? null : ($cs ? 'Zálohy '.$value : 'Backups '.$value), 'io_class' => $cs ? 'IO třída '.$value : 'IO class '.$value, 'console' => $cs ? 'Konzole '.$value : 'Console '.$value,
             'slots' => $cs ? 'Sloty: '.$value : 'Slots: '.$value, 'backups' => $cs ? $n.' záloh' : $n.' backups', 'allocations' => $cs ? $n.' portů' : $n.' ports', 'ddos' => 'Anti-DDoS '.$value, 'sftp' => 'SFTP',
             'quota_gb_per_mailbox' => $cs ? $n.' GB na schránku' : $n.' GB per mailbox', 'aliases' => $cs ? $n.' aliasů' : $n.' aliases', 'domains' => $cs ? $n.' '.$plural($n, 'doména', 'domény', 'domén') : $n.' domains',
-            'relay_per_hour' => $cs ? $n.' odeslaných e-mailů za hodinu (fair use)' : $n.' e-mails sent per hour (fair use)', 'spam_filter' => $cs ? 'Antispam '.$value : 'Antispam '.$value, 'imap' => 'IMAP, SMTP, webmail', 'dedicated_outbound_ip' => $cs ? 'Dedikovaná odchozí IP' : 'Dedicated outbound IP',
+            'relay_per_hour' => $cs ? $n.' odeslaných e-mailů za hodinu (fair use)' : $n.' e-mails sent per hour (fair use)', 'spam_filter' => $cs ? 'Antispam rspamd s pravidly serveru (fair use)' : 'rspamd antispam with the server\'s rules (fair use)', // M4 (U4): one server policy for every plan, not a tier (PlanPromises::FAIR_USE) 'imap' => 'IMAP, SMTP, webmail', 'dedicated_outbound_ip' => $cs ? 'Dedikovaná odchozí IP' : 'Dedicated outbound IP',
             'connections' => $cs ? $n.' spojení' : $n.' connections', 'pitr_days' => 'PITR '.$n.' '.self::days($n, $cs), 'ha' => $cs ? 'Primár + replika' : 'Primary + replica', 'external_access' => null,
             'cpu_limit' => $value.' CPU', 'replicas' => $cs ? $n.' '.$plural($n, 'replika', 'repliky', 'replik') : $n.' replicas', 'builds_per_day' => $cs ? $n.' buildů denně' : $n.' builds a day', 'custom_domains' => $cs ? $n.' vlastních domén' : $n.' custom domains',
             'workers' => $cs ? $n.' workerů' : $n.' workers', 'cron' => $cs ? $n.' cron úloh' : $n.' cron jobs', 'logs_retention_days' => $cs ? 'Logy '.$n.' dní' : $n.'-day logs', 'zero_downtime' => $cs ? 'Nasazení bez výpadku' : 'Zero-downtime deploys', 'tls' => 'TLS '.$value,

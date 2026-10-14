@@ -200,7 +200,7 @@ Comgate) dělá vlastník.
 | I-R3 | **Testovací účet Comgate: 3A.** Vlastník zřídí testovací účet obchodníka a údaje sám uloží na serveru (`onhost:secrets:set`; nikdy do chatu, repa ani logů). Pak, každý krok se souhlasem: *Ověřit spojení*, *Testovací platba 1 Kč*, nahrání odpovědí `php artisan onhost:fixtures:record comgate`, ruční test platby kartou na stagingu. | I2 (čeká na účet) | Do té doby se v kódu nic nemění a karta zůstává neověřená (go-live B5, doctor *Comgate answered the last administration check* WARN). Runbook `docs/runbooks/comgate.md` (*Not verified live*). |
 | I-R4 | **Právník: 4A i 4B.** Vlastník předá právníkovi `resources/legal/LEGAL_REVIEW_withdrawal.md` (otázky 1–9, hlavně 8 a 9), `terms.md` a `withdrawal_waiver.md` (A); do jeho odpovědi se smí spustit s dnešními texty verze `2026-09` (B). | I5 (po odpovědi právníka) | Verze dokumentů se do odpovědi nemění; potom nová verze přes `consent_documents` a seam pro texty v prototypech. Právní riziko u odstoupení od dobití kreditu a propadnutí kreditu při výmazu (H-R5) vlastník do odpovědi vědomě přijímá: go-live B4 je „přijaté riziko“, ne blokace spuštění. Mechanismus `billing.withdrawal` zůstává, jak je (zapíná se až po revizi, `ONHOST_WITHDRAWAL_LEGAL_REVIEWED`). **TASK-0142 (2026-10-08, „zajisti právní texty a kontrolu“):** verze `2026-10` všech zákaznických textů včetně nového reklamačního řádu a zásad přijatelného užívání je připravená jako **draft** v `consent_documents` (nezveřejněná, nic ji nenabízí); kontrola `docs/legal/LEGAL_REVIEW_2026-10.md` (36 zjištění), balík pro advokáta mimo repo. Zveřejní ji vlastník příkazem `onhost:legal:publish 2026-10` po odpovědi advokáta. Seam veřejného webu odstranil sliby, které texty nedávají (garance vrácení peněz 30 dní, odznaky ISO/Trustpilot/Cloudflare, bonus 10 %). |
 | I-R5 | **Účetní: 5B. ONhost zůstává neplátcem DPH nejméně jeden rok** (od 2026-10-08). Spouští se s dnešním postupem neplátce; otázky pro účetní (sleva za věrnostní body, dobropis vratky vedle potvrzení platby, víceúčelový poukaz § 10a–10c, DPH propadlé zálohy a otázky v `vat-payer-mode.md`, *For the accountant*) se řeší spolu s přechodem na plátce (I-R8). | – | Kód se nemění. Vědomé riziko: případné opravy evidence zpětně (u neplátce menší). Vydané doklady se nikdy nepřepisují. |
-| I-R6 | **Dvojí provize (R7, migrace 000950): 6A — pravidlo předem.** Zastaví-li se migrace na produkci na skutečném dvojím naúčtování (`invoice_id, kind`), finance u každého páru **stornuje novější řádek** běžnou opravou (nový záznam, nikdy ruční úprava částky) a deploy se spustí znovu. | – | Runbook `docs/runbooks/partner-commission-grace.md` (*Migration 000950*), go-live §9 a B7. **Otevřené (inženýrství):** platforma dnes nemá opravu jedné provize bez dobropisu faktury zákazníka a migrace by stornovaný řádek nepoznala; najde-li migrace něco, napřed malý balík (storno provize přes sběrnici se čtyřma očima + rozpoznání stornovaného řádku migrací). Dokud nic nenajde, nic se neděje. |
+| I-R6 | **Dvojí provize (R7, migrace 000950): 6A — pravidlo předem.** Zastaví-li se migrace na produkci na skutečném dvojím naúčtování (`invoice_id, kind`), finance u každého páru **stornuje novější řádek** běžnou opravou (nový záznam, nikdy ruční úprava částky) a deploy se spustí znovu. | – | Runbook `docs/runbooks/partner-commission-grace.md` (*Migration 000950*), go-live §9 a B7. **Otevřené (inženýrství):** platforma dnes nemá opravu jedné provize bez dobropisu faktury zákazníka a migrace by stornovaný řádek nepoznala; najde-li migrace něco, napřed malý balík (storno provize přes sběrnici se čtyřma očima + rozpoznání stornovaného řádku migrací). Dokud nic nenajde, nic se neděje. **Provedeno v K5 (TASK-0158, J-R3):** migrace 000949 odloží novější řádek před 000950, finance ho stornuje příkazem `partner.commission.cancel_duplicate`. |
 | I-R7 | **Uzel Penpot: 7A.** Vyhrazený uzel (Debian/Ubuntu, Docker + compose, Caddy, 4 GB RAM + 2 vCPU + ~20 GB na instanci) se postaví po generálce, každý krok se souhlasem vlastníka. **Cena je potvrzená:** 29 Kč / 1,19 € měsíčně jako doplněk a „v ceně“ u tarifů rodin `web` a `managed` (už není předběžná, H-R7). | – (infrastruktura) | Kód beze změny (H-R7, H-R7a, I1): do kvalifikace uzlu se objednávka poctivě odmítne (`409 penpot_unavailable`) a zaplacená položka se vrátí s oznámením zákazníkovi. Runbook `docs/runbooks/penpot.md` (*Server prerequisites* 1–10), go-live B11. Nebude-li uzel do spuštění, stažení Penpotu z prodeje (možnost C) je nové rozhodnutí vlastníka. |
 | I-R8 | **Plátce DPH: 8A.** Zůstat neplátcem; přepnout ke dni registrace k DPH (povinné po překročení obratu, nebo dobrovolně), datum oznámit předem. Podle I-R5 ne dřív než za rok. | – | Přepnutí zůstává akcí financí se step-upem a druhou osobou (go-live G-3, `vat-payer-mode.md` *Switching*); obrat sleduje vlastník s účetní. `ONHOST_VAT_PAYER=false` (H-R0) se nemění. |
 | I-R9 | **Revize `2026-10-custom-iso`: 9A.** Až po zelených krocích generálky R15–R17 (clamd, úložiště obrazů, úložiště Proxmoxu) jako R18, pak smoke nahrání ISO (R19); v produkci ve stejném pořadí. | TASK-0135 | Pořadí hlídá kód: `CustomIsoReadiness` (samotest antiviru, kořen obrazů mimo web s místem na kvótu jedné organizace, `custom_iso_storage` na každé použitelné instanci Proxmoxu); běh naprázdno vypíše `not ready (I-R9): …`, `--apply` i `CatalogRevisions::apply` odmítnou a nic nepublikují. Limity PHP/nginx (R16) a smoke nahrání (R19) zůstávají ruční kontrolou; ruční publikace verze v editoru tarifů (čtyři oči) hlídaná není. Runbook `docs/runbooks/custom-iso.md`, krok 5. |
@@ -218,5 +218,215 @@ Comgate) dělá vlastník.
 ### Otevřené otázky pro vlastníka (fáze I, 2026-10-08)
 
 * ~~**GPU H100 / L40S: bez odpovědi, ponecháno.**~~ — rozhodnuto v I-R16 (2026-10-08): připravujeme, neprodává se. Stránky GPU zůstávají „Připravujeme“ bez ceny a tlačítka (R14); čeká se na rozhodnutí, zda se GPU prodává, od kdy a z jakého hardwaru. Do té doby se nic nemění.
-* ~~**Další vymyšlený obsah prototypu mimo tento zápis:**~~ — tým a blog rozhodnuty v I-R17 a I-R19 (2026-10-08). Zbývá k rozhodnutí: příběh „rok se zákazníkem“, ekologická čísla (PUE 1,18, 2,4 GWh, 310 t CO₂) a skladová čísla serverů EPYC na `#/technika`. týmová stránka se jmény a rolemi zaměstnanců a články blogu s provozními čísly (PUE 1,18, baterie v Praze, DDoS 300 Gbps) jsou smyšlené. Rozhodnout, zda je také stáhnout, nebo nahradit skutečnými.
+* ~~**Další vymyšlený obsah prototypu mimo tento zápis:**~~ — tým a blog rozhodnuty v I-R17 a I-R19 (2026-10-08); „rok se zákazníkem“, eko čísla a sklad EPYC staženy v J-R1 (2026-10-11). Původně zbývalo k rozhodnutí: příběh „rok se zákazníkem“, ekologická čísla (PUE 1,18, 2,4 GWh, 310 t CO₂) a skladová čísla serverů EPYC na `#/technika`. týmová stránka se jmény a rolemi zaměstnanců a články blogu s provozními čísly (PUE 1,18, baterie v Praze, DDoS 300 Gbps) jsou smyšlené. Rozhodnout, zda je také stáhnout, nebo nahradit skutečnými.
 * ~~**Bankovní údaje**~~ — vyřešeno v I-R15 (2026-10-08): účet 6478243359/0800 je výchozí hodnotou konfigurace.
+
+## Rozhodnutí vlastníka 2026-10-11 (fáze J)
+
+Odpověď vlastníka na bod 1 podkladů fáze J (`ROZHODNUTI-podklady-J-2026-10-11.md`); 2026-10-11 večer k tomu bod 1b (J-R2) a otázka migrace 000950 u storna jedné provize (J-R3). Body 2–10 rozhodnuty 2026-10-12 jako J-R4 až J-R12 (oddíl níže).
+
+| Id | Rozhodnutí | Balík | Provedení a poznámky |
+|---|---|---|---|
+| J-R1 | **Smyšlené údaje z Techniky se stahují (2026-10-11, vlastník: „Stáhni smyšlené údaje z Techniky“).** Příběh „první rok se zákazníkem“, ekologická čísla (PUE 1,18, 2,4 GWh, 310 t CO₂, 40 vytápěných domácností) a skladová čísla serverů EPYC na veřejném webu nejsou, dokud vlastník nedodá skutečná, doložená čísla. | TASK-0152 | Seam `PublicContentSeam::technika()` + `technikaBlocks()` (prototyp beze změny, demo režim beze změny): sekce „První rok u nás, doložený“ na `#/ceny-a-sla` i sekce „Skladem právě teď“ na `#/technika` zmizely i s daty (příběh ani počty kusů nejsou ani ve zdrojovém kódu stránky), z hardwarových karet zmizel řádek „Chlazení dřív než výkon · PUE 1,18“, úvod `#/technika` už neslibuje odpadní teplo a sklad, ekologický pás na úvodní stránce místo tepla do sítě, fotovoltaiky a poznámky „čísla jsou zatím orientační“ říká, že čísla o energii a chlazení zveřejníme, až budou změřená a doložená (tlačítka nesou skutečnou akci: „Prohlédnout služby“, „Vytvořit účet“). `ContentSeeder` už neseeduje skladové řádky; řádky z dřívějšího seedu `GET /v1/stock` nevydá, dokud je tým nezmění (`ContentService::PROTOTYPE_STOCK`). Test `tests/Feature/Content/PublicTechnikaClaimsTest.php`. **Zbývá (mimo rozsah rozhodnutí, k doplnění):** stejná čísla na stránkách služeb ze skriptů `onhost-svc-compute.js`, `onhost-svc-corp.js`, `onhost-svc-other.js` a `onhost-svc-more.js` (Zelená infrastruktura, Datacentra, VPS: PUE 1,18, 2,4 GWh, odpadní teplo, EPYC) — doporučení stejné stažení přes seam; zapsáno v podkladech fáze J. |
+| J-R2 | **Smyšlená eko čísla a skladová čísla EPYC se stahují i ze stránek služeb (2026-10-11, vlastník, bod 1b podkladů fáze J, možnost A).** Stejně jako J-R1: dokud vlastník nedodá skutečná, doložená čísla, stránky služeb je neukazují. | TASK-0160 (PR #156); N1: TASK-0174 (PR #170); O1: TASK-0177 (PR #173) | Seam `ServicePageClaimsSeam` při servírování `onhost-svc-compute/corp/other/more.js` mimo demo režim (prototypy beze změny): PUE 1,18 a srovnávací grafy PUE (místo nich věta „Účinnost (PUE) zveřejníme, až ji doložíme měřením.“), 62 % OZE (i v pásu SLA), 2,4 GWh a 1 640 MWh tepla, 164 tis. m³ plynu, 840 kWp, 2 MWh baterií, cíl 90 %, 214 dní volného chlazení, „dvě budovy“, sestavy EPYC 9354, „skladem do 24 hodin“ / „dodání ze skladu“; na stránce GPU (nalezeno kontrolou v prohlížeči K7, proti I-R16) „7 / 24 volných karet H100“, „90 s start instance“ a titulek „H100 v Praze“. Číslo se odstraňuje, nikdy nenahrazuje jiným. Test `tests/Feature/Content/ServicePageClaimsTest.php` (každá jehla právě jednou v prototypu). Ostatní vyprávěné údaje stránek služeb (sály, počty serverů, benchmarky, kvalitativní „odvod tepla“) rozhodnutí nezahrnuje; L-03 doplněno. **N1 (fáze N, 2026-10-12):** stejný seam stahuje i 99,99 % a „< 15 min“ z pásu SLA stránek compute (spolu s „kreditem automaticky“), „root do 55 s“, „0 % přeprodej CPU“ a „99,99 % dostupnost 2025“ u VPS, 15/60 minut, „SLA 99,99 % s kreditem“ a „změřený medián 15 min“ u správy serverů (`onhost-svc-dev.js`) a obecné texty všech stránek služeb (`pageCopySwaps`: „technik odpovídá do deseti minut“, „Zkuste to 14 dní. Bez karty, bez závazku.“, „zrušíte jedním klikem a nic neplatíte“). Kde se tu číslo nahrazuje, je to výhradně číslo dokumentu v platnosti: SLA 2026-09 (Standard 99,9 % / reakce do 4 h, Business 99,95 % / do 1 h, kompenzace kreditem) a VOP (platba předem za měsíc nebo rok, výpověď ke konci období, 14 dní na odstoupení). Konfigurátor her (most `onhost-game-config.api.js`) neplátci DPH ukazuje „/ měsíc“ bez řádku „bez DPH“ a nepíše „Servery v Praze, podpora 24/7“. Test `tests/Feature/Content/ServicePageCopyClaimsTest.php` + `tests/js/game-config-copy.harness.mjs`. **O1 (fáze O, 2026-10-12):** pás SLA stránek compute bez „2× N+1“ a „10 Gbit/s v základu“; VPS bez „ne s přeprodaným výkonem“, „jádra vyhrazená jen vám“ a „Steal time pod 0,5 %, měříme to veřejně“ (katalog prodává VPS na sdílených jádrech, vyhrazená jádra má VDS; titulek a úvod z popisu katalogu); „SLA 99,99 %“ v tarifech a tabulkách stránek, které nepřekryje katalog (inference, vektorová databáze, object storage, stránky řešení) → „SLA podle individuální smlouvy“ / „podle smlouvy“, pás stránek řešení 99,9 % Standard; úvodní stránka a registrace bez „14 dní zdarma“ (`homeCopySwaps`: závěrečný blok jako stránky služeb, tlačítko „Vytvořit účet“); konfigurátor her bez perku „Anti-DDoS ochrana v ceně“ — konfigurace uzlů (`infra/`), runbooky ani smlouva s upstreamem ochranu nedokládají (vstup vlastníka 8). Ostatní texty o DDoS (1,2 Tbps, herní profily, `gmBadge`, odrážka katalogu „Anti-DDoS upstream L3/L4“) a podporní hodiny (24/7, O2) zůstávají do rozhodnutí vlastníka. |
+| J-R3 | **Storno jedné provize (I-R6): nová migrace, 000950 se nikdy nemění (2026-10-11, vlastník).** Otázka z promptu fáze K (000950 se na skutečné dvojí provizi zastaví dřív, než je nový kód živý) se řeší novou migrací, ne úpravou proběhlé 000950. | TASK-0158 (PR #155) | Migrace `0001_01_01_000949` (řadí se před 000950, na databázi bez 000950 běží první) uplatní pravidlo I-R6 jen tak daleko, jak smí migrace: novější řádek každé skutečné dvojice **odloží** (vazba na fakturu do `duplicate_invoice_id`, `duplicate_of_id` = platný řádek, nezaplacený `payable` → `duplicate`, nikdy k výplatě; částky beze změny), takže 000950 index postaví. Zastaví se před jakoukoli změnou, jen když novější řádek leží v otevřené výplatě (finance ji dokončí nebo zamítne na běžícím releasu). Samotné storno je příkaz financí na sběrnici po releasu: `partner.commission.cancel_duplicate` (`POST /v1/staff/partners/commissions/{id}/cancel-duplicate`, HIGH, step-up a druhá osoba): nezaplacený řádek `cancelled` + stornovaná reverze (`cancels_id`), už vyplacený zůstane `paid` a reverze je mínus na příští výplatě; druhé storno 409. Partner dostane oznámení `partner.commission.duplicate_cancelled`. Runbook `partner-commission-grace.md`, go-live B7 „vyřešeno v kódu“. Proč ne na starém releasu ani v polo-migrované DB: příkaz se čtyřma očima potřebuje vydaný kód (deployer po rc 4 nechá web v údržbě bez konzole). Název příkazu podle konvence `PartnerCommand` (`partner.…`, prompt psal `partners.…`). |
+
+## Rozhodnutí vlastníka 2026-10-12 (fáze L)
+
+Pokyn vlastníka 2026-10-12: „rozhodni všechny body 2–10“ podkladů fáze J (`ROZHODNUTI-podklady-J-2026-10-11.md`). Každý bod je rozhodnut
+podle doporučení podkladů. Kde doporučení potřebuje vstup, který dodá jen vlastník (odpověď advokáta, loga, datum a hostitel produkce,
+účet Comgate), platí zapsaná výchozí nebo přechodná volba a vstup je uveden ve sloupci poznámek. Rozhodnutí, která se dotýkají produkce,
+jsou **jen plán**: nic se nenasazuje a nic se na produkci nezapisuje bez samostatného „ano“ vlastníka ke konkrétnímu kroku. Staging
+patří jiné práci; tato rozhodnutí na něm nic nespouštějí.
+
+| Id | Rozhodnutí | Balík | Provedení a poznámky |
+|---|---|---|---|
+| J-R4 | **Bod 2 – Comgate posoudí předspuštěné produkční nasazení (možnost A, I-R10).** Veřejné předspuštění produkčního kódu na skutečné doméně se skutečnými údaji provozovatele, bez testovacího banneru; objednávky jen převodem, platební brána vypnutá, dokud Comgate nevydá účet. | – (plán) | **Jen plán**, postup `docs/runbooks/production-plan-2026-10.md` (oddíl „Varianta předspuštění pro Comgate“) a `docs/runbooks/comgate-merchant-review.md` §2. Předpoklady: balíky webu pro Comgate (J4) a kontrola v prohlížeči (J7, K7) hotové; vady K7 opravují L2–L5. **Vstup vlastníka:** účet/žádost u Comgate, produkční hostitel a datum nasazení (viz J-R11), samostatné „ano“ k nasazení. |
+| J-R5 | **Bod 3 – spuštění bez vlastního ISO (možnost B), testovací uzel Proxmoxu později (A).** Produkt zůstává v plánu (G-R5/I-R9), objednávka ho odmítne; revize `2026-10-custom-iso` zůstává neschválená, dokud R15–R17 neprojdou na skutečném uzlu. | – | Žádná práce v kódu: odmítnutí objednávky vlastního ISO je vynucené v kódu od fáze I (I-R9). **Vstup vlastníka (pro A):** testovací uzel Proxmoxu napojený jen na staging. |
+| J-R6 | **Bod 4 – zálohy compute a kontrola PBS až po spuštění (možnost B).** Do té doby B10 zůstává „should“ a `backup_days` v `KNOWN_GAPS`; web zálohy compute neslibuje. | – | Žádný zápis do živého Proxmoxu. Ověření zálohy a obnovy testovací VM po spuštění, s výslovným „ano“ ke konkrétnímu kroku. |
+| J-R7 | **Bod 5 – párování plateb z účtu u České spořitelny importem souboru výpisu (možnost B).** Upload výpisu ve staff konzoli (oprávnění `billing.reconcile`), parser bez spouštění kódu a bez externích entit (camt.053 XML, ABO/GPC), idempotence podle id řádku, párování podle VS a částky jako u Fio, nespárované řádky do ručního seznamu. Do banky se nic nezapisuje. | L6 → M3, TASK-0170 (PR #166) | **Provedeno ve fázi M (2026-10-12):** staff konzole Nastavení → Bankovní platby → „Import výpisu z České spořitelny“ (`POST /v1/staff/payments/bank/statements`, `billing.reconcile`, operace `bank.statement.import`), `BankStatementFile` čte camt.053 (jen zaúčtované příchozí položky; VS ze strukturované reference, `/VS/` v `EndToEndId` nebo „VS“ ve zprávě) a ABO/GPC (věty 075 s kódem 2), id `cs:…`, druhý upload = 0 nových; XML s DOCTYPE/entitou/jiným kódováním odmítnuto před parsováním, 2 MB / 5000 řádků, soubor se neukládá a do auditu jde jen jeho hash; doctor *bank statement import* OK. Postaveno na syntetických souborech podle formátů — kde ČS v camt.053 nese VS, je ASSUMED do vzorového výpisu. Původní návrh (nová operace `bank.statement.import` na `BankCommand`, `POST /v1/staff/payments/bank/statements` s limity velikosti a počtu řádků, stávající `BankStatementImporter::record`). Do té doby platí A (ruční přiřazení ve staff konzoli). **Vstup vlastníka:** vzorový výpis z internetového bankovnictví ČS (formát, který skutečně stahujete); CSV z George se nepodporuje, dokud ho neuvidíme. |
+| J-R8 | **Bod 6 – advokát: přechodně I-R4 B (texty 2026-09).** Web dál nese právní texty 2026-09; `onhost:legal:publish 2026-10` spouští vlastník až po odpovědi advokáta, nejdřív na stagingu. | – (čeká) | Reklamační řád na webu (C-R10b) a go-live B4 zůstávají otevřené. **Vstup vlastníka:** kdy přijde odpověď advokáta k `docs/legal/LEGAL_REVIEW_2026-10.md`. |
+| J-R9 | **Bod 7 – provozní vstupy pro Comgate a VOP: přechodné znění.** Web dál říká „Nejsme plátci DPH, ceny jsou konečné“; platební metody jen textovým názvem, dokud nejsou oficiální loga Comgate a karetních schémat; reklamace vyřizuje provozovatel na reklamace@onhost.cz. Karta se nabízí jen s fungující bránou (`CardPayments`). | L4 → M2, TASK-0171 (PR #167), TASK-0172 (PR #168) | **Provedeno ve fázi M (2026-10-12):** pokladna nabízí kartu jen s fungující bránou (`SurfaceRenderer::CARD_JS`), neslibuje fakturu se splatností; neplátce vidí „Doplňky“ a „Celkem k platbě“ bez „bez DPH“/„s DPH“ (věta „Nejsme plátci DPH, ceny jsou konečné“ zůstává v patičce do potvrzení účetní); dobití bez „+10 %“; „Zaplatit a spustit server“ jen se serverem v košíku; částka převodu „49,00 CZK“. Doplněk „CDN a WAF“ se nabízí a prodává jen s nastaveným účtem CDN (R4; „bez CDN“ z H-R2 se týká originu platformy, ne doplňku). **Vstupy vlastníka:** podporní hodiny (a zda telefon jen pro naléhavé věci), jméno/role osoby pro reklamace, loga z portálu Comgate po zřízení účtu, potvrzení nebo jiné znění věty o DPH od účetní. |
+| J-R10 | **Bod 8 – Penpot: přechodně B (prodávat s poctivým odmítnutím).** Bez kvalifikovaného uzlu se objednávka odmítne s vysvětlením a platba se nevezme (dnešní stav, H-R7). | – | Konečné rozhodnutí po E2E na stagingu (oddíl F `GENERALKA-Penpot-D-G-prikazy.md`); staging vede jiná práce. |
+| J-R11 | **Bod 9 – produkce: jen plán.** Postup `docs/runbooks/production-plan-2026-10.md`; bez vstupů vlastníka se nic nenasazuje. | – (plán) | **Vstupy vlastníka:** cílové datum spuštění, produkční hostitel (aaPanel jako staging, PHP 8.5?), okno údržby pro první deploy, druhá osoba pro čtyři oči **nebo** `ONHOST_FOUR_EYES=false` s časovým zámkem, kdo spravuje zónu onhost.cz a certifikát (Let's Encrypt přes aaPanel?). |
+| J-R12 | **Bod 10 – úklid stagingu (G1/G2): podle doporučení.** Test Penpotu po E2E odstranit; `onhost_staging_b_r2b5_failed`, `b3ac309d….parked` a staré výpisy smazat až po úspěšném C a R2b-6. | – (staging) | Každý krok jen s „ano“ vlastníka ke konkrétnímu kroku; provádí ho práce, která vede staging, ne tento zápis. |
+
+## Rozhodnutí vlastníka 2026-10-13 (fáze P, výchozí hodnoty SEZNAMu)
+
+Pokyn vlastníka 2026-10-13: „Rozhodni a zapracuj všechny vstupy ze seznamu.“ Každá položka `SEZNAM-vstupu-vlastnika-2026-10-13.md`
+je rozhodnuta podle sloupce „Doporučené výchozí“. Číslo **P-R*n*** odpovídá řádku *n* SEZNAMu (P-R1 = CG-1 … P-R75 = RF-1).
+
+Co to rozhodnutí **nedělá**:
+- Údaje, které dodá jen vlastník (soubor, datum, adresa, jméno, smlouva, odpověď advokáta, účetní nebo Comgate, krok v cizím
+  systému, tajemství, TOTP, záznam TXT), se nevymýšlejí. Taková položka je rozhodnutá co do postupu a ve sloupci *Stav* nese
+  **čeká: <kód>**.
+- Žádný zápis na staging ani do produkce. Kroky stagingu dál potřebují samostatné „ano“ vlastníka ke konkrétnímu kroku (souhlas
+  z 2026-10-12 je vyčerpaný); produkční kroky spouští vlastník sám podle dokumentu `PRODUKCE-prikazy-<datum>.md` se svým „ano“.
+- Přepínače, které mění chování pro stávající zákazníky, se v produkci přepínají jen podle harmonogramu P-R24 s náhledem.
+
+Stav: **kód** = provedeno v kódu (balík fáze P), **platí** = rozhodnuto a dnešní kód/dokumenty už odpovídají, **plán** = postup
+zapsán, provedení je krok vlastníka nebo krok se „ano“, **čeká** = chybí vstup, který dodá jen vlastník.
+
+| Id | Kód | Rozhodnutí (výchozí) | Balík | Stav |
+|---|---|---|---|---|
+| P-R1 | CG-1 | Nejdřív si od Comgate vyžádat jejich aktuální seznam požadavků na web; žádost podat až po předspuštění (P-R2). | P8 | čeká: CG-1 (krok vlastníka u Comgate) |
+| P-R2 | CG-2 | Předspuštění produkčního kódu pro kontrolu Comgate **ano, až po dokončení generálky** (B1 na stejném SHA) a po PR-1 … PR-9. Je to nasazení do produkce: provede ho vlastník podle `PRODUKCE-prikazy` se svým „ano“ ke kroku. | P18 | plán; čeká: B1, PR-1 … PR-9, „ano“ ke kroku |
+| P-R3 | CG-3 | Demo účet pro recenzenta je **zákaznický** (ne staff), založí ho vlastník sám až na předspuštění a údaje předá Comgate sám. | P18 | plán (krok vlastníka) |
+| P-R4 | CG-4 | Testovací účet Comgate nejdřív na stagingu (`onhost:secrets:set` dělá vlastník), produkce až po úspěšném I2. | P8 | čeká: CG-4 |
+| P-R5 | CG-5 | Do dodání oficiálních log jen textové názvy platebních metod. | – | platí (J-R9, M2); loga čekají: CG-5 |
+| P-R6 | CG-6 | IP adresy notifikací a URL podle portálu Comgate po zřízení účtu. | P8 | čeká: CG-6 |
+| P-R7 | PR-1 | Předspuštění po generálce, spuštění po kontrole Comgate. | P18 | plán; data čekají: PR-1 |
+| P-R8 | PR-2 | Produkční hostitel = stejný stack jako staging: aaPanel, Ubuntu 22.04, PHP 8.5 (jedna PHP CLI pro deployer i systemd), PostgreSQL ve stejné hlavní verzi jako staging, Redis; samostatný stroj, ne staging. | P18 | plán; hostitel/IP čeká: PR-2 |
+| P-R9 | PR-3 | Claude nemá do produkce žádný přístup, ani čtení. Produkční kroky spouští vlastník podle `PRODUKCE-prikazy`. | – | platí |
+| P-R10 | PR-4 | Okno prvního deploye: večer v pracovní den (H+1 až H+24 v pracovní době). | P18 | plán; datum čeká: PR-4 |
+| P-R11 | PR-5 | Druhá osoba se svým staff účtem a TOTP; náhradní řešení `ONHOST_FOUR_EYES=false` s časovým zámkem 24 h. | P18 | plán; osoba čeká: PR-5 |
+| P-R12 | PR-6 | Staff účty v produkci jen pro lidi, kteří opravdu pracují (I-R19: Filip, Roman, Adrian, Markéta), role podle `RoleCatalog`; TOTP zadává každý sám. | P18 | plán; e-maily čekají: PR-6 |
+| P-R13 | PR-7 | Zónu `onhost.cz` (NS WEDOS) upravuje vlastník; TTL 300 nejméně 48 h před přepnutím; AAAA jen když hostitel má IPv6 a nginx na ní poslouchá. | P18 | plán; cílová IP čeká: PR-7 (po PR-2) |
+| P-R14 | PR-8 | TLS produkce: Let's Encrypt přes aaPanel, upozornění na e-mail vlastníka. | P18 | plán; e-mail čeká: PR-8 |
+| P-R15 | PR-9 | Podpisový klíč tagů = SSH klíč ed25519 vlastníka (jen veřejná část do `allowed_signers`), operátor deploye = vlastník. | P18 | čeká: PR-9 (veřejný klíč, jméno) |
+| P-R16 | PR-10 | Záloha platformy mimo server: S3-kompatibilní úložiště v EU, retence 30 dní, šifrování na straně úložiště; přístupové údaje ukládá vlastník. | P13, TASK-0202 (PR #197) | kód: cvičná obnova `restore-drill.sh` (CI na PostgreSQL), řádek doctoru a alerty; poskytovatel/bucket čeká: PR-10 |
+| P-R17 | PR-11 | Transakční e-mail z `onhost.cz` přes jednoho SMTP poskytovatele; DMARC nejdřív `p=none`; SPF/DKIM/DMARC vkládá vlastník. | P18 | čeká: PR-11 |
+| P-R18 | PR-12 | Cloudflare Turnstile zapnout (zdarma, s CDN nesouvisí); klíče ukládá vlastník. | P18 | čeká: PR-12 (klíče) |
+| P-R19 | PR-13 | Monitoring na malé samostatné VM mimo produkci; Alertmanager posílá na `POST /v1/webhooks/alertmanager` a e-mailem vlastníkovi. | P12 | plán; stroj a adresa čekají: PR-13 |
+| P-R20 | PR-14 | Ke spuštění lokální logy s rotací, Loki později. | P17 | platí |
+| P-R21 | PR-15 | V den spuštění se prodává jen produkt s ověřeným panelem a kvalifikovaným uzlem; ostatní „Připravujeme“ (R14, `qualifying`). | P18 | plán; tabulka produktů čeká: PR-15 |
+| P-R22 | PR-16 | Spustit jen s WEDOS; Subreg až po vyřešení `500.104`. | P18 | plán (Subreg se v produkci nekonfiguruje) |
+| P-R23 | PR-17 | Produkční IPv4 do povolených adres WAPI přidá vlastník po PR-2. | P18 | čeká: PR-17 |
+| P-R24 | PR-18 | Harmonogram měření: D+1 `usage.rotation` po `onhost:metering:preview`; D+30 po kontrole baseline `ONHOST_METERING_ENFORCE_NEW_METRICS`; navýšení limitu zákazníkem (`ONHOST_LIMIT_RAISE_CUSTOMER_ORDERS`) po prvním fakturačním cyklu. Každý krok s náhledem a „ano“. | P19, TASK-0205 (PR #201) | plán `docs/proposals/metering-after-launch.md` (balíky M1–M5, náhledy, rollback); žádný přepínač nepřepnut |
+| P-R25 | LG-1 | Spuštění na textech 2026-09 (I-R4 B); 2026-10 zveřejnit až po písemné odpovědi advokáta. | P7 | čeká: LG-1 (jméno advokáta, datum) |
+| P-R26 | LG-2 | Zveřejnit den po odpovědi advokáta, účinnost za 30 dní (`--effective-from`). | P7 | čeká: LG-1, LG-2 |
+| P-R27 | LG-3 | Seznam zpracovatelů připraví vlastník (Comgate, WEDOS, SMTP, úložiště záloh, Cloudflare), advokát potvrdí „na vyžádání“. | – | čeká: LG-3 |
+| P-R28 | LG-4 | Jeden balík pro advokáta: `PRAVNI-TEXTY-pro-pravnika-2026-10-08.md` doplněný o RF-1 a WF-1 (a HS-1 jen informativně). | P9 | čeká: LG-4 (předání dělá vlastník) |
+| P-R29 | LG-5 | Regionální přirážka EU **0 %**: výchozí `ONHOST_PRICING_EU_ADJUST=0` (geo-blocking, nařízení (EU) 2018/302). | TASK-0185 (PR #181) | kód |
+| P-R30 | LG-6 | Poplatek za stažení závěrečného archivu **0 od spuštění**: výchozí `onhost.services.deletion.download_fee_minor` = 0 Kč / 0 €; doložení nákladů odpadá. | TASK-0185 (PR #181) | kód |
+| P-R31 | LG-7 | Asistent AI v produkci vypnutý (`ONHOST_AI_ENABLED=false`), dokud není DPA/SCC s dodavatelem. | – | platí (výchozí v `config/onhost.php`) |
+| P-R32 | LG-8 | Zákazníkem dodaný Windows bez licencí poskytovatele (SPLA) výslovně zakázat v AUP/VOP; advokát potvrdí. Text až s prodejem vlastního ISO (J-R5). | – | čeká: LG-4 (advokát); vlastní ISO se neprodává |
+| P-R33 | UC-1 | Věta o DPH zůstává „Nejsme plátci DPH, ceny jsou konečné.“ | – | platí (J-R9) |
+| P-R34 | UC-2 | Věrnostní body = sleva při prodeji, ne platba. | – | platí (G-R2) |
+| P-R35 | UC-3 | Doklady v EUR: kurz ČNB dne vystavení. | – | platí (`onhost:fx:sync`) |
+| P-R36 | UC-4 | Měsíční podklady pro účetní: CSV dokladů a plateb za měsíc. | P17, R2, TASK-0207 (PR #203) | kód: `GET /v1/staff/finance/exports/{documents,payments}?month=` (CSV, finance) |
+| P-R37 | OP-1 | Podpora po–pá 08:00–17:00 Europe/Prague (shodně s I-R13); mimo tuto dobu tiket nebo e-mail; telefon jen při výpadku služby v pracovní době. Web nesmí slibovat 24/7. | P1, TASK-0184 (PR #180) | kód |
+| P-R38 | OP-2 | Reklamace vyřizuje Adrian Staněk, zakladatel. | P7 | plán (do reklamačního řádu po LG-1) |
+| P-R39 | OP-3 | `reklamace@` i `abuse@` čte osoba z OP-2; pošta přes PR-11. | – | čeká: OP-3 (schránky zřizuje vlastník) |
+| P-R40 | OP-4 | Provozní alerty dostává vlastník e-mailem, zástup = druhá osoba z PR-5. | P12 | plán; adresa čeká: PR-13, PR-5 |
+| P-R41 | OP-5 | Tým na `#/lide` dál jen křestními jmény. | – | platí |
+| P-R42 | OP-6 | DNSSEC ani šifrování úložišť se v textech neuvádějí. | – | platí |
+| P-R43 | BK-1 | Formát výpisu ČS: camt.053 (XML). | P6 | platí (import umí); ověření čeká: BK-2 |
+| P-R44 | BK-2 | Vzorový výpis s vlastní testovací platbou 1 Kč; z něj syntetický fixture, originál nikdy do repa. | P6 | čeká: BK-2 (soubor) |
+| P-R45 | BK-3 | Výpis nahrává vlastník, denně v pracovní dny (`billing.reconcile`). | P17 | plán (runbook den 2) |
+| P-R46 | CD-1 | Doplněk „CDN a WAF“ se neprodává. | – | platí (bez účtu „Připravujeme“, `cdn_unavailable`, M2b) |
+| P-R47 | CD-2 | Odpadá (CD-1 = ne). | – | platí |
+| P-R48 | PX-1 | Testovací uzel Proxmoxu až po spuštění; do té doby se vlastní ISO neprodává. | – | platí (J-R5) |
+| P-R49 | PX-2 | VPS/VDS při spuštění neprodávat, dokud uzel neprojde kvalifikací a syntetickou službou. | P18 | platí (`qualifying`); plán krok produkce |
+| P-R50 | PX-3 | Zkouška zálohy a obnovy jedné testovací VM po spuštění. | P13 | čeká: PX-3 („ano“ po spuštění) |
+| P-R51 | PX-4 | Retence u `backups.as_sold` = počet dní, po které existuje obnovitelný bod. Zapnout po `onhost:backups:frequency-plan` a ověření místa na disku záloh, s „ano“. | P13 | plán; zapnutí čeká na „ano“ |
+| P-R52 | PP-1 | D6 podle `GENERALKA-Penpot-D-G-prikazy.md`. | P5 | čeká: PP-1 (e-mail LE, TXT, krok vlastníka) |
+| P-R53 | PP-2 | D7 ověří vlastník ze svého PC. | P5 | čeká: PP-2 |
+| P-R54 | PP-3 | Kroky D7, D8, E1–E5, F0 po jednom, každý se svým „ano“. | P5 | čeká: „ano“ ke každému kroku |
+| P-R55 | PP-4 | Pro F1 nová registrace na stagingu, *Sandbox* zapíná vlastník (TOTP + step-up). | P5 | čeká: PP-4 |
+| P-R56 | PP-5 | F2 (papírový rodič) ano — **jako rozhodnutí**; provedení dál potřebuje „ano“ vlastníka ke kroku F2. | P5 | čeká: „ano“ F2 |
+| P-R57 | PP-6 | F4–F7 podle dokumentu; purge má vlastní „ano“. | P5 | čeká: PP-6 |
+| P-R58 | PP-7 | Po testu Penpot ze stagingu **odstranit** (G1, J-R12). | P5 | čeká: „ano“ G1 |
+| P-R59 | PP-8 | J-R10 → **A**: dokud neexistuje produkční uzel Penpotu, v produkci se Penpot neprodává (B jen s uzlem). | P18 | plán: krok plánu produkce (revize katalogu se čtyřma očima), ne změna kódu; uzel čeká: PP-8 |
+| P-R60 | ST-1 | Staré výpisy DB na stagingu smazat (`shred -u`, režim Z1). | P5 | čeká: „ano“ ST-1 |
+| P-R61 | ST-2 | Sady záloh z generálky ponechat do příštího úspěšného cyklu A–C, pak smazat. | P5 | plán |
+| P-R62 | ST-3 | G2: forenzní dump a drop `onhost_staging_b_r2b5_failed` (a `…_r2b5a_failed`). | P5 | **hotovo** 2026-10-12 09:11 (forenzní dump + drop, `staging-rehearsal-2026-10-12.md`, krok G2; `…_r2b5a_failed` nikdy neexistovala; ověřeno čtením v `staging-rehearsal-2026-10-15.md`) |
+| P-R63 | ST-4 | Odstranit `b3ac309d….parked`. | P5 | **hotovo** 2026-10-12 17:44: přejmenováno na `….parked-20261012T174432Z.cleared` (`staging-rehearsal-2026-10-13.md`); smazání tohoto záznamu historie je volitelné a je krokem vlastníka |
+| P-R64 | ST-5 | R14 nácvik: právnická osoba stagingu z plátce na neplátce, s druhou osobou z PR-5. | P5 | čeká: ST-5 (krok vlastníka) |
+| P-R65 | ST-6 | R12 nácvik: `ONHOST_TOKEN_ORGANIZATION_REQUIRED=true` na stagingu + `config:cache`. | P5 | **hotovo na stagingu** 2026-10-13 14:03 UTC po nasazení Q4 (`36009513`): řádek R9 OK, `env-assert` rc 0 (`staging-rehearsal-2026-10-16.md`); v produkci krok 8 plánu se „ano“ |
+| P-R66 | ST-7 | R21: testovací ping webhooku na vlastní endpoint vlastníka. | P5 | čeká: ST-7 (endpoint) |
+| P-R67 | ST-8 | Kontrola v prohlížeči na stagingu (F1.7, F7-19, F1.8, F1.9) s přihlášením vlastníka. | P4 | čeká: ST-8 (termín, přihlášení) |
+| P-R68 | ST-9 | R15/R16 a R25 přeskočit: na stagingu není Proxmox (PX-1). | P5 | platí (přeskočeno s důvodem) |
+| P-R69 | DD-1 | DDoS u herních serverů **nedoloženo → stáhnout vše** (1,2 Tbps, profily pro každou hru, detekce do tří sekund, `gmBadge`, menu a vyhledávání „anti-DDoS v ceně“, karta „Ochrana proti DDoS na hraně“, odrážka katalogu `ddos`). Vrátit se smí jen doložené číslo. | P2, TASK-0184 (PR #180) | kód |
+| P-R70 | DD-2 | Benchmark VPS „1 842 pts“, „VPS s přeprodanými jádry“ a colocation „2N napájení, chlazení N+1“ stáhnout. | P3, TASK-0184 (PR #180) | kód |
+| P-R71 | NM-1 | Název doplňku „Rozšířené zálohy“ platí. | – | platí (TASK-0178, migrace 001160) |
+| P-R72 | WF-1 | Cookie WAF `server_session_<hash>` ponechat a uvádět (`onhost.privacy.hosting_waf_cookie=true`); advokát potvrdí nezbytnost (LG-4). | – | platí; potvrzení čeká: LG-4 |
+| P-R73 | WF-2 | Log útoků aaPanel WAF: retence 7 dní, hlavičky neukládat nebo maskovat, přístup jen root 0600 — podle návrhu P10. Na hostitelích to provádí vlastník v aaPanelu. | P10, TASK-0196 (PR #191) | plán (`aapanel-waf-log-privacy.md`, dokument V na ploše); provedení čeká: WF-2 (krok vlastníka) |
+| P-R74 | HS-1 | HSTS posílá **jen aplikace**, z konfigurace; bez `preload`; `includeSubDomains` až po soupisu subdomén `onhost.cz` s platným TLS (do té doby vypnuto). HSTS na vhostu v aaPanelu vypne vlastník. | P11, TASK-0193 (PR #189) | kód (`onhost.security.hsts`, řádek doctoru, `hsts.md`); krok aaPanel čeká: vlastník (dokument V) |
+| P-R75 | RF-1 | `onhost_ref` → **C** do odpovědi advokáta: cookie vypnutá přepínačem, partner se atribuuje kódem z `?ref=` předvyplněným do registrace. Potom A nebo B. | P20, TASK-0198 (PR #193) | kód (C: `onhost.partners.referral_cookie=false`); konečná volba čeká: LG-4 |
+
+## Rozhodnutí 2026-10-13 (fáze Q, zjištění kontroly stagingu)
+
+Kontrola stagingu 2026-10-13 (`docs/runbooks/staging-rehearsal-2026-10-15.md`, nálezy 1–3) našla tři rozpory s již přijatými
+rozhodnutími. Rozhodnuto výchozími hodnotami bez nového vstupu vlastníka (pokyn 2026-10-13 „Rozhodni a zapracuj všechny vstupy“);
+balíky Q2–Q4 v `PROMPT-faze-Q-2026-10-13.md`. Číslování pokračuje za P-R75 (SEZNAM je doplnil do své hlavičky).
+
+| Id | Zjištění | Rozhodnutí (výchozí) | Balík | Stav |
+|---|---|---|---|---|
+| P-R76 | `CatalogSeeder` dál nabízí v pokladně webhostingu volby `priority_support` („reakce do 10 minut, 24/7“; rozpor s P-R37) a `waf_cdn` („firewall aplikací a anycast cache“; rozpor s H-R2, M2b a P-R46). | Stáhnout obě volby z prodeje: seeder + datová migrace vzoru `001160` (mění jen nedržené verze a jen dokud tam stojí seedovaná slova/stav). Držená předplatná se nemění. | Q2, TASK-0189 (PR #185) | kód (seeder + migrace `001180`); na stagingu od `36009513` (0 řádků) |
+| P-R77 | Tlačítko „Vyzkoušet zdarma“ v hlavičce (žádná zkušební doba neexistuje, VOP čl. 2) a čísla vektorové databáze (14 ms p95, 98,6 % recall) nejsou doložená. | Stáhnout přes seam (prototypy zůstávají byte-identické), demo režim beze změny. | Q3, TASK-0191 (PR #188) | kód; na stagingu od `36009513` |
+| P-R78 | `staging.sh` zapisuje do `expected-env` `ONHOST_TOKEN_ORGANIZATION_REQUIRED=false` a `deploy.sh` odmítne deploy (rc 2), když `app.env` drží jinou hodnotu; nácvik ST-6 (P-R65, `true`) by zablokoval každý další deploy. | Spec deployeru připustí `true` i `false` (pro produkci je `true` krok 8 plánu žádoucí); ověřeno skutečným během skriptu v CI. **ST-6 se neprovádí, dokud Q4 není sloučené a nasazené na staging.** | Q4, TASK-0190 (PR #186) | kód; na stagingu od `36009513`; ST-6 provedeno 2026-10-13 |
+
+## Fáze R (2026-10-13): odkazy na balíky
+
+Fáze R nepřinesla žádné nové rozhodnutí vlastníka; dokončila balíky bez vstupu. Odkazy na rozhodnutí, která naplňuje:
+
+| Rozhodnutí | Co fáze R udělala | Úkol (PR) |
+|---|---|---|
+| P-R16 (PR-10), P-R50 (PX-3), P-R51 (PX-4) | P13: `onhost:platform:backup:export-db`, `infra/aapanel/restore-drill.sh` (jen role bez superuseru), `drill-record`, řádek *platform restore drill within 35 days*, alerty; zapínání `backups.*` s náhledy v `backups.md` | TASK-0202 (#197) |
+| P-R37, P-R69 | R1: stavová stránka, postmortemy, kroky kreditu, kariéra a DNS anycast podle SLA 2026-09 (seam, prototypy byte-identické) | TASK-0204 (#199) |
+| P-R19 (PR-13), P-R24 (PR-18) | P16 staff stránka *Provoz* (jen čtení); P19 návrh měření po spuštění | TASK-0203 (#200), TASK-0205 (#201) |
+| P-R36 (UC-4) | R2: CSV dokladů a plateb za měsíc pro účetní | TASK-0207 (#203) |
+| P-R2 … P-R23 (PR-1 … PR-17), CG-2 | P18: plán na cíl `fda0cedf`, `PRODUKCE-prikazy-2026-10-13.md` (go/no-go, T-48 h, kroky 2a/3a/8a/10a, DNS, rollback) | TASK-0208 (#204) |
+| — | R0 časované bomby (zametení s posunutými hodinami), P15a cesta převodem (camt.053 i GPC), P15b návrh pro staging | TASK-0201 (#198), TASK-0206 (#202) |
+
+## Fáze S (2026-10-13/14): odkazy na balíky
+
+Fáze S nepřinesla nové rozhodnutí vlastníka kromě „ano R3“ (cyklus A–C `fda0cedf` na stagingu; krok D bez souhlasu). Odkazy:
+
+| Rozhodnutí | Co fáze S udělala | Úkol (PR) |
+|---|---|---|
+| R3-ano | Staging A–C `fda0cedf` (záloha, 2 řádky `expected-nonok`, brána `VERDICT pass`, migrace 86); protokol `staging-rehearsal-2026-10-17.md`; D (DR-1) neproběhl | TASK-0213 (#209) |
+| P-R24 (PR-18) | S1 = M1 z návrhu měření: `alias.create` počítá aliasy proti tarifu, výpis jen řádků `type = alias`; `KNOWN_GAPS` 7 → 6 | TASK-0210 (#207) |
+| P-R37, P-R46, P-R69 | S2: zbytek textů R1 (pošta, SSL, CDN, „420+“ koncovek, 55 s, PRG1, kredit bez žádosti, `#/jak-fungujeme`), stavová mřížka za 30 dní | TASK-0211 (#208) |
+| P-R19 (PR-13), P-R40 (OP-4) | S3: `/metrics` vydává rozpočty plánovaných úloh i pod PHP-FPM (nález z C4) | TASK-0212 (#206) |
+
+## Fáze T (2026-10-14): odkazy na balíky
+
+Fáze T nepřinesla nové rozhodnutí vlastníka kromě pověření slučovat PR (MRG-1: PR #206–#209 sloučil koordinátor 2026-10-13
+23:25 UTC). Odkazy:
+
+| Rozhodnutí | Co fáze T udělala | Úkol (PR) |
+|---|---|---|
+| P-R24 (PR-18) | T2 = M3 z návrhu měření: herní tarify bez `limits.pids` (Pterodactyl PID strop nemá) — seeder, datová migrace `001200` (jen nedržené verze, jen seedované číslo), revize `2026-10-game-plans-without-pids` pro držené aktuální verze; `KNOWN_GAPS` 6 → 5 | TASK-0214 (#210) |
+| P-R24 (PR-18), PX-1 | T3 = M2: měsíční přenos VM z Proxmoxu (`rrddata` netin + netout) jako měkká metrika `transfer` proti `traffic_tb` — varuje od 85 %, nikdy neodpojí ani neobjedná, zákazníkovi se ozve až po `ONHOST_METERING_ENFORCE_NEW_METRICS` (D+30); `KNOWN_GAPS` zůstává 5, protože `traffic_tb` prodává i doplněk CDN, který nic neměří (návrh CD-3); ověření na skutečném Proxmoxu až s PX-1 | TASK-0216 (#212) |
+| P-R37, P-R46, rozhodnutí 2 (2026-09-25) | T4: zbytky textů ze S2 přes `PhaseTCopySeam` — „Kde jsme dražší“, Discord, „Telefon 24/7“ v ukázce panelu, nahrávky relací (NIS2), Praha a Brno, archiv 10 let, SSL OV/EV a pojištění, „SLA 99,99 %“ tarifů, „1 900 objednávek/h“ | TASK-0215 (#211) |
+| — | T1: dokument vlastníka `GENERALKA-T-A-C-deploy-prikazy-2026-10-14.md` na cíl `a5b827cb` (čeká na „T-ano“) | — (plocha) |
+
+## Fáze U (2026-10-14): odkazy na balíky
+
+Fáze U nepřinesla nové rozhodnutí vlastníka; CD-3 a M4 platí podle doporučeného výchozího ze SEZNAMu (bez odpovědi vlastníka).
+„T-ano“ nepřišlo, cyklus na stagingu (U1) neproběhl. Odkazy:
+
+| Rozhodnutí | Co fáze U udělala | Úkol (PR) |
+|---|---|---|
+| CD-3 (výchozí „ano“), P-R46, P-R24 | U2: doplněk `cdn` z prodeje (seeder `draft`, migrace `001210`, jen seedovaný stav; držená předplatná beze změny); `KNOWN_GAPS` 5 → 3 | TASK-0218 (#214) |
+| P-R37, rozhodnutí 2 (2026-09-25), P-R24 | U3: zbytky textů z T4 přes `PhaseUCopySeam` (PITR, WordPress kpis, VPS přenos, páteř Praha–Brno, changelog API, řádek tendru Enterprise) | TASK-0219 (#215) |
+| P-R24 (PR-18), M4 (výchozí: formulace) | U4: `spam_filter` jako fair use s popisem na ceníku; `KNOWN_GAPS` 3 → 2 | TASK-0220 (#216) |
+| — | Dokument vlastníka `GENERALKA-T-A-C-deploy-prikazy-2026-10-14.md` obnoven na cíl `259cbea6` (čeká na „T-ano“) | — (plocha) |
+
+## Fáze V (2026-10-14): rozhodnutí vlastníka a odkazy na balíky
+
+- **T-ano** (2026-10-14, předáno koordinátorem): cyklus A–C cíle `259cbea6` na stagingu. Krok A proběhl (záloha `/root/t-2026-10`);
+  krok B se zastavil podle dokumentu — nový non-OK řádek `automation|every scheduled job ran within its budget`
+  (`onhost:registrar:credit` 26× za sebou bez tajemství `WEDOS_MAIN_*`). Příčinu opravil TASK-0222 (#218); doplnění řádku do
+  `expected-nonok` čeká na samostatné „ano“ (SEZNAM V-ano).
+- **V-R1 = SP-1** (2026-10-14, vlastník): antispam má být **plně vyřešený a automatizovaný** — konfigurovatelný napříč panely
+  (ISPConfig, aaPanel, jakýkoli poštovní backend) přes abstrakci poskytovatele; politiky antispamu pro tarif / službu / globálně
+  a rozšíření nastavuje personál; zákazník si nastavuje v panelu v mezích, které personál dovolí; ochrana odchozí pošty, aby se
+  žádná služba ani server nedostaly na blocklist (limity odesílání na schránku a doménu, odchozí kontrola rspamd, poznání
+  napadeného účtu — náhlý objem, přihlášení z mnoha IP —, automatické pozdržení / karanténa, automatické SPF/DKIM/DMARC a jejich
+  kontrola, kontrola PTR/HELO); průběžné hlídání každé odesílací IP a domény zákazníka proti blocklistům (DNS přes nastavitelný
+  resolver, cache, podmínky seznamů, klíč Spamhaus DQS jako volitelné tajemství) a zpětná vazba postmasterů (Google Postmaster,
+  Microsoft SNDS jako volitelné integrace); při zařazení nejdřív automatická náprava (příčina, zamčení a vynucená změna hesla
+  napadené schránky, vyčištění fronty od spamu, zpřísnění limitu, žádost o vyřazení tam, kde to seznam umí, jinak připravený
+  tiket), zákazník se dozví až **po úspěšném vyřazení** a co se změnilo; nevyřešené do **72 h** → okamžitě technická podpora
+  (tiket + alert), podpora má **48 h**, potom zákazník dostane zprávu, že k problému došlo, řeší se a žádáme o součinnost; úplná
+  auditní stopa, metriky, alerty, řádky doctoru, sekce na nástěnce personálu. `spam_filter` přejde z `FAIR_USE` na vymáhaný
+  podle tarifu, až bude politika aplikovaná. Živé ověření jen na stagingu se samostatným „ano“. Návrh a architektura:
+  `docs/proposals/antispam-reputation.md`.
+
+| Rozhodnutí | Co fáze V udělala | Úkol (PR) |
+|---|---|---|
+| T-ano | V1 krok A (záloha), krok B STOP (nový non-OK řádek); oprava příčiny | TASK-0222 (#218) |
+| V-R1 (SP-1) | SP1a: návrh, katalog blocklistů (bez SORBS), vlastní resolver, DQS, monitor adres a domén, historie zařazení, řádky doctoru, metriky | TASK-0223 |

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
+use App\Http\Support\CookieInventory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -79,6 +80,8 @@ final class LegalDocumentController extends Controller
             'slug' => $slug, 'document' => $document, 'title' => $this->title($document, $request), 'html' => $html, 'others' => $others,
             'entity' => $entity, 'stylesheet' => $this->stylesheet(), 'superseded' => $current !== null && $current->version !== $document->version ? $current : null,
             'earlier' => $this->earlier($key, (string) ($current->version ?? '')),
+            // TASK-0179: the privacy page also lists the cookies a visitor receives, as an annex under the (frozen) document text
+            'cookies' => $key === 'privacy' ? CookieInventory::rows() : [],
         ]);
     }
 

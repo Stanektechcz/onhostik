@@ -105,6 +105,7 @@ zavolání bránou stejné platby nic nezmění (odpověď `duplicate`). Událos
 | Callback nedorazil | Zaplatit, ale zablokovat zpětné volání | Platbu lze znovu ověřit u brány (`POST /v1/payments/{intent}/sync`); bez toho zůstane objednávka čekat na platbu |
 | Dvojklik na Potvrdit | Odeslat dvakrát | Jediná objednávka (Idempotency-Key), druhý požadavek dostane tutéž odpověď |
 | Platba z kreditu bez kreditu | Zvolit „Z kreditu“ s nulovým zůstatkem | Odmítnuto s textem o nedostatku kreditu, nabídka převodu nebo karty |
+| Brána bez údajů (J4, TASK-0155) | Prostředí bez přihlašovacích údajů Comgate; v pokladně jako host i přihlášený | Krok Platba nabízí jen „Bankovní převod — QR platba, zálohová faktura“. Karta vnucená přímo do API (`POST /v1/checkout/guest` nebo `POST /v1/orders` s platbou kartou) skončí `409 payment_card_unavailable` s českou větou, která jmenuje převod; účet hosta nevznikne a brána se nevolá. Převod projde a objednávka čeká na platbu (číslo účtu, IBAN, VS). Ověřeno lokálně v K7 (TASK-0161) |
 
 **Kde hledat při selhání**
 
@@ -198,6 +199,87 @@ veřejný web neslibuje nic, co dokumenty nedávají.
 **Kde hledat při selhání:** `docs/legal/LEGAL_REVIEW_2026-10.md` (kap. 5), `app/Http/Controllers/Web/LegalDocumentController.php`,
 `domains/Orders/LegalDocuments.php`; automaticky `tests/Feature/Legal/LegalDraftVersionsTest.php` a
 `tests/Feature/Http/LegalClaimSeamTest.php`.
+
+## Scénář F1.7 — Stránka dokumentů a texty pokladny podle skutečnosti (M1, M2)
+
+**Předpoklady:** veřejný web mimo demo režim; brána Comgate bez přihlašovacích údajů (karta nedostupná); provozovatel není plátce
+DPH; účet CDN nenastavený.
+
+**Kroky**
+
+1. Otevřete `#/sluzba/legal` („Podmínky, GDPR a cookies“). Seznam dokumentů má přesně položky a verze jako `/dokumenty`
+   (dnes 2026-09), bez „VOP v4.2“, ISO 27001, NIS2, „cookie lišty“ a srovnání počtu stran; řádek „Otevřít →“ otevře
+   `/dokumenty/vop` apod. Pás SLA uvádí 99,9 % a 4 h (Standard).
+2. Vložte do košíku Webhosting Standard a otevřete `/kosik`. Pás pod hlavičkou říká „Platba převodem“, ne „Karta, převod nebo faktura“;
+   nadpis doplňků je „Doplňky“ (bez „ceny bez DPH“); předplacený kredit nemá „+ 100 Kč“ apod.; mezi doplňky není „CDN a WAF“.
+3. Dokončete objednávku převodem. Tlačítko je „Zaplatit objednávku“; potvrzení ukazuje „Celkem k platbě“ (bez „s DPH“) a „Částka
+   převodu“ ve tvaru „49,00 CZK“.
+4. Vložte do košíku VPS (nebo herní server): tlačítko zní „Zaplatit a spustit server“.
+
+**Očekávaný výsledek:** kroky 1–4 bez rozdílu; v konzoli prohlížeče žádný požadavek na `/%7B%7B%20gcx.gameArt%20%7D%7D`.
+
+**Negativní varianty:** s nastavenou bránou (`CardPayments`) pás nabízí „Kartou nebo převodem“; plátce DPH vidí „Doplňky (ceny bez
+DPH)“ a „Celkem k platbě (s DPH)“; s nastaveným účtem CDN se doplněk nabízí; bez něj `POST /v1/cart/quote` s CDN v košíku vrátí
+`409 cdn_unavailable`.
+
+**Kde hledat při selhání:** `app/Http/Support/ServicePageClaimsSeam.php`, `app/Http/Support/PublicLegalLinks.php`,
+`app/Http/Support/SurfaceRenderer.php` (`checkoutCopySeams`), `apps/surfaces/api/onhost-cart.api.js`, `domains/Services/CdnAvailability.php`;
+automaticky `tests/Feature/Web/LegalPageClaimsTest.php`, `tests/Feature/Web/CheckoutCopyTest.php`, `tests/Feature/Orders/CdnAvailabilityTest.php`.
+
+## Scénář F1.8 — Stránky služeb a konfigurátor her jen s čísly SLA a VOP (N1)
+
+**Předpoklady:** veřejný web mimo demo režim; provozovatel není plátce DPH; dokumenty v platnosti 2026-09 (`/dokumenty`).
+
+**Kroky**
+
+1. Otevřete stránku služby VPS (`#/sluzba/vps`). Nadtitulek je „AMD EPYC · NVMe“ (bez „root do 55 s“), pod titulkem nejsou ukazatele
+   „55 s“, „0 % přeprodej CPU“ ani „99,99 % dostupnost 2025“. Pás SLA uvádí „99,9 % měsíční dostupnost (Standard, SLA)“ a „4 h reakce na
+   incident (Standard)“ a větu o kompenzaci podle třídy služby — ne 99,99 %, „< 15 min“ ani „kredit automaticky“.
+2. Otevřete stránku Managed servery (`#/sluzba/managed`). Ukazatele nenesou „15 min“ ani „99,99 % s kreditem“; úrovně Základ a Plná
+   správa říkají „Reakce na incident podle SLA“ a Plná správa „SLA s kompenzací kreditem“; srovnání má u reakce „podle SLA“ a u SLA
+   „99,9 %“ / „podle třídy služby“; místo grafu „Onhost — reakce na P1 15 min“ je věta „Standard do 4 hodin, Business do 1 hodiny“.
+3. Na libovolné stránce služby sjeďte k častým otázkám a na konec: úvod FAQ zní „Napište nám přes zákaznický panel nebo e-mailem“ (ne
+   „technik odpovídá do deseti minut“); závěrečný blok „Měsíčně nebo ročně, výpověď ke konci období.“ a „Spotřebitel může od smlouvy
+   odstoupit do 14 dnů podle VOP …“ (ne „Zkuste to 14 dní. Bez karty, bez závazku.“).
+4. Na stránce herních serverů vyberte hru v konfigurátoru („Vyberte hru“). Souhrn ukazuje cenu s „/ měsíc“ a pod ní žádný řádek „bez
+   DPH …“; výhody jsou „Konzole, SFTP a plánované restarty“ a „Podpora přes panel a e-mail“ (ne „Servery
+   v Praze, podpora 24/7“ ani — od O1 — „Anti-DDoS ochrana v ceně“).
+
+**Očekávaný výsledek:** kroky 1–4 bez rozdílu; v anglické verzi totéž (např. „Monthly or yearly, notice for the end of the period.“).
+
+**Negativní varianty:** v demo režimu (`ONHOST_UI_DEMO=true`) stránky ukazují původní texty prototypu; plátce DPH vidí v konfigurátoru
+her „/ měsíc s DPH“ a řádek „bez DPH …“.
+
+**Kde hledat při selhání:** `app/Http/Support/ServicePageClaimsSeam.php` (`replacements()`, `pageCopySwaps()`),
+`app/Http/Support/SurfaceRenderer.php`, `apps/surfaces/api/onhost-game-config.api.js`; automaticky
+`tests/Feature/Content/ServicePageCopyClaimsTest.php` a `tests/js/game-config-copy.harness.mjs`.
+
+## Scénář F1.9 — Bez zkušební doby, bez 99,99 % v tarifech a doplněk záloh podle služby (O1, TASK-0178)
+
+**Předpoklady:** veřejný web mimo demo režim; katalog po migraci `0001_01_01_001160`.
+
+**Kroky**
+
+1. Úvodní stránka: závěrečný blok zní „Měsíčně nebo ročně, výpověď ke konci období.“ a „Spotřebitel může od smlouvy odstoupit do
+   14 dnů podle VOP …“ (ne „Prvních 14 dní zdarma. Migraci uděláme za vás.“ ani „… zrušíte to jedním klikem a nic neplatíte.“).
+2. Registrace (`#/registrace`): tlačítko „Vytvořit účet“ (ne „Vytvořit účet a začít 14 dní zdarma“).
+3. Stránka VPS (`#/sluzba/vps`): titulek „VPS na KVM s hodinovým účtováním a měsíčním stropem“ (ne „… ne s přeprodaným výkonem“);
+   úvod bez „jádra vyhrazená jen vám“; první výhoda „Třída CPU podle tarifu“ (ne „Steal time pod 0,5 %, měříme to veřejně“); pás SLA
+   má jen „99,9 %“ a „4 h“ (ne „2× N+1“ ani „10 Gbit/s v základu“).
+4. Stránky Inference API, Vektorová databáze, Object storage a stránky řešení (Pro vývojáře, Energetika, Pro agentury, Pro e-shopy,
+   Pro startupy): žádné „SLA 99,99 %“ — nejvyšší tarif „SLA podle individuální smlouvy“, v tabulce srovnání „podle smlouvy“; pás
+   stránek řešení „99,9 % měsíční dostupnost (Standard, SLA)“.
+5. Ceník `#/ceny`: na kartě „Standard“ klikněte na objednání. V košíku je řádek „Webhosting Standard“ (ne „VPS Standard“) a nabídka
+   doplňků k němu jmenuje „Rozšířené zálohy“ (ne „Zálohy VPS (PBS)“); totéž ve shrnutí pokladny.
+
+**Očekávaný výsledek:** kroky 1–5 bez rozdílu; v anglické verzi totéž („Create account“, „Extended backups“).
+
+**Negativní varianty:** v demo režimu (`ONHOST_UI_DEMO=true`) ukazují stránky původní texty prototypu; název doplňku, který tým
+změnil v ceníku, migrace nepřepíše.
+
+**Kde hledat při selhání:** `app/Http/Support/ServicePageClaimsSeam.php` (`replacements()`, `homeCopySwaps()`),
+`database/seeders/CatalogSeeder.php`, `database/migrations/0001_01_01_001160_backup_addon_named_for_every_parent.php`;
+automaticky `tests/Feature/Content/ServicePageCopyClaimsTest.php` a `tests/Feature/Web/CartLineAddonNamesTest.php`.
 
 ## Pokrytí E2E testem
 

@@ -27,7 +27,7 @@ it('never shows a registrar name on the public site, the panel, the shared scrip
     $panel = $this->actingAs($customer)->get('/panel')->assertOk()->getContent();
     expect($panel)->toContain('Migrace od jiného poskytovatele krok za krokem')->toContain("['migrac', 'migrat', 'forpsi',");
     $public = $this->get('/')->assertOk()->getContent();
-    expect($public)->toContain("migFrom: 'other', migSize: 'm'")->toContain('Přišli od jiného poskytovatele na jeden VPS.');
+    expect($public)->toContain("migFrom: 'other', migSize: 'm'")->not->toContain('Přišli z'); // the first-year story itself is gone (J-R1)
 
     $js = $this->get('/surfaces/onhost-svc-web.js')->assertOk()->getContent();
     expect($js)->not->toMatch('/wedos/i')->toContain("'Hetzner', 'Forpsi']");

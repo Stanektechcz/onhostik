@@ -557,3 +557,53 @@ through the API need HIGH risk (step-up).
 (Mail Enterprise: 30 daily copies of up to 100 × 25 GB mailboxes) and monitor it. Then switch the rule on, run the
 command without `--apply`, apply to one or two services with `--apply --service=<id>`, then to the rest, and check the
 doctor row. Downgrades: tell the customer before `--allow-prune` — it deletes backups.
+
+## Restore drill of the platform backup (P13, phase R)
+
+`onhost:platform:backup` (02:15) and `onhost:platform:backup:verify` (03:15) prove that the newest set of the control plane
+is intact and that `pg_restore --list` reads it. They do not prove it restores. The **restore drill** does, once a month (first
+working day, [day-2-operations.md](day-2-operations.md)), as root on the application host:
+
+```bash
+cd /www/wwwroot/<site>          # the release the deployer installed (restore-drill.sh comes with it)
+read -rs PGPASSWORD; export PGPASSWORD    # that role's password, typed, never stored
+PGHOST=127.0.0.1 PGUSER=<the application's own role: CREATEDB, not a superuser> SITE=<site> PHP=/www/server/php/85/bin/php bash infra/aapanel/restore-drill.sh
+unset PGPASSWORD
+```
+
+What it does, in order (nothing of the live database is touched; it creates and drops only its own database):
+
+1. **Preflight** (exit 2, nothing created): the PostgreSQL tools (`PG_BIN`, else `/www/server/pgsql/bin`, the newest
+   `/usr/lib/postgresql/*/bin`, the PATH), the PHP and `artisan`, one drill at a time (`flock`), the role reaches the server, has
+   CREATEDB and is **not** a superuser (nor a member of `pg_execute_server_program` / `pg_*_server_files`): the dump is written by
+   the application, and a planted dump restored by a superuser could reach the database server's shell.
+2. **Export** as the run user (`www`, never root — the deployer's `setpriv`/`setsid`/`env -i` rule):
+   `php artisan onhost:platform:backup:export-db --to=<new file> --json` copies the dump of the newest set from the backup disk
+   (local or S3) into a root-owned 0700 work directory, owner-only (0600), and checks size and SHA-256 against the manifest. A
+   PostgreSQL dump only (exit 2 otherwise); a dump that differs from its manifest is refused (exit 3) before anything is created.
+3. **Restore** into `onhost_drill_<UTC time>` with `pg_restore --no-owner --no-privileges --exit-on-error`.
+4. **Measure** the restored copy: migrations, users, documents (`invoices`), ledger postings, the sum of debits minus credits and
+   the transactions out of balance; then **drop** the database (a trap drops it on every failure, too).
+5. **Record**: `php artisan onhost:platform:backup:drill-record <set> --measured=… --seconds=… --database=…` judges the
+   measurement against the counts the backup took **just before its dump** (`manifest.json` → `counts`; migrations equal, the
+   other tables at least as many, the ledger balanced) and keeps the verdict in `<set>/restore-drill.json` and in the pointer
+   `platform-backups-restore-drill.json` at the root of the backup disk, which the retention prune never deletes.
+
+Exit codes: `0` passed · `1` the restored copy failed a check (an incident: a backup that does not restore is not a backup) ·
+`2` refused before anything was created · `3` export or restore failed (the drill database, if any, is dropped).
+
+**Where it shows:** the doctor row **platform restore drill within 35 days** (area `storage`, a warning, never blocking: no drill
+yet, a failed drill, or one older than 35 days), the metrics `onhost_platform_restore_drill_timestamp` and
+`onhost_platform_restore_drill_ok`, and the alerts `OnhostRestoreDrillOverdue` / `OnhostRestoreDrillFailed`
+(`infra/monitoring/slo-alerts.yml`, "never ran" does not alert — the doctor says it). CI runs the script for real against a
+disposable PostgreSQL (job `restore-drill`, `infra/aapanel/ci/restore-drill-ci.sh`): a good set passes, an unbalanced ledger
+fails, a tampered dump is refused, and no drill database is left behind.
+
+**On staging and in production** the drill runs only with the owner's "ano" to the step of the owner document (mode V): the role's
+password is typed by the owner. Until the first drill the doctor row warns: on staging it belongs to `expected-nonok` of
+the next A–C cycle (or the drill runs before step B), in production it is a go-live step.
+
+**Switching on what the drill protects** (unchanged, each with its preview and its own "ano"): `backups.compute` after
+`onhost:backups:compute-plan` lists no `MISSING` and the PBS test VM restored (PX-3, P-R50); `backups.as_sold` after
+`onhost:backups:frequency-plan` (PX-4, P-R51: retention = the days a restorable point exists); `mail.backup_retention` after
+`onhost:mail:backup-retention` without `--apply`. None is switched by this package.

@@ -38,6 +38,12 @@ final class SurfaceRenderer
      */
     public const NON_PAYER_JS = "(window.ONHOST_DATA && typeof window.ONHOST_DATA.vatPayer === 'function' && window.ONHOST_DATA.vatPayer() === false)";
 
+    /**
+     * J-R9 (M2): true only while a card gateway can take a payment (ONHOST_DATA.cardPayments() from CardPayments::available()); the
+     * checkout offers the card only then. Unknown (no data) counts as no card.
+     */
+    public const CARD_JS = "(window.ONHOST_DATA && typeof window.ONHOST_DATA.cardPayments === 'function' && window.ONHOST_DATA.cardPayments() === true)";
+
     /** The panel's copy (window.ONHOST_PANEL.vat_payer from SurfaceDataController::panelPricing). */
     public const PANEL_NON_PAYER_JS = '(window.ONHOST_PANEL && window.ONHOST_PANEL.vat_payer === false)';
 
@@ -675,14 +681,36 @@ HTML;
             $html = self::cartSeams($html);
             $html = self::priceSeams($html, $surface); // audit P1-6: currencies with a fresh CNB rate, VAT from the tax rules
             $html = self::checkoutSeams($html);
+            $html = self::checkoutCopySeams($html); // M2 (K7-4/5, J-R9): card only with a gateway, VAT words by the VAT mode, no top-up bonus, server-only button
             $html = self::legalClaimSeams($html); // TASK-0142: no promise the legal documents do not make (money-back, badges, bonus)
             $html = self::publicClaimSeams($html); // L-03 (TASK-0146): no factual claim the operator cannot document
+            // L3 (M1): a document row of a service page opens its document; N1: the shared FAQ lead and closing block say what the VOP say
+            $rows = ServicePageClaimsSeam::documentRowSwaps() + ServicePageClaimsSeam::pageCopySwaps() + ServicePageClaimsSeam::homeCopySwaps() + ServicePageClaimsSeam::phasePCopySwaps() + ServicePageClaimsSeam::phaseQCopySwaps(); // O1: no free trial on the home page; P1/P2: support hours, no DDoS figure; Q1/Q3: no trial button, no Anti-DDoS Pro
+            $html = self::swap(array_keys($rows), array_values($rows), $html);
+            // R1 (phase R): no invented postmortems, status figures, credit steps or anycast DNS (PhaseRCopySeam)
+            $phaseR = PhaseRCopySeam::publicSwaps();
+            $html = self::swap(array_keys($phaseR), array_values($phaseR), $html);
+            foreach (PhaseRCopySeam::publicBlocks() as [$from, $to, $replacement]) {
+                $html = self::between($html, $from, $to, $replacement);
+            }
+            $pricing = PricingPageSeam::swaps(); // K7-2 (L2): #/ceny — table and yearly price from the catalogue, honest FAQ, real cart line
+            $html = self::swap(array_keys($pricing), array_values($pricing), $html);
             // TASK-0149: GPU only "připravujeme" (I-R16), the real team and contacts on #/lide (I-R19), no invented reply median
             $gpu = PublicContentSeam::gpu();
             $html = self::swap(array_keys($gpu), array_values($gpu), $html);
             $html = self::between($html, PublicContentSeam::TEAM_FROM, PublicContentSeam::TEAM_TO, PublicContentSeam::team());
             $help = PublicContentSeam::articleHelp();
             $html = self::swap(array_keys($help), array_values($help), $html);
+            // T4 (phase T): the leftovers S2 found — market comparisons, a Discord community, a 24/7 phone, session recordings (PhaseTCopySeam);
+            // last, because the GPU swaps of PublicContentSeam land inside the comparison block it replaces
+            $phaseT = PhaseTCopySeam::publicSwaps();
+            $html = self::swap(array_keys($phaseT), array_values($phaseT), $html);
+            foreach (PhaseTCopySeam::publicBlocks() as [$from, $to, $replacement]) {
+                $html = self::between($html, $from, $to, $replacement);
+            }
+            // U3 (phase U): the leftovers T4 found — unmetered VPS transfer in the configurator, an own Prague–Brno backbone (PhaseUCopySeam)
+            $phaseU = PhaseUCopySeam::publicSwaps();
+            $html = self::swap(array_keys($phaseU), array_values($phaseU), $html);
         }
 
         // 4d. every surface's "sign out" is a prototype stub (localStorage + a toast): the bridge's OnhostSession.signOut()
@@ -1178,6 +1206,16 @@ HTML;
             // I-R11: no invented testimonial, rating or case study — only references approved by a real customer. Last, because the vendor
             // sweep above still rewrites the prototype's customer stories, and a story that is gone is not a miss of that sweep
             $html = self::referenceSeams($html);
+            // J-R1 (TASK-0152): no invented first-year story, eco figures or EPYC stock counts until the owner documents real ones —
+            // after the vendor sweep for the same reason (the story it neutralises is then removed as a whole)
+            $tech = PublicContentSeam::technika();
+            $html = self::swap(array_keys($tech), array_values($tech), $html);
+            foreach (PublicContentSeam::technikaBlocks() as [$from, $to, $replacement]) {
+                $html = self::between($html, $from, $to, $replacement);
+            }
+            // J4 (TASK-0155): the footer's legal block, the card tile only with a working gateway (after checkoutSeams above)
+            $review = PublicContentSeam::comgateReview();
+            $html = self::swap(array_keys($review), array_values($review), $html);
         }
 
         return $html;
@@ -1474,8 +1512,8 @@ HTML;
                 "heroBadge: 'Hosting, servers and domains in one panel',",
                 "dcTitle: 'Kde služby běží', dcCaption: 'Lokalitu služby uvádíme u tarifu a v objednávce.',",
                 "dcTitle: 'Where services run', dcCaption: 'The location of a service is stated with the plan and in the order.',",
-                "tbHours: 'Podpora přes panel a e-mail',",
-                "tbHours: 'Support through the panel and e-mail',",
+                "tbHours: 'Podpora po–pá 8–17 · panel a e-mail',", // P1 (P-R37, OP-1)
+                "tbHours: 'Support Mon–Fri 8–17 · panel and e-mail',",
                 "coRe2d: 'S přenosem webů, databází i e-mailů pomůžeme; termín a případnou odstávku domluvíme předem.',",
                 "coRe2d: 'We help move sites, databases and mailboxes; the timing and any downtime are agreed in advance.',",
                 "['ISO 27001', 'Certifikáty uvádíme jen doložené; bezpečnostní opatření popíšeme v nabídce na vyžádání.', 'na vyžádání', 0],",
@@ -1491,6 +1529,41 @@ HTML;
             $html,
             'once',
             ["['Datacentra', 'Šest lokalit, TIER III']", "['Data centres', 'Six locations, TIER III']"],
+        );
+    }
+
+    /**
+     * M2 (= L4, K7-4 … K7-5, owner decision J-R9): the checkout's promises follow what the installation does. "Platba dle vás —
+     * Karta, převod nebo faktura se splatností 14 dní" names the card only while a gateway can take it (CardPayments) and no invoice
+     * on credit (none exists); the add-on heading says "bez DPH" only to a VAT payer's customers (a non-payer's prices are final,
+     * the footer says "Nejsme plátci DPH, ceny jsou konečné"); the credit tiers carry no "+10 %" (a top-up credits exactly what
+     * arrived — BankImportTest); the pay button promises a server start only when the cart holds a server (OnhostCart.payLabel).
+     */
+    public static function checkoutCopySeams(string $html): string
+    {
+        $card = self::CARD_JS;
+        $nonPayer = self::NON_PAYER_JS;
+
+        return self::swap(
+            [
+                "coRe4: 'Platba dle vás', coRe4d: 'Karta, převod nebo faktura se splatností 14 dní pro firmy a instituce.',",
+                "coRe4: 'Pay your way', coRe4d: 'Card, bank transfer, or a 14-day invoice for companies and public bodies.',",
+                "coAddons: 'Doplňky (ceny bez DPH)',",
+                "coAddons: 'Add-ons (excl. VAT)',",
+                "coPay: 'Zaplatit a spustit server',",
+                "coPay: 'Pay and launch the server',",
+                "        bonus: v ? '+ ' + this.mny(v * 0.1) : '',\n        bonusStyle: v ? 'font-size:11px;color:var(--accDeep,#ae1800);letter-spacing:.06em' : 'display:none',\n",
+            ],
+            [
+                "coRe4: ({$card} ? 'Kartou nebo převodem' : 'Platba převodem'), coRe4d: ({$card} ? 'Kartou přes platební bránu, nebo převodem podle zálohové faktury s QR platbou.' : 'Převodem podle zálohové faktury s QR platbou. Platbu kartou zatím nenabízíme.'),",
+                "coRe4: ({$card} ? 'Card or transfer' : 'Bank transfer'), coRe4d: ({$card} ? 'By card through the payment gateway, or by transfer against a pro forma invoice with a QR code.' : 'By transfer against a pro forma invoice with a QR code. Card payment is not offered yet.'),",
+                "coAddons: ({$nonPayer} ? 'Doplňky' : 'Doplňky (ceny bez DPH)'),",
+                "coAddons: ({$nonPayer} ? 'Add-ons' : 'Add-ons (excl. VAT)'),",
+                "coPay: (window.OnhostCart && window.OnhostCart.payLabel) ? window.OnhostCart.payLabel(this.state, true) : 'Zaplatit objednávku',",
+                "coPay: (window.OnhostCart && window.OnhostCart.payLabel) ? window.OnhostCart.payLabel(this.state, false) : 'Pay for the order',",
+                "        bonus: '',\n        bonusStyle: 'display:none',\n",
+            ],
+            $html,
         );
     }
 
@@ -1832,7 +1905,7 @@ HTML;
       <sc-for list="{{ gcx.tiles }}" as="gt" hint-placeholder-count="8">
         <a href="#" onClick="{{ gt.on }}" style="{{ gt.style }}" style-hover="border-color:var(--acc,#ec3013)">
           <div style="{{ gt.artStyle }}">
-            <sc-if value="{{ gt.hasArt }}" hint-placeholder-val="{{ false }}"><img src="{{ gt.art }}" alt="{{ gt.label }}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block" /></sc-if>
+            <sc-if value="{{ gt.hasArt }}" hint-placeholder-val="{{ false }}"><div role="img" aria-label="{{ gt.label }}" style="{{ gt.artImg }}"></div></sc-if>
             <sc-if value="{{ gt.noArt }}" hint-placeholder-val="{{ true }}"><span style="position:relative;padding:12px 14px;font-family:var(--font-heading);font-weight:800;font-size:20px;letter-spacing:.08em;line-height:1.05;color:#fff;text-shadow:0 2px 0 rgba(0,0,0,.35)">{{ gt.artText }}</span></sc-if>
             <sc-if value="{{ gt.hasBadge }}" hint-placeholder-val="{{ false }}"><span style="position:absolute;top:10px;right:10px;background:var(--ink,#1a1918);color:#f3f2f2;font-size:11px;font-weight:600;letter-spacing:.04em;padding:4px 8px">{{ gt.badge }}</span></sc-if>
           </div>
@@ -1858,7 +1931,7 @@ HTML;
       <div style="min-width:0">
         <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:26px">
           <div style="{{ gcx.gameArtStyle }}">
-            <sc-if value="{{ gcx.gameHasArt }}" hint-placeholder-val="{{ false }}"><img src="{{ gcx.gameArt }}" alt="{{ gcx.gameTitle }}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block" /></sc-if>
+            <sc-if value="{{ gcx.gameHasArt }}" hint-placeholder-val="{{ false }}"><div role="img" aria-label="{{ gcx.gameTitle }}" style="{{ gcx.gameArtImg }}"></div></sc-if>
           </div>
           <div style="min-width:0;flex:1">
             <a href="#" onClick="{{ gcx.onChange }}" style="font-size:13px;font-weight:600">{{ gcx.change }}</a>
