@@ -202,6 +202,82 @@ it('reconciles a given past day and refuses today, a future day, a malformed day
     expect(ReconciliationRun::query()->count())->toBe(1)->and($days)->toBe(['2026-10-02']);
 });
 
+/**
+ * Comgate's transfers per day over Http::fake: `$byDay` maps a day to the transIds (price 50000) paid out that day; a day not
+ * listed has no transfer.
+ *
+ * @param  array<string,list<string>>  $byDay
+ */
+function t235ComgatePayouts(array $byDay): void
+{
+    Http::fake(['payments.comgate.cz/v2.0/transfer*' => function (Request $request) use ($byDay) {
+        $path = (string) parse_url($request->url(), PHP_URL_PATH);
+        if (str_starts_with($path, '/v2.0/transfer/')) {
+            $day = substr($path, strlen('/v2.0/transfer/T235-'));
+
+            return Http::response(['code' => 0, 'message' => 'OK', 'items' => array_map(fn (string $id) => ['transId' => $id, 'price' => 50000, 'curr' => 'CZK', 'fee' => 300], $byDay[$day] ?? [])]);
+        }
+        parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+        $day = (string) ($query['date'] ?? '');
+
+        return Http::response(['code' => 0, 'message' => 'OK', 'transfers' => isset($byDay[$day]) ? [['transferId' => 'T235-'.$day, 'transferDate' => $day, 'curr' => 'CZK']] : []]);
+    }]);
+}
+
+function t235PaidIntent(Organization $org, string $provider, string $providerId, string $paidAtUtc): PaymentIntent
+{
+    $intent = t235Intent($org, $provider, $providerId, 'SUCCEEDED');
+    $intent->forceFill(['paid_at' => Carbon::parse($paidAtUtc, 'UTC')])->saveQuietly();
+
+    return $intent;
+}
+
+it('does not report a payment whose payout comes days later, neither on its day nor on its payout day', function () {
+    config(['onhost.payments.reconcile.settlement_lag_days.comgate' => 2]);
+    [, $org] = $this->customerWithOrganization();
+    t235PaidIntent($org, 'comgate', 'T235-LATE-0001', '2026-10-12 10:00:00'); // paid on the 12th, paid out on the 14th
+    t235ComgatePayouts(['2026-10-14' => ['T235-LATE-0001']]);
+
+    foreach (['2026-10-12', '2026-10-13', '2026-10-14'] as $day) {
+        $this->artisan('onhost:payments:reconcile', ['--provider' => 'comgate', '--date' => $day])->expectsOutputToContain('mismatches 0')->assertExitCode(0);
+    }
+
+    expect(ReconciliationRun::query()->where('summary->provider', 'comgate')->count())->toBe(3)
+        ->and(ReconciliationItem::query()->count())->toBe(0)
+        ->and(SettlementItem::query()->where('provider_id', 'T235-LATE-0001')->value('state'))->toBe('matched');
+});
+
+it('reports a payment never paid out exactly once, when its lag has passed', function () {
+    config(['onhost.payments.reconcile.settlement_lag_days.comgate' => 2]);
+    [, $org] = $this->customerWithOrganization();
+    $lost = t235PaidIntent($org, 'comgate', 'T235-LOST-0001', '2026-10-09 22:30:00'); // 00:30 on the 10th in Prague
+    t235ComgatePayouts([]);
+
+    foreach (['2026-10-09', '2026-10-10', '2026-10-11', '2026-10-12', '2026-10-13', '2026-10-14'] as $day) {
+        $this->artisan('onhost:payments:reconcile', ['--provider' => 'comgate', '--date' => $day])->assertExitCode(0);
+    }
+
+    $items = ReconciliationItem::query()->where('kind', 'succeeded_without_settlement')->get();
+    expect($items)->toHaveCount(1)->and($items[0]->reference)->toBe($lost->id);
+    $run = ReconciliationRun::query()->findOrFail($items[0]->run_id);
+    // the run of the 12th: the 10th (Prague) plus a lag of two days
+    expect($run->period_start->toDateTimeString())->toBe('2026-10-11 22:00:00')
+        ->and(OutboxMessage::query()->where('name', 'finance.reconciliation.mismatch')->count())->toBe(1);
+});
+
+it('counts a bank payment paid out by its statement line whatever day the line was booked', function () {
+    [, $org] = $this->customerWithOrganization();
+    // booked on the 13th, paired by finance on the 14th: the line of the 13th was not matched yet when the 13th was reconciled
+    $paired = t235PaidIntent($org, 'bank', 't235-bank-late', '2026-10-14 09:00:00');
+    BankStatementLine::query()->create(['account' => 'CZ00', 'amount_minor' => 50000, 'currency' => 'CZK', 'variable_symbol' => '2026023502', 'counterparty' => 'Jana',
+        'booked_at' => Carbon::parse('2026-10-13 08:00:00', 'UTC'), 'external_id' => 't235-line-2', 'matched_payment_intent_id' => $paired->id, 'state' => 'matched']);
+    $manual = t235PaidIntent($org, 'bank', 't235-bank-none', '2026-10-14 10:00:00'); // marked paid with no statement line
+
+    $this->artisan('onhost:payments:reconcile', ['--provider' => 'bank'])->expectsOutputToContain('mismatches 1')->assertExitCode(0);
+
+    expect(ReconciliationItem::query()->where('kind', 'succeeded_without_settlement')->pluck('reference')->all())->toBe([$manual->id]);
+});
+
 it('is scheduled once a day at a quiet hour in Prague, on one server and without overlap', function () {
     $events = t235Scheduled();
     expect($events)->toHaveCount(1);

@@ -10,8 +10,8 @@ use Throwable;
 
 /**
  * Whether a payment provider holds what it needs to talk to its gateway, asked before a scheduled job calls it: a missing secret
- * is a plain RuntimeException of the store and must not fail the job every run (TASK-0222). The same check as the W6 sweep's
- * (`PendingPaymentSweep::missingCredentials`): Comgate says itself which of its two credentials it holds (`credentialState`, H-R8),
+ * is a plain RuntimeException of the store and must not fail the job every run (TASK-0222). Used by the W6 sweep
+ * (PendingPaymentSweep) and the daily reconciliation (SettlementReconciliation): Comgate says itself which of its two credentials it holds (`credentialState`, H-R8),
  * the others are asked of the store. The bank has no gateway: its settlements are the statement lines imported here.
  */
 final class GatewayCredentials

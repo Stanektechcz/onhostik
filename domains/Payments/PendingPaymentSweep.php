@@ -8,8 +8,6 @@ use Illuminate\Support\Facades\Log;
 use Onhost\Domain\Payments\Models\PaymentIntent;
 use Onhost\Domain\Payments\Models\PaymentStateMachineStates as S;
 use Onhost\Platform\Commands\CommandContext;
-use Onhost\Platform\Secrets\SecretRef;
-use Onhost\Platform\Secrets\SecretStore;
 use Throwable;
 
 /**
@@ -34,7 +32,7 @@ final class PendingPaymentSweep
     public function __construct(
         private readonly PaymentService $payments,
         private readonly PaymentProviderRegistry $providers,
-        private readonly SecretStore $secrets,
+        private readonly GatewayCredentials $credentials,
     ) {}
 
     /** @return array{checked:int, settled:int, failed:int, open:int, errors:int, skipped:list<string>} */
@@ -43,7 +41,7 @@ final class PendingPaymentSweep
         $summary = ['checked' => 0, 'settled' => 0, 'failed' => 0, 'open' => 0, 'errors' => 0, 'skipped' => []];
         $ready = [];
         foreach ($this->providerKeys() as $key) {
-            $missing = $this->missingCredentials($key);
+            $missing = $this->credentials->missing($key);
             if ($missing === null) {
                 $ready[] = $key;
 
@@ -115,25 +113,5 @@ final class PendingPaymentSweep
         $wanted = array_map('strval', (array) config('onhost.payments.sweep.providers', []));
 
         return array_values(array_filter(array_unique($wanted), fn (string $key) => in_array($key, $known, true) && ! in_array($key, self::NEVER, true)));
-    }
-
-    /**
-     * Null when the gateway holds its credentials; otherwise a reason fit for a log line (never a value or a message of the store).
-     * Comgate says itself which of its two credentials it holds (`credentialState`, H-R8); the others are asked of the store.
-     */
-    private function missingCredentials(string $key): ?string
-    {
-        try {
-            $provider = $this->providers->get($key);
-            if (method_exists($provider, 'credentialState')) {
-                $state = (array) $provider->credentialState();
-
-                return ! empty($state['merchant']) && ! empty($state['secret']) ? null : 'incomplete';
-            }
-
-            return $this->secrets->exists(SecretRef::parse((string) config("onhost.payments.{$key}.secret_ref"))) ? null : 'absent';
-        } catch (Throwable $e) {
-            return get_class($e);
-        }
     }
 }

@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Payments;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Onhost\Domain\Identity\Authorization\ApprovalService;
@@ -634,10 +636,7 @@ final class PaymentService
             $fees += $item['fee']?->minor ?? 0;
             SettlementItem::query()->create(['settlement_id' => $settlement->id, 'provider_id' => $item['provider_id'], 'amount_minor' => $item['amount']->minor, 'fee_minor' => $item['fee']?->minor ?? 0, 'currency' => $item['amount']->currency->value, 'settled_at' => $item['settled_at'], 'matched_payment_intent_id' => $intent?->id, 'state' => $state]);
         }
-        // Intents that succeeded in the period but do not appear in the settlement.
-        $settledIds = array_column($items, 'provider_id');
-        $missing = PaymentIntent::query()->where('provider', $providerKey)->where('state', S::SUCCEEDED)->whereBetween('paid_at', [$periodStart, $periodEnd])->whereNotIn('provider_id', $settledIds)->get();
-        foreach ($missing as $intent) {
+        foreach ($this->missingPayouts($providerKey, $periodStart, $periodEnd) as $intent) {
             $mismatches++;
             ReconciliationItem::query()->create(['run_id' => $run->id, 'kind' => 'succeeded_without_settlement', 'reference' => $intent->id, 'expected_minor' => $intent->amount_minor, 'note' => 'Succeeded intent missing from provider settlement']);
         }
@@ -648,6 +647,31 @@ final class PaymentService
         }
 
         return $run;
+    }
+
+    /**
+     * Intents that succeeded but whose payout never came. A gateway pays a day's payments out days later, so the run of day D
+     * asks only about intents paid `settlement_lag_days` before the period (Prague days), and an intent counts as paid out when
+     * any settlement of the provider recorded so far carries it (this run's included) — a payout on D+2 raises nothing on D or
+     * D+2, and an intent never paid out is reported once, by the one run its paid day falls back to. A bank intent is paid out by
+     * the statement line that settled it, whatever day the line was booked (matching comes after booking).
+     *
+     * @return Collection<int, PaymentIntent>
+     */
+    private function missingPayouts(string $providerKey, \DateTimeInterface $periodStart, \DateTimeInterface $periodEnd): Collection
+    {
+        $lag = max(0, (int) config("onhost.payments.reconcile.settlement_lag_days.{$providerKey}", 0));
+        $shift = fn (\DateTimeInterface $at) => CarbonImmutable::instance($at)->setTimezone(AccountingClock::timezone())->subDays($lag)->setTimezone(date_default_timezone_get());
+        $candidates = PaymentIntent::query()->where('provider', $providerKey)->where('state', S::SUCCEEDED)->whereBetween('paid_at', [$shift($periodStart), $shift($periodEnd)])
+            ->whereNotIn('id', BankStatementLine::query()->where('state', 'matched')->whereNotNull('matched_payment_intent_id')->select('matched_payment_intent_id'))
+            ->get();
+        if ($candidates->isEmpty()) {
+            return $candidates;
+        }
+        $paidOut = SettlementItem::query()->whereIn('settlement_id', Settlement::query()->where('provider', $providerKey)->select('id'))
+            ->whereIn('provider_id', $candidates->pluck('provider_id')->filter()->values())->pluck('provider_id')->all();
+
+        return $candidates->reject(fn (PaymentIntent $intent) => in_array((string) $intent->provider_id, $paidOut, true))->values();
     }
 
     /** Match an imported bank statement line to a pending bank-transfer intent by variable symbol + amount. */

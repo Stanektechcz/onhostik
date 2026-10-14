@@ -135,9 +135,15 @@ when every provider it tried failed** (none reconciled or already done); skipped
 account, the card gateways are skipped and the bank is reconciled, so the job exits 0 and the doctor's *every scheduled job ran
 within its budget* stays OK.
 
-**Known limit.** A card gateway pays out a day's payments a day or more later. The run for day D compares the transfers of D with
-the intents paid on D, so once a gateway is live an intent paid late on D shows up as `succeeded_without_settlement` for D and is
-matched by its transfer on a later day. Read such items against the next day's run before acting on them.
+**Payout lag.** A gateway pays a day's payments out days later, so a missing payout (`succeeded_without_settlement`) is asked about
+only once the provider's lag has passed: the run of day D checks the intents paid on D minus
+`onhost.payments.reconcile.settlement_lag_days` (Prague days), and an intent counts as paid out when any settlement of that provider
+recorded so far carries it. A payout two days late raises nothing; an intent never paid out is reported exactly once, by the one run
+its day falls to. A bank intent is paid out by the statement line that settled it, whatever day the line was booked. Defaults —
+**ASSUMED**, not verified with any account: Comgate 5 and GoPay 5 (they reconcile by transfer/statement date, paid after one or more
+working days; 5 covers a weekend with a holiday), Stripe 2 (its adapter lists balance transactions by charge creation), bank 0. A
+larger value only reports later, never falsely; correct them in `config/onhost.php` once real payouts are seen. `settlement_without_intent`
+and `amount_mismatch` are still checked in every run against that day's settlement.
 
 ## Doctor
 
