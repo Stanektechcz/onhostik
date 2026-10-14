@@ -342,6 +342,9 @@ DATACENTERS_PAGE_NEW;
         foreach (PhaseRCopySeam::scriptSwaps() as $script => $swaps) {
             $all[$script] = ($all[$script] ?? []) + $swaps;
         }
+        foreach (PhaseTCopySeam::scriptSwaps() as $script => $swaps) { // T4: the leftovers S2 found
+            $all[$script] = ($all[$script] ?? []) + $swaps;
+        }
 
         return $all;
     }
@@ -605,7 +608,7 @@ DATACENTERS_PAGE_NEW;
                 [self::ABOUT_PAGE_FROM, self::ABOUT_PAGE_TO, self::ABOUT_PAGE_NEW], // Q1
             ],
             'onhost-svc-corp.js' => [[self::DATACENTERS_PAGE_FROM, self::DATACENTERS_PAGE_TO, self::DATACENTERS_PAGE_NEW]], // Q1
-        ], PhaseRCopySeam::scriptBlocks()); // R1: the status and careers pages
+        ], PhaseRCopySeam::scriptBlocks(), PhaseTCopySeam::scriptBlocks()); // R1: the status and careers pages; T4: the SSL comparison
     }
 
     /**

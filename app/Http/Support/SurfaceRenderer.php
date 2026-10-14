@@ -701,6 +701,13 @@ HTML;
             $html = self::between($html, PublicContentSeam::TEAM_FROM, PublicContentSeam::TEAM_TO, PublicContentSeam::team());
             $help = PublicContentSeam::articleHelp();
             $html = self::swap(array_keys($help), array_values($help), $html);
+            // T4 (phase T): the leftovers S2 found — market comparisons, a Discord community, a 24/7 phone, session recordings (PhaseTCopySeam);
+            // last, because the GPU swaps of PublicContentSeam land inside the comparison block it replaces
+            $phaseT = PhaseTCopySeam::publicSwaps();
+            $html = self::swap(array_keys($phaseT), array_values($phaseT), $html);
+            foreach (PhaseTCopySeam::publicBlocks() as [$from, $to, $replacement]) {
+                $html = self::between($html, $from, $to, $replacement);
+            }
         }
 
         // 4d. every surface's "sign out" is a prototype stub (localStorage + a toast): the bridge's OnhostSession.signOut()
