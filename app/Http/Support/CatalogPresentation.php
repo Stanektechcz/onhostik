@@ -20,7 +20,7 @@ final class CatalogPresentation
         'mail' => ['mailboxes', 'quota_gb_per_mailbox', 'aliases', 'domains', 'relay_per_hour', 'spam_filter', 'imap', 'backup_days', 'dedicated_outbound_ip'],
         'data' => ['vcpu', 'ram_mb', 'nvme_gb', 'connections', 'pitr_days', 'backup_days', 'ha', 'external_access'],
         'apps' => ['cpu_limit', 'ram_mb', 'replicas', 'builds_per_day', 'custom_domains', 'workers', 'cron', 'logs_retention_days', 'zero_downtime', 'tls'],
-        'addon' => ['daily', 'weekly', 'monthly', 'interval_hours', 'retention_days', 'offsite', 'restore_test', 'l7', 'game_profiles', 'capacity_gbps', 'traffic_tb', 'pops', 'waf', 'validation', 'warranty', 'issuance', 'wildcard', 'bot_management', 'anycast'],
+        'addon' => ['daily', 'weekly', 'monthly', 'interval_hours', 'retention_days', 'offsite', 'restore_test', 'verified_restore', 'oversight', 'l7', 'game_profiles', 'capacity_gbps', 'traffic_tb', 'pops', 'waf', 'validation', 'warranty', 'issuance', 'wildcard', 'bot_management', 'anycast'],
     ];
 
     /** @return list<string> */
@@ -121,7 +121,7 @@ final class CatalogPresentation
             'cpu_limit' => ['CPU limit', 'CPU limit'], 'replicas' => ['Repliky', 'Replicas'], 'builds_per_day' => ['Buildů denně', 'Builds per day'], 'custom_domains' => ['Vlastní domény', 'Custom domains'], 'workers' => ['Workery', 'Workers'],
             'cron' => ['Cron úlohy', 'Cron jobs'], 'cron_concurrency' => ['Naplánované úlohy', 'Scheduled tasks'], 'logs_retention_days' => ['Logy', 'Logs'], 'zero_downtime' => ['Nasazení bez výpadku', 'Zero-downtime deploys'], 'tls' => ['TLS', 'TLS'],
             'daily' => ['Denní zálohy', 'Daily backups'], 'weekly' => ['Týdenní zálohy', 'Weekly backups'], 'monthly' => ['Měsíční zálohy', 'Monthly backups'], 'interval_hours' => ['Interval', 'Interval'], 'retention_days' => ['Historie', 'Retention'],
-            'offsite' => ['Kopie mimo lokalitu', 'Off-site copy'], 'restore_test' => ['Test obnovy', 'Restore test'], 'l7' => ['L7 filtr', 'L7 filtering'], 'game_profiles' => ['Herní profily', 'Game profiles'], 'capacity_gbps' => ['Kapacita', 'Capacity'],
+            'offsite' => ['Kopie mimo lokalitu', 'Off-site copy'], 'restore_test' => ['Test obnovy', 'Restore test'], 'verified_restore' => ['Ověřená obnova', 'Verified restore'], 'oversight' => ['Dohled', 'Oversight'], 'l7' => ['L7 filtr', 'L7 filtering'], 'game_profiles' => ['Herní profily', 'Game profiles'], 'capacity_gbps' => ['Kapacita', 'Capacity'],
             'pops' => ['PoP lokality', 'PoP locations'], 'validation' => ['Ověření', 'Validation'], 'warranty' => ['Pojištění', 'Warranty'], 'issuance' => ['Vystavení', 'Issuance'], 'wildcard' => ['Wildcard', 'Wildcard'], 'bot_management' => ['Bot management', 'Bot management'], 'anycast' => ['Anycast', 'Anycast'],
         ];
         $pair = $labels[$key] ?? null;
@@ -193,7 +193,9 @@ final class CatalogPresentation
             'cpu_limit' => $value.' CPU', 'replicas' => $cs ? $n.' '.$plural($n, 'replika', 'repliky', 'replik') : $n.' replicas', 'builds_per_day' => $cs ? $n.' buildů denně' : $n.' builds a day', 'custom_domains' => $cs ? $n.' vlastních domén' : $n.' custom domains',
             'workers' => $cs ? $n.' workerů' : $n.' workers', 'cron' => $cs ? $n.' cron úloh' : $n.' cron jobs', 'logs_retention_days' => $cs ? 'Logy '.$n.' dní' : $n.'-day logs', 'zero_downtime' => $cs ? 'Nasazení bez výpadku' : 'Zero-downtime deploys', 'tls' => 'TLS '.$value,
             'daily' => $cs ? $n.' denních záloh' : $n.' daily backups', 'weekly' => $cs ? $n.' týdenních' : $n.' weekly', 'monthly' => $cs ? $n.' měsíčních' : $n.' monthly', 'interval_hours' => $cs ? 'Snapshot každou '.($n === 1 ? 'hodinu' : $n.' hodiny') : ($n === 1 ? 'Hourly snapshots' : 'Every '.$n.' hours'),
-            'retention_days' => $cs ? 'Historie '.$n.' dní' : $n.'-day retention', 'offsite' => $cs ? 'Kopie mimo lokalitu' : 'Off-site copy', 'restore_test' => $cs ? 'Test obnovy '.$value : 'Restore test '.$value, 'l7' => $cs ? 'L7 filtr' : 'L7 filtering',
+            'retention_days' => $cs ? 'Historie '.$n.' dní' : $n.'-day retention', 'offsite' => $cs ? 'Kopie mimo lokalitu' : 'Off-site copy', 'restore_test' => $cs ? 'Test obnovy '.$value : 'Restore test '.$value,
+            'oversight' => $cs ? 'Dohled nad službou' : 'Service oversight',
+            'verified_restore' => $cs ? 'Ověřená obnova '.($value === 'quarterly' ? 'čtvrtletně' : 'měsíčně') : 'Verified restore '.$value, 'l7' => $cs ? 'L7 filtr' : 'L7 filtering',
             'game_profiles' => $cs ? 'Herní profily' : 'Game profiles', 'capacity_gbps' => number_format($n / 1000, 1, ',', ' ').' Tbps', 'pops' => $cs ? $n.' PoP' : $n.' PoPs', 'validation' => $cs ? 'Ověření '.$value : 'Validation '.$value, 'warranty' => $cs ? 'Pojištění '.$value : 'Warranty '.$value,
             'issuance' => $cs ? 'Vystavení '.$value : 'Issuance '.$value, 'wildcard' => $cs ? 'Neomezeně subdomén' : 'Unlimited subdomains', 'bot_management' => 'Bot management', 'anycast' => 'Anycast '.$value,
             default => null,

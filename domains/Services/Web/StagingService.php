@@ -103,22 +103,55 @@ final class StagingService
             $existing->delete();
         }
         $domain = $this->stagingDomain($production);
-        $desired = array_merge((array) $production->desired_spec, [
-            'domain' => $domain, 'aliases' => [], 'staging_of' => $production->id, 'placement' => ['instance_id' => $production->provider_instance_id, 'node_id' => $production->node_id],
-        ]);
-        unset($desired['service_id']);
-        $staging = Service::query()->create([
-            'organization_id' => $production->organization_id, 'project_id' => $production->project_id, 'product_key' => $production->product_key, 'plan_version_id' => $production->plan_version_id, 'family' => $production->family,
-            'name' => 'Staging · '.$production->name, 'label' => 'staging', 'state' => ServiceStateMachine::PAID, 'region_code' => $production->region_code, 'entitlements' => array_replace((array) $production->entitlements, ['staging' => false, 'backups' => false]),
-            'sla_class' => $production->sla_class, 'tags' => ['parent_service_id' => $production->id, 'staging_of' => $production->id, 'billing' => 'included'], 'desired_spec' => $desired, 'hostname' => $domain,
-            'node_id' => $production->node_id, 'provider_instance_id' => $production->provider_instance_id,
-        ]);
+        $staging = $this->spawnCopy($production, $domain, 'Staging · '.$production->name, 'staging', []);
         $link = StagingLink::query()->create(['service_id' => $production->id, 'staging_service_id' => $staging->id, 'organization_id' => $production->organization_id, 'staging_domain' => $domain, 'state' => 'provisioning', 'databases' => [], 'meta' => []]);
         $this->services->startProvisioning($staging, $context);
         $this->audit->record($context->withScope($production->organization_id), 'service.staging.create', 'succeeded', ['staging_service_id' => $staging->id, 'domain' => $domain], 'service', $production->id);
         $this->outbox->publish(GenericEvent::of('staging.created', 'service', $production->id, ['staging_service_id' => $staging->id, 'domain' => $domain], $production->organization_id));
 
         return $link;
+    }
+
+    /**
+     * W2-4: the isolated copy a verified restore puts a backup into. Made exactly as a staging site is (a service of its own on the
+     * production node, same plan, no invoice, no backups of its own) but under a name of its own (`…-rv<4>.<suffix>`) and with no
+     * StagingLink: the customer's own staging site, if there is one, is neither reused nor touched. It sells nothing further — no
+     * staging, no verified restore of its own — and the tag `restore_target_of` lets everything that schedules work pass it over.
+     */
+    public function createRestoreTarget(Service $production, string $runId, CommandContext $context): Service
+    {
+        $suffix = (string) config('onhost.web_tools.staging_suffix', 'web.onhost.cz');
+        $base = substr(Str::slug(str_replace('.', '-', (string) $production->spec('domain', $production->hostname))), 0, 32) ?: 'site';
+        do {
+            $domain = $base.'-rv'.Str::lower(Str::random(4)).'.'.$suffix;
+        } while (Service::query()->where('hostname', $domain)->exists());
+        $target = $this->spawnCopy($production, $domain, 'Ověřená obnova · '.$production->name, 'restore-verify', ['restore_target_of' => $production->id, 'verified_restore_run' => $runId]);
+        $this->services->startProvisioning($target, $context);
+        $this->audit->record($context->withScope($production->organization_id), 'service.restore_verify.target', 'succeeded', ['target_service_id' => $target->id, 'domain' => $domain, 'run_id' => $runId], 'service', $production->id);
+
+        return $target;
+    }
+
+    /**
+     * A second site of the production service on its own node: the staging site and the copy of a verified restore.
+     *
+     * @param  array<string, string>  $tags
+     */
+    private function spawnCopy(Service $production, string $domain, string $name, string $label, array $tags): Service
+    {
+        $desired = array_merge((array) $production->desired_spec, [
+            'domain' => $domain, 'aliases' => [], 'staging_of' => $production->id, 'placement' => ['instance_id' => $production->provider_instance_id, 'node_id' => $production->node_id],
+        ]);
+        unset($desired['service_id']);
+        $entitlements = array_replace((array) $production->entitlements, ['staging' => false, 'backups' => false]);
+        unset($entitlements['verified_restore']); // a copy is never itself restored on a schedule
+
+        return Service::query()->create([
+            'organization_id' => $production->organization_id, 'project_id' => $production->project_id, 'product_key' => $production->product_key, 'plan_version_id' => $production->plan_version_id, 'family' => $production->family,
+            'name' => $name, 'label' => $label, 'state' => ServiceStateMachine::PAID, 'region_code' => $production->region_code, 'entitlements' => $entitlements,
+            'sla_class' => $production->sla_class, 'tags' => ['parent_service_id' => $production->id, 'staging_of' => $production->id, 'billing' => 'included'] + $tags, 'desired_spec' => $desired, 'hostname' => $domain,
+            'node_id' => $production->node_id, 'provider_instance_id' => $production->provider_instance_id,
+        ]);
     }
 
     /**

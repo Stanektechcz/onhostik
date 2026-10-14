@@ -8,7 +8,7 @@ use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Incidents\Models\Maintenance;
 use Onhost\Domain\Incidents\Models\StatusComponent;
-use Onhost\Domain\Services\Models\Service;
+use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
@@ -28,7 +28,13 @@ final class MaintenanceService
         private readonly IncidentService $incidents,
     ) {}
 
-    /** @param array{title:string,components:list<string>,starts_at:string,ends_at:string,impact?:string,rollback?:string,affected_services?:list<string>,change_ticket?:string,sla_treatment?:string} $input */
+    /** Service families a window may name (every service of the family is touched). */
+    public const FAMILIES = ['web', 'managed', 'cloud', 'game', 'mail', 'data', 'apps', 'penpot'];
+
+    /** How long before the start the reminder goes out. */
+    public const REMINDER_HOURS = 24;
+
+    /** @param array{title:string,components?:list<string>,starts_at:string,ends_at:string,impact?:string,rollback?:string,affected_services?:list<string>,affected_nodes?:list<string>,affected_families?:list<string>,text_cs?:string,text_en?:string,change_ticket?:string,sla_treatment?:string} $input */
     public function schedule(array $input, CommandContext $context): Maintenance
     {
         $title = trim((string) ($input['title'] ?? ''));
@@ -37,7 +43,16 @@ final class MaintenanceService
         }
         $components = array_values(array_unique(array_map('strval', (array) ($input['components'] ?? []))));
         $known = StatusComponent::query()->whereIn('key', $components)->pluck('key')->all();
-        if ($components === [] || array_diff($components, $known)) {
+        $nodes = array_values(array_unique(array_map('strval', (array) ($input['affected_nodes'] ?? []))));
+        $families = array_values(array_unique(array_map('strval', (array) ($input['affected_families'] ?? []))));
+        if ($nodes !== [] && Node::query()->whereIn('id', $nodes)->count() !== count($nodes)) {
+            throw new DomainError('maintenance_nodes_invalid', 'Select known nodes.', 422, ['field' => 'affected_nodes']);
+        }
+        if (array_diff($families, self::FAMILIES)) {
+            throw new DomainError('maintenance_families_invalid', 'Select known service families.', 422, ['field' => 'affected_families', 'allowed' => self::FAMILIES]);
+        }
+        // a window names its status components, or the nodes / families it touches (then the components may stay empty)
+        if (($components === [] && $nodes === [] && $families === []) || array_diff($components, $known)) {
             throw new DomainError('maintenance_components_invalid', 'Select known status components.', 422, ['field' => 'components']);
         }
         $starts = now()->parse((string) ($input['starts_at'] ?? ''));
@@ -59,14 +74,15 @@ final class MaintenanceService
         $services = array_values(array_unique(array_map('strval', (array) ($input['affected_services'] ?? []))));
 
         $maintenance = DB::transaction(fn () => $this->withNumber(fn (string $number) => Maintenance::query()->create([
-            'number' => $number, 'title' => $title, 'components' => $components, 'affected_services' => $services,
+            'number' => $number, 'title' => $title, 'components' => $components, 'affected_services' => $services, 'affected_nodes' => $nodes, 'affected_families' => $families,
+            'texts' => array_filter(['cs' => trim((string) ($input['text_cs'] ?? '')), 'en' => trim((string) ($input['text_en'] ?? ''))], fn (string $t) => $t !== ''),
             'starts_at' => $starts, 'ends_at' => $ends, 'impact' => $input['impact'] ?? null, 'rollback' => $input['rollback'],
             'owner_id' => $context->actorId, 'change_ticket' => $input['change_ticket'] ?? null,
             // short notice is the opposite of planned: an emergency window always counts toward the SLA (H15)
             'sla_treatment' => $emergency || ($input['sla_treatment'] ?? 'excluded') === 'counted' ? 'counted' : 'excluded', 'emergency' => $emergency,
             'state' => 'planned',
         ])));
-        $this->audit->record($context, 'maintenance.schedule', 'succeeded', ['number' => $maintenance->number, 'components' => $components, 'window' => [$starts->toIso8601String(), $ends->toIso8601String()], 'emergency' => (bool) ($input['emergency'] ?? false)], 'maintenance', $maintenance->id);
+        $this->audit->record($context, 'maintenance.schedule', 'succeeded', ['number' => $maintenance->number, 'components' => $components, 'nodes' => $nodes, 'families' => $families, 'window' => [$starts->toIso8601String(), $ends->toIso8601String()], 'emergency' => (bool) ($input['emergency'] ?? false)], 'maintenance', $maintenance->id);
 
         return $maintenance;
     }
@@ -87,16 +103,48 @@ final class MaintenanceService
         $late = now()->greaterThan($maintenance->starts_at->copy()->subHours(Maintenance::leadHours()));
         $maintenance->forceFill(['state' => 'approved', 'approved_by' => $context->actorId, 'announced_at' => now()] + ($late ? ['sla_treatment' => 'counted'] : []))->save();
         $this->audit->record($context, 'maintenance.approve', 'succeeded', ['number' => $maintenance->number, 'announced_at' => now()->toIso8601String(), 'sla' => $maintenance->excludesFromSla() ? 'excluded' : 'counted', 'late' => $late], 'maintenance', $maintenance->id);
-        $payload = ['number' => $maintenance->number, 'title' => $maintenance->title, 'components' => $maintenance->components, 'starts_at' => $maintenance->starts_at->toIso8601String(), 'ends_at' => $maintenance->ends_at->toIso8601String(), 'impact' => $maintenance->impact];
-        $organizations = $maintenance->affected_services ? Service::query()->whereIn('id', $maintenance->affected_services)->pluck('organization_id')->unique() : collect();
-        if ($organizations->isEmpty()) {
-            $this->outbox->publish(GenericEvent::of('maintenance.scheduled', 'maintenance', $maintenance->id, $payload));
-        }
-        foreach ($organizations as $organizationId) {
-            $this->outbox->publish(GenericEvent::of('maintenance.scheduled', 'maintenance', $maintenance->id, $payload, $organizationId));
-        }
+        $this->announce($maintenance, 'maintenance.scheduled');
 
         return $maintenance;
+    }
+
+    /**
+     * Tells the customers a window concerns: only the owners of the services it touches (by node, family or id), each organization once.
+     * A window that names nothing but status components keeps the old broadcast (one message without an organization).
+     */
+    private function announce(Maintenance $maintenance, string $event): void
+    {
+        $payload = ['number' => $maintenance->number, 'title' => $maintenance->title, 'components' => $maintenance->components, 'starts_at' => $maintenance->starts_at->toIso8601String(), 'ends_at' => $maintenance->ends_at->toIso8601String(), 'impact' => $maintenance->impact, 'texts' => (array) $maintenance->texts];
+        if (! $maintenance->isTargeted()) {
+            $this->outbox->publish(GenericEvent::of($event, 'maintenance', $maintenance->id, $payload));
+
+            return;
+        }
+        foreach (MaintenanceAudience::organizationIds($maintenance) as $organizationId) {
+            $this->outbox->publish(GenericEvent::of($event, 'maintenance', $maintenance->id, $payload, $organizationId));
+        }
+    }
+
+    /**
+     * The reminder a day before the start (once: `reminded_at` is claimed before anything is sent). A window that was announced inside
+     * its last day was told about already, so the reminder is marked and not sent.
+     */
+    public function remind(): int
+    {
+        $sent = 0;
+        $due = Maintenance::query()->where('state', 'approved')->whereNull('reminded_at')->where('starts_at', '>', now())->where('starts_at', '<=', now()->addHours(self::REMINDER_HOURS))->get();
+        foreach ($due as $maintenance) {
+            if (Maintenance::query()->whereKey($maintenance->id)->whereNull('reminded_at')->update(['reminded_at' => now()]) !== 1) {
+                continue; // another run took it
+            }
+            if ($maintenance->announced_at !== null && $maintenance->announced_at->greaterThan($maintenance->starts_at->copy()->subHours(self::REMINDER_HOURS))) {
+                continue;
+            }
+            $this->announce($maintenance, 'maintenance.reminder');
+            $sent++;
+        }
+
+        return $sent;
     }
 
     public function cancel(Maintenance $maintenance, string $reason, CommandContext $context): Maintenance
@@ -130,6 +178,7 @@ final class MaintenanceService
         $started = 0;
         $completed = 0;
         $unapproved = 0;
+        $reminded = $this->remind();
         foreach (Maintenance::query()->where('state', 'approved')->where('starts_at', '<=', $now)->where('ends_at', '>=', $now)->get() as $m) {
             $m->forceFill(['state' => 'in_progress', 'started_at' => $now])->save();
             $started++;
@@ -144,7 +193,7 @@ final class MaintenanceService
         }
         $this->incidents->refreshComponents();
 
-        return ['started' => $started, 'completed' => $completed, 'unapproved' => $unapproved];
+        return ['started' => $started, 'completed' => $completed, 'unapproved' => $unapproved, 'reminded' => $reminded];
     }
 
     private function withNumber(callable $create): Maintenance

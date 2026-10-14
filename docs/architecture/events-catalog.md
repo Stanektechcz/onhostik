@@ -84,7 +84,8 @@ Message envelope: `id`, `name`, `aggregate_type`, `aggregate_id`, `organization_
 | `ticket.assigned` | ticket | `number`, `subject`, `assignee_id`, `assignee_name`, `previous_assignee_id`, `priority`, `queue`, `by` — the ticket got another owner (only an active member of staff holding `support.ticket.manage` can be one; `assignee_id` null = taken from its owner). Routed in-app to the new assignee (internal); nothing when it is taken away (TASK-0054) | TicketService::assign (TicketStaffCommand) |
 | `ticket.<state>` (`ticket.resolved`, `ticket.closed`, …) | ticket | `number`, `subject`, `email`, `from`, `note` — `note` only when the transition note was public; a staff transition note is internal by default and never travels with the event (TASK-0054) | TicketService::transition |
 | `incident.opened` / `incident.updated` / `incident.resolved` | incident | `number`, `title`, `severity`, `components`, `state`, `state_label`, `note`, `impact`, `duration` | IncidentService (one message per affected organization) |
-| `maintenance.scheduled` | maintenance | `number`, `title`, `components`, `starts_at`, `ends_at`, `impact` | MaintenanceService::approve |
+| `maintenance.scheduled` | maintenance | `number`, `title`, `components`, `starts_at`, `ends_at`, `impact`, `texts` (cs/en) — W2-6: one per organization that owns a service on the window's nodes / in its families / named by id (a window that names none keeps the one broadcast) | MaintenanceService::approve |
+| `maintenance.reminder` | maintenance | W2-6: the same payload a day before `starts_at`, once per window (`reminded_at`), only to the organizations the window touches; skipped when the window was announced inside its last day | MaintenanceService::tick |
 | `sla.credit.issued` | sla_credit | `amount`, `incident`, `percent`, `service_id`, `credit_note_id` | SlaService::issue |
 | `partner.approved` / `partner.tier.changed` / `partner.payout.paid` | partner / partner_payout | `code`, `tier`, `rate`, `from`, `to`, `volume`, `number`, `amount`, `period` | PartnerService |
 | `partner.change.requested` / `partner.change.approved` / `partner.change.rejected` / `partner.change.applied` | partner | `request_id`, `kind` (rate_lock, payout_terms, whitelabel_scope), `from`, `to`, `note`, `partner_code` / `effective_from` — contract terms beyond the model (audit §5n-1): requested → finance inbox, approved/rejected → partner, applied when the term takes effect | PartnerService |
@@ -172,6 +173,9 @@ Message envelope: `id`, `name`, `aggregate_type`, `aggregate_id`, `organization_
 | `service.backup.schedule.paused` | service | five scheduled backups failed in a row, so the schedule stopped itself and waits for a person | customer + operator |
 | `service.database.import.failed` | service | a SQL import did not finish; says whether the copy taken before it was put back | customer + operator |
 | `service.restore_test.failed` | service | the periodic restore test did not bring the archive back as a database | customer + operator |
+| `service.verified_restore.failed` | service | W2-4: a verified restore (the newest complete set restored into an isolated copy of the site, checked over HTTP) did not pass (`run_id`, `label`, `problem`: the first failed step); production was not touched — the protocol is at `GET /v1/services/{service}/verified-restores` | customer + operator |
+| `service.verified_restore.cleanup_failed` | service | W2-4: the isolated copy of a verified restore, or a database of it, is still on the node after the run (`run_id`, `target_service_id`, `domain`, `problem`) | operator |
+| `service.oversight.finding_bad` | service | W2-5: a service with the Dohled (oversight) add-on has a health finding that turned `bad` in a current measurement (`label`, `finding`, `problem`, `observed_at`) — told once per finding until it recovers; the staff on-call gets one alert per service and finding (`OnCallService::open`, dedup `service:finding`, repeats counted in `occurrences`) | customer + operator |
 | `node.qualified` | node | a node passed its qualification and was put into the offer (with the exception knowingly accepted, if any) | operator |
 | `node.synthetic.leftover` | node | a throw-away resource made to qualify a node could not be removed; it names what is left | operator |
 | `service.relocated` | service | a VM moved to another node (HA after a node failure, or by hand) and proved to be this service's (`proof`: service tag or name); the reconciler moved its binding, VM record and node with it (`from`, `to`) | operator |
@@ -354,3 +358,11 @@ vault entry (`ForgetPenpotSecrets`).
 | `penpot.instance.recovered` | service | `label` — an instance that was reported unreachable answers again; the customer in-app | PenpotSweep |
 | `penpot.owner_password.changed` | service | `label`, `owner_email`, `actor_id` — the password of the owner's Penpot account was set (never the password); the customer in-app (warn: "if it was not you…") | PenpotOwnerWorkflow |
 <!-- TASK-0123 penpot: end -->
+
+<!-- W2-2 vulnerability priority: begin -->
+Vulnerability priority (CISA KEV + FIRST EPSS compared with the WordPress components ONhost knows each site runs). Advice only; nothing is updated.
+
+| Event | Aggregate | Payload / meaning | Source |
+| --- | --- | --- | --- |
+| `vulnerability.priority.detected` | service | `cve`, `kind` (core/plugin/theme), `component` (slug), `priority` (`kev`), `basis` (`product_name`: matched by name, the version is NOT evaluated — "possibly affected, verify the version") — a component of the site is the product of a CISA known-exploited entry that this site had no match for the day before. Not routed to the customer yet; staff see the list at `GET /v1/staff/vulnerabilities` | VulnerabilityMatcher (`onhost:vulns:sync`) |
+<!-- W2-2 vulnerability priority: end -->

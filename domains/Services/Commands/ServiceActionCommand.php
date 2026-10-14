@@ -43,6 +43,9 @@ final class ServiceActionCommand extends OrganizationCommand implements RiskAwar
         'rename' => 'service.manage', 'site.create' => 'service.manage', 'site.delete' => 'service.data.delete',
         // ── copies: making one is managing, bringing one back overwrites what is there now ──────────────
         'backup' => 'service.manage', 'snapshot' => 'service.manage', 'restore.test' => 'service.manage', // a restore test goes into a database of its own; the site is not touched
+        // W2-4: a verified restore goes into an isolated copy made for it and removed after it; the live site is not touched. NORMAL risk,
+        // and staff-only besides the scheduler (CustomerActionParams refuses customers: each run makes and removes a site on a node)
+        'restore.verify' => 'service.manage',
         'restore' => 'backup.restore', 'rollback_snapshot' => 'backup.restore', 'archive.restore' => 'backup.restore',
         // Deleting a copy is its own permission (C13-FM, D29.2): the day-to-day manager — a developer, a `svc_manage` guest, a
         // power token — must not be able to thin out the backups the owner relies on. Web/managed/mail sets ask `backup.delete`,

@@ -31,13 +31,17 @@ use Onhost\Domain\Services\Metering\WebDiskTotal;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\SshKeyGrant;
+use Onhost\Domain\Services\Models\VerifiedRestoreRun;
 use Onhost\Domain\Services\PlanChangeService;
+use Onhost\Domain\Services\SecurityPosture;
 use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Domain\Services\ServiceHealthCheck;
 use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\Services\ServiceSpecService;
 use Onhost\Domain\Services\ServiceSummary;
 use Onhost\Domain\Services\SshKeyLedger;
+use Onhost\Domain\Services\Web\VerifiedRestoreProtocol;
+use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
@@ -364,6 +368,35 @@ final class ServiceController extends ApiController
     public function health(Request $request, ServiceHealthCheck $health, string $service): JsonResponse
     {
         return response()->json(['data' => $health->run($this->resolve($request, $service))]);
+    }
+
+    /** The security posture of one service (W2-1): a fixed catalog of controls, each answered only from dated evidence; unmeasured is `unknown`, never `pass`. Same visibility as the health check. */
+    public function securityPosture(Request $request, SecurityPosture $posture, string $service): JsonResponse
+    {
+        return response()->json(['data' => $posture->run($this->resolve($request, $service))]);
+    }
+
+    /** W2-4: the protocols of the verified restores of one service, newest first (facts, steps, RPO/RTO; never a verdict beyond them). */
+    public function verifiedRestores(Request $request, string $service): JsonResponse
+    {
+        $model = $this->resolve($request, $service);
+        $runs = VerifiedRestoreRun::query()->where('service_id', $model->id)->orderByDesc('started_at')->orderByDesc('id')->limit(max(1, min(50, (int) $request->query('limit', 12))))->get();
+
+        return response()->json(['data' => $runs->map(fn (VerifiedRestoreRun $run) => VerifiedRestoreProtocol::summary($run))->values()->all()]);
+    }
+
+    /** W2-4: one finished protocol as a PDF (dompdf, as invoices); a protocol of another service is not found. */
+    public function verifiedRestorePdf(Request $request, VerifiedRestoreProtocol $protocols, AuditRecorder $audit, string $service, string $run): Response
+    {
+        $model = $this->resolve($request, $service);
+        $found = VerifiedRestoreRun::query()->where('service_id', $model->id)->where('state', VerifiedRestoreRun::FINISHED)->find($run);
+        if ($found === null) {
+            throw DomainError::notFound('verified_restore');
+        }
+        $binary = $protocols->render($found, $model);
+        $audit->record($this->api->context($request), 'service.restore_verify.download', 'succeeded', ['run_id' => $found->id], 'service', $model->id);
+
+        return response($binary, 200, ['Content-Type' => 'application/pdf', 'Content-Disposition' => 'inline; filename="overena-obnova-'.$found->id.'.pdf"']);
     }
 
     /** Live listing of one resource kind (databases, ftp, cron, subdomains, certificate, redirect, php, snapshots, mailboxes, aliases, dkim, firewall). */

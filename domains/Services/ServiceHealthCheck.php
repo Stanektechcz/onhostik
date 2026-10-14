@@ -7,14 +7,18 @@ namespace Onhost\Domain\Services;
 use Carbon\CarbonImmutable;
 use Onhost\Domain\Dns\DnssecWatch;
 use Onhost\Domain\Dns\Models\DnsZone;
+use Onhost\Domain\Incidents\MaintenanceAudience;
 use Onhost\Domain\Provisioning\Models\Operation;
+use Onhost\Domain\Services\Mail\MailAuthWatch;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\CdnZone;
+use Onhost\Domain\Services\Models\MailDomain;
 use Onhost\Domain\Services\Models\ManagedCertificate;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\Models\UptimeMonitor;
 use Onhost\Domain\Services\Penpot\PenpotHealth;
+use Onhost\Domain\Services\Vulnerability\VulnerabilityFinding;
 use Onhost\Domain\Services\Web\CertificateWatch;
 use Onhost\Domain\Services\Web\SecurityHeadersWatch;
 
@@ -47,7 +51,12 @@ final class ServiceHealthCheck
             $findings[] = $this->securityHeaders($service);
             $findings[] = $this->originExposure($service);
             $findings[] = $this->dnssec($service);
+            $findings[] = VulnerabilityFinding::for($service); // W2-2: possibly affected components, from the nightly match of KEV/EPSS
         }
+        if (in_array($service->family, ['web', 'managed', 'mail'], true)) {
+            $findings[] = $this->mailAuth($service);
+        }
+        $findings[] = $this->maintenance($service);
         $findings[] = $this->suspensionLeft($service);
         $findings[] = $this->operations($service);
         $findings[] = $this->usage($service);
@@ -93,6 +102,24 @@ final class ServiceHealthCheck
             $service->state === ServiceStateMachine::FAILED => self::finding('state', 'bad', 'Poslední změna služby selhala a služba čeká na zásah.', 'The last change of the service failed and it waits for attention.'),
             default => self::finding('state', 'warn', "Služba je ve stavu {$service->state}.", "The service is {$service->state}."),
         };
+    }
+
+    /**
+     * W2-6: a planned maintenance window that is open right now and touches this service. Information only (level `ok`): it is added
+     * to the other findings and hides none of them — a real bad finding during a window is still reported as bad.
+     *
+     * @return array{key:string, level:'ok'|'warn'|'bad', cs:string, en:string, observed_at:string, state:string}|null
+     */
+    private function maintenance(Service $service): ?array
+    {
+        $window = MaintenanceAudience::activeFor($service)[0] ?? null;
+        if ($window === null) {
+            return null;
+        }
+        $until = $window->ends_at->format('j. n. Y H:i');
+
+        return Freshness::stamp(self::finding('maintenance', 'ok', "Probíhá plánovaná údržba {$window->number} (do {$until}); služba může být v tomto okně dočasně nedostupná.", "Planned maintenance {$window->number} is under way (until {$until}); the service may be briefly unavailable during the window."),
+            Freshness::assess('maintenance', now()));
     }
 
     /** @return array{key:string, level:'ok'|'warn'|'bad', cs:string, en:string}|null */
@@ -280,6 +307,44 @@ final class ServiceHealthCheck
             DnssecWatch::MISSING => self::finding('dnssec', 'bad', "DNSSEC domény {$name} je zapnuté, ale registr nemá žádný DS záznam; zveřejněte DS u registru, nebo DNSSEC vypněte.", "DNSSEC is on for {$name}, but the registry holds no DS record; publish the DS at the registry, or switch DNSSEC off."),
             DnssecWatch::MISMATCH => self::finding('dnssec', 'bad', "DS záznam u registru pro {$name} neodpovídá klíči, kterým zónu podepisujeme; validující resolvery mohou doménu přestat překládat. Zveřejněte aktuální DS, nebo DNSSEC vypněte.", "The DS record at the registry for {$name} does not match the key we sign the zone with; validating resolvers may stop resolving the domain. Publish the current DS, or switch DNSSEC off."),
             default => self::finding('dnssec', 'warn', "DS záznam domény {$name} u registru se zatím nepodařilo ověřit.", "The DS record of {$name} at the registry could not be verified yet."),
+        };
+
+        return Freshness::stamp($finding, $assessment);
+    }
+
+    /**
+     * SPF, DKIM and DMARC of the mail domains the service carries, as public DNS showed them at the last nightly look
+     * (`MailAuthWatch`). Advice only; a look that failed is said as failed, never as fine, and a service whose domains were
+     * never looked at says nothing here (the security posture lists it as not measured).
+     *
+     * @return array{key:string, level:'ok'|'warn'|'bad', cs:string, en:string}|null
+     */
+    private function mailAuth(Service $service): ?array
+    {
+        $seen = (array) data_get($service->tags, 'mail_auth', []);
+        if ($seen === [] || ! MailDomain::query()->where('service_id', $service->id)->where('state', 'active')->exists()) {
+            return null;
+        }
+        $domains = array_values(array_filter((array) ($seen['domains'] ?? []), 'is_array'));
+        $assessment = Freshness::assess('mail_auth', $seen['checked_at'] ?? null);
+        $levels = array_map(fn (array $d) => MailAuthWatch::level($d), $domains);
+        $failed = array_values(array_filter($domains, fn (array $d) => MailAuthWatch::level($d) === 'error'));
+        $advice = [];
+        foreach ($domains as $d) {
+            array_push($advice, ...MailAuthWatch::advice($d));
+        }
+        if ($failed !== [] && ! in_array('bad', $levels, true)) {
+            $names = implode(', ', array_map(fn (array $d) => (string) $d['domain'], $failed));
+
+            return Freshness::stamp(self::finding('mail_auth', 'warn', "Ověření pošty (SPF, DKIM, DMARC) se nepodařilo: DNS domény {$names} neodpovědělo.", "The mail authentication check (SPF, DKIM, DMARC) failed: DNS for {$names} did not answer."),
+                ['state' => Freshness::COLLECTION_ERROR, 'observed_at' => $seen['checked_at'] ?? null, 'age_minutes' => null]);
+        }
+        $cs = implode(' ', array_column($advice, 0));
+        $en = implode(' ', array_column($advice, 1));
+        $finding = match (true) {
+            in_array('bad', $levels, true) => self::finding('mail_auth', 'bad', 'Pošta z vaší domény nemusí projít ověřením u příjemců. '.$cs.' (sami nic neměníme)', 'Mail from your domain may fail verification at receivers. '.$en.' (we change nothing ourselves)'),
+            in_array('warn', $levels, true) => self::finding('mail_auth', 'warn', 'Ověření pošty jde zlepšit. '.$cs.' (sami nic neměníme)', 'Mail authentication can be improved. '.$en.' (we change nothing ourselves)'),
+            default => self::finding('mail_auth', 'ok', 'SPF (jediný záznam, ne víc než 10 dotazů), DKIM (klíč v DNS odpovídá našemu) a DMARC (politika a adresa pro hlášení) vypadají v pořádku.', 'SPF (a single record, at most 10 lookups), DKIM (the key in DNS matches ours) and DMARC (policy and report address) look right.'),
         };
 
         return Freshness::stamp($finding, $assessment);

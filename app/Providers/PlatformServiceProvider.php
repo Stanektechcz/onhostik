@@ -22,6 +22,7 @@ use Onhost\Platform\Clock\SystemClock;
 use Onhost\Platform\Commands\CommandAuthorizer;
 use Onhost\Platform\Commands\CommandBus;
 use Onhost\Platform\Commands\IdempotencyStore;
+use Onhost\Platform\Http\EgressGuard;
 use Onhost\Platform\Observability\Tracer;
 use Onhost\Platform\ProviderHttp\ProviderCallLogger;
 use Onhost\Platform\ProviderHttp\ProviderHttpClient;
@@ -32,6 +33,7 @@ use Onhost\Platform\Secrets\SecretStore;
 use Onhost\Providers\AaPanel\AaPanelWebProvider;
 use Onhost\Providers\Contracts\IpGeoProvider;
 use Onhost\Providers\Contracts\VatNumberValidator;
+use Onhost\Providers\Contracts\VulnerabilityFeedProvider;
 use Onhost\Providers\IpGeo\HttpIpGeoProvider;
 use Onhost\Providers\IpGeo\NullIpGeoProvider;
 use Onhost\Providers\IspConfig\IspConfigWebProvider;
@@ -44,6 +46,7 @@ use Onhost\Providers\Pterodactyl\PterodactylGameProvider;
 use Onhost\Providers\Subreg\SubregRegistrarProvider;
 use Onhost\Providers\Vies\DisabledVatNumberValidator;
 use Onhost\Providers\Vies\ViesVatNumberValidator;
+use Onhost\Providers\Vulnerability\HttpVulnerabilityFeedProvider;
 use Onhost\Providers\Wedos\WedosRegistrarProvider;
 use Onhost\Providers\Wedos\WedosZoneDnsProvider;
 use RuntimeException;
@@ -87,6 +90,8 @@ final class PlatformServiceProvider extends ServiceProvider
         // VAT numbers in VIES (D31.1): off until go-live (ONHOST_VIES_ENABLED); resolved per call, so the switch needs no restart
         $this->app->bind(VatNumberValidator::class, fn ($app): VatNumberValidator => (bool) config('onhost.vies.enabled', false) ? $app->make(ViesVatNumberValidator::class) : new DisabledVatNumberValidator);
         // ── end TASK-0031 ──
+        // W2-2: CISA KEV + FIRST EPSS, read through EgressGuard (config onhost.vuln)
+        $this->app->bind(VulnerabilityFeedProvider::class, fn ($app): VulnerabilityFeedProvider => new HttpVulnerabilityFeedProvider($app->make(HttpFactory::class), $app->make(EgressGuard::class), (string) config('onhost.vuln.kev_url'), (string) config('onhost.vuln.epss_url'), (int) config('onhost.vuln.timeout_seconds', 30)));
         $this->app->singleton(Authorizer::class); // every holder shares it, so a revoked binding is forgotten everywhere at once
         $this->app->singleton(CommandAuthorizer::class, IdentityCommandAuthorizer::class);
         $this->app->singleton(CommandBus::class);

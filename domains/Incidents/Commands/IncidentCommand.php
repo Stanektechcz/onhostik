@@ -12,7 +12,7 @@ use Onhost\Platform\Commands\GlobalCommand;
  * Staff incident/status/SLA controls, dispatched by `op`:
  *  open{title,severity,components,impact?,affected_services?,security?,visibility?,note?} · update{incident_id,note,state?,public?} ·
  *  resolve{incident_id,note} · postmortem{incident_id,summary,root_cause,timeline?,actions?,publish?} ·
- *  maintenance.schedule{title,components,starts_at,ends_at,impact?,rollback,affected_services?,sla_treatment?,emergency?} ·
+ *  maintenance.schedule{title,components?,starts_at,ends_at,impact?,rollback,affected_services?,affected_nodes?,affected_families?,text_cs?,text_en?,sla_treatment?,emergency?} ·
  *  maintenance.approve{maintenance_id} · maintenance.cancel{maintenance_id,reason} · maintenance.complete{maintenance_id,note?} ·
  *  probe.register{key,component_key,kind,target,location,expected?,interval_seconds?} ·
  *  credit.candidates{incident_id} · credit.approve{credit_id} · credit.reject{credit_id,reason} · credit.issue{credit_id}

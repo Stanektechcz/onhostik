@@ -79,6 +79,7 @@
     "onhost:registrar:reconcile": 173400,
     "onhost:registrar:scrape-prices": 1210200,
     "onhost:registrars:sync-connections": 7800,
+    "onhost:services:oversight": 7800,
     "onhost:services:purge": 173400,
     "onhost:services:release-stranded --apply --minutes=30": 1800,
     "onhost:services:rescue-expire": 1800,
@@ -90,6 +91,7 @@
     "onhost:status:verify-domains": 7800,
     "onhost:support:sla": 1200,
     "onhost:vat:recheck": 173400,
+    "onhost:vulns:sync": 173400,
     "onhost:web-tools:prune": 7800,
     "onhost:webhooks:retry": 720,
     "onhost:withdrawals:finish": 7800

@@ -85,7 +85,7 @@ use Throwable;
  */
 final class ServiceActionWorkflow implements Workflow
 {
-    public const CORE_ACTIONS = ['power', 'suspend', 'resume', 'resize', 'terminate', 'purge', 'backup', 'restore', 'restore.test', 'archive.restore', 'snapshot', 'rollback_snapshot', 'mailbox.backup_retention'];
+    public const CORE_ACTIONS = ['power', 'suspend', 'resume', 'resize', 'terminate', 'purge', 'backup', 'restore', 'restore.test', 'restore.verify', 'archive.restore', 'snapshot', 'rollback_snapshot', 'mailbox.backup_retention'];
 
     /** Feature actions: one provider call each, validated by ServiceService::featureParams, no service state change. */
     public const FEATURE_ACTIONS = [
@@ -169,6 +169,7 @@ final class ServiceActionWorkflow implements Workflow
             'backup' => [$this->backupStep()],
             'restore' => [$this->safetyCopyStep('pre_restore'), $this->restoreStep()],
             'restore.test' => [$this->restoreTestStep()], // restores into databases of its own: nothing live is touched, so no copy is needed
+            // W2-4 `restore.verify` runs in VerifiedRestoreWorkflow (ServiceService::actionWorkflowFor), never here
             'archive.restore' => [$this->safetyCopyStep('pre_restore'), $this->archiveRestoreStep()], // the archive goes OVER a live site: a copy first, nothing written without it (TASK-0035, IF-11 / audit SE-2)
             'snapshot' => [$this->snapshotStep()],
             'rollback_snapshot' => [$this->safetyCopyStep('pre_rollback'), $this->rollbackSnapshotStep()],

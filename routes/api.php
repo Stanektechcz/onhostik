@@ -56,6 +56,7 @@ use App\Http\Controllers\Api\V1\Staff\ReportController;
 use App\Http\Controllers\Api\V1\Staff\SupportController as StaffSupportController;
 use App\Http\Controllers\Api\V1\Staff\SupportSettingsController;
 use App\Http\Controllers\Api\V1\Staff\VatPayerModeController;
+use App\Http\Controllers\Api\V1\Staff\VulnerabilityController;
 use App\Http\Controllers\Api\V1\Staff\WithdrawalController as StaffWithdrawalController;
 use App\Http\Controllers\Api\V1\StatusController;
 use App\Http\Controllers\Api\V1\SupportController;
@@ -106,6 +107,7 @@ Route::middleware('throttle:public')->group(function (): void {
 
     // status page (`/stav`), DSA abuse notice form, external probe ingest
     Route::get('status', [StatusController::class, 'status']);
+    Route::get('status/infrastructure', [StatusController::class, 'infrastructure']); // W2-6: web nodes under aliases, state from the last measurement (stale = not verified), maintenance; cached 60 s
     Route::get('status/org/{slug}', [OrganizationStatusController::class, 'show']); // the organization's own status page (audit §5j-5)
     Route::get('status/host-check', [OrganizationStatusController::class, 'hostAllowed']); // on-demand TLS ask for the customers' status hosts (audit §5k-3)
     Route::post('probes/capacity/{capacityRequest}/ready', [CapacityController::class, 'ready'])->withoutMiddleware('throttle:public')->middleware('throttle:probes'); // a vendor node's bootstrap reports back (audit §5o-7)
@@ -138,6 +140,7 @@ Route::middleware('throttle:public')->group(function (): void {
 Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'throttle:api', 'idempotency'])->group(function (): void { // token.scope: a bearer token reaches only the route families its scopes name
     Route::get('me', [AuthController::class, 'me']);
     Route::get('my/incidents', [StatusController::class, 'mine']);
+    Route::get('my/maintenance', [StatusController::class, 'maintenance']); // W2-6: planned maintenance that touches the organization's own services
     Route::get('sla-credits', [StatusController::class, 'credits']);
     Route::get('abuse-cases', [ComplianceController::class, 'abuseCases']);
     Route::post('abuse-cases/{case}/appeal', [ComplianceController::class, 'appeal']);
@@ -363,6 +366,9 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
     Route::get('services/{service}/backups', [ServiceController::class, 'backups']);
     Route::get('services/{service}/features', [ServiceController::class, 'features']);
     Route::get('services/{service}/health', [ServiceController::class, 'health']); // one-pass check from the platform's records (ServiceHealthCheck)
+    Route::get('services/{service}/security-posture', [ServiceController::class, 'securityPosture']); // W2-1: 22 security controls, each pass|fail|unknown|not_applicable with its evidence; read-only, no verdict (SecurityPosture)
+    Route::get('services/{service}/verified-restores', [ServiceController::class, 'verifiedRestores']); // W2-4: protocols of the verified restores (VerifiedRestore); read-only
+    Route::get('services/{service}/verified-restores/{run}/pdf', [ServiceController::class, 'verifiedRestorePdf']); // W2-4: one finished protocol as PDF; another service's run is 404
     Route::get('services/{service}/penpot', [PenpotController::class, 'show']); // TASK-0123: the Penpot card (address, login, limits, backups)
     Route::post('services/{service}/penpot/owner-password', [PenpotController::class, 'ownerPassword']); // TASK-0123: HIGH + step-up
     Route::get('services/{service}/penpot-offer', [PenpotController::class, 'offer']); // H-R7: what a Penpot costs next to this service
@@ -455,6 +461,7 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
         Route::post('tax/vat-payer-mode', [VatPayerModeController::class, 'update']); // G2: switched by finance, step-up + four eyes
         // ── end TASK-0031 ──
         Route::get('services', [CustomerController::class, 'services']);
+        Route::get('vulnerabilities', [VulnerabilityController::class, 'index']); // W2-2: possible matches of KEV/EPSS with the components of all services, most urgent first
         Route::get('domains', [CustomerController::class, 'domains']);
         Route::get('integrations', [ProvisioningController::class, 'integrations']);
         Route::post('integrations', [ProvisioningController::class, 'upsertInstance']);

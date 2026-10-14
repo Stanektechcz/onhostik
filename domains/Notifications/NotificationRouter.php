@@ -14,6 +14,7 @@ use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Services\Metering\UsageMetrics;
 use Onhost\Domain\Services\Metering\WebDiskTotal;
+use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\UsageWatch;
 use Onhost\Domain\Tax\VatNumber;
 use Onhost\Platform\Money\Money;
@@ -104,7 +105,8 @@ final class NotificationRouter
             'cdn.enabled', 'cdn.activated', 'cdn.disabled' => $this->customer($m, 'service', match ($m->name) {
                 'cdn.enabled' => 'CDN zapnuto', 'cdn.activated' => 'CDN je aktivní', default => 'CDN vypnuto'
             }, (string) ($p['domain'] ?? '').($m->name === 'cdn.enabled' && empty($p['nameservers_switched']) ? ' · nastavte nameservery u registrátora' : ''), '/panel/sluzby'),
-            'service.activated' => $this->customer($m, 'service', 'Služba je aktivní', $this->access($p), '/panel/sluzby', 'info', $email, 'service-activated', ['sluzba' => $p['product_key'] ?? '', 'pristup' => $this->access($p), 'url' => "{$portal}/panel/sluzby"]),
+            // W2-4: the isolated copy a verified restore makes and removes again is no service of the customer's: no "active" mail every month
+            'service.activated' => self::isRestoreCopy($m) ? null : $this->customer($m, 'service', 'Služba je aktivní', $this->access($p), '/panel/sluzby', 'info', $email, 'service-activated', ['sluzba' => $p['product_key'] ?? '', 'pristup' => $this->access($p), 'url' => "{$portal}/panel/sluzby"]),
             'service.failed' => $this->both($m, 'service', 'Zřizování služby selhalo', (string) ($p['reason'] ?? ''), 'Zřizování služby se nezdařilo — řešíme', 'Naši technici byli upozorněni, ozveme se v tiketu.', '/sprava/sluzby', '/panel/sluzby', 'hot'),
             'service.plan_changed' => ! empty($p['period_change']) && ($p['from_plan'] ?? null) === ($p['to_plan'] ?? null)
                 // the same plan billed per the other period: a new period started now, the unused rest of the old one was credited
@@ -159,6 +161,10 @@ final class NotificationRouter
             'service.terminated' => $this->customer($m, 'service', 'Služba byla ukončena', 'Zálohy držíme po dobu retenční lhůty.', '/panel/sluzby', 'warn'),
             // the deletion lifecycle (audit §5ab): deactivation, the restore window, the removal and the archive
             'service.restore_test.failed' => $this->customerAndStaff($m, $p, 'Záloha se nepodařilo obnovit na zkoušku', 'Pravidelný test obnovy u služby '.($p['label'] ?? '').' neprošel: '.($p['problem'] ?? '').' Vaše data ani databáze jsme nijak nezměnili — test běží stranou. Díváme se na to.'),
+            // W2-4: the verified restore add-on — the copy did not come back or did not answer; production was not touched
+            'service.verified_restore.failed' => $this->customerAndStaff($m, $p, 'Ověřená obnova zálohy neprošla', 'Pravidelná ověřená obnova služby '.($p['label'] ?? '').' neprošla: '.($p['problem'] ?? '').' Obnova běžela v oddělené kopii webu; váš web ani jeho data jsme nezměnili. Protokol je u služby. Díváme se na to.'),
+            // W2-5: the oversight add-on saw a finding turn bad — once per finding; the staff alert (one per service and finding, repeats counted) is the on-call's
+            'service.oversight.finding_bad' => $this->customerAndStaff($m, $p, 'Dohled zjistil problém', 'Při dohledu nad službou '.($p['label'] ?? '').' jsme zjistili: '.($p['problem'] ?? '').' Je to zjištění z posledního měření, ne předpověď. Naši technici o něm vědí a díváme se na to.'),
             'service.database.import.failed' => $this->customerAndStaff($m, $p, 'Import databáze se nedokončil', 'Import do databáze '.($p['database'] ?? '').' ('.($p['label'] ?? '').') se nedokončil'.(($p['restored'] ?? false) ? ' a vrátili jsme ji do stavu těsně před importem.' : '. Kopii z doby těsně před importem máme uloženou.').' Důvod: '.($p['reason'] ?? '')),
             'service.backup.schedule.paused' => $this->customerAndStaff($m, $p, 'Plánování záloh jsme zastavili', 'Zálohy služby '.($p['label'] ?? '').' selhaly '.(int) ($p['failures'] ?? 0).'× po sobě ('.($p['reason'] ?? '').'), tak jsme plán zastavili, aby se pokusy neopakovaly donekonečna. Hotové zálohy zůstávají. Plán se rozeběhne, jakmile ho znovu nastavíte.'),
             'service.backup.schedule.stalled' => $this->customerAndStaff($m, $p, 'Plánovaná záloha se nespustila', 'Zálohu služby '.($p['label'] ?? '').' se nepodařilo spustit '.(int) ($p['missed'] ?? 0).'× po sobě ('.($p['reason'] ?? '').'). Díváme se na to; poslední hotová záloha zůstává k dispozici.'),
@@ -320,7 +326,8 @@ final class NotificationRouter
             'incident.opened' => $this->both($m, 'incident.affecting', "{$p['number']} otevřen", (string) ($p['title'] ?? ''), 'Probíhá incident', (string) ($p['title'] ?? ''), '/sprava/incidenty', '/stav', 'hot', $email, 'incident', ['incident' => $p['number'], 'nazev' => $p['title'] ?? '', 'stav' => $p['state'] ?? '', 'dopad' => $p['impact'] ?? '', 'url' => "{$portal}/stav"]),
             'incident.updated' => $this->both($m, 'incident.affecting', "{$p['number']} → {$p['state_label']}", (string) ($p['note'] ?? ''), "{$p['number']} — {$p['state_label']}", (string) ($p['note'] ?? ''), '/sprava/incidenty', '/stav', 'warn'),
             'incident.resolved' => $this->both($m, 'incident.affecting', "{$p['number']} vyřešen", (string) ($p['note'] ?? ''), 'Incident vyřešen', (string) ($p['title'] ?? ''), '/sprava/incidenty', '/stav', 'info', $email, 'incident-resolved', ['incident' => $p['number'], 'nazev' => $p['title'] ?? '', 'trvani' => $p['duration'] ?? '', 'url' => "{$portal}/stav"]),
-            'maintenance.scheduled' => $this->customer($m, 'incident.affecting', 'Plánovaná údržba', ($p['title'] ?? '').' · '.substr((string) ($p['starts_at'] ?? ''), 0, 16), '/stav', 'warn', $email, 'maintenance', ['nazev' => $p['title'] ?? '', 'od' => $p['starts_at'] ?? '', 'do' => $p['ends_at'] ?? '', 'dopad' => $p['impact'] ?? '', 'url' => "{$portal}/stav"]),
+            // W2-6: the announcement when the window is approved and the reminder a day before it, both only to the owners of the services it touches; the text is the window's own, in the customer's language
+            'maintenance.scheduled', 'maintenance.reminder' => $this->customer($m, 'incident.affecting', $m->name === 'maintenance.reminder' ? 'Připomínka: plánovaná údržba' : 'Plánovaná údržba', ($p['title'] ?? '').' · '.substr((string) ($p['starts_at'] ?? ''), 0, 16).self::maintenanceText($m, $p, ' · '), '/stav', 'warn', $email, 'maintenance', ['nazev' => $p['title'] ?? '', 'od' => $p['starts_at'] ?? '', 'do' => $p['ends_at'] ?? '', 'dopad' => trim(($p['impact'] ?? '').self::maintenanceText($m, $p, ' ')), 'url' => "{$portal}/stav"]),
             'sla.credit.issued' => $this->customer($m, 'invoice.issued', 'SLA kredit připsán', $money($p['amount'] ?? null).' · '.($p['incident'] ?? ''), '/panel/fakturace', 'info', $email, 'sla-credit', ['castka' => $money($p['amount'] ?? null), 'incident' => $p['incident'] ?? '', 'procento' => $p['percent'] ?? '', 'url' => "{$portal}/panel/fakturace"]),
             'partner.application.received' => $this->internal($m, 'partner', 'Nová partnerská přihláška', ($p['company'] ?? '').' · '.($p['model'] ?? ''), '/sprava/zakaznici', 'info'),
             'partner.approved' => $this->customer($m, 'partner', 'Partnerský účet schválen', 'Kód '.($p['code'] ?? '').' · '.($p['tier'] ?? '').' '.($p['rate'] ?? '').' %', '/partner/prehled', 'info'),
@@ -345,7 +352,7 @@ final class NotificationRouter
             // a plan version decides what new customers get and pay (H01): finance hears about it, it is not an alarm
             'catalog.plan.version_published', 'catalog.plan.version_activated' => $this->internal($m, 'finance', self::internalTitle($m->name, $p), 'Změněno: '.implode(', ', array_merge((array) ($p['changed']['entitlements'] ?? []), (array) ($p['changed']['limits'] ?? []), (array) ($p['changed']['prices'] ?? []))).' · důvod: '.($p['reason'] ?? ''), '/sprava/fakturace', 'warn'),
             'platform.mail.failing', 'platform.mail.recovered',
-            'node.blocklisted', 'mail.reputation.listed', 'service.name_unproved', 'service.certificate.problem', 'service.resume.incomplete', 'service.suspend.incomplete', 'service.purge.leftover', 'service.termination.failed',
+            'node.blocklisted', 'mail.reputation.listed', 'service.name_unproved', 'service.certificate.problem', 'service.resume.incomplete', 'service.suspend.incomplete', 'service.purge.leftover', 'service.termination.failed', 'service.verified_restore.cleanup_failed',
             'registrar.credit.low', 'integration.down', 'integration.maintenance.lifted', 'integration.maintenance.overdue', 'security.ssh_key.revocation.stuck', 'platform.load_shedding.started', 'platform.load_shedding.ended', 'platform.queue.stalled', 'platform.queue.backlog', 'node.drained', 'node.resumed', 'node.qualified', 'node.disk.low', 'service.integrity.suspicious', 'node.synthetic.leftover', 'service.relocated', 'capacity.unavailable', 'ipam.exhausted', 'ipam.threshold', 'ipam.rdns.unpublished', 'ipam.rdns.failed', 'provisioning.drift.detected', 'operation.failed', 'finance.reconciliation.mismatch', 'registrar.notification.dead', 'domain.reconcile.missing_remote', 'domain.reconcile.unknown_remote', 'payment.orphan_callback', 'security.incident.opened', 'abuse.case.opened', 'compliance.timer.due', 'compliance.timer.missed', 'sla.burn_rate', 'sla.budget.exhausted', 'maintenance.unapproved' => $this->internal($m, self::internalKind($m->name), self::internalTitle($m->name, $p), self::internalBody($p), self::internalSurface($m->name), 'hot'),
             // marketplace (audit §5j-1): the partner gets the brief, the customer the delivery; disputes reach support and the partner
             'marketplace.ordered' => $this->customer($m, 'order', 'Objednávka z marketplace: '.($p['title'] ?? ''), 'Partner dostal zadání; dodání do '.self::when($p['due_at'] ?? null).'. Zaplaceno z kreditu ('.$money($p['total'] ?? null).').', '/panel/nastaveni', 'info'),
@@ -676,6 +683,22 @@ final class NotificationRouter
      *
      * @param  array<string,mixed>  $p
      */
+    /** W2-6: the text of a maintenance window in the language of the organization it is told to (empty when the window has none). @param array<string,mixed> $p */
+    private static function maintenanceText(OutboxMessage $m, array $p, string $prefix): string
+    {
+        $locale = $m->organization_id !== null ? (string) (Organization::query()->whereKey($m->organization_id)->value('locale') ?? 'cs') : 'cs';
+        $texts = (array) ($p['texts'] ?? []);
+        $text = trim((string) ($texts[$locale === 'en' ? 'en' : 'cs'] ?? $texts[$locale === 'en' ? 'cs' : 'en'] ?? ''));
+
+        return $text === '' ? '' : $prefix.$text;
+    }
+
+    /** W2-4: a copy made for one verified restore (StagingService::createRestoreTarget), removed by the same run. */
+    private static function isRestoreCopy(OutboxMessage $m): bool
+    {
+        return $m->aggregate_type === 'service' && data_get(Service::query()->whereKey((string) $m->aggregate_id)->value('tags'), 'restore_target_of') !== null;
+    }
+
     private function customerAndStaff(OutboxMessage $m, array $p, string $title, string $body): void
     {
         $this->internal($m, self::internalKind($m->name), self::internalTitle($m->name, $p), self::internalBody($p), self::internalSurface($m->name), 'hot');
@@ -927,6 +950,9 @@ final class NotificationRouter
             'service.backup.schedule.paused' => 'Plánování záloh se zastavilo po opakovaném selhání',
             'service.database.import.failed' => 'Import databáze se nedokončil',
             'service.restore_test.failed' => 'Test obnovy ze zálohy neprošel',
+            'service.verified_restore.failed' => 'Ověřená obnova ze zálohy neprošla',
+            'service.oversight.finding_bad' => 'Dohled: zjištění se zhoršilo u služby '.($p['label'] ?? '').' ('.($p['finding'] ?? '').'): '.($p['problem'] ?? ''),
+            'service.verified_restore.cleanup_failed' => 'Zkušební kopie ověřené obnovy služby '.($p['label'] ?? '').' ('.($p['domain'] ?? '').') zůstala na uzlu: '.($p['problem'] ?? '').' — odstraňte ji ručně',
             'ipam.exhausted' => 'Došly IP adresy '.($p['region'] ?? '').'/'.($p['purpose'] ?? ''),
             'ipam.rdns.unpublished' => 'Reverzní zónu pro adresu platforma nespravuje',
             'ipam.rdns.failed' => 'Reverzní záznam se nepodařilo publikovat',

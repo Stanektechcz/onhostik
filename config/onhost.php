@@ -33,6 +33,14 @@ return [
         // authority's duplicate-certificate allowance
         'watch_renew_days' => (int) env('ONHOST_CERT_WATCH_RENEW_DAYS', 10),
     ],
+    // W2-2: public vulnerability feeds read daily (CISA KEV, FIRST EPSS) through EgressGuard; a copy older than stale_days is "stale", never "fine"
+    'vuln' => [
+        'kev_url' => env('ONHOST_VULN_KEV_URL', 'https://raw.githubusercontent.com/cisagov/kev-data/develop/known_exploited_vulnerabilities.json'),
+        'epss_url' => env('ONHOST_VULN_EPSS_URL', 'https://api.first.org/data/v1/epss'),
+        'timeout_seconds' => (int) env('ONHOST_VULN_TIMEOUT', 30),
+        'stale_days' => 3,
+        'epss_high' => 0.5,
+    ],
     'egress' => [ // destinations a CUSTOMER names (uptime checks, webhooks, import URLs): public addresses only (EgressGuard)
         'node_service_ports' => [22, 25, 80, 443, 2022, 3306, 5432, 6379, 8006, 8080, 8081, 8443, 8888, 9000, 11211, 27017], // loopback ports of a node a customer's reverse proxy may not point at (panels, databases, caches)
         'deny_cidrs' => array_values(array_filter(array_map('trim', explode(',', (string) env('ONHOST_EGRESS_DENY_CIDRS', ''))))),   // the operator's own public management ranges
@@ -52,6 +60,11 @@ return [
         'staging_suffix' => env('ONHOST_STAGING_SUFFIX', 'web.onhost.cz'),
         // how long a site may hold a host name that nothing proves is its customer's before the operators hear (SiteClaim)
         'claim_grace_days' => (int) env('ONHOST_SITE_CLAIM_GRACE_DAYS', 30),
+    ],
+    // W2-4 verified restore add-on: how many scheduled runs may hold a copy on the nodes at once, and how long the copy's home page may take
+    'verified_restore' => [
+        'max_parallel' => (int) env('ONHOST_VERIFIED_RESTORE_MAX_PARALLEL', 2),
+        'probe_timeout_seconds' => (int) env('ONHOST_VERIFIED_RESTORE_PROBE_TIMEOUT', 20),
     ],
     'platform_backup' => [ // backups of the control plane itself: database dump + private file store (go-live checklist §1)
         'disk' => env('ONHOST_PLATFORM_BACKUP_DISK', 'local'),      // a filesystems.disks entry; S3-compatible and off the server in production

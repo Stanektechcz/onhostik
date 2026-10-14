@@ -85,6 +85,7 @@ final class StaffReadAudit
         'v1/staff/security/incidents/{case}' => ['cyber_incident', 'cyber_incident', null],
         'v1/staff/services' => ['services', null, null],
         'v1/staff/sla-credits' => ['sla_credits', null, null],
+        'v1/staff/vulnerabilities' => ['vulnerabilities', null, null],
         'v1/staff/tickets' => ['tickets', null, null],
         'v1/staff/tickets/clusters' => ['ticket_clusters', null, null], // clusters quote the customers' subjects
         'v1/staff/tickets/{ticket}' => ['ticket', 'ticket', Ticket::class], // the controller records it itself

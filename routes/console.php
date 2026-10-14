@@ -83,6 +83,7 @@ use Onhost\Domain\Services\CustomIso\IsoScanner;
 use Onhost\Domain\Services\DelegatedAccessReview;
 use Onhost\Domain\Services\DeletionPolicy;
 use Onhost\Domain\Services\FinalArchive;
+use Onhost\Domain\Services\Mail\MailAuthWatch;
 use Onhost\Domain\Services\Mail\Reputation\ReputationMonitor;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
@@ -93,6 +94,8 @@ use Onhost\Domain\Services\ServiceIdentityCheck;
 use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\Services\SshKeyLedger;
 use Onhost\Domain\Services\UsageWatch;
+use Onhost\Domain\Services\Vulnerability\VulnerabilityFeedSync;
+use Onhost\Domain\Services\Vulnerability\VulnerabilityMatcher;
 use Onhost\Domain\Services\Web\BackupScheduler;
 use Onhost\Domain\Services\Web\CdnService;
 use Onhost\Domain\Services\Web\CertificateAutoIssuer;
@@ -551,6 +554,7 @@ Schedule::command('onhost:orders:settle')->everyTenMinutes()->withoutOverlapping
 Schedule::command('onhost:services:release-stranded --apply --minutes=30')->everyTenMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:services:rescue-expire')->everyTenMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:isos:sweep')->hourly()->withoutOverlapping()->onOneServer(); // TASK-0110 review H2: dead custom ISO uploads
+Schedule::command('onhost:services:oversight')->hourlyAt(25)->withoutOverlapping()->onOneServer(); // W2-5: the Dohled add-on's hourly look at the services that carry it
 Schedule::command('onhost:services:restore-test')->dailyAt('04:20')->withoutOverlapping()->onOneServer(); // the cadence is per service; this only asks who is owed one
 Schedule::command('onhost:billing:meter')->hourlyAt(2)->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:billing:rate')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
@@ -585,6 +589,7 @@ Schedule::command('onhost:nodes:check')->dailyAt('05:20')->withoutOverlapping()-
 Schedule::command('onhost:nodes:usage')->everyFifteenMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:sites:integrity')->dailyAt('04:40')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:dns:check')->dailyAt('05:10')->withoutOverlapping()->onOneServer();
+Schedule::command('onhost:vulns:sync')->dailyAt('04:20')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:mail:blocklist')->hourlyAt(25)->withoutOverlapping()->onOneServer(); // SP1a: every sending address and customer mail domain, each pair at most hourly
 Schedule::command('onhost:digest:staff-daily')->dailyAt('07:15')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:ledger:verify')->dailyAt('05:00')->onOneServer();
@@ -597,8 +602,8 @@ Artisan::command('onhost:sla:evaluate', function (SlaService $sla) {
 })->purpose('Probe quorum, SLO windows, burn-rate alerts and auto-settlement of probe incidents');
 
 Artisan::command('onhost:maintenance:tick', function (MaintenanceService $maintenance) {
-    $this->table(['started', 'completed', 'unapproved'], [$maintenance->tick()]);
-})->purpose('Start/complete maintenance windows and flag unapproved ones');
+    $this->table(['started', 'completed', 'unapproved', 'reminded'], [$maintenance->tick()]);
+})->purpose('Start/complete maintenance windows, flag unapproved ones and send the reminder a day before a window (W2-6)');
 
 Artisan::command('onhost:compliance:timers', function (ComplianceService $compliance) {
     $this->table(['warned', 'missed'], [$compliance->tickTimers()]);
@@ -743,7 +748,7 @@ Artisan::command('onhost:dns:check {--limit=200}', function (PublicDnsCheck $che
     $ledger->record('dns.check', $result);
     $this->table(['checked', 'problems', 'repaired', 'told', 'errors'], [$result]);
     // the same nightly look at the public side of every site: its security headers and whether the CDN's origin address leaks; each records its own run
-    foreach (['sites.headers' => SecurityHeadersWatch::class, 'sites.origin' => OriginExposureWatch::class] as $key => $class) {
+    foreach (['sites.headers' => SecurityHeadersWatch::class, 'sites.origin' => OriginExposureWatch::class, 'mail.auth' => MailAuthWatch::class] as $key => $class) {
         if ($ledger->off($key)) {
             continue;
         }
@@ -766,6 +771,30 @@ Artisan::command('onhost:mail:blocklist', function (ReputationMonitor $monitor, 
     $ledger->record('mail.blocklist', $result);
     $this->table(array_keys($result), [$result]);
 })->purpose('Ask the curated blocklists (own resolver, DQS key) about every sending address and customer mail domain; open and clear listings (SP1a)');
+
+Artisan::command('onhost:vulns:sync', function (VulnerabilityFeedSync $feeds, VulnerabilityMatcher $matcher, AutomationLedger $ledger) {
+    if ($ledger->off('vulns.feed')) {
+        $this->warn('switched off by staff (console → automation)');
+
+        return;
+    }
+    // 1. our copy of CISA KEV + FIRST EPSS (a failed fetch keeps the last good copy and is recorded as the collector's error)
+    $result = $feeds->run();
+    $ledger->record('vulns.feed', $result, $result['kev'] === 'error' ? ($result['error'] ?? 'KEV fetch failed') : null);
+    $this->table(['kev', 'epss', 'entries', 'scored', 'error'], [[$result['kev'], $result['epss'], $result['entries'], $result['scored'], $result['error'] ?? '']]);
+    // 2. the copy next to what the WordPress toolkit knows about each site: advice only
+    if ($ledger->off('vulns.match')) {
+        return;
+    }
+    try {
+        $match = $matcher->run();
+        $ledger->record('vulns.match', $match, $match['no_feed'] ? 'no copy of the vulnerability feeds yet' : null);
+        $this->table(['checked', 'matched', 'kev', 'no_inventory', 'errors'], [[$match['checked'], $match['matched'], $match['kev'], $match['no_inventory'], $match['errors']]]);
+    } catch (Throwable $e) {
+        $ledger->record('vulns.match', [], mb_substr($e->getMessage(), 0, 200));
+        $this->warn('vulns.match failed: '.$e->getMessage());
+    }
+})->purpose('Copy the public vulnerability feeds (CISA known exploited, FIRST EPSS) and compare them with the WordPress components ONhost knows each site runs: "possibly affected — verify the version", never an update');
 
 Artisan::command('onhost:nodes:check', function (NodePrerequisites $prerequisites, AutomationLedger $ledger) {
     if ($ledger->off('nodes.check')) {
@@ -1016,12 +1045,19 @@ Artisan::command('onhost:nodes:qualify {--accept= : the id or name of the node t
     return 0;
 })->purpose('List the nodes waiting to be qualified, and put a node that passes into the offer');
 
+// W2-5 "Dohled": every service that carries the add-on gets the health check the customer sees; a finding that turned bad is told once and
+// raised to the on-call as one alert per service and finding (repeats are counted on it, nobody is paged twice).
+Artisan::command('onhost:services:oversight {--limit=200 : how many services to look at}', function (Oversight $oversight) {
+    $stats = $oversight->sweep(max(1, (int) $this->option('limit')));
+    $this->info(sprintf('services looked at: %d · findings newly bad: %d · still bad: %d · recovered: %d', $stats['checked'], $stats['opened'], $stats['repeated'], $stats['recovered']));
+})->purpose('Look at the services with the oversight add-on and raise findings that turned bad (W2-5)');
+
 // The plan sells "test obnovy měsíčně" and nothing ever tested one (H458). Each due service gets a restore into
 // databases of its own, compared by a round trip; the test databases are removed whatever happens.
 Artisan::command('onhost:services:restore-test {--limit=20 : how many services to look at}', function (RestoreTest $tests) {
     $stats = $tests->tick(max(1, (int) $this->option('limit')));
-    $this->info(sprintf('services looked at: %d · tests started: %d · not owed: %d · errors: %d', $stats['checked'], $stats['started'], $stats['skipped'], $stats['errors']));
-})->purpose('Restore the newest backup of every service whose plan promises a restore test, into databases of its own');
+    $this->info(sprintf('services looked at: %d · tests started: %d (verified restores: %d) · not owed: %d · errors: %d', $stats['checked'], $stats['started'], $stats['verified'], $stats['skipped'], $stats['errors']));
+})->purpose('Restore the newest backup of every service whose plan promises a restore test, into databases of its own (verified restore add-on: into an isolated copy, W2-4)');
 
 /*
  * Jobs scheduled before the body was confined are still the node's root scripts (H438). They are recognised by their
