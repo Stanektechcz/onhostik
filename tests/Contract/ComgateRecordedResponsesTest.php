@@ -47,7 +47,7 @@ beforeEach(function () {
     $_ENV['COMGATE_MERCHANT'] = '123456';
     $_ENV['COMGATE_SECRET'] = 'recorded-callback-secret';
     config()->set('onhost.payments.comgate.merchant', '123456');
-    config()->set('onhost.payments.comgate.callback_allowlist', []);
+    config()->set('onhost.payments.comgate.callback_allowlist', ['127.0.0.1']); // W1: Request::create() comes from 127.0.0.1; an empty list refuses every notification
     config()->set('onhost.payments.return_hosts', ['portal.test']); // H3: the recorded calls send the payer back to this host
 });
 
