@@ -945,20 +945,43 @@ obnovený na tento cíl (skripty beze změny, migrace 86 → **88**: `001200` a 
 **Zbývá:** T-ano (U1), D (DR-1), HS-2, balíky se vstupem P4–P8, M5 (`php_workers`), `backup_days` (pravidla vlastníka vypnutá),
 ověření přenosu VM na Proxmoxu (PX-1); per-tarifní politika rspamd jen na volbu vlastníka (balík se stagingem).
 
-## Stav po fázi V (2026-10-14) — ROZPRACOVÁNO
+## Stav po fázi V (2026-10-14)
 
-**Kostra, ne závěr.** Fáze V (`PLAN-faze-V-az-Z-2026-10-14.md`) běží; tento oddíl dopíše balíček V9 na konci fáze. Řádky označené
-„rozpracováno“ nemají ověřený výsledek a nesmí se číst jako hotové. Odkazy na rozhodnutí: `ROZHODNUTI.md`, oddíl *Fáze V* (zatím
-nezaložen; zámek drží TASK-0223).
+Fáze V (`PLAN-faze-V-az-Z-2026-10-14.md`, `PROMPT-faze-V-2026-10-14.md`). Cyklus na stagingu proběhl na **`82bc988f`** (merge #218), ne na
+dříve zmrazeném `259cbea6`. Sloučil koordinátor s pověřením vlastníka po zelené celé matici CI. Odkazy na rozhodnutí: `ROZHODNUTI.md`,
+oddíl *Fáze V*. **V produkci se nic nespustilo.**
 
-| Balíček | Úkol | Stav | Co se změnilo |
+**Staging (ověřeno):** A–C na `82bc988f` **prošly** 2026-10-14 (12:22–12:32 UTC), V2 (čtení veřejného webu) také; C4b prošlo ve 13:10 UTC
+(kredit registrátora ok 13:00:09, řádek rozpočtu úloh `automation|every scheduled job ran within its budget` OK 92/92). Protokol:
+`docs/runbooks/staging-rehearsal-2026-10-18.md` (*Pokus 2*). **Krok D (DR-1) a HS-2 neproběhly** (kroky vlastníka).
+
+| PR | Úkol | Merge | Co se změnilo |
 |---|---|---|---|
-| V0 | – | hotovo | CI na `development` po PR #218 zelené na `82bc988f`; zámky TASK-0218 … TASK-0221 volné. |
-| V1 | – | rozpracováno | Doplní V9. |
-| V2 | – | rozpracováno | Doplní V9. |
-| V-DHS2 | – | rozpracováno | Doplní V9. |
-| V-STALE | TASK-0224 | hotovo (PR draft) | Uzavřeny P2-14, P3-2, P3-3, P3-4 a P3-7 v tabulce fáze F, vždy s důkazem `soubor:řádek`; v kódu žádný rozpor nenalezen. |
-| SP1a | TASK-0223 | rozpracováno (jiná relace) | Doplní V9 podle výsledku úkolu. |
+| #218 | TASK-0222 (V1b) | `82bc988f` | `onhost:registrar:credit` přeskočí registrátora bez tajemství; příčina nového non-OK řádku z kroku B. |
+| #219 | TASK-0224 (V-STALE) | `d7349f93` | Uzavřeny P2-14, P3-2, P3-3, P3-4 a P3-7 v tabulce fáze F, vždy s důkazem `soubor:řádek`. |
+| #222 | TASK-0227 (W4) | `b22975ae` | Bankovní výpis najde proměnný symbol ve variantách zápisu (VS). |
+| #221 | TASK-0223 (SP1a) | `f2f6a5dc` | Monitor reputace pošty: katalog blocklistů (bez SORBS), vlastní resolver, volitelný klíč Spamhaus DQS, adresy a domény, historie zařazení, řádky doctoru, metriky. |
+| #220 | TASK-0225 (V1-prep) | `fc8dd74b` | Protokol `staging-rehearsal-2026-10-18.md` (pokus 1 na `259cbea6`, pokus 2 na `82bc988f`). |
+| #223 | TASK-0226 (W1) | `bc755ef9` | Oznámení Comgate jen z povolených IP (`COMGATE_CALLBACK_IPS`), **fail-closed**: prázdný seznam odmítne všechna oznámení. |
+| #226 | TASK-0228 (W6) | `178a32e1` | `onhost:payments:sweep` se znovu zeptá poskytovatele na kartové platby ve stavu pending (rotující výběr, zámek zápisů, nesoulad zapsán jednou). |
+| #225 | TASK-0229 (W3) | `e75f9e05` | Prodejní přepínače: `ONHOST_SELL_DEFAULT` výchozí **false**, přepínače po rodinách `ONHOST_SELL_*`; staging si klíč drží zapnutý. |
+| — | TASK-0230 (V9) | — | Tento oddíl, `ROZHODNUTI.md`, `CURRENT_STATE.md`. |
 
-**Zbývá (do V9):** výsledky V1, V2, V-DHS2 a SP1a, odkazy na PR, nový zmrazený cíl, záznam rozhodnutí do `ROZHODNUTI.md` a `SEZNAM`,
-prompt fáze W.
+**Zmrazený cíl a co je zkoušené:** zkoušený na stagingu je **jen `82bc988f`**. Vše sloučené po něm (#222, #221, #220 jen dokumenty, #223, #226,
+#225) na stagingu **nebylo zkoušeno**; produkční dokument `PRODUKCE-prikazy-2026-10-14.md` proto míří na `82bc988f`, a pokud se má nasadit
+novější kód, zmrazí se nový cíl a generálka se zopakuje (B1).
+
+**Důsledky pro vlastníka:**
+
+* (a) `staging.sh` připíná v expected-env `ONHOST_SELL_DEFAULT=true` (nový SHA-256
+  `5ac47f9b7d46dcd094c7096f90e9fe108a2d82327e8346ba9b6d862ee7c1ef34`). Příští nasazení stagingu selže na bráně, dokud `app.env` stagingu
+  klíč nemá. Produkce potřebuje buď `ONHOST_SELL_DEFAULT`, nebo klíče `ONHOST_SELL_*` po rodinách; bez nich se nic neprodává.
+* (b) `COMGATE_CALLBACK_IPS` je prázdný, takže se odmítne **každé** oznámení Comgate, dokud vlastník nedodá CG-6. Platby se pak dokončí návratem
+  plátce nebo úlohou W6.
+* (c) SP1a potřebuje na stagingu vlastní resolver nebo klíč Spamhaus DQS, jinak další cyklus ukáže nový řádek WARN.
+* (d) Revize katalogu 2026-09 nejsou na stagingu aplikované (čtyři oči).
+
+**Zbývá z balíku W:** W2 (řádky doctoru včetně prodejní matice a allow-listu Comgate), W5 (runbook čtyř očí a komentář
+`IdentityCommandAuthorizer.php:116`), W7 (dokumenty kroků vlastníka, runbook oznámení Comgate), W8 (robustnost a integrace testů) a návazný
+úkol „naplánovat vyrovnání `PaymentService::reconcile`“ (nahrazeno zatím sweepem W6, viz rozhodnutí). Dál: D (DR-1), HS-2, P4–P8, M5,
+`backup_days`, PX-1 a SP-1 (vlastní politika Enterprise) podle vstupů; sloučené kroky vlastníka viz `SEZNAM`, oddíl 22.
