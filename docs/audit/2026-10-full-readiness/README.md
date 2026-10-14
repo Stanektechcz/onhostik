@@ -455,11 +455,11 @@ Opravy proti starším tabulkám:
 |---|---|---|---|
 | P3-1 Přístupnost: `lang`, `:focus-visible` | hotovo | #64 | `window.prompt` je samostatně v P3-2. |
 | P3-2 `window.prompt` | hotovo | #114, #118 | Uzavřeno 2026-10-14 (V-STALE), důkaz: jediné volání `window.prompt` je záložní větev `OnhostDialog.form` bez DOM (`onhost-session-bridge.js:49`); hlídá to `H2UiTruthTest.php:34-46`, sdílený dialog mají všechny staff Blade stránky (`H2UiTruthTest.php:48`, `dialog-bridge.blade.php`). |
-| P3-3 České plurály | hotovo | #114 (základ TASK-0070 #64) | Uzavřeno 2026-10-14 (V-STALE), důkaz: sdílený pomocník `OnhostI18n.plural` s formami 1 / 2–4 / 5+ (`onhost-session-bridge.js:19-31`), použitý v `onhost-cart.api.js:33` a `onhost-panel-account.api.js:44-47`; PHP strana `CatalogPresentation.php:170`; test `SurfaceLocaleA11yTest.php:60-62` spouští `tests/js/czech-plural.harness.mjs`. |
+| P3-3 České plurály | hotovo | #114 (základ TASK-0070 #64) | Uzavřeno 2026-10-14 (V-STALE), důkaz: sdílený pomocník `OnhostI18n.plural` s formami 1 / 2–4 / 5+ (`onhost-session-bridge.js:22-31`), použitý v `onhost-cart.api.js:33` a `onhost-panel-account.api.js:44-47`; PHP strana `CatalogPresentation.php:170` (nulu odfiltruje už `:165`); test `SurfaceLocaleA11yTest.php:60-62` spouští `tests/js/czech-plural.harness.mjs`. |
 | P3-4 Mrtvý modul `OnhostDomains` | hotovo | #117 | Uzavřeno 2026-10-14 (V-STALE), důkaz: prototyp `onhost-domains.js` je v `apps/surfaces/_archive/` (`_archive/README.md:9`), nic ho nenačítá (`ArchivedPrototypeTest.php:12-20`); produkt používá `api/onhost-domains.api.js`. V `SurfaceRenderer.php:623` zůstává jen záměrná výměna značky `<script>`. |
 | P3-5 DNS scopy | hotovo | #72 | – |
 | P3-6 Politika verzí API | hotovo | #69 | – |
-| P3-7 Executable bit `staging.sh` | hotovo | – | Uzavřeno 2026-10-14 (V-STALE), důkaz: `git ls-files -s infra/aapanel/staging.sh` = `100755`, soubor vznikl rovnou s tímto režimem (`7a5ca68c`) a žádná změna ho nesnížila. Na Windows pracovní kopii bit není vidět. |
+| P3-7 Executable bit `staging.sh` | hotovo | – | Uzavřeno 2026-10-14 (V-STALE), důkaz: `git ls-files -s infra/aapanel/staging.sh` = `100755`, soubor přidal commit `0a02770d` (2026-09-28, TASK-0050) rovnou s tímto režimem (`7a5ca68c` je blob, ne commit) a žádná změna ho nesnížila. Na Windows pracovní kopii bit není vidět. |
 
 ### Sloučená práce fáze F
 
