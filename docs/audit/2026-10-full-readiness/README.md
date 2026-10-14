@@ -441,7 +441,7 @@ Opravy proti starším tabulkám:
 | P2-11 Paginace bez tiebreakeru | hotovo | #69 | – |
 | P2-12 Partnerská provize bez ochranné lhůty | hotovo | #89 | Rozhodnutí financí R7 o dvojím naúčtování. |
 | P2-13 Úklid aaPanelu při ukončení | hotovo v kódu | #90 | Ověření na serveru zbývá (operátor). |
-| P2-14 Outbox dead letters bez alertu | otevřeno | – | Chybí vyhrazený alert. |
+| P2-14 Outbox dead letters bez alertu | hotovo | #108 | Uzavřeno 2026-10-14 (V-STALE), důkaz: pravidla `OnhostOutboxDeadLetters` a `OnhostOutboxDeadLettersOld` v `infra/monitoring/slo-alerts.yml:43,48`, metriky v `HealthController.php:90-91`, řádek doctoru `OutboxDeadLetters.php:45` (`GoLiveChecks.php:59`), test `OutboxDeadLetterAlertTest.php:65`. |
 | P2-15 StaffReadAudit | otevřeno | – | Je jen ve 4 controllerech. |
 | P2-16 Verifikační mail obchází MailOutbox | otevřeno (záměr) | – | Obchází záměrně. |
 | P2-17 Staging: openapi jen porovnávat | hotovo | #67 | – |
@@ -454,12 +454,12 @@ Opravy proti starším tabulkám:
 | Nález | Stav | PR | Vlastník / poznámka |
 |---|---|---|---|
 | P3-1 Přístupnost: `lang`, `:focus-visible` | hotovo | #64 | `window.prompt` je samostatně v P3-2. |
-| P3-2 `window.prompt` | otevřeno | – | Asi 98 výskytů. |
-| P3-3 České plurály | otevřeno | – | Neověřeno. |
-| P3-4 Mrtvý modul `OnhostDomains` | otevřeno | – | – |
+| P3-2 `window.prompt` | hotovo | #114, #118 | Uzavřeno 2026-10-14 (V-STALE), důkaz: jediné volání `window.prompt` je záložní větev `OnhostDialog.form` bez DOM (`onhost-session-bridge.js:49`); hlídá to `H2UiTruthTest.php:34-46`, sdílený dialog mají všechny staff Blade stránky (`H2UiTruthTest.php:48`, `dialog-bridge.blade.php`). |
+| P3-3 České plurály | hotovo | #114 (základ TASK-0070 #64) | Uzavřeno 2026-10-14 (V-STALE), důkaz: sdílený pomocník `OnhostI18n.plural` s formami 1 / 2–4 / 5+ (`onhost-session-bridge.js:22-31`), použitý v `onhost-cart.api.js:33` a `onhost-panel-account.api.js:44-47`; PHP strana `CatalogPresentation.php:170` (nulu odfiltruje už `:165`); test `SurfaceLocaleA11yTest.php:60-62` spouští `tests/js/czech-plural.harness.mjs`. |
+| P3-4 Mrtvý modul `OnhostDomains` | hotovo | #117 | Uzavřeno 2026-10-14 (V-STALE), důkaz: prototyp `onhost-domains.js` je v `apps/surfaces/_archive/` (`_archive/README.md:9`), nic ho nenačítá (`ArchivedPrototypeTest.php:12-20`); produkt používá `api/onhost-domains.api.js`. V `SurfaceRenderer.php:623` zůstává jen záměrná výměna značky `<script>`. |
 | P3-5 DNS scopy | hotovo | #72 | – |
 | P3-6 Politika verzí API | hotovo | #69 | – |
-| P3-7 Executable bit `staging.sh` | otevřeno | – | – |
+| P3-7 Executable bit `staging.sh` | hotovo | – | Uzavřeno 2026-10-14 (V-STALE), důkaz: `git ls-files -s infra/aapanel/staging.sh` = `100755`, soubor přidal commit `0a02770d` (2026-09-28, TASK-0050) rovnou s tímto režimem (`7a5ca68c` je blob, ne commit) a žádná změna ho nesnížila. Na Windows pracovní kopii bit není vidět. |
 
 ### Sloučená práce fáze F
 
@@ -944,3 +944,21 @@ obnovený na tento cíl (skripty beze změny, migrace 86 → **88**: `001200` a 
 
 **Zbývá:** T-ano (U1), D (DR-1), HS-2, balíky se vstupem P4–P8, M5 (`php_workers`), `backup_days` (pravidla vlastníka vypnutá),
 ověření přenosu VM na Proxmoxu (PX-1); per-tarifní politika rspamd jen na volbu vlastníka (balík se stagingem).
+
+## Stav po fázi V (2026-10-14) — ROZPRACOVÁNO
+
+**Kostra, ne závěr.** Fáze V (`PLAN-faze-V-az-Z-2026-10-14.md`) běží; tento oddíl dopíše balíček V9 na konci fáze. Řádky označené
+„rozpracováno“ nemají ověřený výsledek a nesmí se číst jako hotové. Odkazy na rozhodnutí: `ROZHODNUTI.md`, oddíl *Fáze V* (zatím
+nezaložen; zámek drží TASK-0223).
+
+| Balíček | Úkol | Stav | Co se změnilo |
+|---|---|---|---|
+| V0 | – | hotovo | CI na `development` po PR #218 zelené na `82bc988f`; zámky TASK-0218 … TASK-0221 volné. |
+| V1 | – | rozpracováno | Doplní V9. |
+| V2 | – | rozpracováno | Doplní V9. |
+| V-DHS2 | – | rozpracováno | Doplní V9. |
+| V-STALE | TASK-0224 | hotovo (PR draft) | Uzavřeny P2-14, P3-2, P3-3, P3-4 a P3-7 v tabulce fáze F, vždy s důkazem `soubor:řádek`; v kódu žádný rozpor nenalezen. |
+| SP1a | TASK-0223 | rozpracováno (jiná relace) | Doplní V9 podle výsledku úkolu. |
+
+**Zbývá (do V9):** výsledky V1, V2, V-DHS2 a SP1a, odkazy na PR, nový zmrazený cíl, záznam rozhodnutí do `ROZHODNUTI.md` a `SEZNAM`,
+prompt fáze W.

@@ -37,7 +37,7 @@
     "onhost:loyalty:campaigns": 173400,
     "onhost:loyalty:expire": 173400,
     "onhost:loyalty:missions": 173400,
-    "onhost:mail:blocklist": 173400,
+    "onhost:mail:blocklist": 7800,
     "onhost:mail:health": 1200,
     "onhost:mail:send": 720,
     "onhost:maintenance:tick": 1200,

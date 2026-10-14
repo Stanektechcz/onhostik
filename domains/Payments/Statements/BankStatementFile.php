@@ -27,7 +27,8 @@ use Onhost\Platform\Errors\DomainError;
  *
  * Unverified until the owner's sample (J-R7 input 5): where Česká spořitelna puts the variable symbol in camt.053. Read, in this
  * order: the structured creditor reference (`Strd/CdtrRefInf/Ref`), the ČBA convention `/VS/<digits>` in `EndToEndId`, then
- * `VS <digits>` in the unstructured remittance text. A line without one is recorded as `no_symbol` for manual assignment.
+ * a marked VS in the remittance text and the additional transaction / entry information (see camtSymbol()); in GPC the fixed field,
+ * then a marked VS in the 078/079 message. A line without one is recorded as `no_symbol` for manual assignment.
  */
 final class BankStatementFile
 {
@@ -118,12 +119,12 @@ final class BankStatementFile
                     $ref = $txRef ?? ($entryRef !== null ? $entryRef.(count($details) > 1 ? ':'.$i : '') : null);
                     $line = [
                         'amount' => $amount, 'currency' => $currency, 'booked_at' => $date,
-                        'variable_symbol' => $tx === null ? null : self::camtSymbol($xp, $tx),
+                        'variable_symbol' => self::camtSymbol($xp, $tx, $entry, count($details) <= 1),
                         'counterparty' => $tx === null ? null : self::camtCounterparty($xp, $tx),
                         'message' => $tx === null ? null : self::camtMessage($xp, $tx),
                         'account' => $own,
                     ];
-                    $line['external_id'] = $ref !== null && $ref !== '' ? 'cs:camt:'.$own.':'.$ref : 'cs:camt:h:'.self::digest($line, $lines);
+                    $line['external_id'] = $ref !== null && $ref !== '' ? 'cs:camt:'.$own.':'.$ref : 'cs:camt:h:'.self::digest($line, $lines, true);
                     $lines[] = $line;
                     self::guardCount(count($lines) + $skipped);
                 }
@@ -188,6 +189,12 @@ final class BankStatementFile
             $lines[] = $line;
             $last = array_key_last($lines);
         }
+        foreach ($lines as $i => $line) { // the fixed field was empty or zero: a symbol the sender marked in the 078/079 message
+            if ($line['variable_symbol'] === null && ($line['message'] ?? '') !== '') {
+                $found = self::markedSymbols((string) $line['message']);
+                $lines[$i]['variable_symbol'] = count($found) === 1 ? $found[0] : null;
+            }
+        }
         if ($account === null && $lines === [] && $skipped === 0) {
             throw new DomainError('bank_statement_gpc', 'The GPC file has no statement header (074) or transactions (075).', 422, ['field' => 'file']);
         }
@@ -195,22 +202,89 @@ final class BankStatementFile
         return ['format' => 'gpc', 'account' => $account, 'lines' => self::valid($lines), 'skipped' => $skipped];
     }
 
-    /** The variable symbol: structured reference, ČBA `/VS/…` in EndToEndId, then `VS …` in the free text. */
-    private static function camtSymbol(DOMXPath $xp, DOMNode $tx): ?string
+    /**
+     * The variable symbol, most trustworthy source first; the first source that names one wins and a free-text number never
+     * overrides a structured one:
+     *
+     *  1. every structured creditor reference (`Strd/CdtrRefInf/Ref`): bare digits, or a marked VS (an `RF…` ISO reference is no VS);
+     *  2. the ČBA convention in `EndToEndId` (`/VS/<digits>/SS/…`), a marked VS only. Bare digits there are NOT taken: the field is the
+     *     payer's own free reference (invoice number, order id), and a wrong guess would credit a stranger's account;
+     *  3. the unstructured remittance text (`Ustrd`, `Strd/AddtlRmtInf`);
+     *  4. `AddtlTxInf`, then — for an entry with at most one transaction (a batch's shared note proves nothing about one payment) —
+     *     `AddtlNtryInf`. An entry with no `TxDtls` at all is read from its own `AddtlNtryInf`.
+     *
+     * A source that names two different symbols is ambiguous and ends the search: the line goes to manual assignment.
+     */
+    private static function camtSymbol(DOMXPath $xp, ?DOMNode $tx, DOMNode $entry, bool $entryInfoUsable): ?string
     {
-        $candidates = [
-            [self::text($xp, 'L:RmtInf/L:Strd/L:CdtrRefInf/L:Ref', $tx), '/^(?:VS[:\s]*)?0*(\d{1,10})$/i'],
-            [self::text($xp, 'L:Refs/L:EndToEndId', $tx), '/\/VS\/0*(\d{1,10})(?:\/|$)/i'],
-            [self::text($xp, 'L:Refs/L:EndToEndId', $tx), '/^VS[:\s]*0*(\d{1,10})$/i'],
-            [implode(' ', array_map(fn (DOMNode $n) => $n->textContent, self::nodes($xp, 'L:RmtInf/L:Ustrd', $tx))), '/\bVS[:\s]*0*(\d{1,10})\b/i'],
-        ];
-        foreach ($candidates as [$value, $pattern]) {
-            if ($value !== null && preg_match($pattern, trim($value), $m) === 1) {
-                return $m[1];
+        $sources = [];
+        if ($tx !== null) {
+            $refs = array_map(fn (DOMNode $n) => trim($n->textContent), self::nodes($xp, 'L:RmtInf/L:Strd/L:CdtrRefInf/L:Ref', $tx));
+            $sources[] = ['ref', array_values(array_filter($refs, fn (string $r) => $r !== ''))];
+            $sources[] = ['marked', [self::text($xp, 'L:Refs/L:EndToEndId', $tx) ?? '']];
+            $sources[] = ['marked', [implode(' ', array_map(fn (DOMNode $n) => $n->textContent, [...self::nodes($xp, 'L:RmtInf/L:Ustrd', $tx), ...self::nodes($xp, 'L:RmtInf/L:Strd/L:AddtlRmtInf', $tx)]))]];
+            $sources[] = ['marked', [self::text($xp, 'L:AddtlTxInf', $tx) ?? '']];
+        }
+        if ($entryInfoUsable) {
+            $sources[] = ['marked', [self::text($xp, 'L:AddtlNtryInf', $entry) ?? '']];
+        }
+        foreach ($sources as [$kind, $values]) {
+            $found = [];
+            foreach ($values as $value) {
+                $symbol = $kind === 'ref' ? self::referenceSymbol($value) : null;
+                $found = [...$found, ...($symbol !== null ? [$symbol] : self::markedSymbols($value))];
+            }
+            $found = array_values(array_unique($found));
+            if (count($found) > 1) {
+                return null;
+            }
+            if (count($found) === 1) {
+                return $found[0];
             }
         }
 
         return null;
+    }
+
+    /** A structured creditor reference: bare digits (leading zeros dropped) or a marked VS; null for an RF reference or zeros. */
+    private static function referenceSymbol(string $ref): ?string
+    {
+        if (preg_match('/^(?:VS[:\s.\/=]*)?(\d{1,10})$/i', $ref, $m) === 1) {
+            return self::normalizeSymbol($m[1]);
+        }
+
+        return self::markedSymbols($ref)[0] ?? null;
+    }
+
+    /**
+     * Every number explicitly marked as a variable symbol in a text: `VS 1`, `VS:1`, `VS=1`, `VS.1`, `VS/1`, `/VS/1/SS/2`, `v.s. 1`,
+     * `var. symbol 1`, `variabilní symbol 1` (also without diacritics). At most 10 digits, not glued to letters or longer digit runs.
+     *
+     * @return list<string>
+     */
+    public static function markedSymbols(string $text): array
+    {
+        $marker = '(?:variabiln[ií]\s+symbol|var\.?\s*symbol|v\.\s?s\.|vs)';
+        if (preg_match_all('/(?<![\p{L}\p{N}])'.$marker.'\s*[:=.\/#-]?\s*(\d{1,10})(?![\p{L}\p{N}])/iu', $text, $all) < 1) {
+            return [];
+        }
+        $symbols = [];
+        foreach ($all[1] as $digits) {
+            $symbol = self::normalizeSymbol($digits);
+            if ($symbol !== null) {
+                $symbols[] = $symbol;
+            }
+        }
+
+        return array_values(array_unique($symbols));
+    }
+
+    /** Leading zeros dropped; a symbol of only zeros is "none". */
+    private static function normalizeSymbol(string $digits): ?string
+    {
+        $symbol = ltrim($digits, '0');
+
+        return $symbol !== '' ? $symbol : null;
     }
 
     private static function camtCounterparty(DOMXPath $xp, DOMNode $tx): ?string
@@ -262,10 +336,10 @@ final class BankStatementFile
      * @param  array<string,mixed>  $line
      * @param  list<array<string,mixed>>  $before
      */
-    private static function digest(array $line, array $before): string
+    private static function digest(array $line, array $before, bool $camt = false): string
     {
-        $key = self::digestKey($line);
-        $same = count(array_filter($before, fn (array $b) => self::digestKey($b) === $key));
+        $key = self::digestKey($line, $camt);
+        $same = count(array_filter($before, fn (array $b) => self::digestKey($b, $camt) === $key));
 
         return substr(hash('sha256', $key.'#'.$same), 0, 40);
     }
@@ -275,9 +349,12 @@ final class BankStatementFile
      *
      * @param  array<string,mixed>  $line
      */
-    private static function digestKey(array $line): string
+    private static function digestKey(array $line, bool $camt = false): string
     {
-        return implode('|', [$line['account'] ?? '', $line['booked_at'], $line['amount'], $line['currency'], $line['variable_symbol'] ?? '', $line['counterparty'] ?? '']);
+        // camt: the raw remittance text stands in for the extracted variable symbol, so a better extraction never changes the id
+        $symbolOrText = $camt ? ($line['message'] ?? '') : ($line['variable_symbol'] ?? '');
+
+        return implode('|', [$line['account'] ?? '', $line['booked_at'], $line['amount'], $line['currency'], $symbolOrText, $line['counterparty'] ?? '']);
     }
 
     private static function ddmmrr(string $value): ?string
