@@ -81,6 +81,8 @@ final class CheckoutController extends ApiController
         if (($data['payment']['mode'] ?? null) === 'gateway') {
             app(CardPayments::class)->assertAvailable(isset($data['payment']['provider']) ? (string) $data['payment']['provider'] : null);
         }
+        // W8: what the quote would refuse is refused before the account exists (an account without an order used to stay behind)
+        $quotes->assertNewCustomerCart(array_values($data['items']), $data['currency'] ?? OrganizationService::defaultCurrency(strtoupper((string) ($data['customer']['country'] ?? 'CZ'))), (int) ($data['commit_months'] ?? 1));
 
         $c = $data['customer'];
         $email = strtolower(trim((string) $c['email']));
