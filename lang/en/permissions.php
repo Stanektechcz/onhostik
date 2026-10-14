@@ -130,6 +130,9 @@ return [
     // ── staff: security, compliance, access ──
     'security.incident.manage' => ['can' => 'Staff: handle security incidents, quarantine and forensics.', 'warning' => 'Can stop a customer service.'],
     'security.event.read' => ['can' => 'Staff: read security events and anomalies.'],
+    'security.advisory.read' => ['can' => 'Staff: read security advisories, the cases where one hits our software and the fix plans.'],
+    'security.advisory.manage' => ['can' => 'Staff: triage security advisory cases and write a draft blog post about one.'],
+    'security.advisory.remediate' => ['can' => 'Staff: approve fixing a security advisory on customer websites and tell the customers.', 'warning' => 'Updates software on customer websites and sends them e-mails.'],
     'abuse.case.manage' => ['can' => 'Staff: handle abuse and DSA cases.', 'warning' => 'Can take customer content down.'],
     'compliance.case.manage' => ['can' => 'Staff: run regulatory cases (GDPR, NIS2, Data Act).', 'warning' => 'Legal deadlines run on these cases.'],
     'compliance.legal_hold.manage' => ['can' => 'Staff: apply or lift legal holds.', 'warning' => 'A lifted hold lets data be deleted; needs a second person.'],

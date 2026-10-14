@@ -53,6 +53,7 @@ use App\Http\Controllers\Api\V1\Staff\PricingController;
 use App\Http\Controllers\Api\V1\Staff\ProvisioningController;
 use App\Http\Controllers\Api\V1\Staff\RegistrarController;
 use App\Http\Controllers\Api\V1\Staff\ReportController;
+use App\Http\Controllers\Api\V1\Staff\SecurityAdvisoryController;
 use App\Http\Controllers\Api\V1\Staff\SupportController as StaffSupportController;
 use App\Http\Controllers\Api\V1\Staff\SupportSettingsController;
 use App\Http\Controllers\Api\V1\Staff\VatPayerModeController;
@@ -523,6 +524,15 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
         Route::get('bulk-jobs', [ProvisioningController::class, 'bulkJobs']);
         Route::post('bulk-jobs', [ProvisioningController::class, 'startBulkJob']);
         Route::get('bulk-jobs/{job}', [ProvisioningController::class, 'bulkJob']);
+        // SN: security news for technical support — advisories, cases where one hits us, the fix plan and the customer notices
+        Route::get('security/advisories', [SecurityAdvisoryController::class, 'advisories']);
+        Route::get('security/advisories/health', [SecurityAdvisoryController::class, 'health']);
+        Route::get('security/advisory-cases', [SecurityAdvisoryController::class, 'cases']);
+        Route::get('security/advisory-cases/{case}', [SecurityAdvisoryController::class, 'show']);
+        Route::post('security/advisory-cases/{case}/triage', [SecurityAdvisoryController::class, 'triage']);
+        Route::post('security/advisory-cases/{case}/approve', [SecurityAdvisoryController::class, 'approve']);
+        Route::post('security/advisory-cases/{case}/notify', [SecurityAdvisoryController::class, 'notify']);
+        Route::post('security/advisory-cases/{case}/blog-draft', [SecurityAdvisoryController::class, 'draftPost']);
         Route::get('placements', [ProvisioningController::class, 'placements']);
         Route::put('placements', [ProvisioningController::class, 'upsertPlacement']);
         Route::delete('placements/{placement}', [ProvisioningController::class, 'deletePlacement']);

@@ -9,6 +9,8 @@ use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Logout;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
+use Onhost\Domain\Advisories\Commands\AdvisoryCommand;
+use Onhost\Domain\Advisories\Commands\AdvisoryCommandHandler;
 use Onhost\Domain\Billing\Commands\ChargebackCommand;
 use Onhost\Domain\Billing\Commands\ChargebackCommandHandler;
 use Onhost\Domain\Billing\Commands\ChargebackStaffCommand;
@@ -180,6 +182,7 @@ final class DomainServiceProvider extends ServiceProvider
         CapacityCommand::class => CapacityCommandHandler::class,
         InvoiceCommand::class => InvoicingCommandHandler::class,
         IncidentCommand::class => IncidentsCommandHandler::class,
+        AdvisoryCommand::class => AdvisoryCommandHandler::class, // SN: security advisory cases
         WorkOfferStaffCommand::class => WorkOfferCommandHandler::class,
         WorkOfferDecisionCommand::class => WorkOfferCommandHandler::class,
         OnCallCommand::class => OnCallCommandHandler::class,

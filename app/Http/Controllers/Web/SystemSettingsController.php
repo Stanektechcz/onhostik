@@ -9,6 +9,7 @@ use App\Http\Navigation\StaffNavigation;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Onhost\Domain\Advisories\Commands\AdvisoryCommand;
 use Onhost\Domain\Identity\Authorization\StaffActor;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Provisioning\BulkActionService;
@@ -61,6 +62,12 @@ final class SystemSettingsController extends Controller
     public function approvals(Request $request): View|RedirectResponse
     {
         return $this->page($request, '/sprava/nastaveni/schvalovani', 'admin.approvals');
+    }
+
+    /** Bezpečnostní novinky (SN): advisories that hit software we run or host, the fix plan, the customer notices and the blog draft. */
+    public function security(Request $request): View|RedirectResponse
+    {
+        return $this->page($request, '/sprava/nastaveni/bezpecnost', 'admin.security-news', fn (User $user) => ['singleApproverMax' => AdvisoryCommand::singleApproverMax()]);
     }
 
     /** Staff operations board (audit §5e-3): stalled, failed and long-running operations, nodes with drain/resume. */

@@ -70,6 +70,8 @@ final class GenerateRoleMatrix extends Command
         ['Rozhodnout čtyři oči (schválit žádost)', 'POST /v1/staff/approvals/{approval}/decision', 'iam.approval.decide'],
         ['Resetovat MFA jiného uživatele', 'POST /v1/staff/users/{user}/mfa-reset', 'iam.mfa.reset'],
         ['Vést bezpečnostní incident', 'GET /v1/staff/security/incidents', 'security.incident.manage'],
+        ['Číst bezpečnostní novinky a jejich případy (SN)', 'GET /v1/staff/security/advisory-cases', 'security.advisory.read'],
+        ['Schválit opravu zranitelnosti na webech zákazníků (SN)', 'POST /v1/staff/security/advisory-cases/{case}/approve', 'security.advisory.remediate'],
         ['Zpracovat případ zneužití (DSA)', 'GET /v1/staff/abuse-cases', 'abuse.case.manage'],
         ['Nastavit heslo účtu herního panelu zákazníka (jen vlastník organizace)', 'POST /v1/services/{service}/actions (akce panel.password)', 'service.panel_account.manage'],
     ];

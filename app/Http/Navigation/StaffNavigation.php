@@ -272,6 +272,11 @@ final class StaffNavigation
             new N('data_requests', 'security', 30, 'database', ['cs' => 'Žádosti o data', 'en' => 'Data requests'], N::SCREEN_VIEW, 'gdpr', [
                 N::get('staff/data-requests', 'compliance.case.manage'),
             ], all: ['compliance.case.manage']),
+            // SN: security news — advisories that hit software we run or host, the fix plan and the customer notices
+            new N('security_news', 'security', 40, 'shield', ['cs' => 'Bezpečnostní novinky', 'en' => 'Security advisories'], N::SCREEN_PAGE, '/sprava/nastaveni/bezpecnost', [
+                N::get('staff/security/advisories', 'security.advisory.read'), N::get('staff/security/advisories/health', 'security.advisory.read'),
+                N::get('staff/security/advisory-cases', 'security.advisory.read'), N::get('staff/security/advisory-cases/{case}', 'security.advisory.read'),
+            ], any: ['security.advisory.read', 'security.advisory.manage', 'security.advisory.remediate']),
         ];
     }
 

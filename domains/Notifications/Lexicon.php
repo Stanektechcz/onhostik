@@ -277,6 +277,17 @@ final class Lexicon
         ' Částku za Penpot vracíme (na kredit, nebo odečtením z faktury); podrobnosti jsou ve zprávě o vrácení.' => ' The Penpot amount is returned (to your credit, or deducted from the invoice); the details are in the refund message.',
         ' Penpot je v ceně tarifu, nic se neúčtovalo.' => ' Penpot is included in your plan; nothing was charged.',
         ' Objednat ho můžete znovu v detailu služby, až bude server připravený. Objednávka č. ' => ' You can order it again in the service detail once the server is ready. Order no. ',
+        // SN: security advisories that hit a customer's website (AdvisoryCases → NotificationRouter::advisoryNotice)
+        'Bezpečnostní chyba na webu ' => 'Security flaw on the website ', 'Bezpečnostní oprava na webu ' => 'Security fix on the website ', ' je hotová' => ' is done',
+        ' · aktualizováno, web prošel kontrolou' => ' · updated, the website passed its check', 'software webu' => 'the website software', 'šablona ' => 'theme ',
+        'Opravu nasadíme sami' => 'We will apply the fix ourselves', ' (verze ' => ' (version ', ' nebo novější)' => ' or newer)',
+        '. Jde o větší aktualizaci, web se po ní může chovat jinak; po dokončení ho prosím zkontrolujte.' => '. It is a larger update and the website may behave differently afterwards; please check it once it is done.',
+        'Naši automatickou aktualizaci jsme zastavili, protože se na jednom z webů nepodařila. Aktualizujte prosím software sami' => 'We stopped our automatic update because it failed on one of the websites. Please update the software yourself',
+        ' a web zkontrolujte, nebo napište podpoře.' => ' and check the website, or contact support.',
+        'Automaticky to za vás opravit nemůžeme. Aktualizujte prosím software alespoň na verzi ' => 'We cannot fix this for you automatically. Please update the software to at least version ',
+        ' alespoň na verzi ' => ' to at least version ', ' (před tím web zazálohujte), nebo napište podpoře.' => ' (back up the website first), or contact support.',
+        'Opravená verze zatím nevyšla. Pokud software nepotřebujete, dočasně ho vypněte; jakmile oprava vyjde, aktualizujte ho.' => 'No fixed version has been released yet. If you do not need the software, switch it off for now; update it as soon as the fix is out.',
+        ' Chyba se už aktivně zneužívá, prosíme o rychlou reakci.' => ' The flaw is already being exploited, please act quickly.',
     ];
 
     public static function translate(?string $text, string $locale): ?string

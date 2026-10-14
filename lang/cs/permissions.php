@@ -130,6 +130,9 @@ return [
     // ── personál: bezpečnost, compliance, přístupy ──
     'security.incident.manage' => ['can' => 'Personál: řeší bezpečnostní incidenty, karanténu a forenzní šetření.', 'warning' => 'Může zákaznickou službu zastavit.'],
     'security.event.read' => ['can' => 'Personál: čte bezpečnostní události a anomálie.'],
+    'security.advisory.read' => ['can' => 'Personál: čte bezpečnostní novinky, případy, kdy se týkají našeho softwaru, a plány oprav.'],
+    'security.advisory.manage' => ['can' => 'Personál: třídí případy bezpečnostních novinek a píše k nim koncept článku na blog.'],
+    'security.advisory.remediate' => ['can' => 'Personál: schvaluje opravu zranitelnosti na webech zákazníků a upozorňuje zákazníky.', 'warning' => 'Aktualizuje software na webech zákazníků a posílá jim e-maily.'],
     'abuse.case.manage' => ['can' => 'Personál: řeší případy zneužití a DSA.', 'warning' => 'Může zákaznický obsah stáhnout.'],
     'compliance.case.manage' => ['can' => 'Personál: vede regulatorní případy (GDPR, NIS2, Data Act).', 'warning' => 'Na těchto případech běží zákonné lhůty.'],
     'compliance.legal_hold.manage' => ['can' => 'Personál: nařizuje a ruší právní blokace (legal hold).', 'warning' => 'Zrušená blokace dovolí data smazat; potřebuje druhou osobu.'],

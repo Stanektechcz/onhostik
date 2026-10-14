@@ -47,6 +47,20 @@ const PUC_B6_CHANGES = [
 ];
 
 /**
+ * SN (security news, 2026-10-14): staff roles that read and act on security advisories. Staff keys only; no customer preset and no
+ * service action changes.
+ *
+ * @var array<string, list<string>>
+ */
+const PUC_SN_ADDED = [
+    'platform_owner' => ['security.advisory.read', 'security.advisory.manage', 'security.advisory.remediate'],
+    'security_soc' => ['security.advisory.read', 'security.advisory.manage', 'security.advisory.remediate'],
+    'sre' => ['security.advisory.read', 'security.advisory.manage'],
+    'shared_hosting_admin' => ['security.advisory.read'],
+    'managed_hosting_admin' => ['security.advisory.read'],
+];
+
+/**
  * Service actions that came after the base, each with the permission it would have had there (the fixture stays frozen). Every one
  * must behave like that old permission for every preset, token scope, staff key and risk — the split keys standing in for
  * `service.manage` as for every other action.
@@ -66,6 +80,9 @@ function pucBefore(): array
     $before['actions'] = array_merge($before['actions'], PUC_ACTIONS_ADDED);
     foreach (PUC_B6_CHANGES as $role => $change) {
         $before['roles'][$role] = array_values(array_merge(array_diff($before['roles'][$role], $change['drop']), $change['add']));
+    }
+    foreach (PUC_SN_ADDED as $role => $keys) {
+        $before['roles'][$role] = array_values(array_merge($before['roles'][$role], $keys));
     }
 
     return $before;

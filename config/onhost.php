@@ -482,6 +482,27 @@ return [
         ],
     ],
 
+    // ── SN security advisories (docs/proposals/security-advisories.md): feeds 3× a day, inventory, cases, fixes in waves ─────
+    'advisories' => [
+        // kev (CISA, exploited now), nvd (CVE API 2.0), wordfence (WordPress; needs a key), osv (OSV.dev, the control plane's libraries)
+        'feeds' => array_values(array_filter(array_map('trim', explode(',', (string) env('ONHOST_ADVISORY_FEEDS', 'kev,nvd,wordfence,osv'))))),
+        'initial_days' => (int) env('ONHOST_ADVISORY_INITIAL_DAYS', 14), // how far back the first read of a feed goes
+        'kev_url' => 'https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json',
+        'nvd_url' => 'https://services.nvd.nist.gov/rest/json/cves/2.0',
+        'nvd_api_key' => (string) env('ONHOST_NVD_API_KEY', ''), // optional secret: 50 instead of 5 requests per 30 s; never logged
+        'nvd_max_pages' => (int) env('ONHOST_NVD_MAX_PAGES', 5),
+        // the CPE products NVD advisories are kept for (`vendor:product`, `vendor:*`): what the platform runs or hosts
+        'nvd_cpe' => array_values(array_filter(array_map('trim', explode(',', (string) (env('ONHOST_NVD_CPE') ?: 'wordpress:wordpress,php:php,proxmox:*,ispconfig:ispconfig,aapanel:*,pterodactyl:*,powerdns:*,kubernetes:kubernetes,nginx:nginx,f5:nginx,apache:http_server,openssl:openssl,exim:exim,postfix:postfix,dovecot:dovecot,roundcube:webmail,mariadb:mariadb,redis:redis,phpmyadmin:phpmyadmin'))))),
+        'wordfence_url' => 'https://www.wordfence.com/api/intelligence/v3/vulnerabilities/production',
+        'wordfence_api_key' => (string) env('ONHOST_WORDFENCE_API_KEY', ''), // secret: Wordfence Intelligence API key (free); without it WordPress plugins are not covered
+        'osv_url' => 'https://api.osv.dev/v1',
+        'osv_max_vulns' => (int) env('ONHOST_OSV_MAX_VULNS', 200),
+        'wordpress_per_run' => (int) env('ONHOST_ADVISORY_WORDPRESS_PER_RUN', 200), // sites whose WordPress is read per inventory run, longest unread first
+        'single_approver_max' => (int) env('ONHOST_ADVISORY_SINGLE_APPROVER_MAX', 25), // a fix on more sites than this takes a second person
+        'canary' => (int) env('ONHOST_ADVISORY_CANARY', 1), // sites of the first wave
+        'wave_percent' => (int) env('ONHOST_ADVISORY_WAVE_PERCENT', 10), // the second wave; the third takes the rest
+    ],
+
     'dns' => [
         'nameservers' => [
             'powerdns' => array_values(array_filter(array_map('trim', explode(',', (string) env('ONHOST_DNS_NAMESERVERS', 'ns1.onhost.cz,ns2.onhost.cz'))))),

@@ -203,6 +203,10 @@ final class PermissionCatalog
             // ── staff: security, compliance, IAM ─────────────────────────────
             'security.incident.manage' => $s('Manage security incidents, quarantine, forensics', self::HIGH),
             'security.event.read' => $s('Read security events and anomalies'),
+            // SN: security advisories (docs/proposals/security-advisories.md): read the feed and cases, triage, approve the fix and tell customers
+            'security.advisory.read' => $s('Read security advisories, the software inventory and advisory cases'),
+            'security.advisory.manage' => $s('Triage security advisory cases and write their blog drafts'),
+            'security.advisory.remediate' => $s('Approve fixes of a security advisory across customer sites and tell the customers', self::HIGH),
             'abuse.case.manage' => $s('Handle DSA/abuse cases', self::HIGH),
             'compliance.case.manage' => $s('Regulatory timers, GDPR/NIS2/Data Act cases', self::HIGH),
             'compliance.legal_hold.manage' => $s('Apply or lift legal holds', self::CRITICAL),
