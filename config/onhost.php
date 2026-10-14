@@ -254,6 +254,15 @@ return [
             'account_number' => env('ONHOST_BANK_ACCOUNT') ?: '6478243359/0800',
             'fio_token' => env('ONHOST_BANK_FIO_TOKEN', ''), // Fio API token (read-only) of the account customers pay to; enables onhost:bank:sync. I-R15: the account is at Česká spořitelna, not Fio — stays empty, transfers are paired in Nastavení → Bankovní platby
         ],
+        // W6 (TASK-0228): onhost:payments:sweep re-reads the status of card intents still open when both the gateway's notification
+        // and the payer's return were lost. Only gateways with a status API (never `bank`: transfers are paired by statement lines);
+        // an intent younger than the grace period is left to the webhook and the return, one older than the cut-off to finance.
+        'sweep' => [
+            'providers' => array_values(array_filter(array_map('trim', explode(',', (string) env('ONHOST_PAYMENTS_SWEEP_PROVIDERS', 'comgate,gopay,stripe'))))),
+            'grace_minutes' => (int) env('ONHOST_PAYMENTS_SWEEP_GRACE_MINUTES', 10),
+            'max_age_hours' => (int) env('ONHOST_PAYMENTS_SWEEP_MAX_AGE_HOURS', 72),
+            'batch' => (int) env('ONHOST_PAYMENTS_SWEEP_BATCH', 50), // intents re-read per run, oldest first
+        ],
     ],
 
     'einvoice' => [
