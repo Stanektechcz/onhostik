@@ -85,6 +85,9 @@ function sendingNode(array $tags): Node
 }
 
 it('opens a major listing for a sending address and tells the operators once a day', function () {
+    // "once a day" is the (UTC) calendar day; two runs two hours apart straddle midnight when the suite reaches this
+    // test after 22:00 UTC, and the second run then rightly tells again (CI red at midnight Prague, 2026-10-14)
+    $this->travelTo(Carbon::parse('2026-10-14 09:00:00', 'UTC'));
     reputationDns(['10.113.0.203.zen.spamhaus.org' => ['127.0.0.4']]); // 4 = XBL, a known source of spam
     $node = sendingNode(['public_ipv4' => '203.0.113.10']);
 
@@ -100,6 +103,23 @@ it('opens a major listing for a sending address and tells the operators once a d
         ->and(OutboxMessage::query()->where('name', 'mail.reputation.listed')->count())->toBe(1)
         ->and(OutboxMessage::query()->where('name', 'node.blocklisted')->count())->toBe(1)
         ->and(AuditEvent::query()->where('action', 'mail.reputation.listed')->exists())->toBeTrue();
+});
+
+it('tells the operators again on the next calendar day while the listing stays open, not sooner', function () {
+    reputationDns(['10.113.0.203.zen.spamhaus.org' => ['127.0.0.4']]);
+    $node = sendingNode(['public_ipv4' => '203.0.113.10']);
+    $told = fn (): int => OutboxMessage::query()->where('name', 'node.blocklisted')->count();
+
+    $this->travelTo(Carbon::parse('2026-10-14 00:05:00', 'UTC'));
+    app(ReputationMonitor::class)->run();
+    $this->travelTo(Carbon::parse('2026-10-14 23:59:00', 'UTC'));
+    app(ReputationMonitor::class)->run();
+    $sameDay = $told();
+    $this->travelTo(Carbon::parse('2026-10-15 00:25:00', 'UTC'));
+    app(ReputationMonitor::class)->run();
+
+    expect($sameDay)->toBe(1)->and($told())->toBe(2)
+        ->and(data_get($node->fresh()->tags, 'blocklist.told_on'))->toBe('2026-10-15');
 });
 
 it('says nothing while the address is clean', function () {
