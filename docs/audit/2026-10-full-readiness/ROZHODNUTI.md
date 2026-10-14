@@ -430,3 +430,9 @@ Fáze U nepřinesla nové rozhodnutí vlastníka; CD-3 a M4 platí podle doporu�
 |---|---|---|
 | T-ano | V1 krok A (záloha), krok B STOP (nový non-OK řádek); oprava příčiny | TASK-0222 (#218) |
 | V-R1 (SP-1) | SP1a: návrh, katalog blocklistů (bez SORBS), vlastní resolver, DQS, monitor adres a domén, historie zařazení, řádky doctoru, metriky | TASK-0223 |
+| T-ano (pokračování) | V1: A–C na **`82bc988f`** místo `259cbea6` (zmrazený cíl se posunul o #218); A–C, V2 a C4b prošly 2026-10-14, protokol `staging-rehearsal-2026-10-18.md` | TASK-0225 (#220) |
+| V-R2 (W1, výchozí) | Allow-list IP oznámení Comgate (`COMGATE_CALLBACK_IPS`) je **fail-closed**: prázdný seznam = odmítnout všechna oznámení; platby pak dokončí návrat plátce nebo sweep W6. Naléhavost CG-6 | TASK-0226 (#223) |
+| V-R3 (W3, výchozí) | Prodejní přepínače: `ONHOST_SELL_DEFAULT` výchozí **vypnuto**; domény mimo matici rodin; doplněk na existující službě se počítá jako **nový prodej**; staging připíná `ONHOST_SELL_DEFAULT=true` v expected-env (SHA-256 `5ac47f9b…ef34`) | TASK-0229 (#225) |
+| V-R4 (W6, výchozí) | Pending kartové platby doplňuje **sweep** `onhost:payments:sweep` (znovu se zeptá poskytovatele), **ne** naplánované vyrovnání `PaymentService::reconcile`; to zůstává jako návazný úkol | TASK-0228 (#226) |
+| V-R5 (W4) | Bankovní výpis najde proměnný symbol ve variantách zápisu; bez změny pravidel párování | TASK-0227 (#222) |
+| V-R6 | Rozhodnutí se **nezkoušelo na stagingu**: #221, #222, #223, #225, #226 jsou po zkoušeném `82bc988f`; produkce na nich nestojí, dokud neproběhne nová generálka (B1) | TASK-0230 (V9) |
