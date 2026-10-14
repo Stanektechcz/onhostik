@@ -7,10 +7,13 @@ use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Payments\Events\PaymentFailed;
 use Onhost\Domain\Payments\Models\PaymentIntent;
+use Onhost\Domain\Payments\Models\ReconciliationItem;
 use Onhost\Domain\Payments\PendingPaymentSweep;
 use Onhost\Platform\Errors\DomainError;
 
@@ -61,10 +64,11 @@ function w6SweepIntent(Organization $org, string $provider, string $providerId, 
 }
 
 /**
- * Comgate's status endpoint over Http::fake: `$answers` maps a transId to its status (`PAID`, `PENDING`, …) or to `error` (a
- * vendor error code). Every transId asked about is appended to `$asked`.
+ * Comgate's status endpoint over Http::fake: `$answers` maps a transId to its status (`PAID`, `PENDING`, …), to `STATUS:price`
+ * (another amount in minor units), to `error` (a vendor error code), or to a closure run while the gateway answers (a concurrent
+ * webhook) that returns one of those. Every transId asked about is appended to `$asked`.
  *
- * @param  array<string,string>  $answers
+ * @param  array<string,string|Closure():string>  $answers
  * @param  list<string>  $asked
  */
 function w6SweepComgateFake(array $answers, array &$asked): void
@@ -73,11 +77,13 @@ function w6SweepComgateFake(array $answers, array &$asked): void
         $transId = rawurldecode((string) substr((string) parse_url($request->url(), PHP_URL_PATH), strlen('/v2.0/payment/transId/')));
         $asked[] = $transId;
         $status = $answers[$transId] ?? 'PENDING';
+        $status = $status instanceof Closure ? $status() : $status;
         if ($status === 'error') {
             return Http::response(['code' => 1400, 'message' => 'Chyba databáze']);
         }
+        [$status, $price] = array_pad(explode(':', $status, 2), 2, '50000');
 
-        return Http::response(['code' => 0, 'message' => 'OK', 'transId' => $transId, 'status' => $status, 'price' => 50000, 'curr' => 'CZK', 'method' => 'CARD_CZ_CSOB_2']);
+        return Http::response(['code' => 0, 'message' => 'OK', 'transId' => $transId, 'status' => $status, 'price' => (int) $price, 'curr' => 'CZK', 'method' => 'CARD_CZ_CSOB_2']);
     }]);
 }
 
@@ -124,7 +130,7 @@ it('leaves intents inside the grace period, past the cut-off, of the bank and al
         ->and($mismatch->refresh()->state)->toBe('PROCESSING');
 });
 
-it('asks about every open state, closes what the provider cancelled and caps the batch oldest first', function () {
+it('asks about every open state, closes what the provider cancelled and caps the batch, longest unasked first', function () {
     [, $org] = $this->customerWithOrganization();
     config(['onhost.payments.sweep.batch' => 3]);
     $created = w6SweepIntent($org, 'comgate', 'W6S3-CREA-0001', 600, 'CREATED');
@@ -142,9 +148,76 @@ it('asks about every open state, closes what the provider cancelled and caps the
         ->and($created->refresh()->state)->toBe('CANCELED')
         ->and($processing->refresh()->state)->toBe('SUCCEEDED')
         ->and($newest->refresh()->state)->toBe('PENDING_CUSTOMER');
-    $this->artisan('onhost:payments:sweep', ['--limit' => 10])->assertExitCode(0);
-    expect($newest->refresh()->state)->toBe('SUCCEEDED');
+    // the next run: the intents asked about a moment ago wait behind the one never asked about
+    $asked = [];
+    $this->artisan('onhost:payments:sweep', ['--limit' => 1])->expectsOutputToContain('checked 1, settled 1')->assertExitCode(0);
+    expect($asked)->toBe(['W6S3-NEWE-0001'])->and($newest->refresh()->state)->toBe('SUCCEEDED');
 });
+
+it('rotates the batch, so abandoned payments never keep a newer paid one waiting', function () {
+    [, $org] = $this->customerWithOrganization();
+    config(['onhost.payments.sweep.batch' => 2]);
+    foreach (['W6S8-ABND-0001' => 900, 'W6S8-ABND-0002' => 800, 'W6S8-ABND-0003' => 700] as $id => $age) {
+        w6SweepIntent($org, 'comgate', $id, $age); // the payer left the gateway page; Comgate says PENDING until it expires them
+    }
+    $paid = w6SweepIntent($org, 'comgate', 'W6S8-PAID-0001', 30);
+    $asked = [];
+    w6SweepComgateFake(['W6S8-PAID-0001' => 'PAID'], $asked);
+
+    $this->artisan('onhost:payments:sweep')->expectsOutputToContain('checked 2, settled 0, failed 0, open 2')->assertExitCode(0);
+    expect($asked)->toBe(['W6S8-ABND-0001', 'W6S8-ABND-0002'])->and($paid->refresh()->state)->toBe('PENDING_CUSTOMER');
+
+    $this->travel(10)->minutes(); // the next scheduled run
+    $this->artisan('onhost:payments:sweep')->expectsOutputToContain('checked 2, settled 1, failed 0, open 1')->assertExitCode(0);
+    expect(array_slice($asked, 2))->toBe(['W6S8-ABND-0003', 'W6S8-PAID-0001'])->and($paid->refresh()->state)->toBe('SUCCEEDED');
+
+    $this->travel(10)->minutes();
+    $this->artisan('onhost:payments:sweep')->assertExitCode(0);
+    expect(array_slice($asked, 4))->toBe(['W6S8-ABND-0001', 'W6S8-ABND-0002']); // round and round, the longest unasked first
+});
+
+it('never overwrites a payment a concurrent webhook settled while the gateway was answering', function () {
+    [, $org] = $this->customerWithOrganization();
+    $cancelled = w6SweepIntent($org, 'comgate', 'W6S9-CANC-0001', 60);
+    $processing = w6SweepIntent($org, 'comgate', 'W6S9-PROC-0001', 50);
+    $settledMeanwhile = fn (PaymentIntent $intent, string $answer) => function () use ($intent, $answer) {
+        DB::table('payment_intents')->where('id', $intent->id)->update(['state' => 'SUCCEEDED', 'paid_at' => now()]);
+
+        return $answer; // a stale answer: the gateway's view from before the webhook's
+    };
+    $asked = [];
+    w6SweepComgateFake(['W6S9-CANC-0001' => $settledMeanwhile($cancelled, 'CANCELLED'), 'W6S9-PROC-0001' => $settledMeanwhile($processing, 'PROCESSING')], $asked);
+    Event::fake([PaymentFailed::class]);
+
+    $this->artisan('onhost:payments:sweep')->expectsOutputToContain('checked 2, settled 2, failed 0, open 0, errors 0')->assertExitCode(0);
+
+    expect($asked)->toBe(['W6S9-CANC-0001', 'W6S9-PROC-0001'])
+        ->and($cancelled->refresh()->state)->toBe('SUCCEEDED')
+        ->and($cancelled->failure_reason)->toBeNull()
+        ->and($processing->refresh()->state)->toBe('SUCCEEDED');
+    Event::assertNotDispatched(PaymentFailed::class);
+});
+
+it('hands a payment paid with another amount to finance once, and does not ask about it again', function () {
+    [, $org] = $this->customerWithOrganization();
+    $intent = w6SweepIntent($org, 'comgate', 'W6S10-MISM-001', 60);
+    $asked = [];
+    w6SweepComgateFake(['W6S10-MISM-001' => 'PAID:40000'], $asked);
+
+    $this->artisan('onhost:payments:sweep')->expectsOutputToContain('checked 1, settled 0, failed 0, open 1, errors 0')->assertExitCode(0);
+    $this->travel(10)->minutes();
+    $this->artisan('onhost:payments:sweep')->expectsOutputToContain('checked 0')->assertExitCode(0);
+
+    expect($asked)->toBe(['W6S10-MISM-001'])
+        ->and($intent->refresh()->state)->toBe('PENDING_CUSTOMER')
+        ->and(ReconciliationItem::query()->where('kind', 'payment_amount_mismatch')->where('reference', $intent->id)->count())->toBe(1);
+});
+
+it('refuses a --limit that is not a positive whole number', function (string $limit) {
+    $this->artisan('onhost:payments:sweep', ['--limit' => $limit])
+        ->expectsOutputToContain('--limit must be a whole number from 1 to 999999')
+        ->assertExitCode(1);
+})->with(['abc', '0', '-5', '2.5', '']);
 
 it('goes on after one intent fails at the provider, logs only the class and the intent, and exits 0', function () {
     [, $org] = $this->customerWithOrganization();

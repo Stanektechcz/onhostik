@@ -206,19 +206,51 @@ final class PaymentService
 
             return $this->settle($intent, $context, $status['method'] ?? $intent->method) ? 'settled' : 'already_settled';
         }
+        // W6 review: the model in hand may be stale — a webhook, the payer's return and the sweep can answer for one intent at once,
+        // and the provider call between the read and the write is the widest window there is. Every state write below re-reads the
+        // row under a lock and applies the provider's answer only to a state that can still take it, as settle() does; when the
+        // intent became final meanwhile (a concurrent settlement), its real state is returned and nothing is written or dispatched.
         if ($target === S::FAILED || $target === S::CANCELED) {
-            if (! in_array($intent->state, [S::SUCCEEDED, S::REFUNDED, S::PARTIALLY_REFUNDED, S::FAILED, S::CANCELED], true)) {
-                $intent->forceFill(['state' => $target, 'failure_reason' => $status['raw']['reason'] ?? $target])->save();
-                $this->events->dispatch(new PaymentFailed($intent, (string) ($status['raw']['reason'] ?? $target)));
+            $reason = (string) ($status['raw']['reason'] ?? $target);
+            $closed = $this->transitionLocked($intent, $target, ['failure_reason' => $status['raw']['reason'] ?? $target], fn (string $state) => ! in_array($state, [S::SUCCEEDED, S::REFUNDED, S::PARTIALLY_REFUNDED, S::CHARGEBACK, S::FAILED, S::CANCELED], true));
+            if ($closed === null) {
+                return in_array($intent->state, [S::FAILED, S::CANCELED], true) ? strtolower($target) : strtolower($intent->state);
             }
+            $this->events->dispatch(new PaymentFailed($closed, $reason));
 
             return strtolower($target);
         }
-        if ($intent->state !== $target && S::machine()->canTransition($intent->state, $target)) {
-            $intent->forceFill(['state' => $target])->save();
+        if ($intent->state !== $target) {
+            $this->transitionLocked($intent, $target, [], fn (string $state) => $state !== $target && S::machine()->canTransition($state, $target));
+            if ($intent->isSucceeded()) {
+                return strtolower($intent->state);
+            }
         }
 
         return strtolower($target);
+    }
+
+    /**
+     * Writes `$target` (and `$extra`) to the intent under a row lock when `$allowed` accepts the state the row holds now; the model
+     * in hand is refreshed from the row either way. Returns the written intent, or null when the row's state did not allow it.
+     *
+     * @param  array<string,mixed>  $extra
+     * @param  callable(string):bool  $allowed
+     */
+    private function transitionLocked(PaymentIntent $intent, string $target, array $extra, callable $allowed): ?PaymentIntent
+    {
+        $written = DB::transaction(function () use ($intent, $target, $extra, $allowed) {
+            $row = PaymentIntent::query()->lockForUpdate()->findOrFail($intent->id);
+            if (! $allowed((string) $row->state)) {
+                return null;
+            }
+            $row->forceFill(['state' => $target] + $extra)->save();
+
+            return $row;
+        }, 3);
+        $intent->setRawAttributes(PaymentIntent::query()->findOrFail($intent->id)->getAttributes(), true);
+
+        return $written === null ? null : $intent;
     }
 
     /**

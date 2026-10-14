@@ -354,7 +354,13 @@ Artisan::command('onhost:bank:sync {--from=} {--to=}', function (BankStatementIm
 Artisan::command('onhost:payments:sweep {--limit= : intents re-read in this run (default onhost.payments.sweep.batch)}', function (PendingPaymentSweep $sweep) {
     // W6 (TASK-0228): a provider without credentials or an intent the provider cannot answer is a warning in the log, never exit 1
     $limit = $this->option('limit');
-    $s = $sweep->run($limit !== null && $limit !== '' ? (int) $limit : null);
+    $limit = is_int($limit) ? (string) $limit : $limit;
+    if ($limit !== null && (! is_string($limit) || preg_match('/^[1-9][0-9]{0,5}$/', $limit) !== 1)) {
+        $this->error('--limit must be a whole number from 1 to 999999 (intents re-read in this run).');
+
+        return 1;
+    }
+    $s = $sweep->run($limit !== null ? (int) $limit : null);
     $this->info(sprintf('payments sweep: checked %d, settled %d, failed %d, open %d, errors %d, skipped %s',
         $s['checked'], $s['settled'], $s['failed'], $s['open'], $s['errors'], $s['skipped'] === [] ? '-' : implode(' ', $s['skipped'])));
 

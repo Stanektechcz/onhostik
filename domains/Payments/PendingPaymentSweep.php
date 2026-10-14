@@ -19,7 +19,7 @@ use Throwable;
  * or cancels exactly as the webhook does.
  *
  * Only intents older than the grace period (the webhook and the return go first) and younger than the cut-off (older ones are
- * finance's, through the merchant portal); at most one batch per run, oldest first. One intent the provider cannot answer
+ * finance's, through the merchant portal); at most one batch per run, the intent asked about longest ago first. One intent the provider cannot answer
  * does not stop the others. A gateway without credentials (staging has none for Comgate) is skipped with a warning — a
  * missing secret is a plain RuntimeException of the store and must not fail the scheduled job every run (TASK-0222).
  */
@@ -65,9 +65,12 @@ final class PendingPaymentSweep
                 Log::warning('payments sweep: intent not re-read', ['intent' => $intent->id, 'provider' => $intent->provider, 'error' => get_class($e)]);
 
                 continue;
+            } finally {
+                // the rotation: an intent asked about goes to the back of the queue, answered or not (see due())
+                PaymentIntent::query()->whereKey($intent->id)->update(['updated_at' => now()]);
             }
             $bucket = match ($result) {
-                'settled', 'already_settled' => 'settled',
+                'settled', 'already_settled', 'succeeded', 'partially_refunded', 'refunded' => 'settled', // paid now, here or concurrently
                 'failed', 'canceled' => 'failed',
                 default => 'open', // still pending at the provider, or an amount mismatch handed to finance
             };
@@ -78,8 +81,11 @@ final class PendingPaymentSweep
     }
 
     /**
-     * Open card intents between the grace period and the cut-off, oldest first. An intent whose paid amount differed is left out:
-     * syncFromProvider opened a reconciliation item for it already, and asking again would open one every run.
+     * Open card intents between the grace period and the cut-off, the one asked about longest ago first. Every intent asked about is
+     * touched (`updated_at`), so the batch rotates: payments the payer abandoned (they stay pending at the gateway until it expires
+     * them) can never fill every batch and keep a newer paid one waiting until the cut-off (W6 review). An intent whose paid amount
+     * differed is left out: syncFromProvider opened a reconciliation item for it already, and asking again would open one every run;
+     * finance resolves the item and re-reads it by hand (`POST /v1/payments/{intent}/sync`).
      *
      * @param  list<string>  $providers
      * @return iterable<PaymentIntent>
@@ -97,7 +103,7 @@ final class PendingPaymentSweep
             ->where('created_at', '<=', now()->subMinutes($grace))
             ->where('created_at', '>=', now()->subHours($maxAge))
             ->where(fn ($q) => $q->whereNull('raw')->orWhereNull('raw->amount_mismatch'))
-            ->orderBy('created_at')->orderBy('id')
+            ->orderBy('updated_at')->orderBy('created_at')->orderBy('id')
             ->limit($limit)
             ->get();
     }
