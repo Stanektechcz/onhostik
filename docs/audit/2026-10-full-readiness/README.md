@@ -923,3 +923,24 @@ nespustilo.** Odkazy na rozhodnutí: `ROZHODNUTI.md`, oddíl *Fáze T*.
 
 **Zbývá:** T-ano, D (DR-1), HS-2, balíky se vstupem P4–P8, M4 (`spam_filter`), M5 (`php_workers`), CD-3 (doplněk CDN z katalogu → zavře
 `traffic_tb` i `bot_management`), zbytky textů nalezené v T4 (seznam v úkolu TASK-0215), ověření přenosu na Proxmoxu (PX-1).
+
+## Stav po fázi U (2026-10-14)
+
+Fáze U (`PROMPT-faze-U-2026-10-14.md`): U0 — CI na `development` po #213 zelené (`cffda3a2`), zámky TASK-0214 … TASK-0217 uvolněné.
+Vlastník nedal „T-ano“, proto **U1 neproběhl**: na stagingu se jen četlo (2026-10-14: `VERSION` = `current` = `fda0cedf`, migrace 86,
+produkt `cdn` aktivní se seedovanými texty, 0 předplatných a 0 služeb `cdn`). **V produkci se nic nespustilo.** Sloučil koordinátor
+s pověřením vlastníka (MRG-1) po zelené celé matici CI. Odkazy na rozhodnutí: `ROZHODNUTI.md`, oddíl *Fáze U*.
+
+| PR | Úkol | Co se změnilo |
+|---|---|---|
+| #214 | TASK-0218 (U2 = CD-3) | Doplněk „CDN a WAF“ (`cdn`) z prodeje: seeder `draft`, datová migrace `001210` (jen dokud stojí seedovaný stav a texty; plány, verze, ceny a držená předplatná beze změny; `down()`); `KNOWN_GAPS` 5 → 3 (`traffic_tb`, `bot_management`); `MetricRegistry` `traffic_tb` bez `gap_families`, `bot_management` zůstává GAP pro držené. |
+| #215 | TASK-0219 (U3) | Zbytky textů z T4 přes `PhaseUCopySeam`: databáze bez PITR (lead, štítky, karty, tabulka, výhoda), WordPress bez „4 200 instalací“ a „0 rozbitých updatů“, VPS „přenos podle tarifu“ místo „neměřený“, bez „vlastní páteře Praha–Brno“, changelog API jen z `docs/api/CHANGELOG.md`; řádek tendru „Enterprise podle individuální smlouvy“ (oprava v `PhaseRCopySeam`, P-R37). `slaData()` se nevykresluje (ověřeno). |
+| #216 | TASK-0220 (U4 = M4) | `spam_filter` poštovních tarifů jako fair use s důvodem; ceník „Antispam rspamd s pravidly serveru (fair use)“ místo úrovně „policies“; `KNOWN_GAPS` 3 → 2 (`php_workers`, `backup_days`). |
+| — | TASK-0221 (U9) | Tento oddíl a odkazy v `ROZHODNUTI.md`. |
+
+**Nový zmrazený cíl:** `259cbea6f3ab7e673436778dccaf251c66de21ce` (merge #216) — dokument `GENERALKA-T-A-C-deploy-prikazy-2026-10-14.md`
+obnovený na tento cíl (skripty beze změny, migrace 86 → **88**: `001200` a `001210`, žádný nový řádek `expected-nonok`; C4 navíc `cdn` =
+`draft` a 2 známé mezery). Čeká dál na „T-ano“. `PRODUKCE-prikazy-2026-10-13.md` míří dál na `fda0cedf` — po cyklu na stagingu se přesune.
+
+**Zbývá:** T-ano (U1), D (DR-1), HS-2, balíky se vstupem P4–P8, M5 (`php_workers`), `backup_days` (pravidla vlastníka vypnutá),
+ověření přenosu VM na Proxmoxu (PX-1); per-tarifní politika rspamd jen na volbu vlastníka (balík se stagingem).

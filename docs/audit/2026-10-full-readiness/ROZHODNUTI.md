@@ -392,3 +392,15 @@ Fáze T nepřinesla nové rozhodnutí vlastníka kromě pověření slučovat PR
 | P-R24 (PR-18), PX-1 | T3 = M2: měsíční přenos VM z Proxmoxu (`rrddata` netin + netout) jako měkká metrika `transfer` proti `traffic_tb` — varuje od 85 %, nikdy neodpojí ani neobjedná, zákazníkovi se ozve až po `ONHOST_METERING_ENFORCE_NEW_METRICS` (D+30); `KNOWN_GAPS` zůstává 5, protože `traffic_tb` prodává i doplněk CDN, který nic neměří (návrh CD-3); ověření na skutečném Proxmoxu až s PX-1 | TASK-0216 (#212) |
 | P-R37, P-R46, rozhodnutí 2 (2026-09-25) | T4: zbytky textů ze S2 přes `PhaseTCopySeam` — „Kde jsme dražší“, Discord, „Telefon 24/7“ v ukázce panelu, nahrávky relací (NIS2), Praha a Brno, archiv 10 let, SSL OV/EV a pojištění, „SLA 99,99 %“ tarifů, „1 900 objednávek/h“ | TASK-0215 (#211) |
 | — | T1: dokument vlastníka `GENERALKA-T-A-C-deploy-prikazy-2026-10-14.md` na cíl `a5b827cb` (čeká na „T-ano“) | — (plocha) |
+
+## Fáze U (2026-10-14): odkazy na balíky
+
+Fáze U nepřinesla nové rozhodnutí vlastníka; CD-3 a M4 platí podle doporučeného výchozího ze SEZNAMu (bez odpovědi vlastníka).
+„T-ano“ nepřišlo, cyklus na stagingu (U1) neproběhl. Odkazy:
+
+| Rozhodnutí | Co fáze U udělala | Úkol (PR) |
+|---|---|---|
+| CD-3 (výchozí „ano“), P-R46, P-R24 | U2: doplněk `cdn` z prodeje (seeder `draft`, migrace `001210`, jen seedovaný stav; držená předplatná beze změny); `KNOWN_GAPS` 5 → 3 | TASK-0218 (#214) |
+| P-R37, rozhodnutí 2 (2026-09-25), P-R24 | U3: zbytky textů z T4 přes `PhaseUCopySeam` (PITR, WordPress kpis, VPS přenos, páteř Praha–Brno, changelog API, řádek tendru Enterprise) | TASK-0219 (#215) |
+| P-R24 (PR-18), M4 (výchozí: formulace) | U4: `spam_filter` jako fair use s popisem na ceníku; `KNOWN_GAPS` 3 → 2 | TASK-0220 (#216) |
+| — | Dokument vlastníka `GENERALKA-T-A-C-deploy-prikazy-2026-10-14.md` obnoven na cíl `259cbea6` (čeká na „T-ano“) | — (plocha) |
