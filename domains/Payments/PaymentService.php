@@ -162,8 +162,9 @@ final class PaymentService
         } catch (QueryException $e) {
             // unique (provider, event_id) — duplicate delivery: exactly one business effect (S51). "Seen before" is not "settled",
             // though: the event id is `transId:STATUS`, and the customer knows their transId — a `PAID` posted before paying took
-            // the id, and the provider's real `PAID` was then dropped as a duplicate, leaving a paid order unpaid until the daily
-            // reconciliation. While the intent is not settled the provider is simply asked again; settling is idempotent.
+            // the id, and the provider's real `PAID` was then dropped as a duplicate, leaving a paid order unpaid until the payer's
+            // return or the pending-payment sweep (`onhost:payments:sweep`, every ten minutes, W6) re-read it. While the intent is
+            // not settled the provider is simply asked again; settling is idempotent.
             $intent = PaymentIntent::query()->where('provider', $providerKey)->where('provider_id', $verified['provider_id'])->first();
             if ($intent !== null && ! $intent->isSucceeded() && $this->syncFromProvider($intent, CommandContext::system("webhook:{$providerKey}")) === 'settled') {
                 return ['result' => 'settled', 'intent' => $intent->refresh()];
@@ -185,7 +186,7 @@ final class PaymentService
         return ['result' => $result, 'intent' => $intent->refresh()];
     }
 
-    /** Re-read provider status (source of truth) and apply it. Used by webhooks, return pages and reconciliation. */
+    /** Re-read provider status (source of truth) and apply it. Used by webhooks, return pages, the pending-payment sweep and reconciliation. */
     public function syncFromProvider(PaymentIntent $intent, CommandContext $context): string
     {
         $provider = $this->providers->get($intent->provider);

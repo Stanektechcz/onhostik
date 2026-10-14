@@ -60,6 +60,7 @@
     "onhost:partners:mature-commissions": 7800,
     "onhost:partners:tiers": 5357400,
     "onhost:partners:verify-domains": 7800,
+    "onhost:payments:sweep": 1800,
     "onhost:penpot:sweep": 1800,
     "onhost:platform:backup": 173400,
     "onhost:platform:backup:verify": 173400,

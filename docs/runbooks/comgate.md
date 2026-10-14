@@ -35,12 +35,35 @@ address or a CIDR range, IPv4 or IPv6; entries are trimmed, blank ones and allow
 refuses every notification** (`webhook_source_rejected`, HTTP 403) and Comgate is not asked about it; the administration's state
 then says so (`callback_allowlist: 0` with `callback_notice`). The list is required in production; the owner supplies Comgate's
 notification addresses (input CG-6). Until it is filled, a payment is confirmed only when the payer returns to the portal or by
-the daily reconciliation.
+the sweep of card payments left pending (W6, below).
 
 The check reads the sender address Laravel resolves (`$request->ip()`). Behind a reverse proxy (nginx on another host, a load
 balancer, a CDN) `TRUSTED_PROXIES` **must** include that proxy, otherwise every notification appears to come from the proxy's
 address: either all are refused, or — if someone lists the proxy's address — anybody can send one through it. Never put the
 proxy's own address into `COMGATE_CALLBACK_IPS`.
+
+## Card payments left pending (W6, TASK-0228)
+
+A card payment is settled by Comgate's notification or by the payer's return to the portal. When both are lost the money is
+taken and the intent would stay open, so `onhost:payments:sweep` (every ten minutes, one server, no overlap) re-reads the
+gateway's status of every card intent still open (`CREATED`, `PENDING_CUSTOMER`, `AUTHENTICATION_REQUIRED`, `PROCESSING`) and
+applies it through `PaymentService::syncFromProvider`, the same idempotent path the notification takes: paid → settled,
+cancelled/failed → closed, still pending → asked again next run. There is no daily reconciliation job that would do this
+(`PaymentService::reconcile()` is not scheduled).
+
+| Setting | Env | Default | Meaning |
+| --- | --- | --- | --- |
+| `onhost.payments.sweep.providers` | `ONHOST_PAYMENTS_SWEEP_PROVIDERS` | `comgate,gopay,stripe` | gateways asked; `bank` never (transfers are paired by statement lines); empty = the job does nothing |
+| `onhost.payments.sweep.grace_minutes` | `ONHOST_PAYMENTS_SWEEP_GRACE_MINUTES` | 10 | younger intents are left to the notification and the return |
+| `onhost.payments.sweep.max_age_hours` | `ONHOST_PAYMENTS_SWEEP_MAX_AGE_HOURS` | 72 | older intents are finance's (merchant portal, `POST /v1/payments/{intent}/sync`) |
+| `onhost.payments.sweep.batch` | `ONHOST_PAYMENTS_SWEEP_BATCH` | 50 | intents per run, oldest first (`--limit` overrides once) |
+
+Output, one line: `payments sweep: checked N, settled N, failed N, open N, errors N, skipped <providers>`. A gateway without
+credentials is **skipped** with the warning `payments sweep: provider skipped, no credentials` (staging today, which has no
+Comgate account) and the job still exits 0, so the doctor's *every scheduled job ran within its budget* stays OK. An intent the
+gateway cannot answer is logged as `payments sweep: intent not re-read` with the intent id, the provider and the exception class
+only, and the run goes on. An intent whose paid amount differed is not asked again: its `payment_amount_mismatch`
+reconciliation item is already with finance.
 
 ## Doctor
 
