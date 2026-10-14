@@ -10,7 +10,7 @@ site's `app.env` (`.env` of the release). After any change of an environment var
 
 | Input | What it unlocks | Until it is done |
 | --- | --- | --- |
-| SELL-1 | staging keeps selling, staging deploys pass the gate | the staging deploy is refused |
+| SELL-1 | staging keeps selling, staging deploys pass the gate | the staging deploy is refused (exit 2) |
 | SELL-2 | production sells new services | nothing is for sale (fail-closed) |
 | CG-6 | Comgate payment notifications are accepted | every notification is refused |
 | SP1-DNS | the mail reputation monitor can ask Spamhaus and others | those lists are never asked; a doctor WARN says so |
@@ -21,8 +21,12 @@ site's `app.env` (`.env` of the release). After any change of an environment var
 * **Set:** `ONHOST_SELL_DEFAULT=true` in the staging `app.env` (`infra/aapanel/staging.sh` writes it into a fresh file; an
   existing file needs the line added by hand).
 * **Why:** the sell matrix is fail-closed (`config/onhost-sell.php`: an unset or empty value is off). The staging deploy
-  gate (`deploy-gate.php env-assert`) holds `app.env` to an expected list that pins `ONHOST_SELL_DEFAULT=true`, so a deploy
-  without the line is refused (reported as rc 13 on the staging run) and staging could not run its drills or smoke orders.
+  gate holds `app.env` to the expected list (`$STATE/expected-env`, written by `infra/aapanel/staging.sh`), which pins
+  `ONHOST_SELL_DEFAULT=true`. Without the line `deploy-gate.php env-assert` prints
+  `MISMATCH ONHOST_SELL_DEFAULT: expected = true` and exits **13** (`deploy-gate.php:341-344`). The deploy does not pass that
+  13 on: `deploy.sh` prints the MISMATCH line and stops with **exit 2**, nothing changed (`deploy.sh:495-496`:
+  "app.env does not hold what expected-env expects"); `staging.sh` stops the same way with its own message
+  (`staging.sh:342-343`). Staging could not run its drills or smoke orders either.
 * **Apply:** edit `app.env`, then `art config:cache`, restart queue workers and PHP-FPM (a deploy does this by itself).
 * **Verify, read-only:** `art config:show onhost-sell` lists `default` as `true`.
 * **Until done:** nothing is orderable on staging; existing services, renewals and invoices are not affected.
