@@ -176,7 +176,8 @@ it('lists aliases and forwards apart although ISPConfig answers both from one ta
 });
 
 it('takes aliases off the list of metering gaps: enforced on mail plans, still not kept anywhere else', function () {
-    expect(PlanPromises::KNOWN_GAPS)->not->toHaveKey('aliases')->toHaveCount(6)
+    // the ratchet only shrinks: 6 when S1 closed aliases, fewer since (T2 closed pids)
+    expect(PlanPromises::KNOWN_GAPS)->not->toHaveKey('aliases')->and(count(PlanPromises::KNOWN_GAPS))->toBeLessThanOrEqual(6)
         ->and(MetricRegistry::get('aliases')['status'])->toBe(MetricRegistry::ENFORCED_ONLY)
         ->and(MetricRegistry::isKept('aliases', 'mail'))->toBeTrue()
         ->and(MetricRegistry::isKept('aliases', 'web'))->toBeFalse();

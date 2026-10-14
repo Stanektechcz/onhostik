@@ -225,7 +225,7 @@ final class MetricRegistry
             'entitlement' => ['pids'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::NONE, 'families' => ['game'],
             'sources' => ['pterodactyl' => null],
             'interval_minutes' => null, 'drives_guard' => false, 'status' => self::GAP,
-            'reason' => 'Sold in every game plan\'s limits bag; PterodactylGameProvider\'s resource limits (memory/swap/disk/io/cpu/threads/oom_disabled) have no PID-count field, so it is never sent to the panel.',
+            'reason' => 'Not sold any more (phase T, metering M3): Pterodactyl\'s server limits (memory/swap/disk/io/cpu/threads/oom_disabled) have no PID-count field, so it was never sent to the panel. The seeder no longer writes it, migration 001200 took the seeded number off unheld game plan versions and the revision 2026-10-game-plans-without-pids publishes versions without it; the row stays for the versions customers already hold (PlanPromises::grandfatheredGaps).',
         ],
         'backups' => [
             'entitlement' => ['backups'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::HARD, 'families' => ['game'],
