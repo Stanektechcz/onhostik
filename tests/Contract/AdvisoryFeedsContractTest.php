@@ -130,3 +130,18 @@ it('merges one CVE from several feeds, records each feed and keeps going when on
         ->and(AdvisorySource::query()->find('kev')->cursor)->toBe('2026-10-13')->and(AdvisorySource::query()->find('osv')->last_success_at)->not->toBeNull();
     expect(fn () => app(NvdFeed::class)->fetch(null))->toThrow(ProviderException::class);
 });
+
+it('keeps WordPress plugins and themes from NVD without a Wordfence key and maps their CPE to the slug', function () {
+    config(['onhost.advisories.wordfence_api_key' => '']);
+    Http::fake([SN_NVD => Http::response(['resultsPerPage' => 2, 'startIndex' => 0, 'totalResults' => 2, 'vulnerabilities' => [
+        ['cve' => ['id' => 'CVE-2026-6001', 'vulnStatus' => 'Analyzed', 'descriptions' => [['lang' => 'en', 'value' => 'The Contact Form 7 plugin for WordPress is vulnerable to XSS in versions up to 5.9.7.']],
+            'configurations' => [['nodes' => [['cpeMatch' => [['vulnerable' => true, 'criteria' => 'cpe:2.3:a:rocklobster:contact_form_7:*:*:*:*:*:wordpress:*:*', 'versionEndExcluding' => '5.9.8']]]]]]]],
+        ['cve' => ['id' => 'CVE-2026-6002', 'vulnStatus' => 'Analyzed', 'descriptions' => [['lang' => 'en', 'value' => 'The Astra theme for WordPress allows CSRF.']],
+            'configurations' => [['nodes' => [['cpeMatch' => [['vulnerable' => true, 'criteria' => 'cpe:2.3:a:brainstormforce:astra:*:*:*:*:*:wordpress:*:*', 'versionEndIncluding' => '4.1.0']]]]]]]],
+    ]])]);
+    $rows = app(NvdFeed::class)->fetch(null)->advisories;
+
+    expect(app(WordfenceFeed::class)->enabled())->toBeFalse()
+        ->and($rows[0]['affected'][0])->toBe(['ecosystem' => 'wordpress-plugin', 'product' => 'contact-form-7', 'fixed' => '5.9.8'])
+        ->and($rows[1]['affected'][0])->toBe(['ecosystem' => 'wordpress-theme', 'product' => 'astra', 'last_affected' => '4.1.0']);
+});

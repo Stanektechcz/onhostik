@@ -15,7 +15,7 @@ Q4 one approver with step-up up to 25 sites and four eyes above, Q5 the panel op
 
 | Piece | Where |
 | --- | --- |
-| Feeds behind `AdvisoryFeed` / `AdvisoryLookup` | `providers/Advisories`: CISA KEV (exploited now), NVD CVE API 2.0 (CPE-filtered, `nvd_cpe`), Wordfence Intelligence v3 (WordPress; needs `ONHOST_WORDFENCE_API_KEY`), OSV.dev (the control plane's Composer libraries) |
+| Feeds behind `AdvisoryFeed` / `AdvisoryLookup` | `providers/Advisories`: CISA KEV (exploited now), NVD CVE API 2.0 (CPE-filtered, `nvd_cpe`, plus every plugin or theme whose CPE target software is `wordpress`), Wordfence Intelligence v3 (WordPress; optional, only with `ONHOST_WORDFENCE_API_KEY`), OSV.dev (the control plane's Composer libraries) |
 | Ingest | `AdvisoryIngest`: one row per CVE (or `wordfence:` / `osv:` id), sources merged, the worst severity, KEV or'ed; a feed's cursor in `security_advisory_sources`; a failed feed records a redacted error and the others go on |
 | Inventory | `SoftwareInventory`: WordPress core/plugins/themes of active web **services** (`WordPressService::status`, longest unread first, 200 a run), panel versions of provider instances, `composer.lock`. Historical panel sites are never services, so they are never read or touched |
 | Matching and plan | `AdvisoryMatcher` + `RemediationPlanner`: **A** plugin fix in the same major line or core fix in the same x.y branch (`wp.plugin update`, `wp.update core staged`); **B** new plugin major, themes, core across branches; **D** no fixed release or a range that could not be compared — the customer is told; **P** the platform's own software — staff only |
@@ -39,5 +39,10 @@ Q4 one approver with step-up up to 25 sites and four eyes above, Q5 the panel op
 
 ## Owner inputs
 
-`ONHOST_WORDFENCE_API_KEY` (free Wordfence Intelligence key; without it WordPress plugins are covered by NVD only) and optionally
-`ONHOST_NVD_API_KEY` (higher NVD rate). The first run on staging needs the owner's step-specific "ano".
+Owner decision 2026-10-14 ("nemáme wordfence key, pokračuj"): the platform runs **without a Wordfence key**. WordPress plugins and
+themes then come from NVD: a CVE whose CPE names the target software `wordpress` is kept, and the CPE product is read as the slug
+(`contact_form_7` → `contact-form-7`; "theme for WordPress" in the description makes it a theme). The gap: NVD analyses CVEs with a
+delay, and a CVE without a CPE yet is not matched until it has one. A key set later (`ONHOST_WORDFENCE_API_KEY`) closes the gap
+without a code change; a keyless follow-up is reading the CNA records of the CVE List (cvelistV5), which carry the affected versions
+from the day the CVE is published. `ONHOST_NVD_API_KEY` stays optional (higher NVD rate). The first run on staging needs the owner's
+step-specific "ano".

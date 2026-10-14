@@ -78,11 +78,14 @@ final class NvdFeed implements AdvisoryFeed
         if (preg_match('/^CVE-\d{4}-\d{4,}$/', $id) !== 1 || ($cve['vulnStatus'] ?? '') === 'Rejected') {
             return null;
         }
+        $description = collect((array) ($cve['descriptions'] ?? []))->firstWhere('lang', 'en')['value'] ?? '';
+        // NVD names a WordPress add-on by its CPE (`vendor:product`, target software `wordpress`) and says only in words whether it is a theme
+        $theme = preg_match('/\btheme\b[^.]{0,40}\bwordpress\b/i', (string) $description) === 1;
         $affected = [];
         foreach ((array) ($cve['configurations'] ?? []) as $configuration) {
             foreach ((array) ($configuration['nodes'] ?? []) as $node) {
                 foreach ((array) ($node['cpeMatch'] ?? []) as $match) {
-                    $range = $this->range((array) $match);
+                    $range = $this->range((array) $match, $theme);
                     if ($range !== null && ! in_array($range, $affected, true)) {
                         $affected[] = $range;
                     }
@@ -94,7 +97,6 @@ final class NvdFeed implements AdvisoryFeed
         }
         $metric = data_get($cve, 'metrics.cvssMetricV31.0.cvssData') ?? data_get($cve, 'metrics.cvssMetricV40.0.cvssData') ?? data_get($cve, 'metrics.cvssMetricV30.0.cvssData');
         $score = is_numeric($metric['baseScore'] ?? null) ? round((float) $metric['baseScore'], 1) : null;
-        $description = collect((array) ($cve['descriptions'] ?? []))->firstWhere('lang', 'en')['value'] ?? '';
 
         return [
             'key' => $id, 'source' => 'nvd', 'external_id' => $id, 'aliases' => [$id],
@@ -107,7 +109,7 @@ final class NvdFeed implements AdvisoryFeed
     }
 
     /** @param array<string,mixed> $match @return array<string,mixed>|null */
-    private function range(array $match): ?array
+    private function range(array $match, bool $theme = false): ?array
     {
         if (! ($match['vulnerable'] ?? false)) {
             return null;
@@ -117,10 +119,17 @@ final class NvdFeed implements AdvisoryFeed
             return null;
         }
         $product = strtolower($parts[3].':'.$parts[4]);
-        if (! $this->watched($product)) {
+        // a plugin or theme for WordPress (target software `wordpress`): kept without a Wordfence key, matched by its slug, which the
+        // CPE product spells with underscores (`contact_form_7` → `contact-form-7`)
+        $addon = $product !== 'wordpress:wordpress' && strtolower($parts[10] ?? '') === 'wordpress' && preg_match('/^[a-z0-9][a-z0-9_.-]{0,159}$/', strtolower($parts[4])) === 1;
+        if (! $addon && ! $this->watched($product)) {
             return null;
         }
-        [$ecosystem, $product] = $product === 'wordpress:wordpress' ? ['wordpress-core', 'wordpress'] : ['cpe', $product];
+        [$ecosystem, $product] = match (true) {
+            $product === 'wordpress:wordpress' => ['wordpress-core', 'wordpress'],
+            $addon => [$theme ? 'wordpress-theme' : 'wordpress-plugin', str_replace('_', '-', strtolower($parts[4]))],
+            default => ['cpe', $product],
+        };
         $exact = AdvisoryBatch::version($parts[5]);
         $range = array_filter([
             'ecosystem' => $ecosystem, 'product' => $product,

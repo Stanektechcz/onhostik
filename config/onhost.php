@@ -494,7 +494,7 @@ return [
         // the CPE products NVD advisories are kept for (`vendor:product`, `vendor:*`): what the platform runs or hosts
         'nvd_cpe' => array_values(array_filter(array_map('trim', explode(',', (string) (env('ONHOST_NVD_CPE') ?: 'wordpress:wordpress,php:php,proxmox:*,ispconfig:ispconfig,aapanel:*,pterodactyl:*,powerdns:*,kubernetes:kubernetes,nginx:nginx,f5:nginx,apache:http_server,openssl:openssl,exim:exim,postfix:postfix,dovecot:dovecot,roundcube:webmail,mariadb:mariadb,redis:redis,phpmyadmin:phpmyadmin'))))),
         'wordfence_url' => 'https://www.wordfence.com/api/intelligence/v3/vulnerabilities/production',
-        'wordfence_api_key' => (string) env('ONHOST_WORDFENCE_API_KEY', ''), // secret: Wordfence Intelligence API key (free); without it WordPress plugins are not covered
+        'wordfence_api_key' => (string) env('ONHOST_WORDFENCE_API_KEY', ''), // secret, optional: Wordfence Intelligence API key (free); without it plugins and themes come from NVD (CPE target software wordpress), analysed CVEs only
         'osv_url' => 'https://api.osv.dev/v1',
         'osv_max_vulns' => (int) env('ONHOST_OSV_MAX_VULNS', 200),
         'wordpress_per_run' => (int) env('ONHOST_ADVISORY_WORDPRESS_PER_RUN', 200), // sites whose WordPress is read per inventory run, longest unread first
