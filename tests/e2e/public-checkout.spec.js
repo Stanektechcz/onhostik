@@ -1,4 +1,4 @@
-// Public journey: catalogue → cart drawer → guest checkout → confirmation → client panel (Fakturace, Služby).
+// Public journey: catalogue → cart drawer → guest checkout → confirmation → client panel (overview, Fakturace).
 // The one thing this smoke exists for: the amounts the customer sees in the drawer, the checkout summary and the
 // confirmation are the server's quote (POST /v1/cart/quote), never a client-side estimate — the September 2026 audit
 // found a 336 Kč / 3 364 Kč mismatch exactly there. The order is placed by bank transfer (nothing is charged) and
@@ -72,15 +72,24 @@ test('catalogue → cart → guest checkout → confirmation shows the server qu
   const vs = order.bank_instructions && (order.bank_instructions.variable_symbol || order.bank_instructions.vs);
   if (vs) await expect(page.getByText(String(vs), { exact: false }).first()).toBeVisible();
 
-  // the guest checkout signed the browser in: the overview shows the amount due, Fakturace the proforma, Služby the pending service
-  // (the panel boots on the overview whatever the hash; sections are reached by changing the hash once the shell runs)
+  // the guest checkout signed the browser in: the overview shows the amount due and the order handed over from the web (an unpaid
+  // bank order has no service yet, so the plan is named by that banner and by the proforma), Fakturace the proforma.
+  // A section is opened by its server path (/panel/fakturace pre-sets #/fakturace before the shell mounts), never by assigning
+  // location.hash to a running panel: the panel writes the URL from its state on every render (syncHash → history.replaceState),
+  // so a render already scheduled when the hash changes (a store update while the panel loads, the 2.2 s live timer) runs before
+  // the asynchronous hashchange event, puts #/prehled back, and the handler then reads the overview again (W8: CI runs
+  // 38569708744 and 38608868668; locally the navigation was lost 10 times out of 10 with a store refresh pending, never with the
+  // server path). The old `#/sluzby` step never left the overview either (this panel has no such section; it falls back to
+  // #/prehled) and passed only on the banner's plan name.
   await page.goto('/panel');
   await expect(page.getByText('Přehled účtu', { exact: false }).first()).toBeVisible();
   await expect(page.getByText(czk(totalMinor) + ' k úhradě', { exact: false }).first()).toBeVisible();
-  await page.evaluate(() => { location.hash = '#/fakturace'; });
+  await expect(page.getByText(`Objednávka z webu ${order.number} · Webhosting Standard`, { exact: false }).first()).toBeVisible();
+  await page.goto('/panel/fakturace');
+  await expect(page).toHaveURL(/#\/fakturace$/);
+  await expect(page.locator('h1', { hasText: 'Fakturace' }).first()).toBeVisible();
   await expect(page.getByText('Zálohová faktura', { exact: false }).first()).toBeVisible();
   await expect(page.getByText(czk(totalMinor), { exact: true }).first()).toBeVisible();
-  await page.evaluate(() => { location.hash = '#/sluzby'; });
   await expect(page.getByText('Webhosting Standard', { exact: false }).first()).toBeVisible();
 
   // leave nothing to pay behind: cancel the unpaid order through the API with the browser's session
