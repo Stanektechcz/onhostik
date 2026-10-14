@@ -380,3 +380,15 @@ Fáze S nepřinesla nové rozhodnutí vlastníka kromě „ano R3“ (cyklus A�
 | P-R24 (PR-18) | S1 = M1 z návrhu měření: `alias.create` počítá aliasy proti tarifu, výpis jen řádků `type = alias`; `KNOWN_GAPS` 7 → 6 | TASK-0210 (#207) |
 | P-R37, P-R46, P-R69 | S2: zbytek textů R1 (pošta, SSL, CDN, „420+“ koncovek, 55 s, PRG1, kredit bez žádosti, `#/jak-fungujeme`), stavová mřížka za 30 dní | TASK-0211 (#208) |
 | P-R19 (PR-13), P-R40 (OP-4) | S3: `/metrics` vydává rozpočty plánovaných úloh i pod PHP-FPM (nález z C4) | TASK-0212 (#206) |
+
+## Fáze T (2026-10-14): odkazy na balíky
+
+Fáze T nepřinesla nové rozhodnutí vlastníka kromě pověření slučovat PR (MRG-1: PR #206–#209 sloučil koordinátor 2026-10-13
+23:25 UTC). Odkazy:
+
+| Rozhodnutí | Co fáze T udělala | Úkol (PR) |
+|---|---|---|
+| P-R24 (PR-18) | T2 = M3 z návrhu měření: herní tarify bez `limits.pids` (Pterodactyl PID strop nemá) — seeder, datová migrace `001200` (jen nedržené verze, jen seedované číslo), revize `2026-10-game-plans-without-pids` pro držené aktuální verze; `KNOWN_GAPS` 6 → 5 | TASK-0214 (#210) |
+| P-R24 (PR-18), PX-1 | T3 = M2: měsíční přenos VM z Proxmoxu (`rrddata` netin + netout) jako měkká metrika `transfer` proti `traffic_tb` — varuje od 85 %, nikdy neodpojí ani neobjedná, zákazníkovi se ozve až po `ONHOST_METERING_ENFORCE_NEW_METRICS` (D+30); `KNOWN_GAPS` zůstává 5, protože `traffic_tb` prodává i doplněk CDN, který nic neměří (návrh CD-3); ověření na skutečném Proxmoxu až s PX-1 | TASK-0216 (#212) |
+| P-R37, P-R46, rozhodnutí 2 (2026-09-25) | T4: zbytky textů ze S2 přes `PhaseTCopySeam` — „Kde jsme dražší“, Discord, „Telefon 24/7“ v ukázce panelu, nahrávky relací (NIS2), Praha a Brno, archiv 10 let, SSL OV/EV a pojištění, „SLA 99,99 %“ tarifů, „1 900 objednávek/h“ | TASK-0215 (#211) |
+| — | T1: dokument vlastníka `GENERALKA-T-A-C-deploy-prikazy-2026-10-14.md` na cíl `a5b827cb` (čeká na „T-ano“) | — (plocha) |

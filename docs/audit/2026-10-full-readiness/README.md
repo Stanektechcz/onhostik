@@ -902,3 +902,24 @@ S0: CI na `development` zelené (`1c4853f5`), #204/#205 sloučené, zámky TASK-
 slučuje vlastník nebo koordinátor).
 
 **Zbývá:** D (DR-1), HS-2, balíky se vstupem P4–P8, měření M2–M5, zbytky textů nalezené v S2 (seznam v úkolu TASK-0211).
+
+## Stav po fázi T (2026-10-14)
+
+Fáze T (`PROMPT-faze-T-2026-10-14.md`): T0 — PR #206–#209 sloučené (MRG-1, koordinátor s pověřením vlastníka), CI na `development`
+zelené (`2848db64`, včetně pest-postgres 1–4, php 8.5, monitoring, restore-drill), zámky TASK-0210 … TASK-0213 uvolněné. Na stagingu
+se jen četlo (`fda0cedf`, doctor 0 FAIL / 121 OK / 30 WARN, migrace 86; herní verze s `pids` nikdo nedrží). **V produkci se nic
+nespustilo.** Odkazy na rozhodnutí: `ROZHODNUTI.md`, oddíl *Fáze T*.
+
+| PR | Úkol | Co se změnilo |
+|---|---|---|
+| #210 | TASK-0214 (T2) | Herní tarify neprodávají strop procesů, který nic nedrží: seeder bez `pids`, migrace `001200`, revize `2026-10-game-plans-without-pids`; `KNOWN_GAPS` 6 → 5. |
+| #211 | TASK-0215 (T4) | Zbytky textů ze S2 přes `PhaseTCopySeam` (prototypy byte-identické); veřejné swapy fáze T běží až po `PublicContentSeam`. |
+| #212 | TASK-0216 (T3) | Měsíční přenos VPS/VDS z Proxmoxu proti `traffic_tb` (měkký limit, nová metrika rodiny `cloud`); oznámení plného měkkého limitu neříká, že se nic nedá přidat. |
+| #213 | TASK-0217 (T9) | Tento oddíl a odkazy v `ROZHODNUTI.md`. |
+
+**Nový zmrazený cíl:** `a5b827cb192177cd36949003746dec26fd0d07fc` (merge #212) — dokument `GENERALKA-T-A-C-deploy-prikazy-2026-10-14.md`
+(A–C beze změny skriptů, migrace 87, žádný nový řádek `expected-nonok`, C4 navíc `/metrics` se skutečnými příkazy a mřížka 30 dní).
+Čeká na nové „ano“ (T-ano). `PRODUKCE-prikazy-2026-10-13.md` míří dál na `fda0cedf` — po cyklu T na stagingu se přesune na nový cíl.
+
+**Zbývá:** T-ano, D (DR-1), HS-2, balíky se vstupem P4–P8, M4 (`spam_filter`), M5 (`php_workers`), CD-3 (doplněk CDN z katalogu → zavře
+`traffic_tb` i `bot_management`), zbytky textů nalezené v T4 (seznam v úkolu TASK-0215), ověření přenosu na Proxmoxu (PX-1).
