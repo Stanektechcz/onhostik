@@ -277,6 +277,14 @@ final class Lexicon
         ' Částku za Penpot vracíme (na kredit, nebo odečtením z faktury); podrobnosti jsou ve zprávě o vrácení.' => ' The Penpot amount is returned (to your credit, or deducted from the invoice); the details are in the refund message.',
         ' Penpot je v ceně tarifu, nic se neúčtovalo.' => ' Penpot is included in your plan; nothing was charged.',
         ' Objednat ho můžete znovu v detailu služby, až bude server připravený. Objednávka č. ' => ' You can order it again in the service detail once the server is ready. Order no. ',
+        // phrases the coverage test never reached while it relayed only the first 100 of 300+ events (TASK-0101 rest)
+        // an API token's risky action waiting for the owner's approval (TokenApprovals, H-R3)
+        'API token čeká na schválení: ' => 'API token awaiting approval: ', 'schválit může vlastník nebo správce organizace do ' => 'the owner or an organization administrator can approve it until ',
+        'Požadavek API tokenu schválen: ' => 'API token request approved: ', 'Požadavek API tokenu zamítnut: ' => 'API token request declined: ',
+        // a complaint (reklamace) received and settled (ticket.complaint.*)
+        'Reklamace přijata' => 'Complaint received', 'Uplatněna ' => 'Lodged on ', ', vyřídíme nejpozději do ' => ', we will settle it by ',
+        'Reklamace vyřízena' => 'Complaint settled', 'Reklamace uznána zčásti ' => 'Complaint partially accepted on ', 'Reklamace uznána ' => 'Complaint accepted on ',
+        'Reklamace zamítnuta ' => 'Complaint rejected on ', 'Reklamace ' => 'Complaint ',
     ];
 
     public static function translate(?string $text, string $locale): ?string
