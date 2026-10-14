@@ -21,7 +21,7 @@ use Throwable;
 final class AdvisoryIngest
 {
     /** Who words an advisory best, when several describe it. */
-    private const TEXT_PRIORITY = ['wordfence' => 4, 'osv' => 3, 'kev' => 2, 'nvd' => 1];
+    private const TEXT_PRIORITY = ['wordfence' => 5, 'cvelist' => 4, 'osv' => 3, 'kev' => 2, 'nvd' => 1];
 
     private const SEVERITY_RANK = ['unknown' => 0, 'low' => 1, 'medium' => 2, 'high' => 3, 'critical' => 4];
 

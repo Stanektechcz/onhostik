@@ -779,7 +779,7 @@ Artisan::command('onhost:advisories:quick', function (AdvisoryIngest $ingest, Ad
 
         return;
     }
-    $read = $ingest->run(['kev', 'wordfence']);
+    $read = $ingest->run(['kev', 'cvelist', 'wordfence']);
     $matched = $matcher->run();
     $this->table(['feeds', 'failed', 'advisories', 'cases_opened'], [[$read['feeds'], $read['failed'], $read['advisories'], $matched['cases_opened']]]);
 })->purpose('Hourly between the full runs: CISA KEV (exploited now) and the WordPress feed, matched against the inventory as it is (SN)');

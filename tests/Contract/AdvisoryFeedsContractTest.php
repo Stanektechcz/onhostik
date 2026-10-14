@@ -10,6 +10,7 @@ use Onhost\Domain\Advisories\Models\AdvisorySource;
 use Onhost\Domain\Advisories\Models\InventoryItem;
 use Onhost\Platform\Errors\ProviderException;
 use Onhost\Providers\Advisories\CisaKevFeed;
+use Onhost\Providers\Advisories\CveListFeed;
 use Onhost\Providers\Advisories\NvdFeed;
 use Onhost\Providers\Advisories\OsvLookup;
 use Onhost\Providers\Advisories\WordfenceFeed;
@@ -144,4 +145,63 @@ it('keeps WordPress plugins and themes from NVD without a Wordfence key and maps
     expect(app(WordfenceFeed::class)->enabled())->toBeFalse()
         ->and($rows[0]['affected'][0])->toBe(['ecosystem' => 'wordpress-plugin', 'product' => 'contact-form-7', 'fixed' => '5.9.8'])
         ->and($rows[1]['affected'][0])->toBe(['ecosystem' => 'wordpress-theme', 'product' => 'astra', 'last_affected' => '4.1.0']);
+});
+
+const SN_CVELIST = 'https://raw.githubusercontent.com/CVEProject/cvelistV5/';
+
+/** @param list<array<string,mixed>> $versions @param list<string> $refs @return array<string,mixed> */
+function snCveRecord(string $id, array $versions, array $refs, string $state = 'PUBLISHED'): array
+{
+    return ['cveMetadata' => ['cveId' => $id, 'state' => $state, 'datePublished' => '2026-10-14T08:00:00.000Z', 'dateUpdated' => '2026-10-14T08:00:00.000Z'],
+        'containers' => ['cna' => ['title' => 'Plugin <b>X</b> <= 2.3.1 - Stored XSS', 'descriptions' => [['lang' => 'en', 'value' => 'Stored XSS in a plugin.']],
+            'affected' => [['vendor' => 'acme', 'product' => 'Acme Forms', 'versions' => $versions]],
+            'metrics' => [['cvssV3_1' => ['baseScore' => 6.4, 'baseSeverity' => 'MEDIUM']]],
+            'references' => array_map(fn ($u) => ['url' => $u], $refs)]]];
+}
+
+it('reads new CVE List records of WordPress plugins and themes with the CNA version ranges from day one', function () {
+    $raw = SN_CVELIST.'main/cves/2026/6xxx/';
+    Http::fake([
+        SN_CVELIST.'main/cves/deltaLog.json' => Http::response([
+            ['fetchTime' => '2026-10-14T09:00:00.000Z', 'new' => [
+                ['cveId' => 'CVE-2026-6101', 'githubLink' => $raw.'CVE-2026-6101.json'],
+                ['cveId' => 'CVE-2026-6102', 'githubLink' => $raw.'CVE-2026-6102.json'],
+                ['cveId' => 'CVE-2026-6103', 'githubLink' => $raw.'CVE-2026-6103.json'],
+                ['cveId' => 'CVE-2026-6104', 'githubLink' => 'https://evil.example/CVE-2026-6104.json'],
+            ]],
+            ['fetchTime' => '2026-09-01T09:00:00.000Z', 'new' => [['cveId' => 'CVE-2026-0001', 'githubLink' => $raw.'CVE-2026-0001.json']]],
+        ]),
+        $raw.'CVE-2026-6101.json' => Http::response(snCveRecord('CVE-2026-6101', [['version' => '*', 'status' => 'affected', 'lessThanOrEqual' => '2.3.1', 'versionType' => 'semver']],
+            ['https://www.wordfence.com/threat-intel/x', 'https://plugins.trac.wordpress.org/browser/acme-forms/tags/2.3.1/form.php'])),
+        $raw.'CVE-2026-6102.json' => Http::response(snCveRecord('CVE-2026-6102', [['version' => '1.0', 'status' => 'affected', 'lessThan' => '1.4.2'], ['version' => '9.9', 'status' => 'unaffected']],
+            ['https://wordpress.org/themes/acme-theme/'])),
+        $raw.'CVE-2026-6103.json' => Http::response(snCveRecord('CVE-2026-6103', [['version' => '1.0', 'status' => 'affected', 'lessThan' => '2.0']], ['https://example.com/advisory'])),
+        '*' => Http::response('unexpected', 500),
+    ]);
+    $batch = app(CveListFeed::class)->fetch('2026-10-01T00:00:00');
+
+    expect($batch->complete)->toBeTrue()->and($batch->cursor)->toBe('2026-10-14T09:00:00')
+        ->and(array_column($batch->advisories, 'key'))->toBe(['CVE-2026-6101', 'CVE-2026-6102'])
+        ->and($batch->advisories[0])->toMatchArray(['source' => 'cvelist', 'kev' => false, 'cvss' => 6.4, 'severity' => 'medium', 'title' => 'Plugin X <= 2.3.1 - Stored XSS'])
+        ->and($batch->advisories[0]['affected'][0])->toBe(['ecosystem' => 'wordpress-plugin', 'product' => 'acme-forms', 'name' => 'Acme Forms', 'last_affected' => '2.3.1'])
+        ->and($batch->advisories[1]['affected'])->toBe([['ecosystem' => 'wordpress-theme', 'product' => 'acme-theme', 'name' => 'Acme Forms', 'introduced' => '1.0', 'fixed' => '1.4.2']]);
+    Http::assertNotSent(fn (Request $r) => str_contains($r->url(), 'evil.example') || str_contains($r->url(), 'CVE-2026-0001'));
+});
+
+it('reads whole CVE List fetches oldest first up to the configured number and moves the cursor to the last one read', function () {
+    config(['onhost.advisories.cvelist_max_new' => 2]);
+    $raw = SN_CVELIST.'main/cves/2026/6xxx/';
+    Http::fake([
+        SN_CVELIST.'main/cves/deltaLog.json' => Http::response([
+            ['fetchTime' => '2026-10-14T11:00:00.000Z', 'new' => [['githubLink' => $raw.'CVE-2026-6203.json']]],
+            ['fetchTime' => '2026-10-14T10:00:00.000Z', 'new' => [['githubLink' => $raw.'CVE-2026-6201.json'], ['githubLink' => $raw.'CVE-2026-6202.json']]],
+        ]),
+        $raw.'*' => Http::response(snCveRecord('CVE-2026-6201', [['version' => '0', 'status' => 'affected', 'lessThan' => '3.0']], ['https://wordpress.org/plugins/acme/'], 'REJECTED')),
+    ]);
+    $first = app(CveListFeed::class)->fetch('2026-10-13T00:00:00');
+    $second = app(CveListFeed::class)->fetch($first->cursor);
+
+    expect($first->complete)->toBeFalse()->and($first->cursor)->toBe('2026-10-14T10:00:00')->and($first->advisories)->toBe([])
+        ->and($second->complete)->toBeTrue()->and($second->cursor)->toBe('2026-10-14T11:00:00');
+    Http::assertSentCount(5);
 });
