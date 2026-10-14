@@ -8,7 +8,6 @@ use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Onhost\Domain\Identity\Authorization\ApprovalService;
@@ -657,10 +656,7 @@ final class PaymentService
             $fees += $item['fee']?->minor ?? 0;
             SettlementItem::query()->create(['settlement_id' => $settlement->id, 'provider_id' => $item['provider_id'], 'amount_minor' => $item['amount']->minor, 'fee_minor' => $item['fee']?->minor ?? 0, 'currency' => $item['amount']->currency->value, 'settled_at' => $item['settled_at'], 'matched_payment_intent_id' => $intent?->id, 'state' => $state]);
         }
-        foreach ($this->missingPayouts($providerKey, $periodStart, $periodEnd) as $intent) {
-            $mismatches++;
-            ReconciliationItem::query()->create(['run_id' => $run->id, 'kind' => 'succeeded_without_settlement', 'reference' => $intent->id, 'expected_minor' => $intent->amount_minor, 'note' => 'Succeeded intent missing from provider settlement']);
-        }
+        $mismatches += $this->checkMissingPayouts($run, $providerKey, $periodStart, $periodEnd);
         $settlement->forceFill(['total_minor' => $total, 'fee_minor' => $fees, 'state' => $mismatches ? 'mismatch' : 'reconciled'])->save();
         $run->forceFill(['mismatches' => $mismatches, 'state' => $mismatches ? 'mismatch' : 'completed'])->save();
         if ($mismatches) {
@@ -674,22 +670,26 @@ final class PaymentService
      * Intents that succeeded but whose payout never came. A gateway pays a day's payments out days later, so the run of a period
      * asks only about intents paid `settlement_lag_days` before it (Prague days, half-open), and an intent counts as paid out when
      * any settlement of the provider recorded so far carries it (this run's included) — a payout on D+2 raises nothing on D or
-     * D+2, and an intent never paid out is reported once, by the one run its paid day falls to. That run asks only when every day
-     * of the lag before it has its run (the payouts of those days are known); without them it cannot tell late from missing and
-     * says nothing — the job's catch-up runs missed days oldest first, so the days are there. A bank intent is paid out by the
+     * D+2, and an intent never paid out is reported once, by the one run its paid day falls to. A bank intent is paid out by the
      * statement line that settled it, whatever day the line was booked (matching comes after booking).
      *
-     * @return Collection<int, PaymentIntent>
+     * The run asks only when every day of the lag before it has its run (the payouts of those days are known); without them it
+     * cannot tell late from missing. Then the check is skipped, and — so a gap longer than the job's catch-up window is never
+     * silent — one `payout_check_skipped` item names the gap and the command that fills it. A gap is known by its last day without
+     * a run: the following nights find the same gap and add nothing. A provider that never had a run before (just configured)
+     * has nothing to backfill and gets a log line only.
+     *
+     * @return int mismatches opened
      */
-    private function missingPayouts(string $providerKey, \DateTimeInterface $periodStart, \DateTimeInterface $periodEnd): Collection
+    private function checkMissingPayouts(ReconciliationRun $run, string $providerKey, \DateTimeInterface $periodStart, \DateTimeInterface $periodEnd): int
     {
         $lag = max(0, (int) config("onhost.payments.reconcile.settlement_lag_days.{$providerKey}", 0));
         $local = fn (\DateTimeInterface $at) => CarbonImmutable::instance($at)->setTimezone(AccountingClock::timezone());
         $utc = fn (CarbonImmutable $at) => $at->setTimezone(date_default_timezone_get());
         for ($back = 1; $back <= $lag; $back++) {
-            $dayStart = $utc($local($periodStart)->startOfDay()->subDays($back));
-            if (! ReconciliationRun::query()->where('kind', 'payments')->where('provider', $providerKey)->where('period_start', $dayStart)->exists()) {
-                return new Collection;
+            $dayStart = $local($periodStart)->startOfDay()->subDays($back);
+            if (! ReconciliationRun::query()->where('kind', 'payments')->where('provider', $providerKey)->where('period_start', $utc($dayStart))->exists()) {
+                return $this->payoutCheckSkipped($run, $providerKey, $dayStart);
             }
         }
         $candidates = PaymentIntent::query()->where('provider', $providerKey)->where('state', S::SUCCEEDED)
@@ -697,12 +697,39 @@ final class PaymentService
             ->whereNotIn('id', BankStatementLine::query()->where('state', 'matched')->whereNotNull('matched_payment_intent_id')->select('matched_payment_intent_id'))
             ->get();
         if ($candidates->isEmpty()) {
-            return $candidates;
+            return 0;
         }
         $paidOut = SettlementItem::query()->whereIn('settlement_id', Settlement::query()->where('provider', $providerKey)->select('id'))
             ->whereIn('provider_id', $candidates->pluck('provider_id')->filter()->values())->pluck('provider_id')->all();
+        $missing = $candidates->reject(fn (PaymentIntent $intent) => in_array((string) $intent->provider_id, $paidOut, true));
+        foreach ($missing as $intent) {
+            ReconciliationItem::query()->create(['run_id' => $run->id, 'kind' => 'succeeded_without_settlement', 'reference' => $intent->id, 'expected_minor' => $intent->amount_minor, 'note' => 'Succeeded intent missing from provider settlement']);
+        }
 
-        return $candidates->reject(fn (PaymentIntent $intent) => in_array((string) $intent->provider_id, $paidOut, true))->values();
+        return $missing->count();
+    }
+
+    /** One item per provider and gap (`$lastMissing` is the gap's last day without a run, at the seller's seat). */
+    private function payoutCheckSkipped(ReconciliationRun $run, string $providerKey, CarbonImmutable $lastMissing): int
+    {
+        $last = $lastMissing->toDateString();
+        $before = ReconciliationRun::query()->where('kind', 'payments')->where('provider', $providerKey)
+            ->where('period_start', '<', $lastMissing->setTimezone(date_default_timezone_get()))->max('period_start');
+        if ($before === null) {
+            Log::warning('payments reconcile: payout check skipped, no earlier run', ['provider' => $providerKey, 'until' => $last]);
+
+            return 0;
+        }
+        $first = CarbonImmutable::parse((string) $before, date_default_timezone_get())->setTimezone(AccountingClock::timezone())->addDay()->toDateString();
+        Log::warning('payments reconcile: payout check skipped, days without a run', ['provider' => $providerKey, 'from' => $first, 'until' => $last]);
+        $reference = "{$providerKey}:{$last}";
+        if (ReconciliationItem::query()->where('kind', 'payout_check_skipped')->where('reference', $reference)->exists()) {
+            return 0;
+        }
+        ReconciliationItem::query()->create(['run_id' => $run->id, 'kind' => 'payout_check_skipped', 'reference' => $reference,
+            'note' => "Payout check skipped: days {$first}..{$last} have no run; run onhost:payments:reconcile --provider={$providerKey} --date=<day> for each, oldest first"]);
+
+        return 1;
     }
 
     /** Match an imported bank statement line to a pending bank-transfer intent by variable symbol + amount. */

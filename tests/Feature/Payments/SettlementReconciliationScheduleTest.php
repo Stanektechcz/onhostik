@@ -9,6 +9,7 @@ use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Onhost\Domain\Organizations\Models\Organization;
@@ -363,9 +364,13 @@ it('takes a day as [00:00, next 00:00) in Prague, the summer-time change include
     expect($dst->period_end->toDateTimeString())->toBe('2026-10-25 23:00:00'); // a 25-hour day
 });
 
-it('names in the doctor a gateway with credentials that has no reconciliation for yesterday, and is OK without a gateway', function () {
+it('names in the doctor a configured gateway with no reconciliation or no credentials, and is OK on the deploy morning and on staging', function () {
     $row = fn () => collect(app(ReconciliationHealth::class)->checks())->firstWhere('check', ReconciliationHealth::CHECK);
-    // 01:30 in Prague: the 05:15 run has not reconciled the 14th yet, the 13th is due
+    // the deploy morning: the job has never run, no day is due yet
+    expect($row()['ok'])->toBeTrue()->and($row()['detail'])->toContain('the job has not run since it was scheduled');
+
+    // the job ran; 01:30 in Prague: the 05:15 run has not reconciled the 14th yet, the 13th is due
+    DB::table('scheduled_job_runs')->insert(['command' => ReconciliationHealth::COMMAND, 'last_started_at' => now()->subDay(), 'last_success_at' => now()->subDay(), 'created_at' => now(), 'updated_at' => now()]);
     expect($row()['ok'])->toBeFalse()->and($row()['detail'])->toBe('comgate has no reconciliation for 2026-10-13')->and($row()['blocking'])->toBeFalse();
 
     $days = [];
@@ -373,10 +378,60 @@ it('names in the doctor a gateway with credentials that has no reconciliation fo
     $this->artisan('onhost:payments:reconcile', ['--provider' => 'comgate', '--date' => '2026-10-13'])->assertExitCode(0);
     expect($row()['ok'])->toBeTrue()->and($row()['detail'])->toBe('comgate reconciled for 2026-10-13');
 
-    // staging: no gateway holds credentials — nothing to reconcile, OK
+    // a merchant id but no secret: configured, skipped by the job — named, never silently OK
+    t235ComgateCredentials('123456', null);
+    expect($row()['ok'])->toBeFalse()->and($row()['detail'])->toBe('comgate is configured but its credentials are missing, so it is skipped');
+
+    // production: the gateway payments are created with counts even with nothing set
     t235ComgateCredentials(null, null);
-    $this->travelTo(Carbon::parse('2026-10-16 10:00:00', 'UTC'));
-    expect($row()['ok'])->toBeTrue()->and($row()['detail'])->toContain('no payment gateway holds credentials');
+    app()->detectEnvironment(fn () => 'production');
+    expect($row()['ok'])->toBeFalse()->and($row()['detail'])->toContain('comgate is configured but its credentials are missing');
+
+    // staging: no merchant id, no GoID, not production — nothing configured, OK
+    app()->detectEnvironment(fn () => 'staging');
+    expect($row()['ok'])->toBeTrue()->and($row()['detail'])->toContain('no payment gateway is configured');
+});
+
+it('reports a gap longer than the catch-up window once, and backfilling it reports what the gap hid', function () {
+    config(['onhost.payments.reconcile.settlement_lag_days.comgate' => 2]);
+    [, $org] = $this->customerWithOrganization();
+    $lost = t235PaidIntent($org, 'comgate', 'T235-GAP-0001', '2026-10-05 08:00:00'); // paid in the outage, never paid out
+    t235ComgatePayouts([]);
+    foreach (['2026-10-01', '2026-10-02'] as $day) {
+        $this->artisan('onhost:payments:reconcile', ['--provider' => 'comgate', '--date' => $day])->assertExitCode(0);
+    }
+    Log::spy();
+    // ten days without a run (3rd–12th); the scheduled run on the 15th catches up only the 12th–14th
+
+    $this->artisan('onhost:payments:reconcile', ['--provider' => 'comgate'])->assertExitCode(0);
+    $this->artisan('onhost:payments:reconcile', ['--provider' => 'comgate'])->assertExitCode(0); // the next night: same gap, nothing new
+
+    $gap = ReconciliationItem::query()->where('kind', 'payout_check_skipped')->get();
+    expect($gap)->toHaveCount(1)
+        ->and($gap[0]->reference)->toBe('comgate:2026-10-11')
+        ->and($gap[0]->note)->toContain('days 2026-10-03..2026-10-11 have no run')->toContain('--provider=comgate')
+        ->and(ReconciliationRun::query()->findOrFail($gap[0]->run_id)->state)->toBe('mismatch')
+        ->and(OutboxMessage::query()->where('name', 'finance.reconciliation.mismatch')->where('aggregate_id', $gap[0]->run_id)->exists())->toBeTrue()
+        ->and(ReconciliationItem::query()->where('kind', 'succeeded_without_settlement')->exists())->toBeFalse();
+    Log::shouldHaveReceived('warning')->with('payments reconcile: payout check skipped, days without a run', ['provider' => 'comgate', 'from' => '2026-10-03', 'until' => '2026-10-11']);
+
+    // finance backfills the gap as the item says, oldest first: the payment the gap hid is reported, the gap is not raised again
+    for ($d = 3; $d <= 11; $d++) {
+        $this->artisan('onhost:payments:reconcile', ['--provider' => 'comgate', '--date' => sprintf('2026-10-%02d', $d)])->assertExitCode(0);
+    }
+    expect(ReconciliationItem::query()->where('kind', 'succeeded_without_settlement')->pluck('reference')->all())->toBe([$lost->id])
+        ->and(ReconciliationItem::query()->where('kind', 'payout_check_skipped')->count())->toBe(1)
+        ->and(ReconciliationRun::query()->where('provider', 'comgate')->count())->toBe(14);
+});
+
+it('raises no gap for a gateway that never had a run before (just configured)', function () {
+    config(['onhost.payments.reconcile.settlement_lag_days.comgate' => 2]);
+    t235ComgatePayouts([]);
+
+    $this->artisan('onhost:payments:reconcile', ['--provider' => 'comgate'])->assertExitCode(0);
+
+    expect(ReconciliationRun::query()->where('provider', 'comgate')->count())->toBe(3)
+        ->and(ReconciliationItem::query()->count())->toBe(0);
 });
 
 it('is scheduled once a day at a quiet hour in Prague, on one server and without overlap', function () {

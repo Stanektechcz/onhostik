@@ -146,7 +146,12 @@ are skipped and the bank is reconciled, so the job exits 0 and the doctor's *eve
 only once the provider's lag has passed: the run of day D checks the intents paid on D minus
 `onhost.payments.reconcile.settlement_lag_days` (Prague days), and an intent counts as paid out when any settlement of that provider
 recorded so far carries it. The run of D asks only when each of the lag days before it has its run (otherwise late cannot be told
-from missing); the catch-up makes sure they do. A payout two days late raises nothing; an intent never paid out is reported exactly
+from missing); the catch-up makes sure they do. When a gap is longer than the catch-up window (the job did not run, or the gateway
+failed, for more than lag + 1 nights), the check of the day is skipped and one `payout_check_skipped` item
+(`finance.reconciliation.mismatch`, reference `<provider>:<last day without a run>`) names the days without a run and the command
+that fills them: `php artisan onhost:payments:reconcile --provider=<provider> --date=<day>` for each day, oldest first. The
+following nights find the same gap and add nothing; once the days are filled, the payments the gap hid are reported by the
+backfilled runs. A gateway that never had a run before (just configured) has nothing to backfill: a log line only. A payout two days late raises nothing; an intent never paid out is reported exactly
 once, by the one run its day falls to. A bank intent is paid out by the statement line that settled it, whatever day the line was
 booked. Defaults — **ASSUMED**, not verified with any account: Comgate 5 and GoPay 5 (they reconcile by transfer/statement date,
 paid after one or more working days; 5 covers a weekend with a holiday), Stripe 2 (its adapter lists balance transactions by charge
@@ -161,10 +166,14 @@ the day they were paid with the transfer date of the payout that carried them (C
 
 ## Doctor
 
-* *every payment gateway with credentials was reconciled yesterday* (WARN only, `payments` area, `ReconciliationHealth`): a gateway
-  in `onhost.payments.reconcile.providers` that holds its credentials (the bank is not counted) and has no run for yesterday (before
-  06:00 Prague: the day before yesterday). Remedy: run the job with `--provider`, read `payments reconcile: provider failed`; the
-  next night's catch-up retries by itself. With no gateway holding credentials — **staging today** — the row is OK.
+* *every configured payment gateway was reconciled yesterday* (WARN only, `payments` area, `ReconciliationHealth`). A gateway in
+  `onhost.payments.reconcile.providers` is configured when it holds its credentials or something names it: Comgate's merchant id or
+  one of its credentials, GoPay's GoID, or — in production — `PAYMENT_GATEWAY`. WARN names a configured gateway whose credentials are
+  missing (the job skips it) and a gateway with credentials that has no run for yesterday (before 06:00 Prague: the day before
+  yesterday). Until the job has run once after it was scheduled (the deploy morning) no day is due. The bank is not counted.
+  Remedy: put the credentials in the store, or run the job with `--provider` and read `payments reconcile: provider failed`; the
+  next night's catch-up retries by itself. **Staging: OK** — no gateway configured there (no merchant id, no GoID, not production;
+  per `.env.example` and this page, the actual staging `.env` was not read).
 * *card gateway live mode* reads the mode payments are really created in (administration override first, then `COMGATE_TEST`) and
   says who set it; it blocks a production deploy while the gateway is in test mode (as before).
 * *Comgate answered the last administration check* (WARN only): never checked, or the last check failed.
