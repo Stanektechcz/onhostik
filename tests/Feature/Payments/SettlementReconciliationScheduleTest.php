@@ -1,0 +1,219 @@
+<?php
+
+declare(strict_types=1);
+
+use Database\Seeders\LegalEntitySeeder;
+use Database\Seeders\TaxRuleSeeder;
+use Illuminate\Console\Scheduling\Event as ScheduledEvent;
+use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Http\Client\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Payments\Models\BankStatementLine;
+use Onhost\Domain\Payments\Models\PaymentIntent;
+use Onhost\Domain\Payments\Models\ReconciliationItem;
+use Onhost\Domain\Payments\Models\ReconciliationRun;
+use Onhost\Domain\Payments\Models\SettlementItem;
+use Onhost\Platform\Outbox\OutboxMessage;
+
+/*
+ * TASK-0235: `PaymentService::reconcile()` compared provider settlements with intents and the ledger, but nothing called it. The
+ * daily `onhost:payments:reconcile` reconciles yesterday (a day at the seller's seat, Europe/Prague) for every configured provider
+ * with credentials — the bank included — once per provider and day. A provider without credentials is skipped, one that fails does
+ * not stop the others, and the job exits 1 only when every provider it tried failed.
+ */
+
+beforeEach(function () {
+    Http::preventStrayRequests();
+    $this->seed([TaxRuleSeeder::class, LegalEntitySeeder::class]);
+    config([
+        'onhost.payments.reconcile.providers' => ['comgate', 'gopay', 'stripe', 'bank'],
+        'onhost.payments.gopay.secret_ref' => 'env://T235_RECON_GOPAY_ABSENT',
+        'onhost.payments.stripe.secret_ref' => 'env://T235_RECON_STRIPE_ABSENT',
+    ]);
+    t235ComgateCredentials('123456', 't235-recon-secret');
+    // 23:30 UTC on 14 October is 01:30 on 15 October in Prague: "yesterday" is the 14th there, the 13th in UTC
+    $this->travelTo(Carbon::parse('2026-10-14 23:30:00', 'UTC'));
+});
+
+function t235ComgateCredentials(?string $merchant, ?string $secret): void
+{
+    foreach (['T235RECONCG_MERCHANT' => $merchant, 'T235RECONCG_SECRET' => $secret] as $key => $value) {
+        if ($value === null) {
+            putenv($key);
+            unset($_ENV[$key], $_SERVER[$key]);
+        } else {
+            putenv("{$key}={$value}");
+            $_ENV[$key] = $value;
+        }
+    }
+    config(['onhost.payments.comgate.merchant' => $merchant, 'onhost.payments.comgate.secret_ref' => 'env://T235RECONCG', 'onhost.payments.comgate.test' => true]);
+}
+
+function t235Intent(Organization $org, string $provider, string $providerId, string $state, int $amount = 50000): PaymentIntent
+{
+    return PaymentIntent::query()->create(['organization_id' => $org->id, 'provider' => $provider, 'provider_id' => $providerId, 'purpose' => 'topup',
+        'amount_minor' => $amount, 'currency' => 'CZK', 'state' => $state, 'method' => 'card', 'idempotency_key' => 't235-'.uniqid('', true)]);
+}
+
+/**
+ * Comgate over Http::fake: the transfer list of a day, the detail of its one transfer (`$items` transId => price) and the payment
+ * status (`$statuses` transId => status). `$transferDays` collects the `date` asked of the transfer list; `$fail` answers it with an
+ * HTTP 500 and no JSON.
+ *
+ * @param  array<string,int>  $items
+ * @param  array<string,string>  $statuses
+ * @param  list<string>  $transferDays
+ */
+function t235ComgateFake(array $items, array $statuses, array &$transferDays, bool $fail = false): void
+{
+    Http::fake([
+        'payments.comgate.cz/v2.0/transfer*' => function (Request $request) use ($items, &$transferDays, $fail) {
+            if (str_starts_with((string) parse_url($request->url(), PHP_URL_PATH), '/v2.0/transfer/')) {
+                return Http::response(['code' => 0, 'message' => 'OK', 'items' => array_map(
+                    fn (string $id, int $price) => ['transId' => $id, 'price' => $price, 'curr' => 'CZK', 'fee' => 300, 'refId' => 'ref-'.$id], array_keys($items), $items)]);
+            }
+            parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+            $transferDays[] = (string) ($query['date'] ?? '');
+
+            return $fail ? Http::response('Service Unavailable', 500) : Http::response(['code' => 0, 'message' => 'OK', 'transfers' => [['transferId' => 'T235-TR-1', 'transferDate' => (string) ($query['date'] ?? ''), 'curr' => 'CZK']]]);
+        },
+        'payments.comgate.cz/v2.0/payment/transId/*' => function (Request $request) use ($statuses, $items) {
+            $transId = rawurldecode((string) substr((string) parse_url($request->url(), PHP_URL_PATH), strlen('/v2.0/payment/transId/')));
+
+            return Http::response(['code' => 0, 'message' => 'OK', 'transId' => $transId, 'status' => $statuses[$transId] ?? 'PENDING', 'price' => $items[$transId] ?? 50000, 'curr' => 'CZK', 'method' => 'CARD_CZ_CSOB_2']);
+        },
+    ]);
+}
+
+/** @return list<ScheduledEvent> */
+function t235Scheduled(): array
+{
+    return collect(app(Schedule::class)->events())->filter(fn (ScheduledEvent $e) => str_contains((string) $e->command, 'onhost:payments:reconcile'))->values()->all();
+}
+
+it('reconciles yesterday in Prague once per provider and day, and a second run is a no-op', function () {
+    [, $org] = $this->customerWithOrganization();
+    t235Intent($org, 'comgate', 'T235-PAID-0001', 'SUCCEEDED');
+    $days = [];
+    t235ComgateFake(['T235-PAID-0001' => 50000], [], $days);
+
+    $this->artisan('onhost:payments:reconcile')
+        ->expectsOutputToContain('payments reconcile 2026-10-14: reconciled bank comgate, already -, skipped gopay stripe, failed -')
+        ->assertExitCode(0);
+
+    expect($days)->toBe(['2026-10-14']);
+    $runs = ReconciliationRun::query()->where('kind', 'payments')->get();
+    expect($runs)->toHaveCount(2)
+        ->and($runs->pluck('summary.provider')->sort()->values()->all())->toBe(['bank', 'comgate']);
+    $comgate = $runs->firstWhere('summary.provider', 'comgate');
+    // the day's boundaries at the seller's seat, stored as instants in UTC (summer time: Prague is UTC+2)
+    expect($comgate->period_start->toDateTimeString())->toBe('2026-10-13 22:00:00')
+        ->and($comgate->period_end->toDateTimeString())->toBe('2026-10-14 21:59:59')
+        ->and($comgate->state)->toBe('completed')->and($comgate->mismatches)->toBe(0);
+
+    $this->artisan('onhost:payments:reconcile')
+        ->expectsOutputToContain('payments reconcile 2026-10-14: reconciled -, already bank comgate, skipped gopay stripe, failed -')
+        ->assertExitCode(0);
+    expect(ReconciliationRun::query()->count())->toBe(2)->and($days)->toBe(['2026-10-14']);
+});
+
+it('settles an intent the provider settled but that is still pending here', function () {
+    [, $org] = $this->customerWithOrganization();
+    $intent = t235Intent($org, 'comgate', 'T235-PEND-0001', 'PENDING_CUSTOMER');
+    $days = [];
+    t235ComgateFake(['T235-PEND-0001' => 50000], ['T235-PEND-0001' => 'PAID'], $days);
+
+    $this->artisan('onhost:payments:reconcile', ['--provider' => 'comgate'])->assertExitCode(0);
+
+    expect($intent->refresh()->state)->toBe('SUCCEEDED')
+        ->and(SettlementItem::query()->where('provider_id', 'T235-PEND-0001')->value('state'))->toBe('matched')
+        ->and(ReconciliationItem::query()->where('kind', 'settled_but_not_succeeded')->exists())->toBeFalse();
+});
+
+it('makes a mismatch visible to finance through the reconciliation item and its event', function () {
+    $days = [];
+    t235ComgateFake(['T235-STRANGER-1' => 12300], [], $days);
+
+    $this->artisan('onhost:payments:reconcile', ['--provider' => 'comgate'])
+        ->expectsOutputToContain('reconciled comgate')->assertExitCode(0);
+
+    $run = ReconciliationRun::query()->sole();
+    expect($run->state)->toBe('mismatch')->and($run->mismatches)->toBe(1)
+        ->and(ReconciliationItem::query()->where('run_id', $run->id)->value('kind'))->toBe('settlement_without_intent')
+        ->and(OutboxMessage::query()->where('name', 'finance.reconciliation.mismatch')->where('aggregate_id', $run->id)->exists())->toBeTrue();
+});
+
+it('skips a provider without credentials with a warning and still exits 0', function () {
+    t235ComgateCredentials(null, null);
+    Log::spy();
+
+    $this->artisan('onhost:payments:reconcile')
+        ->expectsOutputToContain('reconciled bank, already -, skipped comgate gopay stripe, failed -')
+        ->assertExitCode(0);
+
+    Log::shouldHaveReceived('warning')->with('payments reconcile: provider skipped, no credentials', Mockery::on(fn (array $c) => $c['provider'] === 'comgate'));
+    expect(ReconciliationRun::query()->pluck('summary')->pluck('provider')->all())->toBe(['bank']);
+
+    // every provider skipped is not a failure either: staging has no gateway account
+    ReconciliationRun::query()->delete();
+    config(['onhost.payments.reconcile.providers' => ['comgate']]);
+    $this->artisan('onhost:payments:reconcile')->expectsOutputToContain('reconciled -, already -, skipped comgate, failed -')->assertExitCode(0);
+    expect(ReconciliationRun::query()->count())->toBe(0);
+});
+
+it('does not let one provider error stop the others, and exits 1 only when every provider it tried failed', function () {
+    [, $org] = $this->customerWithOrganization();
+    $paid = t235Intent($org, 'bank', 't235-bank-0001', 'SUCCEEDED', 12100);
+    BankStatementLine::query()->create(['account' => 'CZ00', 'amount_minor' => 12100, 'currency' => 'CZK', 'variable_symbol' => '2026023501', 'counterparty' => 'Jana',
+        'booked_at' => Carbon::parse('2026-10-14 08:00:00', 'UTC'), 'external_id' => 't235-line-1', 'matched_payment_intent_id' => $paid->id, 'state' => 'matched']);
+    $days = [];
+    t235ComgateFake([], [], $days, fail: true);
+    Log::spy();
+
+    $this->artisan('onhost:payments:reconcile')
+        ->expectsOutputToContain('reconciled bank, already -, skipped gopay stripe, failed comgate')
+        ->assertExitCode(0);
+
+    Log::shouldHaveReceived('warning')->with('payments reconcile: provider failed', Mockery::on(fn (array $c) => $c['provider'] === 'comgate' && $c['day'] === '2026-10-14'
+        && class_exists($c['error']) && ! array_key_exists('message', $c)));
+    expect(ReconciliationRun::query()->pluck('summary')->pluck('provider')->all())->toBe(['bank'])
+        ->and(SettlementItem::query()->where('provider_id', 't235-bank-0001')->value('state'))->toBe('matched');
+
+    // the failed day wrote no run, so the same day can be run again; when every provider tried fails, the job fails
+    config(['onhost.payments.reconcile.providers' => ['comgate']]);
+    $this->artisan('onhost:payments:reconcile')->expectsOutputToContain('failed comgate')->assertExitCode(1);
+});
+
+it('reconciles a given past day and refuses today, a future day, a malformed day and an unknown provider', function () {
+    $days = [];
+    t235ComgateFake([], [], $days);
+
+    $this->artisan('onhost:payments:reconcile', ['--date' => '2026-10-02', '--provider' => 'comgate'])
+        ->expectsOutputToContain('payments reconcile 2026-10-02: reconciled comgate')->assertExitCode(0);
+    expect($days)->toBe(['2026-10-02']);
+
+    foreach (['2026-10-15', '2026-10-16', '2026-13-01', '15.10.2026', ''] as $bad) {
+        $this->artisan('onhost:payments:reconcile', ['--date' => $bad])->assertExitCode(1);
+    }
+    $this->artisan('onhost:payments:reconcile', ['--provider' => 'paypal'])->assertExitCode(1);
+    expect(ReconciliationRun::query()->count())->toBe(1)->and($days)->toBe(['2026-10-02']);
+});
+
+it('is scheduled once a day at a quiet hour in Prague, on one server and without overlap', function () {
+    $events = t235Scheduled();
+    expect($events)->toHaveCount(1);
+    $event = $events[0];
+    expect($event->expression)->toBe('15 5 * * *')
+        ->and($event->timezone)->toBe('Europe/Prague')
+        ->and($event->onOneServer)->toBeTrue()
+        ->and($event->withoutOverlapping)->toBeTrue();
+});
+
+it('keeps the runbook in step: reconciliation is scheduled', function () {
+    $runbook = (string) file_get_contents(base_path('docs/runbooks/comgate.md'));
+    expect(str_contains($runbook, '`onhost:payments:reconcile` runs every day at 05:15 Europe/Prague'))->toBeTrue()
+        ->and(str_contains($runbook, 'is not scheduled'))->toBeFalse();
+});

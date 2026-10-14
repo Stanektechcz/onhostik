@@ -82,8 +82,8 @@ A card payment is settled by Comgate's notification or by the payer's return to 
 taken and the intent would stay open, so `onhost:payments:sweep` (every ten minutes, one server, no overlap) re-reads the
 gateway's status of every card intent still open (`CREATED`, `PENDING_CUSTOMER`, `AUTHENTICATION_REQUIRED`, `PROCESSING`) and
 applies it through `PaymentService::syncFromProvider`, the same idempotent path the notification takes: paid → settled,
-cancelled/failed → closed, still pending → asked again next run. There is no daily reconciliation job that would do this
-(`PaymentService::reconcile()` is not scheduled).
+cancelled/failed → closed, still pending → asked again next run. The daily settlement reconciliation (below) catches a paid
+intent the sweep did not reach only the morning after, from the gateway's transfer.
 
 | Setting | Env | Default | Meaning |
 | --- | --- | --- | --- |
@@ -106,6 +106,38 @@ minutes. Finance resolves it (with the merchant portal: refund the difference, o
 posting) and then re-reads the intent by hand with `POST /v1/payments/{intent}/sync`. While the gateway still reports the other
 amount, that re-read opens a new item again (the existing behaviour of `syncFromProvider`): re-read only once the gateway's side
 is corrected.
+
+## Daily settlement reconciliation (TASK-0235)
+
+`onhost:payments:reconcile` runs every day at 05:15 Europe/Prague (one server, no overlap) and reconciles **yesterday** — a day at
+the seller's seat, Europe/Prague, the same accounting day as documents (`AccountingClock`) — for every provider in
+`onhost.payments.reconcile.providers` (`ONHOST_PAYMENTS_RECONCILE_PROVIDERS`, default `comgate,gopay,stripe,bank`) through
+`PaymentService::reconcile()`. Comgate is asked `GET /transfer?date=<day>` and the detail of each transfer; GoPay and Stripe their
+statements; the bank needs no credentials, its settlements are the statement lines matched here. Each settled item is compared with
+its intent and the ledger:
+
+* an intent the provider settled that is still open here is re-read and settled (`syncFromProvider`, the sweep's path);
+* every difference — a settlement without an intent, an amount that differs, a settled intent that stays open, an intent paid in
+  the day that is missing from the settlement — is a reconciliation item, and the run publishes `finance.reconciliation.mismatch`
+  (finance inbox, `NotificationRouter`). Resolve it as in [billing-dunning.md](billing-dunning.md) (*Reconciliation*): never edit a
+  posting.
+
+**Once per provider and day.** A provider that already has its run (`reconciliation_runs`, `kind=payments`, `summary.provider`,
+`period_start`) for the day is left alone, so a second run or a manual one is a no-op (`already`). By hand:
+`php artisan onhost:payments:reconcile --date=2026-10-13 --provider=comgate` (`--date` only a past day; today, a future day or a
+malformed one is refused with exit 1, as is an unknown provider).
+
+Output, one line: `payments reconcile <day>: reconciled <providers>, already <providers>, skipped <providers>, failed <providers>,
+mismatches N`. A provider without credentials is **skipped** with the warning `payments reconcile: provider skipped, no credentials`
+(the sweep's check). A provider that fails is logged as `payments reconcile: provider failed` with the provider, the day and the
+exception class only, and the others go on; it writes no run, so its day is run again by hand with `--date`. The job exits **1 only
+when every provider it tried failed** (none reconciled or already done); skipped ones are not tried. On staging, which has no gateway
+account, the card gateways are skipped and the bank is reconciled, so the job exits 0 and the doctor's *every scheduled job ran
+within its budget* stays OK.
+
+**Known limit.** A card gateway pays out a day's payments a day or more later. The run for day D compares the transfers of D with
+the intents paid on D, so once a gateway is live an intent paid late on D shows up as `succeeded_without_settlement` for D and is
+matched by its transfer on a later day. Read such items against the next day's run before acting on them.
 
 ## Doctor
 

@@ -263,6 +263,11 @@ return [
             'max_age_hours' => (int) env('ONHOST_PAYMENTS_SWEEP_MAX_AGE_HOURS', 72),
             'batch' => (int) env('ONHOST_PAYMENTS_SWEEP_BATCH', 50), // intents re-read per run, oldest first
         ],
+        // TASK-0235: onhost:payments:reconcile compares yesterday's provider settlements (Europe/Prague day) with intents and the
+        // ledger, once per provider and day. A provider without credentials is skipped; `bank` needs none (its statement lines).
+        'reconcile' => [
+            'providers' => array_values(array_filter(array_map('trim', explode(',', (string) env('ONHOST_PAYMENTS_RECONCILE_PROVIDERS', 'comgate,gopay,stripe,bank'))))),
+        ],
     ],
 
     'einvoice' => [

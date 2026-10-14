@@ -51,6 +51,7 @@ use Onhost\Domain\Partners\Commands\PartnerCommand;
 use Onhost\Domain\Partners\PartnerService;
 use Onhost\Domain\Payments\BankStatementImporter;
 use Onhost\Domain\Payments\PendingPaymentSweep;
+use Onhost\Domain\Payments\SettlementReconciliation;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Provisioning\CapacityForecast;
 use Onhost\Domain\Provisioning\CapacityPlanner;
@@ -367,6 +368,30 @@ Artisan::command('onhost:payments:sweep {--limit= : intents re-read in this run 
     return 0;
 })->purpose('Re-read the provider status of card payments left pending (lost notification and lost return) and settle, fail or cancel them');
 
+Artisan::command('onhost:payments:reconcile {--provider= : one provider (default: every one in onhost.payments.reconcile.providers)} {--date= : the accounting day YYYY-MM-DD, Europe/Prague (default: yesterday)}', function (SettlementReconciliation $reconciliation) {
+    // TASK-0235: once per provider and day; a provider without credentials is skipped and one that fails does not stop the others.
+    // Exit 1 only when every provider tried failed: one gateway's outage is a log warning, a run that reconciled nothing is a failed job.
+    $day = $this->option('date');
+    $day = $day === null ? SettlementReconciliation::defaultDay() : (string) $day;
+    if (! SettlementReconciliation::isReconcilableDay($day)) {
+        $this->error('--date must be a past day as YYYY-MM-DD (Europe/Prague); today is not over yet.');
+
+        return 1;
+    }
+    $provider = $this->option('provider');
+    if ($provider !== null && ! $reconciliation->isKnownProvider((string) $provider)) {
+        $this->error('--provider must be a configured payment provider.');
+
+        return 1;
+    }
+    $s = $reconciliation->run($day, $provider !== null ? [(string) $provider] : $reconciliation->configuredProviders());
+    $list = fn (array $keys) => $keys === [] ? '-' : implode(' ', $keys);
+    $this->info(sprintf('payments reconcile %s: reconciled %s, already %s, skipped %s, failed %s, mismatches %d',
+        $s['day'], $list($s['reconciled']), $list($s['already']), $list($s['skipped']), $list($s['failed']), $s['mismatches']));
+
+    return $s['failed'] !== [] && $s['reconciled'] === [] && $s['already'] === [] ? 1 : 0;
+})->purpose('Reconcile yesterday\'s provider settlements (bank statement lines included) with payment intents and the ledger, once per provider and day');
+
 Artisan::command('onhost:webhooks:retry', function (WebhookDispatcher $webhooks) {
     $this->table(['queued', 'dead'], [$webhooks->retryDue()]);
 })->purpose('Queue the due webhook attempts (backoff retries); endpoints no longer active end their deliveries');
@@ -553,6 +578,7 @@ Schedule::command('onhost:bank:sync')->everyFiveMinutes()->withoutOverlapping()-
 Schedule::command('onhost:billing:expire-holds')->everyTenMinutes()->onOneServer();
 Schedule::command('onhost:orders:settle')->everyTenMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:payments:sweep')->everyTenMinutes()->withoutOverlapping()->onOneServer();
+Schedule::command('onhost:payments:reconcile')->timezone('Europe/Prague')->dailyAt('05:15')->withoutOverlapping()->onOneServer(); // TASK-0235: yesterday's settlements, a quiet hour after the night jobs
 // a service left in SUSPENDING/RESUMING/RESIZING by a step the panel refused accepts nothing until it is put back; nothing is sent to a panel
 Schedule::command('onhost:services:release-stranded --apply --minutes=30')->everyTenMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:services:rescue-expire')->everyTenMinutes()->withoutOverlapping()->onOneServer();

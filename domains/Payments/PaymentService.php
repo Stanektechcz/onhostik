@@ -8,7 +8,9 @@ use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Onhost\Domain\Identity\Authorization\ApprovalService;
+use Onhost\Domain\Invoicing\AccountingClock;
 use Onhost\Domain\Invoicing\CzkTaxStatement;
 use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Invoicing\Models\Invoice;
@@ -42,7 +44,7 @@ use Throwable;
 /**
  * Payment orchestration (§63): intents, verified callbacks, dedupe, settlement to
  * the wallet, refunds, daily reconciliation against provider settlements and bank
- * statements. Every successful payment becomes a wallet top-up with its document (see document(): an issued
+ * statements (reconcile(), run every night by `onhost:payments:reconcile`, SettlementReconciliation). Every successful payment becomes a wallet top-up with its document (see document(): an issued
  * invoice gets none, it is the tax document); orders and invoices are settled by listeners of PaymentSucceeded.
  */
 final class PaymentService
@@ -587,11 +589,16 @@ final class PaymentService
         ], $intent->organization_id));
     }
 
-    /** Daily settlement reconciliation (§64.6): provider settlement vs intents vs ledger. */
+    /**
+     * Daily settlement reconciliation (§64.6): provider settlement vs intents vs ledger. Scheduled nightly for yesterday by
+     * `onhost:payments:reconcile` (SettlementReconciliation, TASK-0235). The period is two instants; the provider is asked for the
+     * accounting days (Europe/Prague) they fall on, so the UTC instants of a Prague day do not ask it for the day before. The
+     * provider is asked before anything is written: a provider that fails leaves no run behind.
+     */
     public function reconcile(string $providerKey, \DateTimeInterface $periodStart, \DateTimeInterface $periodEnd, CommandContext $context): ReconciliationRun
     {
         $provider = $this->providers->get($providerKey);
-        $items = $provider->reconcile($periodStart->format('Y-m-d'), $periodEnd->format('Y-m-d'));
+        $items = $provider->reconcile(AccountingClock::date($periodStart), AccountingClock::date($periodEnd));
         $run = ReconciliationRun::query()->create(['kind' => 'payments', 'period_start' => $periodStart, 'period_end' => $periodEnd, 'state' => 'completed', 'created_by' => $context->actorType.':'.($context->actorId ?? 'system'), 'summary' => ['provider' => $providerKey, 'items' => count($items)]]);
         $settlement = Settlement::query()->create(['provider' => $providerKey, 'period_start' => $periodStart, 'period_end' => $periodEnd, 'currency' => $items[0]['amount']->currency->value ?? 'CZK', 'items_count' => count($items), 'state' => 'imported']);
         $mismatches = 0;
@@ -605,8 +612,13 @@ final class PaymentService
                 $mismatches++;
                 ReconciliationItem::query()->create(['run_id' => $run->id, 'kind' => 'settlement_without_intent', 'reference' => $item['provider_id'], 'actual_minor' => $item['amount']->minor, 'note' => 'Settlement item has no payment intent']);
             } elseif (! $intent->isSucceeded()) {
-                // Payment settled at the provider but never marked here (S53): sync now.
-                $this->syncFromProvider($intent, $context);
+                // Payment settled at the provider but never marked here (S53): sync now. One intent the provider cannot answer
+                // stays a mismatch for finance and does not stop the run (only the exception class is logged, never a payload).
+                try {
+                    $this->syncFromProvider($intent, $context);
+                } catch (Throwable $e) {
+                    Log::warning('payments reconcile: intent not re-read', ['intent' => $intent->id, 'provider' => $providerKey, 'error' => get_class($e)]);
+                }
                 $intent->refresh();
                 if (! $intent->isSucceeded()) {
                     $state = 'mismatch';
