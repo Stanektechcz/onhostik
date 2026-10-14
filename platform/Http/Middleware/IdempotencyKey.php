@@ -8,6 +8,7 @@ use Closure;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Onhost\Platform\Commands\IdempotencyStore;
 use Onhost\Platform\Redaction\Redactor;
 use Symfony\Component\HttpFoundation\Response;
@@ -67,7 +68,7 @@ final class IdempotencyKey
         $scope = $this->scope($request, $organization);
         // the query is part of the request (`DELETE …?force=1` is another request than without it), in a canonical order
         $query = Request::normalizeQueryString($request->getQueryString());
-        $hash = hash('sha256', $request->method().'|'.$request->path().'?'.$query.'|'.$organization.'|'.$request->getContent());
+        $hash = hash('sha256', $request->method().'|'.$request->path().'?'.$query.'|'.$organization.'|'.$request->getContent().self::uploads($request));
         $held = $this->store->reserveHttp($key, $scope, $hash, self::inFlightSeconds());
         $token = $held['token'];
         if ($token === null) {
@@ -91,6 +92,32 @@ final class IdempotencyKey
         }
 
         return $response;
+    }
+
+    /**
+     * What a multipart request carries (TASK-0110 review M4): PHP leaves the body of `multipart/form-data` out of `getContent()`,
+     * so two different files under one key hashed the same and the second upload was answered with the first one's result. The
+     * fields and the SHA-256 of every file go into the fingerprint instead: another file under the same key is a conflict (409).
+     * A request without files adds nothing — every other fingerprint stays exactly what it was.
+     */
+    private static function uploads(Request $request): string
+    {
+        $files = $request->allFiles();
+        if ($files === []) {
+            return '';
+        }
+        $digests = [];
+        array_walk_recursive($files, function ($file, $name) use (&$digests): void {
+            if ($file instanceof UploadedFile) {
+                $path = (string) $file->getRealPath();
+                $digests[] = $name.'='.($path !== '' && is_file($path) ? (string) hash_file('sha256', $path) : 'unreadable');
+            }
+        });
+        sort($digests);
+        $fields = $request->except(array_keys($files));
+        ksort($fields);
+
+        return '|files:'.implode(',', $digests).'|fields:'.json_encode($fields);
     }
 
     /** The answer for a key another request already holds: still running, done with a secret, or done (replayed as it was). */

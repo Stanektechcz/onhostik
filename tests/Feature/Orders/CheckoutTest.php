@@ -109,7 +109,7 @@ it('runs the gateway path end to end with a verified Comgate callback, deduplica
     putenv('COMGATE_SECRET=topsecret');
     $_ENV['COMGATE_MERCHANT'] = '123456';
     $_ENV['COMGATE_SECRET'] = 'topsecret';
-    config(['onhost.payments.comgate.callback_allowlist' => []]);
+    config(['onhost.payments.comgate.callback_allowlist' => ['127.0.0.1']]); // W1: the test request comes from 127.0.0.1; an empty list refuses every notification
     $quote = quoteFor($org, [['product_key' => 'web-hosting', 'plan_key' => 'standard']]);
     $total = $quote->total_minor;
 
@@ -171,7 +171,7 @@ it('keeps a captured payment when the order cannot be marked paid, tells finance
     putenv('COMGATE_SECRET=topsecret');
     $_ENV['COMGATE_MERCHANT'] = '123456';
     $_ENV['COMGATE_SECRET'] = 'topsecret';
-    config(['onhost.payments.comgate.callback_allowlist' => []]);
+    config(['onhost.payments.comgate.callback_allowlist' => ['127.0.0.1']]); // W1: the test request comes from 127.0.0.1; an empty list refuses every notification
     $quote = quoteFor($org, [['product_key' => 'web-hosting', 'plan_key' => 'standard']]);
     $total = $quote->total_minor;
     Http::fake([
@@ -238,7 +238,7 @@ it('settles the real callback even when somebody posted the same event before th
     putenv('COMGATE_SECRET=topsecret');
     $_ENV['COMGATE_MERCHANT'] = '123456';
     $_ENV['COMGATE_SECRET'] = 'topsecret';
-    config(['onhost.payments.comgate.callback_allowlist' => []]);
+    config(['onhost.payments.comgate.callback_allowlist' => ['127.0.0.1']]); // W1: the test request comes from 127.0.0.1; an empty list refuses every notification
     $quote = quoteFor($org, [['product_key' => 'web-hosting', 'plan_key' => 'standard']]);
     $total = $quote->total_minor;
     $paid = false;

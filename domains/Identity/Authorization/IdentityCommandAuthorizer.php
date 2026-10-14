@@ -18,6 +18,7 @@ use Onhost\Platform\Commands\CommandContext;
 /**
  * Policy gate in front of the command bus:
  *  1. capability at scope,
+ *  1b. an API token only within its scopes (TokenScopes; G7, TASK-0115) — a command with no permission is never a token's,
  *  2. step-up for high/critical permissions (valid grant in this session),
  *  3. two-person approval for critical permissions (approval id in context, matching payload hash, different approver);
  *     with ONHOST_FOUR_EYES=false only the sole approver's own critical action is spared the second person, and it waits a
@@ -28,6 +29,8 @@ use Onhost\Platform\Commands\CommandContext;
  */
 final class IdentityCommandAuthorizer implements CommandAuthorizer
 {
+    private const TOKEN_REFUSED = 'This action is not available to API tokens; use the portal.';
+
     public function __construct(
         private readonly Authorizer $authorizer,
         private readonly StepUpService $stepUp,
@@ -37,6 +40,10 @@ final class IdentityCommandAuthorizer implements CommandAuthorizer
     {
         $permission = StaffActor::permissionOf($command, $context); // TASK-0039 P0-16 re-check: staff mode asks the staff key
         if ($permission === null) {
+            if ($context->actorType !== 'system' && self::byToken($context)) {
+                return AuthorizationDecision::deny(self::TOKEN_REFUSED); // G7: a command that asks for no permission is the portal's
+            }
+
             return $context->actorType === 'system' || $context->actorType === 'user' || $context->actorType === 'service_account'
                 ? AuthorizationDecision::allow()
                 : AuthorizationDecision::deny('AI actors cannot run unscoped commands');
@@ -49,6 +56,10 @@ final class IdentityCommandAuthorizer implements CommandAuthorizer
         $principal = $this->principal($context);
         if ($principal === null) {
             return AuthorizationDecision::deny('Unauthenticated');
+        }
+        $tokenRefusal = self::tokenRefusal($principal, $permission);
+        if ($tokenRefusal !== null) {
+            return AuthorizationDecision::deny($tokenRefusal);
         }
 
         // TASK-0037 (program IF-13, principle 6): the risk is never below the permission's — max(declared, catalogue floor).
@@ -89,10 +100,21 @@ final class IdentityCommandAuthorizer implements CommandAuthorizer
             $needsStepUp = $needsStepUp || $command->requiresStepUp();
             $needsApproval = $needsApproval || $command->requiresApproval();
         }
+        // ── H0 (owner decision H-R1, permission program S1-05) ──
+        // a token can never take a step-up, so a HIGH or CRITICAL action through one (a personal token or a service account) was
+        // refused outright. It now waits for the organization's owner: an approval bound to this command, its payload, this
+        // principal AND this token, decided in the portal with a step-up (TokenApprovals), spent once by the repeat
+        if (($needsStepUp || $needsApproval) && self::byToken($context)) {
+            $spent = TokenApprovals::spend($command, $context, $context->approvalIds);
+
+            return $spent === null ? AuthorizationDecision::deny(TokenApprovals::REFUSAL, 'approval') : AuthorizationDecision::allow(null, [$spent]);
+        }
+        // ── end H0 ──
         // TASK-0037 (program IF-10, D8): one operator runs the platform alone (ONHOST_FOUR_EYES=false on the server). The waiver
         // used to cover EVERY actor — anybody holding a critical permission acted alone. It covers only the one person who could
         // be the second person (the sole holder of iam.approval.decide); everybody else asks them. And their own critical action
-        // is not run at once: it waits a time lock (onhost.identity.time_lock_hours, 24 h, program §10 O4) with a notice, and
+        // is not run at once: it waits a time lock (config onhost.four_eyes_time_lock_hours, env ONHOST_FOUR_EYES_TIME_LOCK_HOURS,
+        // 24 h, at least 1; program §10 O4) with a notice, and
         // anybody who may decide approvals — the operator included — can cancel it meanwhile.
         $waived = $needsApproval && ApprovalService::waivesFor((string) $context->actorId);
         $needsApproval = $needsApproval && ! $waived;
@@ -125,7 +147,7 @@ final class IdentityCommandAuthorizer implements CommandAuthorizer
             $approval = null;
             foreach ($context->approvalIds as $id) {
                 $candidate = Approval::query()->find($id);
-                if ($candidate !== null && $candidate->isUsableFor($command->name(), $hash, (string) $context->actorId)) {
+                if ($candidate !== null && TokenApprovals::tokenOf($candidate) === null && $candidate->isUsableFor($command->name(), $hash, (string) $context->actorId)) { // H0: a token's approval is the token's alone
                     $approval = $candidate;
                     break;
                 }
@@ -134,7 +156,7 @@ final class IdentityCommandAuthorizer implements CommandAuthorizer
             // does not have to carry the id (the approval is bound to the requester, the command and the hash of its payload either way)
             $approval ??= Approval::query()->where('action', $command->name())->where('payload_hash', $hash)->where('requested_by', (string) $context->actorId)
                 ->where('state', 'approved')->whereNull('consumed_at')->where('expires_at', '>', now())->get()
-                ->first(fn (Approval $candidate) => $candidate->isUsableFor($command->name(), $hash, (string) $context->actorId));
+                ->first(fn (Approval $candidate) => TokenApprovals::tokenOf($candidate) === null && $candidate->isUsableFor($command->name(), $hash, (string) $context->actorId));
             if ($approval === null) {
                 return AuthorizationDecision::deny('This action takes a second person: a request for approval was opened. Repeat it with approval_ids once somebody else has approved it.', 'approval');
             }
@@ -148,6 +170,34 @@ final class IdentityCommandAuthorizer implements CommandAuthorizer
         }
 
         return AuthorizationDecision::allow($stepUpMethod, $approvalIds);
+    }
+
+    /**
+     * G7 (TASK-0115): an API token is held to its scopes on the bus too, not only at the HTTP layer. The scopes were asked by
+     * ApiController::dispatch and a few controllers; a command dispatched from inside the platform on a token's context (the
+     * assistant opening a handoff ticket, a handler dispatching another command) ran with every right of the person behind the
+     * token. The scope a command needs is the one its permission maps to in TokenScopes — the same map the routes and the
+     * OpenAPI scopes read — and what that map does not name (null) is not available to tokens. Deny by default.
+     * Null = the token may; otherwise the reason the bus gives.
+     */
+    private static function tokenRefusal(User|ServiceAccount $principal, string $permission): ?string
+    {
+        $token = TokenScopes::tokenOf($principal);
+        if ($token === null) {
+            return null; // the portal's own session
+        }
+        $needed = TokenScopes::for($permission);
+        if ($needed === null) {
+            return self::TOKEN_REFUSED;
+        }
+
+        return $token->can($needed) ? null : "The API token lacks the {$needed} scope.";
+    }
+
+    /** Whether the context is a request made with an API token (ApiContext::sessionId writes `token:<id>` for every one). */
+    private static function byToken(CommandContext $context): bool
+    {
+        return str_starts_with((string) $context->sessionId, 'token:');
     }
 
     private function principal(CommandContext $context): User|ServiceAccount|null

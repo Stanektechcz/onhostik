@@ -21,6 +21,14 @@ receivers:
           authorization:
             type: Bearer
             credentials_file: /etc/alertmanager/oncall.token  # ONHOST_ONCALL_INBOUND_SECRET
+    # P12 (P-R19, P-R40): a page also reaches the owner by e-mail, in case the platform itself is what is down; address: OP-4
+    email_configs:
+      - to: provoz@onhost.cz   # replace with the OP-4 address before deploying the monitoring VM (docs/runbooks/monitoring-setup.md)
+        from: alerts@onhost.cz
+        smarthost: mail.onhost.cz:587
+        auth_username: alerts@onhost.cz
+        auth_password_file: /etc/alertmanager/smtp.password
+        send_resolved: true
   - name: ops-mail
     email_configs:
       - to: provoz@onhost.cz

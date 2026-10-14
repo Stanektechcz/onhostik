@@ -9,7 +9,9 @@ use Onhost\Domain\Catalog\CatalogService;
 use Onhost\Domain\Catalog\Models\PlanVersion;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Catalog\Models\PromoCode;
+use Onhost\Domain\Catalog\PenpotOffer;
 use Onhost\Domain\Catalog\PricingRules;
+use Onhost\Domain\Loyalty\LoyaltyRedemptions;
 use Onhost\Domain\Orders\Models\ConsentDocument;
 use Onhost\Domain\Orders\Models\Quote;
 use Onhost\Domain\Organizations\Models\Organization;
@@ -18,6 +20,7 @@ use Onhost\Domain\Provisioning\GameTemplates;
 use Onhost\Domain\Provisioning\Models\Region;
 use Onhost\Domain\Provisioning\Scheduling\CartCapacity;
 use Onhost\Domain\Provisioning\Scheduling\NodeScheduler;
+use Onhost\Domain\Services\CdnAvailability;
 use Onhost\Domain\Services\Limits\LimitRaises;
 use Onhost\Domain\Services\Limits\LimitRaiseWaiver;
 use Onhost\Domain\Services\Models\Service;
@@ -53,6 +56,7 @@ final class QuoteService
         private readonly TaxEngine $tax,
         private readonly PricingRules $rules,
         private readonly LimitRaiseLine $limitRaise,
+        private readonly PenpotLine $penpot,
     ) {}
 
     /**
@@ -122,7 +126,7 @@ final class QuoteService
      * @param  list<array<string,mixed>>  $items
      * @param  array{country?:string,customer_class?:string,vat_id?:?string,vat_status?:string,vat_reason?:?string,vat_name_mismatch?:bool,ip_country?:?string}  $customer
      */
-    public function quote(array $items, Currency|string $currency, array $customer, int $commitMonths = 1, ?string $promoCode = null, ?Organization $organization = null, string $locale = 'cs', ?LimitRaiseWaiver $waiver = null): Quote
+    public function quote(array $items, Currency|string $currency, array $customer, int $commitMonths = 1, ?string $promoCode = null, ?Organization $organization = null, string $locale = 'cs', ?LimitRaiseWaiver $waiver = null, int $loyaltyPoints = 0): Quote
     {
         $currency = $currency instanceof Currency ? $currency : Currency::fromString($currency);
         if ($organization !== null) {
@@ -175,8 +179,11 @@ final class QuoteService
         $renewalTotal = Money::zero($currency);
 
         $raised = []; // limit raises of this cart per service and number (LimitRaiseLine)
+        $penpots = []; // services and cart lines this cart already gives a Penpot (PenpotLine, H-R7)
+        $cartLines = []; // line id → cart line: the parent a Penpot line is priced by
         $parentProducts = []; // cart lines that may carry add-ons (line id → product key)
         foreach ($items as $index => $item) {
+            $cartLines[(string) ($item['line_id'] ?? ('l'.($index + 1)))] = $item;
             if (($item['product_key'] ?? '') !== 'domain' && empty($item['config']['parent_line_id'])) {
                 $parentProducts[(string) ($item['line_id'] ?? ('l'.($index + 1)))] = (string) ($item['product_key'] ?? '');
             }
@@ -238,15 +245,35 @@ final class QuoteService
 
                 continue;
             }
+            if ($productKey === PenpotOffer::PRODUCT) { // one Penpot for one service, priced by that service's tariff (owner decision H-R7)
+                $line = $this->penpot->build($organization, $item, $cartLines, $currency, $lineId, $commitMonths >= 12 ? 'year' : 'month', $penpots, $locale);
+                $versions['plans'][] = $line['plan_version_id'];
+                $versions['prices'][] = $line['price_id'];
+                $lines[] = $line;
+                $subtotal = $subtotal->add($line['unit_net']);
+                $renewalTotal = $renewalTotal->add($line['renewal_net']);
 
+                continue;
+            }
+
+            if ($productKey === CdnAvailability::PRODUCT && ! CdnAvailability::configured()) {
+                throw CdnAvailability::unavailable(); // K7-5 / R4: before anybody pays — without a CDN account the add-on delivers nothing
+            }
             $planKey = (string) ($item['plan_key'] ?? '');
             $requestedPeriod = isset($item['period']) ? (string) $item['period'] : null;
             $period = $requestedPeriod ?? ($commitMonths >= 12 ? 'year' : 'month');
-            $resolved = $this->catalog->resolve($productKey, $planKey, $currency, $period);
-            $change = ! empty($config['upgrade_of']) ? $this->planChange($organization, (string) $config['upgrade_of'], $resolved['product'], $planKey, $resolved['version'], $requestedPeriod) : null;
+            $change = null;
+            if (! empty($config['upgrade_of'])) {
+                // a plan change of the customer's own running service is no new sale: the launch sell switch is waived, but only on this
+                // path, where planChange() throws for a stranger's, cancelled or suspended service before the line is used
+                $resolved = $this->catalog->resolve($productKey, $planKey, $currency, $period, true);
+                $change = $this->planChange($organization, (string) $config['upgrade_of'], $resolved['product'], $planKey, $resolved['version'], $requestedPeriod);
+            } else {
+                $resolved = $this->catalog->resolve($productKey, $planKey, $currency, $period);
+            }
             if ($change !== null && $change['period'] !== $period) {
                 $period = $change['period'];
-                $resolved = $this->catalog->resolve($productKey, $planKey, $currency, $period); // a plan change keeps the subscription's billing period unless the line asks for the other one
+                $resolved = $this->catalog->resolve($productKey, $planKey, $currency, $period, true); // a plan change keeps the subscription's billing period unless the line asks for the other one
             }
             $product = $resolved['product'];
             $price = $resolved['price'];
@@ -347,6 +374,14 @@ final class QuoteService
             $renewalTotal = $renewalTotal->add($renewalNet);
         }
 
+        // G3 (owner decision G-R2): points the customer chose to redeem (`loyalty.redeem`) are a line of their own, after every other
+        // discount and within the cap; a domain and a plan change are never discounted by them (LoyaltyRedemptions::price)
+        $loyalty = app(LoyaltyRedemptions::class)->price($organization, $loyaltyPoints, $lines, $currency, $locale);
+        if ($loyalty['line'] !== null) {
+            $lines[] = $loyalty['line'];
+            $discount = $discount->add($loyalty['line']['net']->negate());
+        }
+
         $taxInput = [
             'country' => $country,
             'customer_class' => $customer['customer_class'] ?? 'b2c',
@@ -380,7 +415,7 @@ final class QuoteService
             'renewal_total_minor' => $renewalTotal->minor,
             'tax_calculation_id' => $taxResult['calculation']->id,
             'tax_rule_version_id' => $taxResult['calculation']->rule_version_id,
-            'versions' => array_merge($versions, ['promo' => $promo?->code, 'commit_months' => $commitMonths, 'price_region' => $region['key'], 'price_region_pct' => $region['adjust_pct'], 'loyalty_pct' => $loyaltyPct, 'tax_review_required' => $taxResult['review_required'], 'tax_reasons' => $taxResult['reasons'], 'vat_review' => $taxResult['vat_review'], 'vat' => $organization !== null ? VatStanding::snapshot($organization) : null, 'terms' => $this->currentTermsVersions()]),
+            'versions' => array_merge($versions, ['promo' => $promo?->code, 'commit_months' => $commitMonths, 'price_region' => $region['key'], 'price_region_pct' => $region['adjust_pct'], 'loyalty_pct' => $loyaltyPct, 'loyalty' => $loyaltyPoints > 0 ? $loyalty['info'] : null, 'tax_review_required' => $taxResult['review_required'], 'tax_reasons' => $taxResult['reasons'], 'vat_review' => $taxResult['vat_review'], 'vat' => $organization !== null ? VatStanding::snapshot($organization) : null, 'terms' => $this->currentTermsVersions()]),
             'valid_until' => now()->addHours(2),
             'state' => 'open',
         ]);
@@ -394,15 +429,15 @@ final class QuoteService
         return $pct >= 0 ? $amount->add($delta) : $amount->subtract($delta);
     }
 
-    /** @return array<string,string> document key => version */
+    /**
+     * TASK-0142: published versions only (a draft is never quoted), and the newest in force wins when two are (the old query
+     * returned whichever row came last).
+     *
+     * @return array<string,string> document key => version
+     */
     public function currentTermsVersions(): array
     {
-        $out = [];
-        foreach (ConsentDocument::query()->where('effective_from', '<=', now())->where(fn ($q) => $q->whereNull('effective_to')->orWhere('effective_to', '>', now()))->get() as $doc) {
-            $out[$doc->key] = $doc->version;
-        }
-
-        return $out;
+        return ConsentDocument::currentVersions();
     }
 
     /** @param array<string,mixed> $line */

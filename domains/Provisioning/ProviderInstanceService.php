@@ -21,6 +21,7 @@ use Onhost\Providers\AaPanel\AaPanelTenancyGate;
 use Onhost\Providers\AaPanel\AaPanelWebProvider;
 use Onhost\Providers\Contracts\GameProvider;
 use Onhost\Providers\IspConfig\IspConfigWebProvider;
+use Onhost\Providers\Penpot\PenpotDockerProvider;
 use Onhost\Providers\Proxmox\ProxmoxComputeProvider;
 
 /**
@@ -46,6 +47,7 @@ final class ProviderInstanceService
         'wedos_zone' => ['required' => ['login', 'wapi_password'], 'optional' => [], 'hint' => 'Same WAPI account as the registrar instance'],
         'subreg' => ['required' => ['login', 'password'], 'optional' => [], 'hint' => 'Subreg.CZ API user and password (Nastavení účtu → API); allow the control plane IP; only domain functions are used. Set options.demo=true for a demoreg.net sandbox account'],
         'kubernetes' => ['required' => ['token'], 'optional' => ['ca_cert'], 'hint' => 'Service-account token with namespace-scoped RBAC (see infra/rke2/policies)'],
+        'penpot' => ['required' => ['ssh_private_key'], 'optional' => ['ssh_key_password', 'smtp_password'], 'hint' => 'SSH key of the platform user on the Penpot node (docker group); options.ssh_fingerprint is required (docs/runbooks/penpot.md)'], // TASK-0123
     ];
 
     /** Default capability map per provider (what the scheduler may place on the instance). */
@@ -60,6 +62,7 @@ final class ProviderInstanceService
         'wedos_zone' => ['dns' => true],
         'subreg' => ['registrar' => true],
         'kubernetes' => ['apps.create' => true],
+        'penpot' => ['penpot.stack' => true], // TASK-0123
     ];
 
     public function __construct(
@@ -130,6 +133,10 @@ final class ProviderInstanceService
             }
             $options = array_key_exists('options', $input) ? self::keepOperatorOptions((array) $input['options'], $existing) : ($existing?->options ?? []);
             $optionsChanged = $existing === null ? [] : self::changedKeys((array) ($existing->options ?? []), $options);
+            // TASK-0123 (security review M4): a Penpot node is reached over SSH with the platform's key — never without its host key pinned
+            if ($provider === 'penpot' && preg_match(PenpotDockerProvider::FINGERPRINT_PATTERN, (string) ($options['ssh_fingerprint'] ?? '')) !== 1) {
+                throw new DomainError('instance_ssh_fingerprint_required', 'A Penpot node needs the SHA256 fingerprint of its SSH host key (options.ssh_fingerprint, e.g. from ssh-keyscan | ssh-keygen -lf -).', 422, ['field' => 'options.ssh_fingerprint']);
+            }
             $ref = $secretRef ?? $existing?->secretRef();
             if ($credentials !== []) {
                 if ($ref === null || $ref->scheme !== 'db') {
@@ -488,8 +495,8 @@ final class ProviderInstanceService
         if ($name === '') {
             throw new DomainError('node_name_required', 'Node name is required.', 422, ['field' => 'name']);
         }
-        if (! in_array($input['role'] ?? '', ['compute', 'web', 'managed', 'game', 'mail', 'dns', 'apps', 'backup'], true)) {
-            throw new DomainError('node_role_invalid', 'Role must be compute, web, managed, game, mail, dns, apps or backup.', 422, ['field' => 'role']);
+        if (! in_array($input['role'] ?? '', ['compute', 'web', 'managed', 'game', 'mail', 'dns', 'apps', 'backup', 'penpot'], true)) {
+            throw new DomainError('node_role_invalid', 'Role must be compute, web, managed, game, mail, dns, apps, backup or penpot.', 422, ['field' => 'role']);
         }
         if (($input['region_code'] ?? $instance->region_code) === null) {
             throw new DomainError('node_region_required', 'A node needs a region (set it on the node or on the instance).', 422, ['field' => 'region_code']);

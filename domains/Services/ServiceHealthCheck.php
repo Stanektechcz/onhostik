@@ -11,6 +11,7 @@ use Onhost\Domain\Services\Models\ManagedCertificate;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\Models\UptimeMonitor;
+use Onhost\Domain\Services\Penpot\PenpotHealth;
 use Onhost\Domain\Services\Web\CertificateWatch;
 
 /**
@@ -30,8 +31,11 @@ final class ServiceHealthCheck
     public function run(Service $service): array
     {
         $findings = [$this->state($service), $this->controlPlane($service)];
-        if (in_array($service->family, ['web', 'managed', 'game', 'cloud', 'data'], true)) {
+        if (in_array($service->family, ['web', 'managed', 'game', 'cloud', 'data', 'penpot'], true)) {
             $findings[] = $this->backup($service);
+        }
+        if ($service->family === 'penpot') { // TASK-0123: what the last probe of the node found (onhost:penpot:sweep)
+            $findings[] = PenpotHealth::finding($service);
         }
         if (in_array($service->family, ['web', 'managed'], true)) {
             $findings[] = $this->certificate($service);

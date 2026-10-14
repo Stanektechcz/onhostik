@@ -9,10 +9,13 @@ use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Money\Money;
 use Onhost\Platform\ProviderHttp\ProviderHttpClient;
 use Onhost\Platform\ProviderHttp\ProviderRequest;
+use Onhost\Platform\ProviderHttp\ProviderResponse;
 use Onhost\Platform\Secrets\SecretRef;
 use Onhost\Platform\Secrets\SecretStore;
 use Onhost\Providers\Contracts\PaymentProvider;
 use Onhost\Providers\Contracts\StoredMethodCharging;
+use Onhost\Providers\Payments\ReturnUrls;
+use Symfony\Component\HttpFoundation\IpUtils;
 
 /**
  * Comgate Payments API v2.0 (REST/JSON, HTTP Basic merchant:secret).
@@ -20,8 +23,9 @@ use Onhost\Providers\Contracts\StoredMethodCharging;
  *   GET  /payment/transId/{transId}     status (source of truth for callbacks)
  *   POST /payment/transId/{transId}/refund
  *   GET  /transfer?date=YYYY-MM-DD, GET /transfer/{transferId}   settlement items
- * Push notifications are verified by re-reading the status; the optional secret and
- * IP allow-list are additional checks, never the only trust mechanism (§63.4).
+ * Push notifications are verified by re-reading the status; the optional secret and the
+ * source allow-list are additional checks, never the only trust mechanism (§63.4). The allow-list is required (W1): an
+ * empty `COMGATE_CALLBACK_IPS` refuses every notification, so the public route cannot make us call Comgate for anybody.
  *
  * Recurring card payments (audit §5f-1): a payment created with `initRecurring` becomes the stored method — its
  * `transId` is the token — and later charges are created with `initRecurringId` and no customer present.
@@ -63,22 +67,27 @@ final class ComgatePaymentProvider implements PaymentProvider, StoredMethodCharg
             default => 'ALL',
         };
         $save = ! empty($input['save_method']);
+        $returns = [];
+        foreach (['url_paid' => 'return_url', 'url_cancelled' => 'cancel_url', 'url_pending' => 'pending_url'] as $param => $key) {
+            $returns[$param] = ReturnUrls::allowed($input[$key] ?? null, $key); // H3: refused before anything reaches the gateway
+        }
+        $locale = (string) ($input['locale'] ?? 'cs'); // G6: optional — a missing or unsupported language is Czech, never an undefined key
         $response = $this->send('POST', '/payment', 'payment.create', array_filter([
             'price' => $amount->minor,
             'curr' => $amount->currency->value,
-            'label' => mb_substr((string) $input['description'], 0, 16),
-            'refId' => (string) $input['reference'],
+            'label' => mb_substr((string) ($input['description'] ?? ''), 0, 16),
+            'refId' => (string) ($input['reference'] ?? ''),
             'method' => $save ? 'CARD_CZ_CSOB_2' : $method, // a method the customer wants to keep must be a card
-            'email' => (string) $input['email'],
+            'email' => (string) ($input['email'] ?? ''),
             'prepareOnly' => true,
             'initRecurring' => $save ?: null,
-            'test' => (bool) config('onhost.payments.comgate.test', true),
-            'lang' => in_array($input['locale'] ?? 'cs', ['cs', 'sk', 'en', 'pl'], true) ? $input['locale'] : 'cs',
+            'test' => ComgateMode::test(),
+            'lang' => in_array($locale, ['cs', 'sk', 'en', 'pl'], true) ? $locale : 'cs',
             'country' => strtoupper((string) ($input['country'] ?? 'CZ')),
             'expirationTime' => '2h',
-            'url_paid' => $input['return_url'],
-            'url_cancelled' => $input['cancel_url'],
-            'url_pending' => $input['pending_url'],
+            'url_paid' => $returns['url_paid'], // G6: absent = the URLs set at the merchant (array_filter drops it)
+            'url_cancelled' => $returns['url_cancelled'],
+            'url_pending' => $returns['url_pending'],
         ], fn ($v) => $v !== null), $input['idempotency_key'] ?? null);
         $this->assertOk($response, 'payment.create');
 
@@ -108,7 +117,7 @@ final class ComgatePaymentProvider implements PaymentProvider, StoredMethodCharg
             'email' => (string) ($options['email'] ?? ''),
             'prepareOnly' => true,
             'initRecurringId' => $methodId,
-            'test' => (bool) config('onhost.payments.comgate.test', true),
+            'test' => ComgateMode::test(),
         ], $options['idempotency_key'] ?? null);
         $this->assertOk($response, 'payment.recurring');
 
@@ -160,7 +169,7 @@ final class ComgatePaymentProvider implements PaymentProvider, StoredMethodCharg
     public function refund(string $providerId, Money $amount, string $idempotencyKey, ?string $reason = null): array
     {
         $response = $this->send('POST', '/payment/transId/'.rawurlencode($providerId).'/refund', 'payment.refund', [
-            'amount' => $amount->minor, 'curr' => $amount->currency->value, 'refId' => mb_substr($idempotencyKey, 0, 40), 'test' => (bool) config('onhost.payments.comgate.test', true),
+            'amount' => $amount->minor, 'curr' => $amount->currency->value, 'refId' => mb_substr($idempotencyKey, 0, 40), 'test' => ComgateMode::test(),
         ], $idempotencyKey);
         $this->assertOk($response, 'payment.refund');
 
@@ -169,14 +178,11 @@ final class ComgatePaymentProvider implements PaymentProvider, StoredMethodCharg
 
     public function verifyWebhook(Request $request): array
     {
+        $this->assertAllowedSource($request); // W1: first, so an unlisted sender learns nothing and never makes us call Comgate
         $payload = $request->isJson() ? (array) $request->json()->all() : $request->all();
         $transId = (string) ($payload['transId'] ?? '');
         if ($transId === '' || ! preg_match('/^[A-Z0-9\-]{4,40}$/i', $transId)) {
             throw new DomainError('webhook_invalid', 'Comgate notification is missing transId.', 400);
-        }
-        $allow = (array) config('onhost.payments.comgate.callback_allowlist', []);
-        if ($allow !== [] && ! in_array((string) $request->ip(), $allow, true)) {
-            throw new DomainError('webhook_source_rejected', 'Notification source is not allow-listed.', 403);
         }
         if (isset($payload['secret'])) {
             $creds = $this->credentials();
@@ -187,6 +193,39 @@ final class ComgatePaymentProvider implements PaymentProvider, StoredMethodCharg
         $status = strtoupper((string) ($payload['status'] ?? 'PENDING'));
 
         return ['event_id' => $transId.':'.$status, 'provider_id' => $transId, 'state' => $status, 'amount' => isset($payload['price'], $payload['curr']) ? Money::minor((int) $payload['price'], (string) $payload['curr']) : null, 'raw' => $payload];
+    }
+
+    /**
+     * The addresses Comgate notifications may come from (`COMGATE_CALLBACK_IPS`, W1): an address or a CIDR range, IPv4 or IPv6;
+     * entries trimmed, blank ones dropped. A range that covers every address (`/0`) is dropped too: it would re-open the
+     * endpoint to anybody. An empty result refuses every notification (fail closed).
+     *
+     * @return list<string>
+     */
+    public static function callbackAllowlist(): array
+    {
+        $configured = config('onhost.payments.comgate.callback_allowlist', []);
+        $entries = is_string($configured) ? explode(',', $configured) : (array) $configured;
+        $kept = [];
+        foreach ($entries as $entry) {
+            $entry = is_scalar($entry) ? trim((string) $entry) : '';
+            if ($entry !== '' && preg_match('~/0+$~', $entry) !== 1) {
+                $kept[] = $entry;
+            }
+        }
+
+        return $kept;
+    }
+
+    /** The sender must be on the allow-list; an empty list refuses everyone, with the same error as an unlisted address. */
+    private function assertAllowedSource(Request $request): void
+    {
+        $allow = self::callbackAllowlist();
+        $ip = (string) $request->ip();
+        // one answer for both: the public caller does not learn whether the list is empty (staff see it in ComgateCheck::status())
+        if ($allow === [] || $ip === '' || ! IpUtils::checkIp($ip, $allow)) {
+            throw new DomainError('webhook_source_rejected', 'Notification source is not allow-listed.', 403);
+        }
     }
 
     public function reconcile(string $periodStart, string $periodEnd): array
@@ -221,6 +260,72 @@ final class ComgatePaymentProvider implements PaymentProvider, StoredMethodCharg
         }
 
         return $items;
+    }
+
+    /**
+     * Which credentials the vault (or the deployment) holds — never the values (H-R8, the administration's gateway check).
+     *
+     * @return array{merchant: bool, secret: bool, error: ?string}
+     */
+    public function credentialState(): array
+    {
+        try {
+            $creds = $this->credentials();
+        } catch (\Throwable $e) {
+            $this->credentials = null;
+
+            return ['merchant' => false, 'secret' => false, 'error' => 'the secret store could not be read ('.class_basename($e).')'];
+        }
+
+        return ['merchant' => $creds['merchant'] !== '', 'secret' => $creds['secret'] !== '', 'error' => null];
+    }
+
+    /**
+     * An authenticated call with no side effect: the payment methods the merchant may offer (`GET /method.json`, Comgate REST
+     * API v2.0). It proves the merchant id, the secret and the address; it moves no money and creates nothing.
+     *
+     * @return array{ok: bool, http: int, code: ?int, message: string, methods: int}
+     */
+    public function probe(): array
+    {
+        $response = $this->raw('GET', '/method.json', 'check.methods', null, ['lang' => 'cs', 'curr' => 'CZK', 'country' => 'CZ']);
+        $json = $response->json();
+        $methods = is_array($json) ? (array) ($json['methods'] ?? []) : [];
+        $code = is_array($json) && isset($json['code']) ? (int) $json['code'] : null;
+        $ok = $response->status === 200 && ($code === null || $code === 0) && is_array($json) && array_key_exists('methods', $json);
+
+        return ['ok' => $ok, 'http' => $response->status, 'code' => $code, 'message' => is_array($json) ? mb_substr((string) ($json['message'] ?? ''), 0, 200) : '', 'methods' => count($methods)];
+    }
+
+    /**
+     * A test payment of 1 Kč, always in test mode whatever the gateway's mode is, created and read back: the whole path of a
+     * real payment (create → status) without money. It is not a payment of the platform: nothing is written to the ledger.
+     *
+     * @return array{trans_id: string, status: string, redirect_url: string}
+     */
+    public function testPayment(string $reference): array
+    {
+        $created = $this->send('POST', '/payment', 'check.payment', [
+            'price' => 100, 'curr' => 'CZK', 'label' => 'ONhost test', 'refId' => mb_substr($reference, 0, 40), 'method' => 'ALL',
+            'prepareOnly' => true, 'test' => true, 'lang' => 'cs', 'country' => 'CZ', 'expirationTime' => '30m',
+        ], $reference);
+        $this->assertOk($created, 'check.payment');
+        $transId = (string) ($created['transId'] ?? '');
+        $status = $this->getPaymentStatus($transId);
+
+        return ['trans_id' => $transId, 'status' => (string) $status['state'], 'redirect_url' => (string) ($created['redirect'] ?? '')];
+    }
+
+    /** @param array<string,mixed>|null $body @param array<string,mixed> $query */
+    private function raw(string $method, string $path, string $action, ?array $body = null, array $query = []): ProviderResponse
+    {
+        $creds = $this->credentials();
+
+        return $this->http->send(new ProviderRequest(
+            provider: 'comgate', instanceKey: 'comgate', method: $method, url: rtrim((string) config('onhost.payments.comgate.base_url'), '/').$path,
+            action: $action, headers: ['Authorization' => 'Basic '.base64_encode($creds['merchant'].':'.$creds['secret'])], body: $body, bodyType: 'json', query: $query,
+            timeoutSeconds: 15, critical: false, idempotent: $method === 'GET', judgedByCaller: true,
+        ));
     }
 
     /** @return array<string,mixed> */

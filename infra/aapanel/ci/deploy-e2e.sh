@@ -96,6 +96,7 @@ SESSION_DRIVER=file
 MAIL_MAILER=log
 LOG_CHANNEL=single
 ONHOST_SECRETS_DRIVER=db
+ONHOST_SELL_DEFAULT=true
 ONHOST_PLATFORM_BACKUP_DISK=local
 EOF
 # the site's .env IS the root-owned environment file (install.sh: a symlink; a hard link where symlinks need privileges)
@@ -134,7 +135,7 @@ echo "── the deployer's lists: no unit (systemctl is stubbed), the environme
 (umask 077
   printf '# e2e: no unit is managed here\n' > "$box/state/expected-units"
   # review round 2: an allow-list — every other key of app.env is named (bare = reviewed, any value)
-  printf 'APP_ENV=staging\nAPP_DEBUG=false\nAPP_URL=https://staging.test\nMAIL_MAILER=log\nONHOST_SECRETS_DRIVER=db\nAI_ANTHROPIC_*=\nONHOST_CONSOLE_RELAY_KEY=\nHTTPS_PROXY=\nhttps_proxy=\nAPP_NAME\nAPP_KEY\nDB_CONNECTION\nDB_DATABASE\nQUEUE_CONNECTION\nCACHE_STORE\nSESSION_DRIVER\nLOG_CHANNEL\nONHOST_PLATFORM_BACKUP_DISK\n*UNLISTED=\n' > "$box/state/expected-env"
+  printf 'APP_ENV=staging\nAPP_DEBUG=false\nAPP_URL=https://staging.test\nMAIL_MAILER=log\nONHOST_SECRETS_DRIVER=db\nONHOST_SELL_DEFAULT=true\nAI_ANTHROPIC_*=\nONHOST_CONSOLE_RELAY_KEY=\nHTTPS_PROXY=\nhttps_proxy=\nAPP_NAME\nAPP_KEY\nDB_CONNECTION\nDB_DATABASE\nQUEUE_CONNECTION\nCACHE_STORE\nSESSION_DRIVER\nLOG_CHANNEL\nONHOST_PLATFORM_BACKUP_DISK\n*UNLISTED=\n' > "$box/state/expected-env"
   printf '# nothing listens here: the probe must fail\n127.0.0.1:1\n' > "$box/state/egress-blocked")
 (cd "$app" && "$PHP_BIN" artisan onhost:doctor --json > "$box/doctor-before.json") || true
 "$PHP_BIN" "$box/lib/deploy-gate.php" nonok --report "$box/doctor-before.json" --production 0 > "$box/expected-nonok.draft" || fail "cannot draft the expected-nonok list"

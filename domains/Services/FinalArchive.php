@@ -13,6 +13,7 @@ use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Services\Mail\MailDomains;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
+use Onhost\Domain\Services\Web\DatabaseCredentials;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
@@ -28,6 +29,7 @@ use Onhost\Providers\Contracts\MailProvider;
 use Onhost\Providers\Contracts\ResourceRef;
 use Onhost\Providers\Contracts\WebHostingProvider;
 use Onhost\Providers\Contracts\WebToolsProvider;
+use Onhost\Providers\Penpot\PenpotDockerProvider;
 use Throwable;
 
 /**
@@ -126,7 +128,7 @@ final class FinalArchive
                     // a web service's own mailboxes are archived with it: the plan sells them, the mail domain is made
                     // for the site, and the removal takes that domain — so it may not be the one thing nobody kept
                     'web', 'managed' => (function () use ($service, $adapter, $ref, $work, &$gaps, &$attempts, $freshOnly, $options) {
-                        $this->web($adapter, $ref, $work, $gaps, $attempts, $freshOnly, isset($options['only_database']) ? (string) $options['only_database'] : null);
+                        $this->web($adapter, $ref, $work, $gaps, $attempts, $freshOnly, isset($options['only_database']) ? (string) $options['only_database'] : null, $service);
                         foreach (MailDomains::bindingsOf($service) as $index => $mail) { // a service can have mail in several of its domains
                             $this->mail($adapter, $mail->ref(), $work, $gaps, $index === 0 ? null : MailDomains::nameOf($mail));
                         }
@@ -134,6 +136,7 @@ final class FinalArchive
                     'game' => $this->game($adapter, $ref, $work, $gaps),
                     'mail' => $this->mail($adapter, $ref, $work, $gaps),
                     'cloud', 'data' => $snapshot = $this->snapshot($adapter, $ref, $gaps),
+                    'penpot' => $this->penpot($adapter, $ref, $work), // TASK-0123: the database dump and the assets, pulled off the node
                     default => $gaps[] = "family {$service->family}: only the service metadata is archived",
                 };
             }
@@ -486,7 +489,7 @@ final class FinalArchive
      * shared node does not always offer both: the file transport (SFTP or the panel's file API) and the panel's own
      * site backup. Each attempt is recorded; only when both fail does the archive — and with it the deletion — stop.
      */
-    private function web(?object $adapter, ?ResourceRef $ref, string $work, array &$gaps, array &$attempts, bool $freshOnly = false, ?string $onlyDatabase = null): void
+    private function web(?object $adapter, ?ResourceRef $ref, string $work, array &$gaps, array &$attempts, bool $freshOnly = false, ?string $onlyDatabase = null, ?Service $service = null): void
     {
         if (! $adapter instanceof WebToolsProvider || $ref === null) {
             if ($freshOnly) { // a backup with nothing of the site in it is not a backup; the final archive still keeps the metadata
@@ -503,7 +506,7 @@ final class FinalArchive
             if ($database === null) {
                 throw new DomainError('backup_not_possible', 'Databázi, která se má přepsat, panel nezná; nic nebylo změněno.', 409);
             }
-            $adapter->exportDatabase($ref, $onlyDatabase, $work.'/database-'.self::databaseSlug((string) ($database['name'] ?? $onlyDatabase)).'.sql');
+            $adapter->exportDatabase($ref, $onlyDatabase, $work.'/database-'.self::databaseSlug((string) ($database['name'] ?? $onlyDatabase)).'.sql', self::credentialsOf($service, $onlyDatabase));
             $gaps[] = 'only the database being overwritten is in this copy';
 
             return;
@@ -511,7 +514,7 @@ final class FinalArchive
         if ($adapter instanceof WebHostingProvider) {
             foreach ($adapter->listDatabases($ref) as $database) {
                 $name = (string) ($database['name'] ?? $database['remote_id'] ?? 'db');
-                $adapter->exportDatabase($ref, (string) $database['remote_id'], $work.'/database-'.self::databaseSlug($name).'.sql');
+                $adapter->exportDatabase($ref, (string) $database['remote_id'], $work.'/database-'.self::databaseSlug($name).'.sql', self::credentialsOf($service, (string) $database['remote_id']));
             }
         }
         try {
@@ -531,6 +534,18 @@ final class FinalArchive
         }
 
         throw new DomainError('final_archive_files', 'Soubory webu se nepodařilo zazálohovat žádnou cestou (přenos: '.$attempts['transport'].'; záloha panelu: '.$attempts['panel_backup'].')'.($freshOnly ? '.' : '; nic nebylo smazáno.'), 503);
+    }
+
+    /**
+     * The login the platform made for a database and kept in the secret store. ISPConfig dumps through the database login and has no
+     * other way in: an archive that asked for none could never take a database of a site on it, so such a site could not be cancelled
+     * at all (TASK-0094). A database the platform never saw a password for still fails — by name, never as an archive without it.
+     *
+     * @return array{name?:string,user?:string,password?:string,host?:string}
+     */
+    private static function credentialsOf(?Service $service, string $databaseRemoteId): array
+    {
+        return $service === null ? [] : (app(DatabaseCredentials::class)->read($service, $databaseRemoteId) ?? []);
     }
 
     /** Path 1: pack the site root on the node and pull the archive through the provider's file transport. */
@@ -648,6 +663,28 @@ final class FinalArchive
         }
         if ($bytes < 64) {
             throw new DomainError('final_archive_download', 'The game server backup could not be downloaded; nothing was deleted.', 503);
+        }
+    }
+
+    /**
+     * A Penpot stack (TASK-0123): a fresh backup on the node (pg_dump + the assets volume), both files pulled into the archive.
+     * Anything short of that refuses the termination — the designs exist nowhere else.
+     */
+    private function penpot(?object $adapter, ?ResourceRef $ref, string $work): void
+    {
+        if (! $adapter instanceof PenpotDockerProvider || $ref === null) {
+            throw new DomainError('final_archive_backup', 'The Penpot node is not reachable for the final backup; nothing was deleted.', 503);
+        }
+        try {
+            $stamp = (string) ($adapter->backup($ref, ['notes' => 'final archive before termination'])->data['backup_uuid'] ?? '');
+            foreach (['db.sql.gz' => 'penpot-database.sql.gz', 'assets.tar.gz' => 'penpot-assets.tar.gz'] as $file => $name) {
+                $adapter->downloadBackup($ref, $stamp, $file, $work.'/'.$name);
+                if (! is_file($work.'/'.$name) || (int) filesize($work.'/'.$name) < 20) {
+                    throw new DomainError('final_archive_download', "The Penpot backup file {$file} came back empty; nothing was deleted.", 503);
+                }
+            }
+        } catch (ProviderException $e) {
+            throw new DomainError('final_archive_download', 'The Penpot backup could not be taken or downloaded; nothing was deleted. ('.mb_substr($e->getMessage(), 0, 160).')', 503);
         }
     }
 

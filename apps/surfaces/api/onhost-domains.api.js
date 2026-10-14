@@ -35,10 +35,13 @@
   }
   var hydrated = null;
   function hydrate() {
+    var listPath = A.staff() ? '/staff/domains' : '/domains';
+    var mayRead = function (p) { return !A.reads || A.reads(p); }; // K7-7 (L5): a read the staff navigation does not list is not made
     hydrated = Promise.all([
-      (A.all ? A.all(A.staff() ? '/staff/domains' : '/domains') : A.get(A.staff() ? '/staff/domains?limit=200' : '/domains?limit=200')).then(function (r) { DOMAINS = (r.data || []).map(mapDomain); failure = null; refusedList = false; }) // every page, not the first 500 the API never sent (it caps a page at 200)
-        .catch(function (e) { failure = (e && e.message) || 'error'; refusedList = !!(e && e.status === 403); }),
-      A.staff() ? A.get('/staff/integrations').then(function (r) { var w = (r.data || []).filter(function (i) { return i.provider === 'wedos'; })[0]; credit = w && w.health ? w.health.credit || null : null; }).catch(function () {}) : Promise.resolve()
+      !mayRead(listPath) ? Promise.resolve().then(function () { DOMAINS = []; failure = null; refusedList = true; }) // as a refused (403) list: "no access"
+        : (A.all ? A.all(listPath) : A.get(listPath + '?limit=200')).then(function (r) { DOMAINS = (r.data || []).map(mapDomain); failure = null; refusedList = false; }) // every page, not the first 500 the API never sent (it caps a page at 200)
+          .catch(function (e) { failure = (e && e.message) || 'error'; refusedList = !!(e && e.status === 403); }),
+      A.staff() && mayRead('/staff/integrations') ? A.get('/staff/integrations').then(function (r) { var w = (r.data || []).filter(function (i) { return i.provider === 'wedos'; })[0]; credit = w && w.health ? w.health.credit || null : null; }).catch(function () {}) : Promise.resolve()
     ]).then(function () { emit(); return API; });
     return hydrated;
   }

@@ -1,0 +1,7 @@
+{
+  "code": 0,
+  "message": "OK",
+  "transfers": [
+    { "transferId": "TR-2026-10-04-1", "transferDate": "2026-10-04", "curr": "CZK" }
+  ]
+}

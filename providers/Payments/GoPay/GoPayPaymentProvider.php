@@ -14,6 +14,7 @@ use Onhost\Platform\Secrets\SecretRef;
 use Onhost\Platform\Secrets\SecretStore;
 use Onhost\Providers\Contracts\PaymentProvider;
 use Onhost\Providers\Contracts\StoredMethodCharging;
+use Onhost\Providers\Payments\ReturnUrls;
 
 /**
  * GoPay REST API (OAuth2 client credentials). Contingency adapter (§63.2).
@@ -60,7 +61,7 @@ final class GoPayPaymentProvider implements PaymentProvider, StoredMethodChargin
             'order_number' => (string) $input['reference'],
             'order_description' => (string) $input['description'],
             'items' => [['type' => 'ITEM', 'name' => (string) $input['description'], 'amount' => $amount->minor, 'count' => 1]],
-            'callback' => ['return_url' => $input['return_url'], 'notification_url' => rtrim((string) config('onhost.portal_url'), '/').'/v1/webhooks/payments/gopay'],
+            'callback' => ['return_url' => ReturnUrls::allowed($input['return_url'] ?? null, 'return_url'), 'notification_url' => rtrim((string) config('onhost.portal_url'), '/').'/v1/webhooks/payments/gopay'],
             'lang' => strtoupper((string) ($input['locale'] ?? 'cs')),
         ];
         if ($save) { // a card the customer wants to keep: an on-demand recurrent payment; its id becomes the token

@@ -83,6 +83,7 @@
     <table><thead><tr><th>Uzel</th><th>Instance</th><th>Stav</th><th>Zdraví</th><th>15 min: úspěchy / přechodné chyby</th><th></th></tr></thead><tbody id="nodes"><tr><td colspan="6" class="muted">načítám…</td></tr></tbody></table>
   </section>
 </main>
+@include('partials.dialog-bridge')
 <script>
 (function () {
   var API = '/v1';
@@ -133,8 +134,8 @@
     var b = e.target.closest ? e.target.closest('button[data-retry],button[data-cancel],button[data-node]') : null;
     if (!b) return;
     if (b.dataset.retry) { api('POST', '/staff/provisioning/jobs/' + encodeURIComponent(b.dataset.retry) + '/retry', { reason: 'nástěnka provozu' }).then(function () { alertBox('Operace zařazena znovu.', true); load(); }).catch(function (err) { alertBox('Nelze zopakovat: ' + err.message); }); return; }
-    if (b.dataset.cancel) { var reason = window.prompt('Důvod zrušení (min. 5 znaků):', 'zrušeno z nástěnky provozu'); if (!reason || reason.length < 5) return; api('POST', '/staff/provisioning/jobs/' + encodeURIComponent(b.dataset.cancel) + '/cancel', { reason: reason }).then(function () { alertBox('Operace zrušena.', true); load(); }).catch(function (err) { alertBox('Nelze zrušit: ' + err.message); }); return; }
-    if (b.dataset.node) { var to = b.dataset.state, why = window.prompt(to === 'draining' ? 'Důvod odstavení uzlu:' : 'Důvod vrácení uzlu:', to === 'draining' ? 'odstaveno z nástěnky provozu' : 'vráceno z nástěnky provozu'); if (why === null) return; api('POST', '/staff/integrations/' + encodeURIComponent(b.dataset.instance) + '/nodes/' + encodeURIComponent(b.dataset.node) + '/state', { state: to, reason: why || null }).then(function () { alertBox(to === 'draining' ? 'Uzel odstaven z umísťování.' : 'Uzel opět přijímá služby.', true); load(); }).catch(function (err) { alertBox('Změna stavu neprošla: ' + err.message); }); }
+    if (b.dataset.cancel) { var job = b.dataset.cancel; window.OnhostDialog.prompt('Důvod zrušení (min. 5 znaků):', 'zrušeno z nástěnky provozu', { title: 'Zrušit operaci' }).then(function (reason) { if (!reason || reason.length < 5) return; api('POST', '/staff/provisioning/jobs/' + encodeURIComponent(job) + '/cancel', { reason: reason }).then(function () { alertBox('Operace zrušena.', true); load(); }).catch(function (err) { alertBox('Nelze zrušit: ' + err.message); }); }); return; }
+    if (b.dataset.node) { var to = b.dataset.state, inst = b.dataset.instance, node = b.dataset.node; window.OnhostDialog.prompt(to === 'draining' ? 'Důvod odstavení uzlu:' : 'Důvod vrácení uzlu:', to === 'draining' ? 'odstaveno z nástěnky provozu' : 'vráceno z nástěnky provozu', { title: to === 'draining' ? 'Odstavit uzel' : 'Vrátit uzel' }).then(function (why) { if (why === null) return; api('POST', '/staff/integrations/' + encodeURIComponent(inst) + '/nodes/' + encodeURIComponent(node) + '/state', { state: to, reason: why || null }).then(function () { alertBox(to === 'draining' ? 'Uzel odstaven z umísťování.' : 'Uzel opět přijímá služby.', true); load(); }).catch(function (err) { alertBox('Změna stavu neprošla: ' + err.message); }); }); }
   });
   load();
   setInterval(load, 30000);

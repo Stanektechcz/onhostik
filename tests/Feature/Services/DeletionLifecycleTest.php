@@ -66,6 +66,7 @@ it('lets staff set the restore window, the retention and the download fee, and c
 });
 
 it('charges the fee once for downloading an archive and hands over a signed link (audit §5ab)', function () {
+    config(['onhost.services.deletion.download_fee_minor' => ['CZK' => 50000, 'EUR' => 2000]]); // a fee staff set (none by default since P-R30)
     [$owner, $org] = $this->customerWithOrganization();
     $service = featureWebService($org, 'ispconfig');
     $backup = storedArchive($org->id, $service->id);

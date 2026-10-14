@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Invoicing;
 
 use Onhost\Domain\Invoicing\Models\Invoice;
+use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Money\Money;
 
 /**
@@ -69,13 +70,14 @@ final class UblExporter
                     'TaxCategory' => ['ID' => $row['category'], 'Percent' => $row['rate'], 'TaxExemptionReason' => $this->exemptionReason($row['category']), 'TaxScheme' => 'VAT'],
                 ], $invoice->tax_summary ?? []),
             ],
+            // BT-113: what was paid before — on a final invoice the advances it deducts (G2), even before its own payment is marked
             'LegalMonetaryTotal' => [
                 'LineExtensionAmount' => Money::minor($invoice->subtotal_minor - $invoice->discount_minor, $invoice->currency)->toDecimal(),
                 'TaxExclusiveAmount' => Money::minor($invoice->subtotal_minor - $invoice->discount_minor, $invoice->currency)->toDecimal(),
                 'TaxInclusiveAmount' => Money::minor($invoice->total_minor, $invoice->currency)->toDecimal(),
                 'AllowanceTotalAmount' => Money::minor($invoice->discount_minor, $invoice->currency)->toDecimal(),
-                'PrepaidAmount' => Money::minor($invoice->paid_minor, $invoice->currency)->toDecimal(),
-                'PayableAmount' => Money::minor($invoice->total_minor - $invoice->paid_minor, $invoice->currency)->toDecimal(),
+                'PrepaidAmount' => Money::minor(self::prepaid($invoice), $invoice->currency)->toDecimal(),
+                'PayableAmount' => Money::minor($invoice->total_minor - self::prepaid($invoice), $invoice->currency)->toDecimal(),
             ],
             'InvoiceLine' => $lines->map(fn ($line) => [
                 'ID' => (string) $line->position,
@@ -88,8 +90,20 @@ final class UblExporter
         ];
     }
 
+    /**
+     * Whether the document has an EN 16931 form at all. A payment confirmation is no invoice of any kind — exported as type 380
+     * it would be booked as a commercial invoice by whoever imports it (security review of PR #103, G1).
+     */
+    public static function exportable(Invoice $invoice): bool
+    {
+        return $invoice->type !== InvoiceService::PAYMENT_CONFIRMATION;
+    }
+
     public function export(Invoice $invoice): string
     {
+        if (! self::exportable($invoice)) {
+            throw new DomainError('document_not_exportable', 'A payment confirmation is not an invoice and has no structured (UBL) form; download its PDF.', 409);
+        }
         $s = $invoice->structured ?? $this->structure($invoice);
         $isCredit = ($s['InvoiceTypeCode'] ?? '380') === '381';
         $root = $isCredit ? 'CreditNote' : 'Invoice';
@@ -151,6 +165,13 @@ final class UblExporter
         $x[] = "</{$root}>";
 
         return implode("\n", $x);
+    }
+
+    /** What was paid before this document is settled: its own payments, or the advances a final invoice deducts (G2). */
+    private static function prepaid(Invoice $invoice): int
+    {
+        // never more than the document's total: a payable amount below zero would ask the buyer's system to pay the seller back (H2)
+        return max(0, min((int) $invoice->total_minor, max((int) $invoice->paid_minor, InvoicePdfRenderer::deductedTotal($invoice))));
     }
 
     private function exemptionReason(string $category): ?string

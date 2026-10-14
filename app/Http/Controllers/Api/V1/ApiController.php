@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Support\ApiContext;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use Onhost\Platform\Commands\Command;
 use Onhost\Platform\Commands\CommandBus;
 use Onhost\Platform\Commands\CommandContext;
@@ -41,6 +42,19 @@ abstract class ApiController extends Controller
         $header = $request->headers->get('Idempotency-Key');
 
         return $this->idempotencyKey($request, is_string($header) && $header !== '' ? $prefix : $prefix.':'.now()->format('YmdHi'));
+    }
+
+    /**
+     * F12a (TASK-0106): the key of a request that is its own act each time — a test event, whose limit is a cooldown the caller
+     * must hear. With an `Idempotency-Key` the header decides (a retry is replayed); without one, every request gets a key of its
+     * own, where onceKey()'s minute made the second ping in a minute a replay of the first 202 instead of the 429 of the cooldown.
+     * Only for actions whose repetition is bounded by their handler, never for one that creates or spends.
+     */
+    protected function eachRequestKey(Request $request, string $prefix): string
+    {
+        $header = $request->headers->get('Idempotency-Key');
+
+        return is_string($header) && $header !== '' ? $this->idempotencyKey($request, $prefix) : $prefix.':r:'.Str::ulid();
     }
 
     protected function idempotencyKey(Request $request, string $prefix): string

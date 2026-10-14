@@ -16,7 +16,7 @@ use Onhost\Platform\Settings\SettingsStore;
  *  4. after the grace window it is really removed (onhost:services:purge) and the archive is kept
  *     `retentionDays()` days counted from that removal,
  *  5. restoring the archive onto a new paid service is free; downloading it as one compressed file without a new
- *     service costs `downloadFeeMinor()` (500 Kč by default).
+ *     service costs `downloadFeeMinor()` (0 by default since P-R30; staff may set one through the four-eyes price path).
  */
 final class DeletionPolicy
 {

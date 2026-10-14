@@ -16,12 +16,16 @@ use Onhost\Domain\Domains\Models\RegistrarCreditSnapshot;
 use Onhost\Domain\Domains\RegistrarPricing;
 use Onhost\Domain\Incidents\Models\SlaProbe;
 use Onhost\Domain\Incidents\OnCallRota;
+use Onhost\Domain\Platform\OutboxDeadLetters;
+use Onhost\Domain\Platform\ScheduleHealth;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Provisioning\Models\IntegrationHealth;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
+use Onhost\Domain\Services\Mail\Reputation\ReputationHealth;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Files\VirusScanner;
 use Onhost\Platform\Ops\PlatformBackup;
+use Onhost\Platform\Ops\RestoreDrill;
 
 /**
  * Readiness (`/healthz`) for load balancers and the Prometheus exporter (`/metrics`) that feeds
@@ -82,6 +86,10 @@ final class HealthController extends Controller
         $emit('onhost_http_request_avg_ms', 'gauge', 'Average request duration since process start', $latency);
         $emit('onhost_outbox_pending_oldest_seconds', 'gauge', 'Age of the oldest unpublished outbox message', [[[], $this->outboxLagSeconds()]]);
         $emit('onhost_outbox_pending_total', 'gauge', 'Unpublished outbox messages', [[[], (int) DB::table('outbox_messages')->whereNull('published_at')->count()]]);
+        // G7 (TASK-0115): the messages the relay gave up on, apart — the lag above no longer counts them (the relay cannot fix them)
+        $dead = app(OutboxDeadLetters::class)->measure();
+        $emit('onhost_outbox_dead_letters', 'gauge', 'Outbox messages the relay gave up on (OutboxDeadLetters)', [[[], $dead['count']]]);
+        $emit('onhost_outbox_dead_letter_oldest_seconds', 'gauge', 'Age of the oldest outbox dead letter', [[[], $dead['oldest_seconds']]]);
 
         $ops = DB::table('operations')->selectRaw('state, count(*) as n')->groupBy('state')->pluck('n', 'state');
         $emit('onhost_operations_total', 'gauge', 'Provisioning operations by state', array_map(fn ($state, $n) => [['state' => $state], (int) $n], array_keys($ops->all()), $ops->all()) ?: [[['state' => 'none'], 0]]);
@@ -90,6 +98,31 @@ final class HealthController extends Controller
         $emit('onhost_operations_backlog', 'gauge', 'Operations due for longer than the age limit, by queue (autoscaling signal)', array_map(fn ($queue, $n) => [['queue' => $queue], (int) $n], array_keys($backlog['by_queue']), $backlog['by_queue']) ?: [[['queue' => 'none'], 0]]);
         $emit('onhost_operations_backlog_threshold', 'gauge', 'Backlog size that raises platform.queue.backlog', [[[], (int) $backlog['threshold']]]);
         $emit('onhost_queue_jobs_failed_total', 'gauge', 'Failed jobs', [[[], (int) (DB::getSchemaBuilder()->hasTable('failed_jobs') ? DB::table('failed_jobs')->count() : 0)]]);
+        // P14: the age of every scheduled job's last success and its budget (the Prometheus alert compares the two; -1 = never)
+        $schedule = app(ScheduleHealth::class)->jobs();
+        $emit('onhost_schedule_last_success_seconds', 'gauge', 'Seconds since the last success (or skip) of a scheduled job, -1 when it never ran', array_map(fn (array $j) => [['command' => $j['command']], $j['age'] ?? -1], $schedule) ?: [[['command' => 'none'], -1]]);
+        $emit('onhost_schedule_budget_seconds', 'gauge', 'Age budget of a scheduled job (twice its longest gap plus slack)', array_map(fn (array $j) => [['command' => $j['command']], $j['budget']], $schedule) ?: [[['command' => 'none'], 0]]);
+        // P12: certificates the platform manages, the bank statement import and the app host's disk (alerts in slo-alerts.yml)
+        $certs = DB::table('managed_certificates')->where('state', 'issued')->whereNotNull('expires_at');
+        $emit('onhost_certificates_expiring_7d', 'gauge', 'Issued managed certificates that expire within 7 days', [[[], (int) (clone $certs)->where('expires_at', '>', now())->where('expires_at', '<=', now()->addDays(7))->count()]]);
+        $emit('onhost_certificates_expired', 'gauge', 'Issued managed certificates past their expiry', [[[], (int) (clone $certs)->where('expires_at', '<=', now())->count()]]);
+        $lastLine = DB::table('bank_statement_lines')->max('created_at');
+        $emit('onhost_bank_statement_last_line_timestamp', 'gauge', 'Unix time of the newest imported bank statement line (0 = none)', [[[], $lastLine === null ? 0 : Carbon::parse((string) $lastLine)->getTimestamp()]]);
+        $emit('onhost_bank_unmatched_lines', 'gauge', 'Bank statement lines not matched to a payment', [[[], (int) DB::table('bank_statement_lines')->where('state', 'unmatched')->count()]]);
+        $total = @disk_total_space(base_path());
+        $free = @disk_free_space(base_path());
+        $emit('onhost_disk_free_ratio', 'gauge', 'Free share of the disk the application lives on', is_float($total) && $total > 0 && is_float($free) ? [[['path' => 'app'], round($free / $total, 4)]] : []);
+        // SP1a (V-R1): open blocklist listings of our sending addresses and customer mail domains, lists refusing our resolver
+        $reputation = app(ReputationHealth::class)->metrics();
+        $listingSamples = [];
+        foreach ($reputation['listings'] as $weight => $kinds) {
+            foreach ($kinds as $kind => $n) {
+                $listingSamples[] = [['weight' => $weight, 'kind' => $kind], $n];
+            }
+        }
+        $emit('onhost_mail_blocklist_listings', 'gauge', 'Open blocklist listings by weight (major/minor/info) and kind (address/domain)', $listingSamples);
+        $emit('onhost_mail_blocklist_refused', 'gauge', 'Blocklists that refused our resolver within the last day', [[[], $reputation['refused']]]);
+        $emit('onhost_mail_reputation_last_check_timestamp', 'gauge', 'Unix time of the newest blocklist answer (0 = never asked)', [[[], $reputation['last_check']]]);
 
         $instances = ProviderInstance::query()->get()->keyBy('id');
         $health = IntegrationHealth::query()->get();
@@ -125,6 +158,10 @@ final class HealthController extends Controller
         // operations the doctor checks by hand, as time series (go-live checklist §1): backups, the queue worker and scheduler heartbeats, the virus scanner, on-call
         $backup = app(PlatformBackup::class)->status();
         $emit('onhost_platform_backup_verified_timestamp', 'gauge', 'Unix time of the last verified platform backup (0 = none)', [[[], isset($backup['verified']['at']) ? Carbon::parse((string) $backup['verified']['at'])->getTimestamp() : 0]]);
+        // P13: the newest restore drill (infra/aapanel/restore-drill.sh) — its time and whether the restored copy passed
+        $drill = app(RestoreDrill::class)->latest();
+        $emit('onhost_platform_restore_drill_timestamp', 'gauge', 'Unix time of the newest platform restore drill (0 = none)', [[[], $drill !== null ? Carbon::parse((string) ($drill['at'] ?? '@0'))->getTimestamp() : 0]]);
+        $emit('onhost_platform_restore_drill_ok', 'gauge', 'The newest platform restore drill passed (1) or failed (0); 0 when none ran', [[[], ($drill['ok'] ?? false) === true ? 1 : 0]]);
         $live = app(AutomationLedger::class)->liveness();
         $emit('onhost_automation_alive', 'gauge', 'Scheduler and queue worker heartbeats seen recently (1 = alive)', [[['machine' => 'scheduler'], $live['scheduler']['alive'] ? 1 : 0], [['machine' => 'worker'], $live['worker']['alive'] ? 1 : 0]]);
         $scanner = app(VirusScanner::class);
@@ -137,7 +174,8 @@ final class HealthController extends Controller
 
     private function outboxLagSeconds(): int
     {
-        $oldest = DB::table('outbox_messages')->whereNull('published_at')->min('available_at');
+        // a dead letter is not lag: the relay stopped trying it (OutboxDeadLetters), and counting it kept /healthz and the lag alert red for ever
+        $oldest = DB::table('outbox_messages')->whereNull('published_at')->where('attempts', '<', OutboxDeadLetters::MAX_ATTEMPTS)->min('available_at');
 
         return $oldest === null ? 0 : max(0, (int) now()->diffInSeconds(Carbon::parse($oldest), true));
     }

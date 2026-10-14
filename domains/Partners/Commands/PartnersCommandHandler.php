@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Partners\Commands;
 
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Partners\DuplicateCommissions;
 use Onhost\Domain\Partners\Models\Partner;
 use Onhost\Domain\Partners\Models\PartnerChangeRequest;
 use Onhost\Domain\Partners\Models\PartnerPayout;
@@ -18,7 +19,7 @@ use Onhost\Platform\Money\Money;
 
 final class PartnersCommandHandler implements CommandHandler
 {
-    public function __construct(private readonly PartnerService $partners) {}
+    public function __construct(private readonly PartnerService $partners, private readonly DuplicateCommissions $duplicates) {}
 
     public function handle(Command $command, CommandContext $context): mixed
     {
@@ -42,6 +43,9 @@ final class PartnersCommandHandler implements CommandHandler
             'payout.unfreeze' => PartnerPresenters::payout($this->partners->unfreezePayout($this->payout($command), $this->reason($command), $context, filter_var($command->get('confirms_account', false), FILTER_VALIDATE_BOOLEAN)), true),
             'masking.notice' => ['noticed' => $this->partners->noticeMasking($this->partner($command), $context)], // program §10 O9
             'tiers.recompute' => ['recomputed' => $this->partners->recomputeAllTiers()],
+            'commissions.mature' => $this->partners->matureCommissions($context), // R7 (TASK-0097): the hourly job, through the bus
+            // I-R6 (K5, TASK-0158): finance cancels the newer row of a double commission; the reason stays in the bus's audit of this command
+            'commission.cancel_duplicate' => $this->cancelDuplicate($command),
             'model.decide' => PartnerService::presentRequest($this->partners->decideModelChange(PartnerChangeRequest::query()->find((string) $command->get('request_id')) ?? throw DomainError::notFound('partner_request'), (string) $command->get('decision'), $command->get('note') !== null ? (string) $command->get('note') : null, $context)), // §5m-1
             default => throw new DomainError('partner_op_unknown', "Unknown partner operation {$command->op()}.", 422),
         };
@@ -90,6 +94,14 @@ final class PartnersCommandHandler implements CommandHandler
         }
 
         return $partner;
+    }
+
+    /** @return array<string, mixed> */
+    private function cancelDuplicate(PartnerCommand $command): array
+    {
+        $this->reason($command); // finance says why, like a freeze; the bus keeps it in the audit of the command
+
+        return $this->duplicates->cancel((string) $command->get('commission_id'));
     }
 
     /** A freeze or its release names why (TASK-0040): ten characters at least, cut to the column. */

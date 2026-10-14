@@ -57,6 +57,41 @@ final class ProxmoxConnector
         return $this->call('DELETE', $path, $params, $action, $critical, $operationId);
     }
 
+    /**
+     * A file to a node's storage (`POST …/storage/{storage}/upload`, multipart): the plain fields, then the file under the part
+     * name Proxmox reads (`filename`). The stream is sent as it is read, never held in memory; the timeout is the one of a large
+     * upload (`onhost.custom_iso.upload_timeout_seconds`), not of an API call (TASK-0110).
+     *
+     * @param  array<string,string>  $fields
+     * @param  resource  $stream
+     */
+    public function upload(string $path, array $fields, string $filename, $stream, string $action): mixed
+    {
+        [$tokenId, $secret] = $this->token();
+        $request = new ProviderRequest(
+            provider: 'proxmox', instanceKey: $this->instance->key, method: 'POST',
+            url: $this->baseUrl().'/api2/json'.$path, action: $action,
+            headers: ['Authorization' => "PVEAPIToken={$tokenId}={$secret}", 'Accept' => 'application/json'],
+            body: $fields, bodyType: 'multipart', timeoutSeconds: max(60, (int) config('onhost.custom_iso.upload_timeout_seconds', 3600)),
+            critical: true, options: TlsOptions::verify($this->instance, 'proxmox'), files: ['filename' => ['contents' => $stream, 'filename' => $filename]],
+            judgedByCaller: true,
+        );
+
+        return $this->unwrap($this->http->send($request), $action);
+    }
+
+    /** @return array{0:string,1:string} */
+    private function token(): array
+    {
+        $tokenId = (string) ($this->credentials['token_id'] ?? '');
+        $secret = (string) ($this->credentials['token_secret'] ?? '');
+        if ($tokenId === '' || $secret === '') {
+            throw new ProviderException('proxmox', ProviderErrorCode::AUTH, 'Proxmox API token is not configured');
+        }
+
+        return [$tokenId, $secret];
+    }
+
     public function baseUrl(): string
     {
         return rtrim((string) $this->instance->base_url, '/');
@@ -65,11 +100,7 @@ final class ProxmoxConnector
     /** @param array<string,mixed> $params */
     private function call(string $method, string $path, array $params, string $action, bool $critical, ?string $operationId = null): mixed
     {
-        $tokenId = (string) ($this->credentials['token_id'] ?? '');
-        $secret = (string) ($this->credentials['token_secret'] ?? '');
-        if ($tokenId === '' || $secret === '') {
-            throw new ProviderException('proxmox', ProviderErrorCode::AUTH, 'Proxmox API token is not configured');
-        }
+        [$tokenId, $secret] = $this->token();
         $options = TlsOptions::verify($this->instance, 'proxmox');
         $request = new ProviderRequest(
             provider: 'proxmox', instanceKey: $this->instance->key, method: $method,

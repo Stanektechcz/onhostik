@@ -25,7 +25,9 @@ it('renders the staff console for a game server and refuses everyone without the
     expect($html)->toContain('Konzole · '.($service->label ?: $service->name))->toContain('Herní klub s.r.o.')->toContain('uzel games01')
         ->toContain('data-power="start"')->toContain('data-power="kill"')->toContain('id="cmd"')->toContain("action: 'command.send'")->toContain("'X-Organization': org")->toContain('/console-token')->toContain('/logs?lines=300');
     $this->actingAs($this->staff('game_admin'))->get('/sprava/konzole/svc_nope')->assertNotFound();
-    $this->actingAs($this->staff('support_agent'))->get("/sprava/konzole/{$service->id}")->assertForbidden();
+    // F12a: a real staff role without staff.service.manage is refused, one with it gets in — the permission decides, not the staff flag
+    $this->actingAs($this->staff('support_l1'))->get("/sprava/konzole/{$service->id}")->assertForbidden();
+    $this->actingAs($this->staff('support_l2'))->get("/sprava/konzole/{$service->id}")->assertOk();
     $this->actingAs($owner)->get("/sprava/konzole/{$service->id}")->assertForbidden(); // customers use their own workbench
     $js = (string) file_get_contents(base_path('apps/surfaces/api/onhost-admin.api.js'));
     expect($js)->toContain("window.open('/sprava/konzole/' + sid, '_blank', 'noopener')");

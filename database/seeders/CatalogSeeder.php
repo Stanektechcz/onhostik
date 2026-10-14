@@ -15,6 +15,7 @@ use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Catalog\Models\ProductOption;
 use Onhost\Domain\Catalog\Models\PromoCode;
 use Onhost\Domain\Catalog\Models\TldPolicy;
+use Onhost\Domain\Catalog\PenpotOffer;
 use Onhost\Domain\Domains\Models\RegistrarTldCost;
 use Onhost\Domain\Services\Models\Service;
 
@@ -49,25 +50,26 @@ final class CatalogSeeder extends Seeder
             ['shop-peak', ['cs' => 'Shop Peak', 'en' => 'Shop Peak'], 249000, 2490000, 9990, 99900, false, 'ha', ['products' => 999999, 'nvme_gb' => 600, 'php_workers' => 24, 'php_workers_dedicated' => true, 'php_memory_mb' => 4096, 'object_cache' => 'redis', 'backup_frequency' => '15m', 'backup_days' => 90, 'waf' => 'pro + CDN + DDoS', 'staging' => true, 'mailboxes' => 500, 'databases' => 100, 'dedicated_db' => true, 'support' => 'priority 10 min'], []],
         ]);
 
-        $this->product('vps', 'cloud', 'proxmox', 'hourly', ['cs' => 'VPS', 'en' => 'VPS'], ['cs' => 'KVM na Proxmox VE, hodinové účtování s měsíčním stropem, IPv6 v ceně.', 'en' => 'KVM on Proxmox VE, hourly billing with a monthly cap, IPv6 included.'], 30, ['persona' => 'sysadmin', 'cpu_class' => 'shared', 'images' => ['debian-13', 'ubuntu-24.04', 'ubuntu-22.04', 'rocky-9', 'alma-9'], 'addon_products' => ['backup-plus', 'backup-hourly', 'cdn']], [
+        $this->product('vps', 'cloud', 'proxmox', 'hourly', ['cs' => 'VPS', 'en' => 'VPS'], ['cs' => 'KVM na Proxmox VE, hodinové účtování s měsíčním stropem, IPv6 v ceně.', 'en' => 'KVM on Proxmox VE, hourly billing with a monthly cap, IPv6 included.'], 30, ['persona' => 'sysadmin', 'cpu_class' => 'shared', 'images' => ['debian-13', 'ubuntu-24.04', 'ubuntu-22.04', 'rocky-9', 'alma-9'], 'addon_products' => ['backup-plus', 'backup-hourly', 'cdn', 'custom-iso']], [
             ['compute-2', ['cs' => 'Compute 2', 'en' => 'Compute 2'], 24900, 249000, 990, 9900, false, 'standard', ['vcpu' => 2, 'cpu_class' => 'shared', 'ram_mb' => 4096, 'nvme_gb' => 80, 'traffic_tb' => 5, 'ipv6' => '/64', 'ipv4' => 'addon', 'snapshots' => 3, 'backup' => 'addon', 'console' => 'noVNC/serial'], []],
             ['compute-4', ['cs' => 'Compute 4', 'en' => 'Compute 4'], 44900, 449000, 1790, 17900, true, 'standard', ['vcpu' => 4, 'cpu_class' => 'shared', 'ram_mb' => 8192, 'nvme_gb' => 160, 'traffic_tb' => 8, 'ipv6' => '/64', 'ipv4' => 'addon', 'snapshots' => 5, 'backup' => 'addon', 'console' => 'noVNC/serial'], []],
             ['compute-8', ['cs' => 'Compute 8', 'en' => 'Compute 8'], 84900, 849000, 3390, 33900, false, 'standard', ['vcpu' => 8, 'cpu_class' => 'performance', 'ram_mb' => 16384, 'nvme_gb' => 320, 'traffic_tb' => 12, 'ipv6' => '/64', 'ipv4' => 'addon', 'snapshots' => 10, 'backup' => 'addon', 'console' => 'noVNC/serial'], []],
             ['compute-16', ['cs' => 'Compute 16', 'en' => 'Compute 16'], 169000, 1690000, 6790, 67900, false, 'standard', ['vcpu' => 16, 'cpu_class' => 'performance', 'ram_mb' => 32768, 'nvme_gb' => 640, 'traffic_tb' => 20, 'ipv6' => '/64', 'ipv4' => 'addon', 'snapshots' => 10, 'backup' => 'addon', 'console' => 'noVNC/serial'], []],
         ], hourly: true);
 
-        $this->product('vds', 'cloud', 'proxmox', 'hourly', ['cs' => 'VDS', 'en' => 'VDS'], ['cs' => 'Dedikovaná (pinned) jádra AMD EPYC, garantovaná RAM a IO třída.', 'en' => 'Dedicated (pinned) AMD EPYC cores, guaranteed RAM and IO class.'], 31, ['persona' => 'sysadmin', 'cpu_class' => 'dedicated'], [
+        $this->product('vds', 'cloud', 'proxmox', 'hourly', ['cs' => 'VDS', 'en' => 'VDS'], ['cs' => 'Dedikovaná (pinned) jádra AMD EPYC, garantovaná RAM a IO třída.', 'en' => 'Dedicated (pinned) AMD EPYC cores, guaranteed RAM and IO class.'], 31, ['persona' => 'sysadmin', 'cpu_class' => 'dedicated', 'addon_products' => ['custom-iso']], [
             ['vds-4', ['cs' => 'VDS 4', 'en' => 'VDS 4'], 129000, 1290000, 5190, 51900, false, 'business', ['vcpu' => 4, 'cpu_class' => 'dedicated', 'ram_mb' => 16384, 'nvme_gb' => 240, 'traffic_tb' => 15, 'ipv6' => '/64', 'ipv4' => 1, 'snapshots' => 10, 'backup' => 'daily 7d', 'io_class' => 'reserved'], []],
             ['vds-8', ['cs' => 'VDS 8', 'en' => 'VDS 8'], 249000, 2490000, 9990, 99900, true, 'business', ['vcpu' => 8, 'cpu_class' => 'dedicated', 'ram_mb' => 32768, 'nvme_gb' => 480, 'traffic_tb' => 25, 'ipv6' => '/64', 'ipv4' => 1, 'snapshots' => 10, 'backup' => 'daily 7d', 'io_class' => 'reserved'], []],
             ['vds-16', ['cs' => 'VDS 16', 'en' => 'VDS 16'], 490000, 4900000, 19690, 196900, false, 'ha', ['vcpu' => 16, 'cpu_class' => 'dedicated', 'ram_mb' => 65536, 'nvme_gb' => 960, 'traffic_tb' => 40, 'ipv6' => '/64', 'ipv4' => 1, 'snapshots' => 20, 'backup' => 'daily 14d', 'io_class' => 'reserved'], []],
         ], hourly: true);
 
+        // no `pids` in the limits bag (phase T, metering M3): Pterodactyl has no per-server PID field and nothing kept it (migration 001200)
         $this->product('game', 'game', 'pterodactyl', 'daily', ['cs' => 'Herní server', 'en' => 'Game server'], ['cs' => 'Minecraft, CS2, Rust, Palworld, Valheim, DayZ a další s konzolí, mody a zálohami.', 'en' => 'Minecraft, CS2, Rust, Palworld, Valheim, DayZ and more with console, mods and backups.'], 40, ['persona' => 'gamer', 'hardware_class' => 'AMD Ryzen 9 7950X3D / 9950X, NVMe', 'eggs' => ['minecraft-paper', 'minecraft-spigot', 'minecraft-purpur', 'minecraft-vanilla', 'minecraft-forge', 'minecraft-sponge', 'minecraft-bungeecord', 'minecraft-bedrock', '7-days-to-die', 'arma-reforger', 'cs2', 'dayz', 'enshrouded', 'factorio', 'hytale', 'palworld', 'project-zomboid', 'rust-autowipe', 'satisfactory', 'terraria', 'v-rising', 'valheim']], [
             // the public configurator's base (audit §5v): the customer picks a game and sizes RAM / vCPU / NVMe / backups / ports / databases; the base covers the minimum, the rest is priced per unit (gameOptions)
-            ['game-custom', ['cs' => 'Herní server na míru', 'en' => 'Custom game server'], 4900, 49000, 199, 1990, true, 'standard', ['ram_mb' => 1024, 'vcpu' => 1, 'nvme_gb' => 10, 'slots' => 'podle RAM a hry', 'backups' => 1, 'allocations' => 1, 'databases' => 0, 'ddos' => 'upstream L3/L4', 'console' => 'live websocket', 'sftp' => true], ['pids' => 400, 'cpu_pct' => 100], ['cs' => 'Vyberte hru a nastavte si výkon posuvníky.', 'en' => 'Pick a game and size the server with sliders.']],
-            ['game-8', ['cs' => 'Game 8 GB', 'en' => 'Game 8 GB'], 34900, 349000, 1390, 13900, false, 'standard', ['ram_mb' => 8192, 'vcpu' => 3, 'nvme_gb' => 60, 'slots' => 'neomezeno (RAM)', 'backups' => 5, 'allocations' => 2, 'databases' => 2, 'ddos' => 'upstream L3/L4', 'console' => 'live websocket', 'sftp' => true], ['pids' => 500, 'cpu_pct' => 300]],
-            ['game-16', ['cs' => 'Game 16 GB', 'en' => 'Game 16 GB'], 64900, 649000, 2590, 25900, false, 'standard', ['ram_mb' => 16384, 'vcpu' => 5, 'nvme_gb' => 120, 'slots' => 'neomezeno (RAM)', 'backups' => 10, 'allocations' => 4, 'databases' => 4, 'ddos' => 'upstream L3/L4', 'console' => 'live websocket', 'sftp' => true], ['pids' => 800, 'cpu_pct' => 500]],
-            ['game-32', ['cs' => 'Game 32 GB', 'en' => 'Game 32 GB'], 119000, 1190000, 4790, 47900, false, 'business', ['ram_mb' => 32768, 'vcpu' => 8, 'nvme_gb' => 240, 'slots' => 'neomezeno (RAM)', 'backups' => 20, 'allocations' => 8, 'databases' => 8, 'ddos' => 'upstream L3/L4 + game profiles', 'console' => 'live websocket', 'sftp' => true], ['pids' => 1200, 'cpu_pct' => 800]],
+            ['game-custom', ['cs' => 'Herní server na míru', 'en' => 'Custom game server'], 4900, 49000, 199, 1990, true, 'standard', ['ram_mb' => 1024, 'vcpu' => 1, 'nvme_gb' => 10, 'slots' => 'podle RAM a hry', 'backups' => 1, 'allocations' => 1, 'databases' => 0, 'console' => 'live websocket', 'sftp' => true], ['cpu_pct' => 100], ['cs' => 'Vyberte hru a nastavte si výkon posuvníky.', 'en' => 'Pick a game and size the server with sliders.']],
+            ['game-8', ['cs' => 'Game 8 GB', 'en' => 'Game 8 GB'], 34900, 349000, 1390, 13900, false, 'standard', ['ram_mb' => 8192, 'vcpu' => 3, 'nvme_gb' => 60, 'slots' => 'neomezeno (RAM)', 'backups' => 5, 'allocations' => 2, 'databases' => 2, 'console' => 'live websocket', 'sftp' => true], ['cpu_pct' => 300]],
+            ['game-16', ['cs' => 'Game 16 GB', 'en' => 'Game 16 GB'], 64900, 649000, 2590, 25900, false, 'standard', ['ram_mb' => 16384, 'vcpu' => 5, 'nvme_gb' => 120, 'slots' => 'neomezeno (RAM)', 'backups' => 10, 'allocations' => 4, 'databases' => 4, 'console' => 'live websocket', 'sftp' => true], ['cpu_pct' => 500]],
+            ['game-32', ['cs' => 'Game 32 GB', 'en' => 'Game 32 GB'], 119000, 1190000, 4790, 47900, false, 'business', ['ram_mb' => 32768, 'vcpu' => 8, 'nvme_gb' => 240, 'slots' => 'neomezeno (RAM)', 'backups' => 20, 'allocations' => 8, 'databases' => 8, 'console' => 'live websocket', 'sftp' => true], ['cpu_pct' => 800]],
         ], daily: true);
 
         $this->product('mail', 'mail', 'ispconfig', 'subscription', ['cs' => 'Mailhosting', 'en' => 'Mail hosting'], ['cs' => 'Schránky, aliasy a relay v oddělené reputační doméně, DKIM/SPF/DMARC.', 'en' => 'Mailboxes, aliases and relay in a separate reputation domain, DKIM/SPF/DMARC.'], 50, ['persona' => 'business'], [
@@ -154,7 +156,8 @@ final class CatalogSeeder extends Seeder
         $this->product('ipv4', 'addon', 'proxmox', 'subscription', ['cs' => 'Dedikovaná IPv4', 'en' => 'Dedicated IPv4'], ['cs' => 'IPv4 je vzácný zdroj; IPv6 je v ceně každé služby.', 'en' => 'IPv4 is a scarce resource; IPv6 is included with every service.'], 200, ['scarce' => true], [
             ['ipv4-1', ['cs' => '1× IPv4', 'en' => '1× IPv4'], 4900, 49000, 199, 1990, false, 'standard', ['addresses' => 1, 'rdns' => true], []],
         ]);
-        $this->product('backup-plus', 'addon', 'pbs', 'subscription', ['cs' => 'Zálohy VPS (PBS)', 'en' => 'VPS backups (PBS)'], ['cs' => 'Denní zálohy na Proxmox Backup Server s offsite kopií a restore testem.', 'en' => 'Daily backups to Proxmox Backup Server with offsite copy and restore test.'], 201, [], [
+        // sold with web hosting and with a VPS (meta addon_products): named for both, not "VPS (PBS)" (staging check B2, TASK-0178, migration 001160)
+        $this->product('backup-plus', 'addon', 'pbs', 'subscription', ['cs' => 'Rozšířené zálohy', 'en' => 'Extended backups'], ['cs' => 'Denní zálohy s delší historií a kopií mimo server.', 'en' => 'Daily backups with a longer history and an off-site copy.'], 201, [], [
             ['backup-7', ['cs' => '7 denních + 4 týdenní', 'en' => '7 daily + 4 weekly'], 4900, 49000, 199, 1990, true, 'standard', ['daily' => 7, 'weekly' => 4, 'monthly' => 0, 'offsite' => true, 'restore_test' => 'monthly'], []],
             ['backup-30', ['cs' => '30 denních + 6 měsíčních', 'en' => '30 daily + 6 monthly'], 12900, 129000, 519, 5190, false, 'standard', ['daily' => 30, 'weekly' => 4, 'monthly' => 6, 'offsite' => true, 'restore_test' => 'monthly'], []],
         ]);
@@ -171,13 +174,18 @@ final class CatalogSeeder extends Seeder
             ['cdn-start', ['cs' => 'CDN Start', 'en' => 'CDN Start'], 19000, 190000, 790, 7900, false, 'standard', ['traffic_tb' => 1, 'pops' => 14, 'waf' => 'basic', 'ddos' => 'L3/L4'], []],
             ['shield', ['cs' => 'Shield', 'en' => 'Shield'], 89000, 890000, 3590, 35900, true, 'business', ['traffic_tb' => 10, 'pops' => 14, 'waf' => 'custom rules', 'bot_management' => true, 'ddos' => 'L3/L4 + L7'], []],
             ['shield-max', ['cs' => 'Shield Max', 'en' => 'Shield Max'], 289000, 2890000, 11590, 115900, false, 'ha', ['traffic_tb' => 50, 'pops' => 14, 'waf' => 'custom rules', 'bot_management' => true, 'anycast' => '/24', 'ddos' => 'dedicated scrubbing'], []],
-        ]);
+        ], state: 'draft'); // phase U (CD-3): no executor of its own and no Cloudflare account yet (P-R46) — nothing keeps its transfer or bot management; migration 001210 takes a running catalogue's product off sale
         $this->product('anti-ddos-pro', 'addon', null, 'subscription', ['cs' => 'Anti-DDoS Pro', 'en' => 'Anti-DDoS Pro'], ['cs' => 'L7 filtr, herní profily a ochrana portů nad rámec základní mitigace.', 'en' => 'L7 filtering, game profiles and port protection beyond the baseline mitigation.'], 93, ['upsell' => 'ddos'], [
             ['pro', ['cs' => 'Anti-DDoS Pro', 'en' => 'Anti-DDoS Pro'], 14900, 149000, 599, 5990, true, 'standard', ['l7' => true, 'game_profiles' => true, 'capacity_gbps' => 1200], []],
         ], state: 'draft'); // nothing in the control plane applies an L7 profile or a port filter; baseline mitigation is the network's, not a product
         $this->product('mail-hosting', 'addon', 'ispconfig', 'subscription', ['cs' => 'E-mail hosting', 'en' => 'Mail hosting'], ['cs' => 'Schránky s antispamem, DKIM a DMARC k vaší doméně.', 'en' => 'Mailboxes with anti-spam, DKIM and DMARC for your domain.'], 94, ['upsell' => 'mail'], [
             ['basic', ['cs' => 'E-mail hosting', 'en' => 'Mail hosting'], 3900, 39000, 159, 1590, true, 'standard', ['mailboxes' => 5, 'quota_mb' => 5120, 'dkim' => true], []],
         ]);
+        // H1 (TASK-0121, owner decision G-R5): a custom ISO for one VPS/VDS whose plan does not sell it (Addons::CUSTOM_ISO patches
+        // `custom_iso` + `custom_iso_max_mb`). A DRAFT with a proposed price: the owner prices and publishes it (docs/proposals/custom-iso-plans.md)
+        $this->product('custom-iso', 'addon', null, 'subscription', ['cs' => 'Vlastní ISO', 'en' => 'Custom ISO'], ['cs' => 'Vlastní instalační obraz pro jeden server: nahrání s antivirovou kontrolou, připojení jako CD a bootování z něj.', 'en' => 'Your own installation image for one server: a virus-scanned upload, attached as a CD and booted from.'], 96, [], [
+            ['iso-4g', ['cs' => 'Vlastní ISO do 4 GB', 'en' => 'Custom ISO up to 4 GB'], 9900, 99000, 399, 3990, true, 'standard', ['custom_iso' => true, 'custom_iso_max_mb' => 4096], []],
+        ], state: 'draft');
     }
 
     /**
@@ -187,10 +195,14 @@ final class CatalogSeeder extends Seeder
      */
     private function definedProducts(): void
     {
-        foreach (array_keys(CatalogRevisions::PRODUCTS) as $key) {
+        foreach (CatalogRevisions::seededProducts() as $key) { // a proposal's product waits for the owner's --apply (Penpot is on sale since H-R7)
             if (! Product::query()->where('key', $key)->exists()) {
-                Product::query()->create(CatalogRevisions::productAttributes($key));
+                CatalogRevisions::createDefined($key);
             }
+        }
+        $offer = app(PenpotOffer::class);
+        if (! $offer->configured()) { // H-R7: a fresh install starts with the owner's defaults (every web hosting tariff includes Penpot)
+            $offer->set($offer->defaults());
         }
     }
 
@@ -216,6 +228,8 @@ final class CatalogSeeder extends Seeder
     /**
      * Priced options of the web products: per-item add-ons of the fixed plans (extras on top of the plan) and the parameters
      * of the configurator product (absolute values, the base plan covers the minimum). Unit prices are what staff edit.
+     * No "priority support" (10-minute response, 24/7: support is Mon–Fri 8–17, P-R37) and no "WAF + CDN" (anycast cache: no CDN,
+     * H-R2/P-R46) — withdrawn by P-R76, a running catalogue loses them through migration 001180.
      */
     private function webOptions(): void
     {
@@ -226,20 +240,15 @@ final class CatalogSeeder extends Seeder
                 ['databases', 'slider', ['cs' => 'Databáze navíc', 'en' => 'Extra databases'], ['cs' => 'MariaDB databáze nad rámec tarifu', 'en' => 'MariaDB databases beyond the plan'], 'ks', 0, 20, 1, 0, ['CZK' => 1900, 'EUR' => 79], null],
                 ['staging', 'addon', ['cs' => 'Staging prostředí', 'en' => 'Staging environment'], ['cs' => 'kopie webu na testovací adrese', 'en' => 'a copy of the site on a test address'], null, null, null, null, null, ['CZK' => 4900, 'EUR' => 199], ['key' => 'staging', 'value' => true]],
                 ['ssh', 'addon', ['cs' => 'SSH a WP-CLI', 'en' => 'SSH and WP-CLI'], ['cs' => 'shell přístup k webu', 'en' => 'shell access to the site'], null, null, null, null, null, ['CZK' => 2900, 'EUR' => 119], ['key' => 'ssh', 'value' => true]],
-                ['waf_cdn', 'addon', ['cs' => 'WAF + CDN', 'en' => 'WAF + CDN'], ['cs' => 'firewall aplikací a anycast cache', 'en' => 'application firewall and anycast cache'], null, null, null, null, null, ['CZK' => 9900, 'EUR' => 399], ['key' => 'waf', 'value' => 'pro + CDN']],
                 ['dedicated_ipv4', 'addon', ['cs' => 'Dedikovaná IPv4', 'en' => 'Dedicated IPv4'], ['cs' => 'vlastní adresa pro TLS nebo mail', 'en' => 'your own address for TLS or mail'], null, null, null, null, null, ['CZK' => 4900, 'EUR' => 199], ['key' => 'ipv4', 'value' => 1]],
-                ['priority_support', 'addon', ['cs' => 'Prioritní podpora', 'en' => 'Priority support'], ['cs' => 'reakce do 10 minut, 24/7', 'en' => '10-minute response, 24/7'], null, null, null, null, null, ['CZK' => 14900, 'EUR' => 599], ['key' => 'support', 'value' => 'priority 10 min']],
             ],
             'wordpress' => [
                 ['nvme_gb', 'slider', ['cs' => 'Prostor navíc', 'en' => 'Extra storage'], ['cs' => 'NVMe nad rámec tarifu', 'en' => 'NVMe beyond the plan'], 'GB', 0, 500, 10, 0, ['CZK' => 300, 'EUR' => 12], null],
                 ['dedicated_ipv4', 'addon', ['cs' => 'Dedikovaná IPv4', 'en' => 'Dedicated IPv4'], ['cs' => 'vlastní adresa pro TLS nebo mail', 'en' => 'your own address for TLS or mail'], null, null, null, null, null, ['CZK' => 4900, 'EUR' => 199], ['key' => 'ipv4', 'value' => 1]],
-                ['waf_cdn', 'addon', ['cs' => 'WAF + CDN', 'en' => 'WAF + CDN'], ['cs' => 'firewall aplikací a anycast cache', 'en' => 'application firewall and anycast cache'], null, null, null, null, null, ['CZK' => 9900, 'EUR' => 399], ['key' => 'waf', 'value' => 'pro + CDN']],
-                ['priority_support', 'addon', ['cs' => 'Prioritní podpora', 'en' => 'Priority support'], ['cs' => 'reakce do 10 minut, 24/7', 'en' => '10-minute response, 24/7'], null, null, null, null, null, ['CZK' => 14900, 'EUR' => 599], ['key' => 'support', 'value' => 'priority 10 min']],
             ],
             'eshop' => [
                 ['nvme_gb', 'slider', ['cs' => 'Prostor navíc', 'en' => 'Extra storage'], ['cs' => 'NVMe nad rámec tarifu', 'en' => 'NVMe beyond the plan'], 'GB', 0, 1000, 10, 0, ['CZK' => 300, 'EUR' => 12], null],
                 ['dedicated_ipv4', 'addon', ['cs' => 'Dedikovaná IPv4', 'en' => 'Dedicated IPv4'], ['cs' => 'vlastní adresa pro TLS nebo platební bránu', 'en' => 'your own address for TLS or the payment gateway'], null, null, null, null, null, ['CZK' => 4900, 'EUR' => 199], ['key' => 'ipv4', 'value' => 1]],
-                ['priority_support', 'addon', ['cs' => 'Prioritní podpora', 'en' => 'Priority support'], ['cs' => 'reakce do 10 minut, 24/7', 'en' => '10-minute response, 24/7'], null, null, null, null, null, ['CZK' => 14900, 'EUR' => 599], ['key' => 'support', 'value' => 'priority 10 min']],
             ],
             'web-custom' => [
                 ['sites', 'slider', ['cs' => 'Weby', 'en' => 'Sites'], ['cs' => 'domény a weby v jednom účtu', 'en' => 'domains and sites in one account'], 'ks', 1, 50, 1, 1, ['CZK' => 2900, 'EUR' => 119], ['key' => 'sites', 'mode' => 'absolute']],
@@ -249,9 +258,7 @@ final class CatalogSeeder extends Seeder
                 ['backup_days', 'select', ['cs' => 'Zálohy', 'en' => 'Backups'], ['cs' => 'denní snapshoty souborů i databází', 'en' => 'daily file and database snapshots'], null, null, null, null, null, ['CZK' => 3900, 'EUR' => 159], ['key' => 'backup_days', 'values' => ['backup-7' => 7, 'backup-30' => 30, 'backup-90' => 90]]],
                 ['staging', 'addon', ['cs' => 'Staging prostředí', 'en' => 'Staging environment'], ['cs' => 'kopie webu na testovací adrese', 'en' => 'a copy of the site on a test address'], null, null, null, null, null, ['CZK' => 4900, 'EUR' => 199], ['key' => 'staging', 'value' => true]],
                 ['ssh', 'addon', ['cs' => 'SSH a WP-CLI', 'en' => 'SSH and WP-CLI'], ['cs' => 'shell přístup k webu', 'en' => 'shell access to the site'], null, null, null, null, null, ['CZK' => 2900, 'EUR' => 119], ['key' => 'ssh', 'value' => true]],
-                ['waf_cdn', 'addon', ['cs' => 'WAF + CDN', 'en' => 'WAF + CDN'], ['cs' => 'firewall aplikací a anycast cache', 'en' => 'application firewall and anycast cache'], null, null, null, null, null, ['CZK' => 9900, 'EUR' => 399], ['key' => 'waf', 'value' => 'pro + CDN']],
                 ['dedicated_ipv4', 'addon', ['cs' => 'Dedikovaná IPv4', 'en' => 'Dedicated IPv4'], ['cs' => 'vlastní adresa pro TLS nebo mail', 'en' => 'your own address for TLS or mail'], null, null, null, null, null, ['CZK' => 4900, 'EUR' => 199], ['key' => 'ipv4', 'value' => 1]],
-                ['priority_support', 'addon', ['cs' => 'Prioritní podpora', 'en' => 'Priority support'], ['cs' => 'reakce do 10 minut, 24/7', 'en' => '10-minute response, 24/7'], null, null, null, null, null, ['CZK' => 14900, 'EUR' => 599], ['key' => 'support', 'value' => 'priority 10 min']],
             ],
         ];
         foreach ($sets as $productKey => $rows) {

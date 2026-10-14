@@ -8,6 +8,8 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Onhost\Domain\Catalog\Commands\CatalogCommand;
 use Onhost\Domain\Catalog\Models\Plan;
+use Onhost\Domain\Catalog\Models\PlanVersion;
+use Onhost\Domain\Catalog\Models\Price;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Catalog\Models\ProductOption;
 use Onhost\Domain\Catalog\Models\PromoCode;
@@ -41,6 +43,7 @@ final class CatalogPreflight
             'pricing.regions.set' => $this->rules->normalizeRegions((array) $command->get('regions', [])),
             'pricing.domain_discount.set' => $this->rules->normalizeDomainDiscount((string) $command->get('tld'), (array) $command->get('discount', [])),
             'pricing.addon_products.set' => $this->rules->normalizeAddonProducts((string) $command->get('product_key'), (array) $command->get('addon_products', [])),
+            'pricing.penpot.set' => app(PenpotOffer::class)->normalize((array) $command->get('config', [])),
             'promo.upsert' => self::promo((array) $command->get('promo', [])),
             'option.upsert' => self::option((string) $command->get('product_key'), (array) $command->get('option', [])),
             'option.delete' => self::product((string) $command->get('product_key')),
@@ -198,7 +201,36 @@ final class CatalogPreflight
             throw new DomainError('state_invalid', 'State must be active or draft.', 422, ['field' => 'state']);
         }
 
-        return array_map(fn ($key) => self::product((string) $key), array_values($keys));
+        $products = array_map(fn ($key) => self::product((string) $key), array_values($keys));
+        if ($state === 'active') {
+            array_map(fn (Product $product) => self::assertPriced($product), $products);
+        }
+
+        return $products;
+    }
+
+    /**
+     * A product whose price staff set (`meta.admin_priced`, CatalogRevisions::PRODUCTS — TASK-0123 Penpot) goes on sale only when
+     * every active price of every plan's current version is above zero: it is created with zero prices on purpose.
+     */
+    public static function assertPriced(Product $product): void
+    {
+        if (! (bool) data_get($product->meta, 'admin_priced', false)) {
+            return;
+        }
+        $plans = Plan::query()->where('product_id', $product->id)->where('state', 'active')->get();
+        $unpriced = [];
+        foreach ($plans as $plan) {
+            $version = PlanVersion::query()->where('plan_id', $plan->id)->where('version', (int) ($plan->current_version ?: 1))->first();
+            $zero = $version === null ? 1 : Price::query()->where('plan_version_id', $version->id)->where('state', 'active')->where('amount_minor', '<=', 0)->count();
+            $any = $version === null ? 0 : Price::query()->where('plan_version_id', $version->id)->where('state', 'active')->count();
+            if ($zero > 0 || $any === 0) {
+                $unpriced[] = $plan->key;
+            }
+        }
+        if ($plans->isEmpty() || $unpriced !== []) {
+            throw new DomainError('price_unset', "Product {$product->key} is priced by staff and still has a zero price: set the prices first (plan editor).", 409, ['field' => 'state', 'plans' => $unpriced]);
+        }
     }
 
     /** @param array<int,mixed> $in @return list<array{key:string,label:mixed,units:float}> */
@@ -239,7 +271,8 @@ final class CatalogPreflight
             'pricing.regions.set' => $this->rules->regions(),
             'lifecycle.set' => $this->lifecycle->all(),
             'pricing.domain_discount.set', 'pricing.domain_discount.delete' => $this->rules->domainDiscounts()[strtolower(ltrim(trim((string) $command->get('tld')), '.'))] ?? null,
-            'pricing.addon_products.set' => $this->rules->addonProducts((string) $command->get('product_key')),
+            'pricing.addon_products.set' => $this->rules->addonProducts((string) $command->get('product_key'), applySellSwitch: false),
+            'pricing.penpot.set' => app(PenpotOffer::class)->rules(),
             'promo.upsert', 'promo.delete' => self::promoRow(strtoupper(trim((string) ($command->op() === 'promo.upsert' ? $command->get('promo.code') : $command->get('code'))))),
             'option.upsert' => self::optionRow((string) $command->get('product_key'), (string) $command->get('option.key')),
             'option.delete' => self::optionRow((string) $command->get('product_key'), (string) $command->get('key')),

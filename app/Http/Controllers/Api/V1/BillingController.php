@@ -93,7 +93,7 @@ final class BillingController extends ApiController
         if ($subscription === null) {
             throw DomainError::notFound('subscription');
         }
-        $this->api->authorize($request, 'billing.wallet.topup', CommandScope::organization($subscription->organization_id));
+        $this->api->authorizeOrNotFound($request, 'billing.wallet.topup', CommandScope::organization($subscription->organization_id), 'subscription'); // a stranger: 404 (TASK-0098)
 
         return $subscription;
     }

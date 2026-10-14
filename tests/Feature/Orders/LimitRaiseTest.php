@@ -218,7 +218,7 @@ it('raises only a number the platform enforces for the family, and only where it
     $game = featureGameService($org);
     limitRaiseSubscribe($game);
     expect($raise($wordpress, 'php_workers'))->toBe('limit_raise_not_enforced')
-        ->and($raise($mail, 'aliases'))->toBe('limit_raise_not_enforced')
+        ->and($raise($mail, 'aliases'))->toBe('limit_raise_unpriced') // enforced since S1 (alias.create counts them), but no price for more yet
         ->and($raise($web, 'made_up_key'))->toBe('limit_raise_not_enforced')
         ->and($raise($web, 'cron_concurrency'))->toBe('limit_raise_not_enforced') // organization-wide, not one service's
         // v1: no cloud (a resize has no node-capacity check), and nothing that takes a node's dedicated share

@@ -38,12 +38,17 @@
   }
 
   var hydrated = null;
+  /* K7-7 (L5): a read the person's navigation does not list is not made (no 403 noise); it is as empty as a refused one */
+  function read(path, ok, none) {
+    if (A.reads && !A.reads(path)) return Promise.resolve().then(none);
+    return A.get(path).then(ok).catch(none);
+  }
   function hydrate() {
     hydrated = Promise.all([
-      A.get('/staff/integrations').then(function (r) { providers = (r.data || []).map(mapInstance); }).catch(function () { providers = []; }),
-      A.get('/staff/provisioning/jobs?limit=200').then(function (r) { jobs = (r.data || []).map(mapJob); }).catch(function () { jobs = []; }),
-      A.get('/staff/resource-mappings?limit=200').then(function (r) { mappings = (r.data || []).map(mapDrift); }).catch(function () { mappings = []; }),
-      A.get('/staff/capacity').then(function (r) { capacity = r.data || null; }).catch(function () { capacity = null; })
+      read('/staff/integrations', function (r) { providers = (r.data || []).map(mapInstance); }, function () { providers = []; }),
+      read('/staff/provisioning/jobs?limit=200', function (r) { jobs = (r.data || []).map(mapJob); }, function () { jobs = []; }),
+      read('/staff/resource-mappings?limit=200', function (r) { mappings = (r.data || []).map(mapDrift); }, function () { mappings = []; }),
+      read('/staff/capacity', function (r) { capacity = r.data || null; }, function () { capacity = null; })
     ]).then(function () { emit(); return API; });
     return hydrated;
   }

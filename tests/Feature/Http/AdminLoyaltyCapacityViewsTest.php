@@ -35,6 +35,7 @@ it('relabels the two views, ships their tables and runs the capacity pass on dem
     app(StepUpService::class)->grant($admin, 'totp', null, '127.0.0.1');
     $run = $this->withHeader('Idempotency-Key', 'cap-run-1')->postJson('/v1/staff/capacity/forecast/run')->assertOk()->json('data');
     expect($run)->toHaveKeys(['warned', 'plan', 'forecast'])->and($run['plan'])->toHaveKeys(['proposed', 'ordered', 'delivered']);
-    $this->actingAs($this->staff('support_agent'), 'sanctum');
-    $this->postJson('/v1/staff/capacity/forecast/run')->assertStatus(403);
+    // a real staff role that reads capacity but may not plan it: the answer is the permission, not the staff guard (F12a)
+    $this->actingAs($this->staff('network_admin'), 'sanctum');
+    $this->postJson('/v1/staff/capacity/forecast/run')->assertStatus(403)->assertJsonPath('message', 'Missing permission capacity.manage');
 });

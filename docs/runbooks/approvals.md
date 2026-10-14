@@ -103,6 +103,25 @@ orders and platform (system) orders are never held. Before switching on: `php ar
 (read-only) — who will need an approval, organizations without anybody who may approve, orders waiting now; consider
 telling those customers first. The rule itself: `docs/runbooks/security-boundaries.md` §22.
 
+## A risky action through an API token (owner decision H-R1, 2026-10-06)
+
+A token can never take a step-up, so a HIGH or CRITICAL action through a personal token or a service account used to be refused
+outright. Now it opens a request that **the organization's owner or one of its administrators (`org_admin`)** decides — not staff,
+and not this page (security review of #117 widened "the owner" to the administrators):
+
+1. the token's request is answered `403 approval_required` with `approval_id` (and `help: /v1/token-approvals`); nothing ran;
+2. the owner or an administrator, signed in to the portal with a fresh step-up, lists `GET /v1/token-approvals` and decides
+   `POST /v1/token-approvals/{id}/decision {decision: approved|rejected, note?}` (`iam.token_approval.decide`);
+3. the token repeats the very same request with `approval_ids: [id]`; it runs once (the audit row carries the approval id).
+
+The approval is bound to the action, the hash of its payload, the principal (the person or the service account) **and the token**;
+it is single use and expires like any approval; a token has at most 20 undecided requests. It is never decided by the token, by
+the person whose personal token asked (`approval_own_request` — another administrator or the owner may), by a member who is
+no administrator (a developer, a viewer), by another organization (404) or by staff — by a global role (a membership is what counts) (`token_approval_owner_only` on
+`/v1/staff/approvals/{id}/decision`). A token approval is never a four-eyes approval of the portal, and a four-eyes approval
+is never spent by a token (`TokenApprovals`, `IdentityCommandAuthorizer`). The organization hears of it in the panel
+(`iam.token_approval.requested`, security, warn).
+
 ## One operator alone
 
 Four eyes need two heads. With fewer than two people who may decide approvals the page says so, `onhost:doctor`
@@ -140,6 +159,32 @@ reports the mode. Switch it back on the day a second person joins and grant them
 discount, promo code and plan change of the only operator waits for a second person who does not exist — the price
 list freezes (withdrawals and `onhost:catalog:state draft` keep working). With the switch off, the only operator's
 price changes take the time lock above: plan them a day ahead.
+
+## Quick reference: who, which switch, how staff are made (W5)
+
+| Question | Answer (from the code) |
+| --- | --- |
+| Who may approve | Staff in roles holding `iam.approval.decide` (`RoleCatalog`: `iam_admin`, `billing_finance_admin`, `platform_owner`) **and** the permission of the action itself. Never the requester. For prices also `catalog.manage`. |
+| Which actions need two people | Permissions whose effective risk is CRITICAL (`PermissionCatalog::effectiveRisk`), any command whose `requiresApproval()` is true, and price and plan changes (`CatalogCommand::requiresApproval()`). A customer permission rated CRITICAL floors at HIGH: a step-up, no staff approval. |
+| The switch | `ONHOST_FOUR_EYES` (config `onhost.identity.four_eyes`), default **true**. Set it to `false` only for a single operator. |
+| Single-operator exception | Applies only with the switch `false` **and** exactly one active holder of `iam.approval.decide` (`ApprovalService::waivesFor`). With two or more approvers nobody is waived. |
+| Time lock | `ONHOST_FOUR_EYES_TIME_LOCK_HOURS` (config `onhost.four_eyes_time_lock_hours`), default **24**, never below 1. The sole approver's own critical action is refused first, and runs when repeated after the lock. |
+| Adding a further approver | `onhost:staff:create` with a role that carries `iam.approval.decide`, while somebody already decides approvals, opens a time-locked request instead of the account (`StaffAccountCommandHandler`); the approvers hear `iam.approval.time_locked` and may cancel it. Repeat the same command (same e-mail, name, role) after the lock to make the account. A request opened this way cannot be approved (`time_lock_not_approvable`): it runs when the lock ends, or is cancelled by rejecting it. |
+
+### Creating staff
+
+```
+php artisan onhost:staff:create ops@example.com --name="Ops" --role=platform_owner   # hidden password prompt
+php artisan onhost:staff:create ops@example.com --role=sre --stdin                   # password from standard input
+```
+
+The password must have **at least 12 characters** (shorter is refused, "The password must have at least 12 characters."). The first approver of an
+installation, and staff whose role decides no approvals, are made at once; each person enrols MFA at the first sign-in.
+Do not share one password between people: `onhost:demo:accounts` refuses roles that decide approvals for this reason.
+
+Tests: `tests/Feature/Identity/FourEyesApprovalTest.php` (the solo operator and the 24 h lock),
+`tests/Feature/Identity/RiskFloorTest.php` (IF-10 waiver and lock), `tests/Feature/Identity/StaffCreateDeciderTest.php`
+(time lock on a further approver).
 
 ## Risk never goes below the catalogue (TASK-0037)
 

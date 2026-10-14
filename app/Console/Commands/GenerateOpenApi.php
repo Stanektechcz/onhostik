@@ -34,7 +34,10 @@ final class GenerateOpenApi extends Command
      * What a route alone cannot tell (TASK-0066): documented request bodies and the error slugs an operation refuses with, keyed by
      * "METHOD /path". Added here, not by hand in the YAML, so a regeneration (every deploy runs it) keeps them.
      *
-     * @var array<string, array{body?: array<string, mixed>, errors?: array<int, list<string>>}>
+     * F12a (TASK-0106): `description` and `response` (the schema of `data` in the 200 answer) for an operation whose answer has a
+     * documented shape.
+     *
+     * @var array<string, array{body?: array<string, mixed>, multipart?: array<string, mixed>, errors?: array<int, list<string>>, description?: string, response?: array<string, mixed>}>
      */
     private const DETAILS = [
         'POST /domains/transfer-in' => [
@@ -54,9 +57,85 @@ final class GenerateOpenApi extends Command
                 'city' => ['type' => 'string', 'maxLength' => 120], 'postal_code' => ['type' => 'string', 'maxLength' => 20], 'country' => ['type' => 'string', 'minLength' => 2, 'maxLength' => 2],
             ], 'description' => 'How the holder is reached (e-mail, phone, address), changed at the registrar first. HIGH: needs a fresh step-up. The holder himself (name, company, IČO, DIČ) is a transfer of the domain and is refused.'],
         ],
+        // TASK-0110 (owner decision G-R5): a customer's own installation image, only where the VPS plan sells `custom_iso`
+        'GET /services/{service}/isos' => [
+            'description' => 'The organization\'s own installation images as seen through this server: whether its plan offers them (`offered`), the size of one image it allows (`max_bytes`), the organization\'s quota and every image (`attached_service_id`, `attached_here`). Attach, detach and delete are the service actions `iso.attach` (params `iso_id`, `boot_first`, `reboot`; the console\'s permission), `iso.detach` (`reboot`) and `iso.delete` (`iso_id`; HIGH, a fresh step-up).',
+            'response' => ['type' => 'object', 'required' => ['offered', 'quota', 'images'], 'properties' => [
+                'offered' => ['type' => 'boolean'], 'max_bytes' => ['type' => ['integer', 'null']],
+                'quota' => ['type' => 'object', 'properties' => ['used_bytes' => ['type' => 'integer'], 'quota_bytes' => ['type' => 'integer'], 'images' => ['type' => 'integer'], 'max_images' => ['type' => 'integer']]],
+                'images' => ['type' => 'array', 'items' => ['type' => 'object', 'properties' => [
+                    'id' => ['type' => 'string'], 'name' => ['type' => 'string'], 'size_bytes' => ['type' => 'integer'], 'sha256' => ['type' => 'string'], 'scan' => ['type' => 'string', 'enum' => ['clean']],
+                    'attached_service_id' => ['type' => ['string', 'null']], 'attached_here' => ['type' => 'boolean'], 'attached_at' => ['type' => ['string', 'null'], 'format' => 'date-time'], 'uploaded_at' => ['type' => ['string', 'null'], 'format' => 'date-time'],
+                ]]],
+            ]],
+        ],
+        'POST /services/{service}/isos' => [
+            'description' => 'Uploads one installation image (multipart `file`) into the organization\'s library — only where this server\'s plan sells a custom ISO. The file must be an ISO 9660 image no larger than the plan allows; it is scanned by clamd before it is kept (an infected file is deleted and reported; without a scanner nothing is accepted), and it must fit the organization\'s quota (kept images and uploads in flight together; at most `org_max_inflight` uploads of one organization at a time, 429). Rate-limited per person (`custom-iso-upload`). The same file again is the image it already is (201 with that image); another file under the same Idempotency-Key is 409.',
+            'multipart' => ['required' => ['file'], 'properties' => ['file' => ['type' => 'string', 'format' => 'binary'], 'reason' => ['type' => 'string', 'maxLength' => 250]]],
+            'errors' => ['403' => ['custom_iso_not_in_plan'], '409' => ['service_not_active', 'idempotency_key_reused'], '422' => ['iso_too_large', 'iso_too_large_for_scan', 'iso_not_iso9660', 'iso_quota_exceeded', 'upload_infected', 'iso_scan_incomplete', 'iso_upload_unknown'], '429' => ['iso_upload_in_progress'], '503' => ['iso_scan_unavailable', 'iso_scanner_untrusted', 'custom_iso_storage_unsafe']],
+        ],
         'POST /cart/quote' => ['errors' => ['422' => ['domain_action_invalid']]],
-        'POST /orders' => ['errors' => ['422' => ['domain_action_invalid']]],
+        'POST /orders' => ['errors' => ['422' => ['domain_action_invalid', 'payment_return_url_invalid'], '409' => ['loyalty_points_unavailable', 'quote_already_used']]], // H3: return_urls only to the portal's own origin
+        // G3 (owner decision G-R2): loyalty points redeemed on the signed-in customer's cart (command `loyalty.redeem`)
+        'POST /cart/loyalty' => [
+            'description' => 'Redeem loyalty points on the cart of the signed-in customer (`loyalty.redeem`, NORMAL, the permission to place orders). `points: 0` removes the choice. '
+                .'1 point = 1 CZK off the price before VAT (another currency at the Czech National Bank rate of the day), at least 100 points, never more than the organization has free; '
+                .'every discount on the lines points may discount stays within 20 % of their list price before VAT (a promo code shares that room); domains and credit top-ups are never discounted. '
+                .'The next `POST /cart/quote` shows the discount as a line of its own (`sku: loyalty-redeem`) and says in `loyalty` how many points apply and why not more; '
+                .'the order reserves the points (409 `loyalty_points_unavailable` when another order took them meanwhile), the payment spends them, a cancelled unpaid order releases them, a credit note gives them back in proportion.',
+            'body' => ['required' => ['points'], 'properties' => ['points' => ['type' => 'integer', 'minimum' => 0, 'description' => '0 = no points; otherwise at least 100']]],
+            'errors' => ['422' => ['loyalty_below_minimum', 'loyalty_points_unavailable', 'loyalty_points_invalid']],
+        ],
         'POST /checkout/guest' => ['errors' => ['422' => ['domain_action_invalid']]],
+        // G6 (owner decisions G-R1, G-R4): an order payment back to its source on a consumer's withdrawal; bank payouts confirmed
+        'POST /staff/payments/{payment}/refund' => [
+            'description' => 'Finance gives the payment of an ORDER back to its source (card, or a bank payout) when a consumer withdrew within fourteen days and did not agree to credit. Needs the ticket holding the consumer\'s notice; every service of the refunded lines must have ended. Writes a credit note of the order\'s document first; never more than is left of the payment or of the document. HIGH: a fresh step-up; from `onhost.billing.refund_approval_threshold` on CRITICAL with a second person (`approval_ids`). A card refund is announced (`payment.refunded`); a bank refund stays `pending` until confirmed.',
+            'body' => ['required' => ['amount', 'sent_at', 'reason', 'ticket_id'], 'properties' => [
+                'amount' => ['type' => 'number', 'minimum' => 0.01, 'description' => 'In the currency of the payment, major units.'],
+                'sent_at' => ['type' => 'string', 'format' => 'date-time', 'description' => 'When the consumer sent the withdrawal: decides the fourteen days.'],
+                'reason' => ['type' => 'string', 'minLength' => 5, 'maxLength' => 250],
+                'ticket_id' => ['type' => 'string', 'maxLength' => 40, 'description' => 'The ticket of this customer that holds the withdrawal notice.'],
+            ]],
+            'errors' => ['403' => ['withdrawal_consumers_only', 'approval_required'], '409' => ['refund_exceeds_payment', 'refund_exceeds_document', 'refund_document_booked', 'refund_document_missing', 'refund_service_still_running', 'refund_approval_required', 'withdrawal_period_over', 'payment_not_refundable', 'idempotency_key_reused'], '422' => ['topup_not_refundable', 'refund_payment_not_order', 'refund_evidence_mismatch', 'withdrawal_sent_before_order', 'withdrawal_sent_in_future']],
+        ],
+        // H3 (TASK-0121): money still owed — a bank payout finance cancelled that no later payout carries
+        'GET /staff/payments/refunds/not-paid-out' => [
+            'description' => 'Refunds to the source of payment whose bank payout was cancelled (returned by the bank, a wrong account) and that no pending or paid refund carries since: the credit note, order, payment, organization, amount, when the payout was cancelled and how many days it waits (`rows`), the sum per currency (`total`) and the balance of every `liability:refund_payable:<provider>:<currency>` account that holds something (`payable`, the payouts on their way included). Read-only (`staff.billing.read`); paying out again is `POST /staff/payments/{payment}/refund` with the same amount, which reuses the credit note. Also `php artisan onhost:billing:refunds-not-paid-out`.',
+            'response' => ['type' => 'object', 'required' => ['rows', 'total', 'payable'], 'properties' => [
+                'rows' => ['type' => 'array', 'items' => ['type' => 'object', 'properties' => [
+                    'refund_id' => ['type' => 'string'], 'payment_id' => ['type' => 'string'], 'organization_id' => ['type' => ['string', 'null']], 'provider' => ['type' => ['string', 'null']], 'order' => ['type' => ['string', 'null']],
+                    'credit_note' => ['type' => ['string', 'null']], 'amount' => ['type' => 'object'], 'cancelled_at' => ['type' => ['string', 'null'], 'format' => 'date-time'], 'days' => ['type' => ['integer', 'null']],
+                ]]],
+                'total' => ['type' => 'object', 'additionalProperties' => ['type' => 'integer']],
+                'payable' => ['type' => 'object', 'additionalProperties' => ['type' => 'integer']],
+            ]],
+        ],
+        'POST /staff/payments/refunds/{refund}/confirm' => [
+            'description' => 'Finance confirms that the bank payout of a pending refund was sent (`reference`: the bank\'s payment reference). The refund becomes `succeeded`, the payment `REFUNDED`/`PARTIALLY_REFUNDED`, and the customer is told (`payment.refunded`). HIGH: a fresh step-up; another person than who asked for the refund, unless one operator runs the platform (ONHOST_FOUR_EYES=false).',
+            'body' => ['required' => ['reference', 'reason'], 'properties' => ['reference' => ['type' => 'string', 'minLength' => 2, 'maxLength' => 120], 'reason' => ['type' => 'string', 'minLength' => 5, 'maxLength' => 250]]],
+            'errors' => ['403' => ['refund_self_confirm'], '409' => ['refund_not_pending', 'refund_without_credit_note', 'refund_not_bank_payout']],
+        ],
+        'POST /staff/payments/refunds/{refund}/cancel' => [
+            'description' => 'Finance cancels a pending bank payout (returned by the bank, a wrong account). What it reserved of the payment is released; its credit note stays and the next payout of the same amount uses it. HIGH: a fresh step-up.',
+            'body' => ['required' => ['reason'], 'properties' => ['reason' => ['type' => 'string', 'minLength' => 5, 'maxLength' => 250]]],
+            'errors' => ['409' => ['refund_not_pending', 'refund_without_credit_note', 'refund_not_bank_payout']],
+        ],
+        'GET /me' => [
+            'description' => 'Who is calling. A person (session or personal token) gets `type: person` with the account, the organizations and the step-up state; a service account token gets `type: service_account` with the account, its organization, its role and the token\'s scopes (F12a). The endpoints that act for a person still answer a service account `403 person_required`.',
+            'response' => ['oneOf' => [
+                ['type' => 'object', 'title' => 'Person', 'required' => ['type', 'user'], 'properties' => [
+                    'type' => ['const' => 'person'], 'user' => ['type' => 'object'], 'organizations' => ['type' => 'array', 'items' => ['type' => 'object']],
+                    'organization' => ['type' => ['object', 'null']], 'step_up' => ['type' => ['object', 'null']], 'surface' => ['type' => 'string', 'enum' => ['panel', 'admin']],
+                ]],
+                ['type' => 'object', 'title' => 'ServiceAccount', 'required' => ['type', 'account', 'organization', 'role', 'scopes'], 'properties' => [
+                    'type' => ['const' => 'service_account'],
+                    'account' => ['type' => 'object', 'required' => ['id', 'name'], 'properties' => ['id' => ['type' => 'string'], 'name' => ['type' => 'string']]],
+                    'organization' => ['type' => 'object', 'required' => ['id', 'name'], 'properties' => ['id' => ['type' => 'string'], 'name' => ['type' => 'string']]],
+                    'role' => ['type' => ['string', 'null']], 'scopes' => ['type' => 'array', 'items' => ['type' => 'string']],
+                    'token' => ['type' => 'object', 'properties' => ['id' => ['type' => 'string'], 'expires_at' => ['type' => ['string', 'null'], 'format' => 'date-time']]],
+                ]],
+            ]],
+        ],
     ];
 
     public function handle(Router $router): int
@@ -168,6 +247,9 @@ final class GenerateOpenApi extends Command
 
         $out = base_path((string) $this->option('out'));
         $yaml = Yaml::dump($document, 12, 2, Yaml::DUMP_MULTI_LINE_LITERAL_BLOCK | Yaml::DUMP_EMPTY_ARRAY_AS_SEQUENCE);
+        // OpenAPI response codes are string keys; PHP turns "200" into an int and the dumper then writes it unquoted,
+        // which Spectral (and strict YAML tooling) reject as a numeric mapping key. Only response codes are 3-digit keys here.
+        $yaml = (string) preg_replace('/^(\s+)([1-5]\d\d):$/m', "$1'$2':", $yaml);
         $summary = sprintf('%s: %d paths, %d operations', $out, count($paths), array_sum(array_map('count', $paths)));
 
         if ($this->option('check')) {
@@ -198,11 +280,20 @@ final class GenerateOpenApi extends Command
 
     /**
      * @param  array<string, mixed>  $operation
-     * @param  array{body?: array<string, mixed>, errors?: array<int, list<string>>}  $details
+     * @param  array{body?: array<string, mixed>, multipart?: array<string, mixed>, errors?: array<int, list<string>>, description?: string, response?: array<string, mixed>}  $details
      * @return array<string, mixed>
      */
     private function detailed(array $operation, array $details): array
     {
+        if (isset($details['description'])) {
+            $operation['description'] = $details['description'];
+        }
+        if (isset($details['response'])) {
+            $operation['responses'][200]['content']['application/json']['schema'] = ['type' => 'object', 'required' => ['data'], 'properties' => ['data' => $details['response']]];
+        }
+        if (isset($details['multipart'], $operation['requestBody'])) { // a file upload (TASK-0110)
+            $operation['requestBody'] = ['required' => true, 'content' => ['multipart/form-data' => ['schema' => ['type' => 'object'] + $details['multipart']]]];
+        }
         if (isset($details['body'], $operation['requestBody'])) {
             $operation['requestBody']['content']['application/json']['schema'] = ['type' => 'object'] + $details['body'];
         }

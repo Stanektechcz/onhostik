@@ -28,6 +28,7 @@
         <env name="APP_ENV" value="testing"/>
         <env name="ONHOST_STAFF_MFA_REQUIRED" value="true"/>
         <env name="ONHOST_UI_DEMO" value="false"/>
+        <env name="ONHOST_SELL_DEFAULT" value="true"/>
         <env name="ONHOST_SECRETS_DRIVER" value="env"/>
         <env name="APP_KEY" value="base64:Gk2rQ0mQ8x2kQ6c1a1v0pYQ7Gz8s9J4c3v1n0b5m6L8="/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
@@ -53,5 +54,6 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <env name="ONHOST_VAT_PAYER" value="true"/><!-- H0 (H-R0): production defaults to non-payer; the suite's VAT tests describe the payer, the non-payer is tested where it is switched (G2VatPayerTest, OwnerDecisionsH0) -->
     </php>
 </phpunit>

@@ -26,9 +26,20 @@ final class CzkTaxStatement
 
     public function __construct(private readonly CnbRates $rates) {}
 
+    /**
+     * Only a tax document has a CZK VAT recap — and a seller who is no VAT payer issues none (§ 29; G2): its EUR invoice states no
+     * VAT, so it carried a "VAT in CZK" of zero and entered the recap and the return's figures. The seller is the one the document
+     * froze, never today's mode.
+     */
     public function concerns(Invoice $invoice): bool
     {
-        return strtoupper((string) $invoice->currency) !== 'CZK' && in_array($invoice->type, self::TYPES, true);
+        return strtoupper((string) $invoice->currency) !== 'CZK' && self::isTaxDocument($invoice);
+    }
+
+    /** A tax document: one of the TYPES, issued by a seller who was a VAT payer when it was issued (the frozen seller). */
+    public static function isTaxDocument(Invoice $invoice): bool
+    {
+        return in_array($invoice->type, self::TYPES, true) && (bool) ($invoice->seller['vat_payer'] ?? true);
     }
 
     /**

@@ -101,6 +101,7 @@ Route::get('panel/{path?}', [SurfaceController::class, 'panel'])->where('path', 
 // public legal documents: the versioned consent documents the checkout, domain registration and panel link to
 Route::get('dokumenty', [LegalDocumentController::class, 'index'])->name('legal.index');
 Route::get('dokumenty/{slug}', [LegalDocumentController::class, 'show'])->where('slug', '[a-z0-9-]+')->name('legal.show');
+Route::get('dokumenty/{slug}/{version}', [LegalDocumentController::class, 'version'])->where(['slug' => '[a-z0-9-]+', 'version' => '\d{4}-\d{2}(-[a-z0-9]+)?'])->name('legal.version'); // an earlier published version (TASK-0142)
 Route::get('sla', fn () => redirect('/dokumenty/sla', 301));
 // the links the platform mails: set a new password (reset / guest account) and confirm the e-mail address
 Route::get('obnova-hesla', [AuthPagesController::class, 'resetPassword'])->name('auth.reset');
@@ -108,10 +109,12 @@ Route::get('overeni-emailu', [AuthPagesController::class, 'verifyEmail'])->name(
 Route::get('sprava/nastaveni', fn () => redirect('/sprava/nastaveni/integrace'));
 Route::get('sprava/nastaveni/integrace', [SystemSettingsController::class, 'integrations'])->middleware(['auth:sanctum', 'token.scope'])->name('settings.integrations');
 Route::get('sprava/nastaveni/provoz', [SystemSettingsController::class, 'operations'])->middleware(['auth:sanctum', 'token.scope'])->name('settings.operations');
+Route::get('sprava/nastaveni/provozni-prehled', [SystemSettingsController::class, 'overview'])->middleware(['auth:sanctum', 'token.scope'])->name('settings.overview'); // P16: the read-only shift overview
 Route::get('sprava/nastaveni/hromadne-akce', [SystemSettingsController::class, 'bulk'])->middleware(['auth:sanctum', 'token.scope'])->name('settings.bulk');
 Route::get('sprava/nastaveni/zivotni-cyklus', [SystemSettingsController::class, 'lifecycle'])->middleware(['auth:sanctum', 'token.scope'])->name('settings.lifecycle'); // audit §5ab
 Route::get('sprava/nastaveni/schvalovani', [SystemSettingsController::class, 'approvals'])->middleware(['auth:sanctum', 'token.scope'])->name('settings.approvals'); // four eyes: requests for a second person
 Route::get('sprava/nastaveni/tarify', [SystemSettingsController::class, 'plans'])->middleware(['auth:sanctum', 'token.scope'])->name('settings.plans'); // versions of a plan (H01)
+Route::get('sprava/nastaveni/obsah', [SystemSettingsController::class, 'content'])->middleware(['auth:sanctum', 'token.scope'])->name('settings.content'); // I-R17/I-R18: blog and references
 Route::get('sprava/konzole/{service}', [StaffConsoleController::class, 'show'])->middleware(['auth:sanctum', 'token.scope'])->name('staff.console'); // the staff-side server console (audit §5p-2)
 Route::get('sprava/{path?}', [SurfaceController::class, 'admin'])->where('path', '.*')->name('surface.admin');
 Route::get('partner/{path?}', [SurfaceController::class, 'partner'])->where('path', '.*')->name('surface.partner');

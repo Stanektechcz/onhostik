@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Log;
 use Onhost\Domain\Tax\CnbRates;
 use Onhost\Domain\Tax\Models\ExchangeRate;
 use Onhost\Domain\Tax\TaxEngine;
+use Onhost\Domain\Tax\VatPayerMode;
 use Onhost\Platform\Errors\DomainError;
 
 /**
@@ -59,6 +60,9 @@ final class SurfacePricing
     /** @return array{rate:float, percent:array{cs:string, en:string}, version:int}|null */
     public static function vat(): ?array
     {
+        if (! self::payer()) { // L-10: a non-payer charges no VAT — the surfaces show final prices, never a rate the order does not carry
+            return ['rate' => 0.0, 'percent' => ['cs' => '0', 'en' => '0'], 'version' => 0];
+        }
         try {
             $version = app(TaxEngine::class)->currentRules();
         } catch (DomainError) {
@@ -76,6 +80,12 @@ final class SurfacePricing
         $text = rtrim(rtrim(number_format($percent, 2, '.', ''), '0'), '.');
 
         return ['rate' => round($percent / 100, 6), 'percent' => ['cs' => str_replace('.', ',', $text), 'en' => $text], 'version' => (int) $version->version];
+    }
+
+    /** L-10: whether the seller charges VAT now (VatPayerMode: the legal entity, narrowed by the active tax rules). */
+    public static function payer(): bool
+    {
+        return app(VatPayerMode::class)->isPayer();
     }
 
     /** @return array{rate:float, sym:string, dec:int, after:bool, name:string, valid_on:?string, source:string} */

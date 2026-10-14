@@ -65,7 +65,7 @@ it('lists services, runs a power action through the command bus and issues a con
 
     $list = $this->getJson('/v1/services?limit=10')->assertOk()->assertHeader('X-Total-Count', '1');
     expect($list->json('data.0.id'))->toBe($service->id)->and($list->json('data.0.ui'))->toBe('aktivni')->and($list->json('data.0.access.ipv4'))->toBe('192.0.2.2');
-    $this->getJson('/v1/services/'.$service->id)->assertOk()->assertJsonPath('data.bindings.0.type', 'qemu');
+    $this->getJson('/v1/services/'.$service->id)->assertOk()->assertJsonPath('data.bindings.0.type', 'vm'); // the hypervisor's own word (qemu) is not shown to a customer (G8 item 5)
 
     $action = $this->postJson("/v1/services/{$service->id}/power", ['power_action' => 'reboot'])->assertStatus(202);
     expect($action->json('kind'))->toBe('service.action');
@@ -80,7 +80,7 @@ it('lists services, runs a power action through the command bus and issues a con
 
     [$other] = $this->customerWithOrganization();
     $this->actingAs($other, 'sanctum');
-    $this->getJson('/v1/services/'.$service->id)->assertForbidden();
+    $this->getJson('/v1/services/'.$service->id)->assertNotFound(); // a stranger to the organization: 404, as for a missing id (TASK-0098)
     $this->getJson('/v1/services')->assertOk()->assertHeader('X-Total-Count', '0');
 });
 

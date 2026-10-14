@@ -106,6 +106,7 @@
   </form>
 </dialog>
 
+@include('partials.dialog-bridge')
 <script>
 (function () {
   var API = '/v1';
@@ -220,11 +221,13 @@
   document.addEventListener('click', function (ev) {
     var b = ev.target.closest ? ev.target.closest('button[data-activate]') : null;
     if (!b) return;
-    var reason = window.prompt('Verze ' + b.dataset.activate + ' se vrátí do prodeje pro nové objednávky. Důvod (min. 5 znaků):', '');
-    if (!reason || reason.trim().length < 5) return;
-    guarded(function () { return api('POST', base() + '/' + encodeURIComponent(b.dataset.activate) + '/activate', { reason: reason.trim() }); })
-      .then(function (r) { say('V prodeji je teď verze ' + r.plan.current_version + '.', true); render(r.plan); })
-      .catch(function (e) { say('Změna neprošla: ' + e.message); });
+    var version = b.dataset.activate;
+    window.OnhostDialog.prompt('Verze ' + version + ' se vrátí do prodeje pro nové objednávky. Důvod (min. 5 znaků):', '', { title: 'Vrátit verzi do prodeje' }).then(function (reason) {
+      if (!reason || reason.trim().length < 5) return;
+      guarded(function () { return api('POST', base() + '/' + encodeURIComponent(version) + '/activate', { reason: reason.trim() }); })
+        .then(function (r) { say('V prodeji je teď verze ' + r.plan.current_version + '.', true); render(r.plan); })
+        .catch(function (e) { say('Změna neprošla: ' + e.message); });
+    });
   });
 
   api('GET', '/staff/pricing').then(function (r) {

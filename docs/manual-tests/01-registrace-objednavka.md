@@ -1,0 +1,300 @@
+# F1 — Registrace a objednávka
+
+Ruční test pro vlastníka a QA: cizí člověk se stane zákazníkem a zaplatí první objednávku. Pokrývá registraci a ověření
+e-mailu, objednávku s přihlášením i bez účtu (guest checkout), limit 5 000 Kč pro neověřený e-mail (pravidlo R5) a platbu
+kartou přes testovací bránu Comgate.
+
+* Automatický protějšek (stejné kroky): `tests/Feature/E2E/SignupToWebTest.php`. Co tento dokument přidává: pohled očima
+  člověka v prohlížeči, guest checkout a limit R5, které E2E test neprochází.
+* Přehled všech dokumentů F1–F8: [README.md](README.md). Navazuje [F2 web](02-web.md).
+
+## Prostředí a pravidla
+
+* Zkoušejte na **stagingu** (`docs/runbooks/staging-aapanel.md`), kde je `COMGATE_TEST=true`, registrátor v testovacím
+  režimu a Let's Encrypt staging. Vývojový stroj má panely napojené na ostré servery: zápisové scénáře na něm nespouštějte.
+* Potřebujete: čistý prohlížeč (anonymní okno), e-mailovou schránku, do které se dostanete (u stagingu odchozí pošta
+  v staff panelu `/sprava/maily`, sekce Odchozí pošta), a přístup do staff panelu `/sprava/` pro kontroly „kde hledat“.
+* Každý scénář si poznamenejte: čas, e-mail zákazníka, číslo objednávky (`ON-…`). Bez nich se špatně hledá v logu.
+* Pro každý scénář platí: bez úspěšné platby nesmí vzniknout žádná služba ani doména.
+
+## Scénář F1.1 — Registrace a ověření e-mailu
+
+**Předpoklady:** e-mail, který v systému ještě není. Heslo alespoň 12 znaků, písmena i číslice, nesmí být v seznamu
+uniklých hesel.
+
+**Kroky**
+
+1. Otevřete `/registrace`. Vyplňte jméno, e-mail, heslo, název organizace, typ (osoba / firma), IČO u firmy, zemi CZ a
+   zaškrtněte souhlas s podmínkami. Odešlete. Formulář volá `POST /v1/auth/register`.
+2. Po odeslání jste přihlášeni (relace) a v panelu `/panel/prehled` vidíte prázdný přehled organizace.
+3. Otevřete e-mail s ověřovacím odkazem. Odkaz vede na `/overeni-emailu?token=…` a stránka volá
+   `POST /v1/auth/verify-email`.
+4. V panelu otevřete `/panel/nastaveni`, sekce Nastavení účtu: e-mail je označen jako ověřený. Kontrola přes API:
+   `GET /v1/me`.
+
+**Očekávaný výsledek:** účet i organizace (role vlastník) existují, relace je přihlášená, po kroku 3 je e-mail ověřený.
+Události (outbox): `identity.registered`.
+
+**Negativní varianty**
+
+| Varianta | Postup | Očekávání |
+| --- | --- | --- |
+| Slabé nebo krátké heslo | Heslo o 8 znacích | 422, chyba u pole heslo, účet nevznikne |
+| Bez souhlasu s podmínkami | Nezaškrtnout | 422, účet nevznikne |
+| E-mail už existuje | Registrace znovu na stejný e-mail | 422, chyba u pole e-mail, účet nevznikne |
+| Odkaz použit podruhé | Otevřít ověřovací odkaz znovu | 422 `verify_token_invalid`, e-mail zůstává ověřený |
+| Odkaz nepřišel | V panelu požádat o nový odkaz (`POST /v1/me/email/verification`) | Nový odkaz; nejvýš 1× za minutu a 5× za hodinu; ověřený e-mail dostane 409 `email_already_verified` |
+
+**Kde hledat při selhání**
+
+* Mail nepřišel: staff panel `/sprava/maily` (Odchozí pošta), API `GET /v1/staff/outbox`; doctor řádek `mail` › `outbox is
+  leaving`, `transactional mailer`, `sender address set`.
+* Registrace skončila chybou 5xx: `storage/logs/laravel.log` v čase pokusu (hledejte e-mail zákazníka, ne heslo).
+* Událost `identity.registered` chybí: fronta outboxu neběží, `php artisan onhost:outbox:relay`; doctor `automation` ›
+  `queue worker alive`.
+
+## Scénář F1.2 — Katalog, košík a rekapitulace
+
+**Předpoklady:** přihlášený zákazník z F1.1 (e-mail ověřený).
+
+**Kroky**
+
+1. Na veřejné stránce `/webhosting` vyberte tarif Start a pokračujte do košíku `/kosik`. Košík volá `PUT /v1/cart`,
+   katalog `GET /v1/catalog/web-hosting`.
+2. Zadejte doménu webu (např. `skladomat-test.cz`), délku závazku 1 měsíc, měnu CZK.
+3. V rekapitulaci zkontrolujte cenu: **žádná implicitní sleva**, DPH rozepsané zvlášť, seznam dokumentů k odsouhlasení
+   (podmínky, zpracování údajů, DPA, SLA, výslovná žádost o zahájení před koncem lhůty pro odstoupení). Rekapitulace volá
+   `POST /v1/cart/quote`.
+4. Do košíku přidejte druhou položku (doména nebo doplněk) a ověřte, že se každý doplněk účtuje na vlastním řádku košíku.
+
+**Očekávaný výsledek:** součet je kladný, položky odpovídají výběru, rekapitulace vypisuje povinné dokumenty. Nic se
+zatím nezaložilo (`GET /v1/services` je prázdné).
+
+**Negativní varianty**
+
+* Neznámý tarif nebo produkt v košíku: 422 s názvem pole, košík se nezmění.
+* Doména s nepovoleným znakem nebo bez koncovky: odmítnuto při sestavení rekapitulace.
+* Doména kratší než jeden rok registrace: nelze, minimum je 1 rok za ceník (viz [F3](03-domena-dns.md)).
+
+**Kde hledat při selhání:** katalog nenabízí tarif: staff panel `/sprava/tarify`; doctor `providers` › `every product can
+be provisioned`; doctor `catalog` › `every plan on sale keeps its WAF promise on its own panel`.
+
+## Scénář F1.3 — Objednávka a platba kartou (Comgate, testovací režim)
+
+**Předpoklady:** košík z F1.2 s jednou položkou; v prostředí `COMGATE_TEST=true` a testovací merchant.
+
+**Kroky**
+
+1. V rekapitulaci zvolte platbu Platební karta a odsouhlaste všechny dokumenty. Potvrďte. Volá se `POST /v1/orders`
+   s platbou typu brána. Objednávka má stav čeká na platbu a dostanete přesměrování na stránku Comgate.
+2. Na stránce Comgate dokončete **testovací** platbu (v testovacím režimu brána nabízí simulaci úspěšné platby; žádnou
+   skutečnou kartu nepoužívejte). Brána zavolá naše `POST /v1/webhooks/payments/comgate`.
+3. Vraťte se do panelu `/panel/fakturace`. Zálohový doklad je zaplacený, vznikl daňový doklad o přijaté platbě.
+4. Počkejte do minuty. V `/panel/prehled` se objednávka po zřízení označí jako aktivní a služba se objeví v
+   `/panel/sluzba/web` (viz [F2](02-web.md)).
+
+**Očekávaný výsledek:** objednávka čeká na platbu, dokud brána nepotvrdí; po potvrzení se zaplatí a splní. Opakované
+zavolání bránou stejné platby nic nezmění (odpověď `duplicate`). Události (outbox): `order.placed`, `order.paid`,
+`payment.succeeded`, `invoice.paid`, `service.activated`, `order.active`.
+
+**Negativní varianty**
+
+| Varianta | Postup | Očekávání |
+| --- | --- | --- |
+| Platba zrušena na bráně | Na Comgate zvolit zrušení | Objednávka zůstává čekat na platbu, nic se nezřídí; v Fakturaci lze zaplatit znovu |
+| Callback nedorazil | Zaplatit, ale zablokovat zpětné volání | Platbu lze znovu ověřit u brány (`POST /v1/payments/{intent}/sync`); bez toho zůstane objednávka čekat na platbu |
+| Dvojklik na Potvrdit | Odeslat dvakrát | Jediná objednávka (Idempotency-Key), druhý požadavek dostane tutéž odpověď |
+| Platba z kreditu bez kreditu | Zvolit „Z kreditu“ s nulovým zůstatkem | Odmítnuto s textem o nedostatku kreditu, nabídka převodu nebo karty |
+| Brána bez údajů (J4, TASK-0155) | Prostředí bez přihlašovacích údajů Comgate; v pokladně jako host i přihlášený | Krok Platba nabízí jen „Bankovní převod — QR platba, zálohová faktura“. Karta vnucená přímo do API (`POST /v1/checkout/guest` nebo `POST /v1/orders` s platbou kartou) skončí `409 payment_card_unavailable` s českou větou, která jmenuje převod; účet hosta nevznikne a brána se nevolá. Převod projde a objednávka čeká na platbu (číslo účtu, IBAN, VS). Ověřeno lokálně v K7 (TASK-0161) |
+
+**Kde hledat při selhání**
+
+* Platba proběhla, objednávka nepřešla: doctor `money` › `every order being delivered was paid and documented`; staff
+  `/sprava/objednavky`, detail objednávky; API `GET /v1/staff/orders`. Událost `order.fulfilment_failed`.
+* Služba se nezřídila: staff `/sprava/sluzby`, detail služby, záložka Operace (`provision.website`); zásah
+  `POST /v1/staff/provisioning/jobs/{operation}/retry`. Zákazník vidí totéž v záložce Provoz a NOC služby
+  (`GET /v1/services/{service}/operations`).
+* Fronta stojí: doctor `automation` › `queue worker alive`, `operation backlog`, `scheduler running`; po každé změně PHP
+  kódu restartujte queue worker.
+* Brána: doctor `payments` › `card gateway live mode` (na stagingu má být testovací); tabulka `provider_calls` (volání
+  bez těl vendorů).
+
+## Scénář F1.4 — Objednávka bez účtu (guest checkout)
+
+**Předpoklady:** nepřihlášený prohlížeč; e-mail, který v systému není. Částka objednávky včetně DPH do 5 000 Kč.
+
+**Kroky**
+
+1. Na `/kosik` sestavte košík bez přihlášení (např. doména + hosting Start).
+2. Vyplňte kontaktní údaje (jméno, e-mail, volitelně firma, IČO, DIČ, adresa) a zvolte kartu. Odeslání volá
+   `POST /v1/checkout/guest`.
+3. Zaplaťte u Comgate (testovací režim) jako v F1.3.
+4. Otevřete e-mail „účet jsme pro vás založili“ a nastavte heslo přes `/obnova-hesla`.
+5. Přihlaste se na `/prihlaseni`: v panelu je objednávka, doklady i služba.
+
+**Očekávaný výsledek:** jedna odpověď založí účet, organizaci a objednávku a přihlásí relaci; heslo se do e-mailu
+neposílá, jen odkaz pro jeho nastavení. Události (outbox): `identity.registered` (s původem `guest_checkout`),
+`order.placed`, `order.paid`.
+
+**Negativní varianty**
+
+| Varianta | Postup | Očekávání |
+| --- | --- | --- |
+| E-mail už má účet | Guest checkout s existujícím e-mailem | 409 `account_exists`, výzva k přihlášení; objednávka nevznikne |
+| Opakované odeslání | Stejný Idempotency-Key a stejný e-mail | Vrátí se táž objednávka, nikdo se nepřihlásí a žádné údaje účtu se nevrací |
+| Stejný klíč, jiný e-mail | Stejný klíč s cizím e-mailem | 409 `idempotency_key_reused` |
+| Přihlášený zákazník | Zavolat guest checkout s relací | Odmítnuto, přihlášený objednává přes `POST /v1/orders` |
+| Částka nad 5 000 Kč | Viz scénář F1.5 | Účet vznikne, objednávka ne |
+
+**Kde hledat při selhání:** duplicitní nebo cizí účet: staff `/sprava/zakaznici`; e-mail s odkazem: `/sprava/maily`;
+audit záznam `auth.register` s původem guest checkout: staff `/sprava/audit`.
+
+## Scénář F1.5 — Limit 5 000 Kč pro neověřený e-mail (R5)
+
+Pravidlo: objednávka s celkovou částkou **nad 5 000 Kč včetně DPH** (v EUR nad 200) se od osoby s neověřeným e-mailem
+nepřijme. Přesně 5 000 Kč projde. Staff ani servisní účty se neptají.
+
+**Předpoklady:** účet s neověřeným e-mailem (zaregistrujte se podle F1.1 a odkaz zatím neotevírejte). Košík, jehož
+součet s DPH přesáhne 5 000 Kč (např. roční závazek vyššího tarifu webhostingu nebo několik domén; částku ukáže
+rekapitulace). Druhý košík do 5 000 Kč.
+
+**Kroky**
+
+1. Přihlášený neověřený zákazník potvrdí objednávku nad limit: `POST /v1/orders`.
+2. Panel zobrazí hlášku o ověření e-mailu s nabídkou poslat odkaz znovu. Odpověď API je 403 `email_unverified` s cestou
+   `resend`: `/v1/me/email/verification`.
+3. Pošlete odkaz znovu a ověřte e-mail (jako F1.1 krok 3). Stejnou objednávku potvrďte znovu: projde.
+4. V jiném, také neověřeném účtu potvrďte objednávku do 5 000 Kč včetně DPH: projde bez ověření.
+5. Guest checkout nad limit (F1.4): účet i ověřovací e-mail vzniknou, objednávka **ne** (403 `email_unverified`).
+   Po ověření e-mailu nastavte heslo přes `/obnova-hesla` a objednávku zadejte znovu.
+
+**Očekávaný výsledek:** nad limit nikdy nevznikne objednávka ani platba, pod limitem ano; zákazník vždy dostane
+vysvětlení a cestu ven (znovu poslat odkaz). Stejné pravidlo drží pro vyplacení provize partnerovi.
+
+**Negativní varianty:** opakované žádosti o odkaz (víc než 1× za minutu nebo 5× za hodinu) dostanou odmítnutí s dobou
+čekání; ověřený e-mail dostane 409 `email_already_verified`; v EUR je hranice 200.
+
+**Kde hledat při selhání:** odkaz nedorazil: `/sprava/maily`; limit je jiný než v dokumentu: konfigurace
+`onhost.identity.unverified_order_limit_minor` (výchozí 500000 haléřů pro CZK); kód
+`domains/Identity/EmailVerificationGuard.php`. Doctor řádky `mail` jako v F1.1.
+
+## Scénář F1.6 — Smluvní dokumenty, jejich verze a sliby pokladny (TASK-0142)
+
+**Cíl:** zákazník čte přesně verzi, kterou odsouhlasil; připravená verze (draft) není nikde vidět, dokud ji vlastník nezveřejní;
+veřejný web neslibuje nic, co dokumenty nedávají.
+
+1. Otevřete `/dokumenty`. Seznam ukazuje platné verze (dnes 2026-09); reklamační řád a zásady užívání v něm zatím nejsou.
+2. Otevřete `/dokumenty/vop` a `/dokumenty/vop/2026-09` — stejný text, verze 2026-09. Adresa `/dokumenty/vop/2026-10` vrátí 404
+   (draft) a `/dokumenty/reklamacni-rad` také 404.
+3. Na titulní stránce a v pokladně (`/kosik`) zkontrolujte texty: žádná „garance vrácení peněz 30 dní“, žádné odznaky ISO,
+   Trustpilot či Cloudflare, žádný „bonus 10 %“ k dobití; u pokladny stojí „14 dní na odstoupení“ a souhlas zní „Souhlasím s VOP
+   a beru na vědomí zásady ochrany osobních údajů.“
+4. Na serveru (jen čtení): `php artisan onhost:legal:publish 2026-10 --effective-from=<den za 31 dní>` vypíše všechny dokumenty
+   verze 2026-10 s hashem textu a překážky (telefon, právnická osoba, jméno advokáta). Nic se nezveřejní.
+
+**Očekávaný výsledek:** kroky 1–4 bez rozdílu; v databázi zůstává verze 2026-10 ve stavu `draft`.
+
+**Negativní varianty:** `--apply` bez `--approved-by` nebo s dnem účinnosti dřív než za 30 dní skončí chybou a nic nezmění.
+
+**Kde hledat při selhání:** `docs/legal/LEGAL_REVIEW_2026-10.md` (kap. 5), `app/Http/Controllers/Web/LegalDocumentController.php`,
+`domains/Orders/LegalDocuments.php`; automaticky `tests/Feature/Legal/LegalDraftVersionsTest.php` a
+`tests/Feature/Http/LegalClaimSeamTest.php`.
+
+## Scénář F1.7 — Stránka dokumentů a texty pokladny podle skutečnosti (M1, M2)
+
+**Předpoklady:** veřejný web mimo demo režim; brána Comgate bez přihlašovacích údajů (karta nedostupná); provozovatel není plátce
+DPH; účet CDN nenastavený.
+
+**Kroky**
+
+1. Otevřete `#/sluzba/legal` („Podmínky, GDPR a cookies“). Seznam dokumentů má přesně položky a verze jako `/dokumenty`
+   (dnes 2026-09), bez „VOP v4.2“, ISO 27001, NIS2, „cookie lišty“ a srovnání počtu stran; řádek „Otevřít →“ otevře
+   `/dokumenty/vop` apod. Pás SLA uvádí 99,9 % a 4 h (Standard).
+2. Vložte do košíku Webhosting Standard a otevřete `/kosik`. Pás pod hlavičkou říká „Platba převodem“, ne „Karta, převod nebo faktura“;
+   nadpis doplňků je „Doplňky“ (bez „ceny bez DPH“); předplacený kredit nemá „+ 100 Kč“ apod.; mezi doplňky není „CDN a WAF“.
+3. Dokončete objednávku převodem. Tlačítko je „Zaplatit objednávku“; potvrzení ukazuje „Celkem k platbě“ (bez „s DPH“) a „Částka
+   převodu“ ve tvaru „49,00 CZK“.
+4. Vložte do košíku VPS (nebo herní server): tlačítko zní „Zaplatit a spustit server“.
+
+**Očekávaný výsledek:** kroky 1–4 bez rozdílu; v konzoli prohlížeče žádný požadavek na `/%7B%7B%20gcx.gameArt%20%7D%7D`.
+
+**Negativní varianty:** s nastavenou bránou (`CardPayments`) pás nabízí „Kartou nebo převodem“; plátce DPH vidí „Doplňky (ceny bez
+DPH)“ a „Celkem k platbě (s DPH)“; s nastaveným účtem CDN se doplněk nabízí; bez něj `POST /v1/cart/quote` s CDN v košíku vrátí
+`409 cdn_unavailable`.
+
+**Kde hledat při selhání:** `app/Http/Support/ServicePageClaimsSeam.php`, `app/Http/Support/PublicLegalLinks.php`,
+`app/Http/Support/SurfaceRenderer.php` (`checkoutCopySeams`), `apps/surfaces/api/onhost-cart.api.js`, `domains/Services/CdnAvailability.php`;
+automaticky `tests/Feature/Web/LegalPageClaimsTest.php`, `tests/Feature/Web/CheckoutCopyTest.php`, `tests/Feature/Orders/CdnAvailabilityTest.php`.
+
+## Scénář F1.8 — Stránky služeb a konfigurátor her jen s čísly SLA a VOP (N1)
+
+**Předpoklady:** veřejný web mimo demo režim; provozovatel není plátce DPH; dokumenty v platnosti 2026-09 (`/dokumenty`).
+
+**Kroky**
+
+1. Otevřete stránku služby VPS (`#/sluzba/vps`). Nadtitulek je „AMD EPYC · NVMe“ (bez „root do 55 s“), pod titulkem nejsou ukazatele
+   „55 s“, „0 % přeprodej CPU“ ani „99,99 % dostupnost 2025“. Pás SLA uvádí „99,9 % měsíční dostupnost (Standard, SLA)“ a „4 h reakce na
+   incident (Standard)“ a větu o kompenzaci podle třídy služby — ne 99,99 %, „< 15 min“ ani „kredit automaticky“.
+2. Otevřete stránku Managed servery (`#/sluzba/managed`). Ukazatele nenesou „15 min“ ani „99,99 % s kreditem“; úrovně Základ a Plná
+   správa říkají „Reakce na incident podle SLA“ a Plná správa „SLA s kompenzací kreditem“; srovnání má u reakce „podle SLA“ a u SLA
+   „99,9 %“ / „podle třídy služby“; místo grafu „Onhost — reakce na P1 15 min“ je věta „Standard do 4 hodin, Business do 1 hodiny“.
+3. Na libovolné stránce služby sjeďte k častým otázkám a na konec: úvod FAQ zní „Napište nám přes zákaznický panel nebo e-mailem“ (ne
+   „technik odpovídá do deseti minut“); závěrečný blok „Měsíčně nebo ročně, výpověď ke konci období.“ a „Spotřebitel může od smlouvy
+   odstoupit do 14 dnů podle VOP …“ (ne „Zkuste to 14 dní. Bez karty, bez závazku.“).
+4. Na stránce herních serverů vyberte hru v konfigurátoru („Vyberte hru“). Souhrn ukazuje cenu s „/ měsíc“ a pod ní žádný řádek „bez
+   DPH …“; výhody jsou „Konzole, SFTP a plánované restarty“ a „Podpora přes panel a e-mail“ (ne „Servery
+   v Praze, podpora 24/7“ ani — od O1 — „Anti-DDoS ochrana v ceně“).
+
+**Očekávaný výsledek:** kroky 1–4 bez rozdílu; v anglické verzi totéž (např. „Monthly or yearly, notice for the end of the period.“).
+
+**Negativní varianty:** v demo režimu (`ONHOST_UI_DEMO=true`) stránky ukazují původní texty prototypu; plátce DPH vidí v konfigurátoru
+her „/ měsíc s DPH“ a řádek „bez DPH …“.
+
+**Kde hledat při selhání:** `app/Http/Support/ServicePageClaimsSeam.php` (`replacements()`, `pageCopySwaps()`),
+`app/Http/Support/SurfaceRenderer.php`, `apps/surfaces/api/onhost-game-config.api.js`; automaticky
+`tests/Feature/Content/ServicePageCopyClaimsTest.php` a `tests/js/game-config-copy.harness.mjs`.
+
+## Scénář F1.9 — Bez zkušební doby, bez 99,99 % v tarifech a doplněk záloh podle služby (O1, TASK-0178)
+
+**Předpoklady:** veřejný web mimo demo režim; katalog po migraci `0001_01_01_001160`.
+
+**Kroky**
+
+1. Úvodní stránka: závěrečný blok zní „Měsíčně nebo ročně, výpověď ke konci období.“ a „Spotřebitel může od smlouvy odstoupit do
+   14 dnů podle VOP …“ (ne „Prvních 14 dní zdarma. Migraci uděláme za vás.“ ani „… zrušíte to jedním klikem a nic neplatíte.“).
+2. Registrace (`#/registrace`): tlačítko „Vytvořit účet“ (ne „Vytvořit účet a začít 14 dní zdarma“).
+3. Stránka VPS (`#/sluzba/vps`): titulek „VPS na KVM s hodinovým účtováním a měsíčním stropem“ (ne „… ne s přeprodaným výkonem“);
+   úvod bez „jádra vyhrazená jen vám“; první výhoda „Třída CPU podle tarifu“ (ne „Steal time pod 0,5 %, měříme to veřejně“); pás SLA
+   má jen „99,9 %“ a „4 h“ (ne „2× N+1“ ani „10 Gbit/s v základu“).
+4. Stránky Inference API, Vektorová databáze, Object storage a stránky řešení (Pro vývojáře, Energetika, Pro agentury, Pro e-shopy,
+   Pro startupy): žádné „SLA 99,99 %“ — nejvyšší tarif „SLA podle individuální smlouvy“, v tabulce srovnání „podle smlouvy“; pás
+   stránek řešení „99,9 % měsíční dostupnost (Standard, SLA)“.
+5. Ceník `#/ceny`: na kartě „Standard“ klikněte na objednání. V košíku je řádek „Webhosting Standard“ (ne „VPS Standard“) a nabídka
+   doplňků k němu jmenuje „Rozšířené zálohy“ (ne „Zálohy VPS (PBS)“); totéž ve shrnutí pokladny.
+
+**Očekávaný výsledek:** kroky 1–5 bez rozdílu; v anglické verzi totéž („Create account“, „Extended backups“).
+
+**Negativní varianty:** v demo režimu (`ONHOST_UI_DEMO=true`) ukazují stránky původní texty prototypu; název doplňku, který tým
+změnil v ceníku, migrace nepřepíše.
+
+**Kde hledat při selhání:** `app/Http/Support/ServicePageClaimsSeam.php` (`replacements()`, `homeCopySwaps()`),
+`database/seeders/CatalogSeeder.php`, `database/migrations/0001_01_01_001160_backup_addon_named_for_every_parent.php`;
+automaticky `tests/Feature/Content/ServicePageCopyClaimsTest.php` a `tests/Feature/Web/CartLineAddonNamesTest.php`.
+
+## Pokrytí E2E testem
+
+Automatický test `tests/Feature/E2E/SignupToWebTest.php` prochází stejné kroky bez prohlížeče:
+
+| Krok testu | Tento dokument |
+| --- | --- |
+| 1. registrace `POST /v1/auth/register` | F1.1 kroky 1–2 |
+| 2. ověření e-mailu, druhé použití tokenu je 422 | F1.1 krok 3 a negativní varianta |
+| 3. katalog | F1.2 krok 1 |
+| 4. košík a rekapitulace | F1.2 |
+| 5. objednávka, čeká na platbu, nic se nezřídí před platbou | F1.3 krok 1 |
+| 6. callback Comgate, opakovaný callback je `duplicate` | F1.3 kroky 2–3 |
+| 7. outbox, saga, služba aktivní | F1.3 krok 4, další viz [F2](02-web.md) |
+| 8. služba, doklady a funkce v panelu | F1.3 krok 4, F2 |
+| 9. události a notifikace | Události u F1.1 a F1.3 |
+
+Co E2E test nepokrývá a ruční test ano: guest checkout (F1.4), limit R5 (F1.5), skutečný vzhled panelu a stránka brány.

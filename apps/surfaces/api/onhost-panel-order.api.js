@@ -296,5 +296,35 @@
       .catch(function (e) { flash(cmp, _('Objednávka neprošla', 'Order failed'), (e && e.message) || _('Zkuste to prosím znovu.', 'Please try again.')); });
   }
 
-  window.OnhostPanelOrder = { types: types, sizes: sizes, images: images, regions: regions, regionLabel: regionLabel, priceLabel: priceLabel, payOptions: payOptions, payLabel: payLabel, hidden: hidden, relabel: relabel, summary: summary, period: period, place: place };
+  /* Penpot for a running service (owner decision H-R7, TASK-0130): one cart line naming the service; the server prices it by the
+     service's tariff (included = 0) and refuses it when no Penpot node can run it. Paid from credit when it covers the quote (or
+     when nothing is to pay), otherwise by proforma. */
+  function penpot(cmp, serviceId, offer) {
+    var _ = tr(cmp), A = window.OnhostApi, d = data() || {};
+    var consents = {}, person = (window.ONHOST && window.ONHOST.user && window.ONHOST.user.name) || '';
+    Object.keys(d.consents || {}).forEach(function (k) { consents[k] = { version: d.consents[k], person: person }; });
+    flash(cmp, _('Odesílám objednávku Penpotu…', 'Ordering Penpot…'), '');
+    return A.put('/cart', { items: [{ product_key: 'penpot', plan_key: 'penpot-team', qty: 1, config: { parent_service_id: serviceId } }], commit_months: 1, currency: (offer && offer.currency) || 'CZK', promo_code: null })
+      .then(function () { return A.post('/cart/quote', {}); })
+      .then(function (q) {
+        var quote = q.data || q, raw = quote.total != null ? quote.total : (quote.totals && (quote.totals.gross || quote.totals.total));
+        var total = typeof raw === 'number' ? raw / 100 : num(raw);
+        var mode = total <= 0 || credit(cmp) >= total ? 'wallet' : 'bank';
+        return A.post('/orders', { quote_id: quote.quote_id, consents: consents, payment: { mode: mode }, source: 'panel' }, 'panel-penpot:' + quote.quote_id + ':' + mode).then(function (r) { return { result: r.data || r, mode: mode, total: total }; });
+      })
+      .then(function (x) {
+        var o = x.result.order || x.result;
+        flash(cmp, _('Penpot objednán ', 'Penpot ordered ') + (o.number || ''), x.total <= 0 ? _('V ceně tarifu. Instance se připravuje; najdete ji mezi webovými službami.', 'Included in the plan. The instance is being prepared; you will find it with the web services.')
+          : (x.mode === 'wallet' ? _('Uhrazeno z kreditu (' + money(cmp, x.total) + '). Instance se připravuje.', 'Paid from credit (' + money(cmp, x.total) + '). The instance is being prepared.') : _('Zálohová faktura je v záložce Fakturace (' + money(cmp, x.total) + '); Penpot připravíme po připsání platby.', 'The proforma is in the Billing tab (' + money(cmp, x.total) + '); Penpot is prepared once the payment arrives.')));
+        if (window.OnhostStore && window.OnhostStore.refresh) window.OnhostStore.refresh();
+        return x;
+      })
+      .catch(function (e) {
+        var why = e && e.body && e.body.error === 'penpot_unavailable' ? _('Server pro Penpot teď není připravený; nic se neobjednalo ani nezaplatilo.', 'The Penpot server is not ready; nothing was ordered or charged.') : ((e && e.message) || _('Zkuste to prosím znovu.', 'Please try again.'));
+        flash(cmp, _('Penpot se nepodařilo objednat', 'Penpot could not be ordered'), why);
+        return null;
+      });
+  }
+
+  window.OnhostPanelOrder = { types: types, sizes: sizes, images: images, regions: regions, regionLabel: regionLabel, priceLabel: priceLabel, payOptions: payOptions, payLabel: payLabel, hidden: hidden, relabel: relabel, summary: summary, period: period, place: place, penpot: penpot };
 })();

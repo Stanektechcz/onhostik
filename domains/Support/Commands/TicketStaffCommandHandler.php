@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Support\Commands;
 
 use Onhost\Domain\Identity\Models\User;
+use Onhost\Domain\Support\ComplaintService;
 use Onhost\Domain\Support\Models\SupportMacro;
 use Onhost\Domain\Support\Models\Ticket;
 use Onhost\Domain\Support\TicketService;
@@ -17,7 +18,7 @@ use Onhost\Platform\Errors\DomainError;
 /** Runs a support agent's ticket write inside the bus (TicketStaffCommand). Returns the ticket id; the controller presents it. */
 final class TicketStaffCommandHandler implements CommandHandler
 {
-    public function __construct(private readonly TicketService $tickets) {}
+    public function __construct(private readonly TicketService $tickets, private readonly ComplaintService $complaints) {}
 
     public function handle(Command $command, CommandContext $context): mixed
     {
@@ -32,6 +33,8 @@ final class TicketStaffCommandHandler implements CommandHandler
             'transition' => $this->tickets->transition($ticket, strtoupper((string) $command->get('to', '')), $context, $command->get('note'), (string) $command->get('note_visibility', 'internal')),
             'assign' => $this->assign($ticket, $command, $context),
             'escalate' => $this->tickets->escalate($ticket, $context, (string) $command->get('reason', '')),
+            'complaint.open' => $this->complaints->open($ticket, $context), // L-15
+            'complaint.resolve' => $this->complaints->resolve($ticket, (string) $command->get('outcome', ''), (string) $command->get('resolution', ''), $context),
             default => throw new DomainError('op_unknown', 'Unknown ticket operation.', 422, ['field' => 'op']),
         };
 

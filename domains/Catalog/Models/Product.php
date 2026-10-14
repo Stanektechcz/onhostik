@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Catalog\Models;
 
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Onhost\Domain\Catalog\SellSwitch;
 use Onhost\Platform\Eloquent\Model;
 
 final class Product extends Model
@@ -29,9 +30,10 @@ final class Product extends Model
         return $this->hasMany(ProductOption::class, 'product_id')->orderBy('sort');
     }
 
-    public function isSellable(): bool
+    /** $existingCustomer: a plan change of a service that already exists is not a new sale, so the launch sell switch is not asked */
+    public function isSellable(bool $existingCustomer = false): bool
     {
-        return $this->state === 'active' && ($this->executor !== null || $this->family === 'addon'); // add-ons attach to the parent service, no executor of their own
+        return $this->state === 'active' && ($existingCustomer || SellSwitch::allows($this->family)) && ($this->executor !== null || $this->family === 'addon'); // add-ons attach to the parent service, no executor of their own
     }
 
     public function localizedName(string $locale = 'cs'): string

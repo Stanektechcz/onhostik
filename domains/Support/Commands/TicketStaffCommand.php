@@ -19,7 +19,7 @@ use Onhost\Platform\Commands\GlobalCommand;
  */
 final class TicketStaffCommand extends GlobalCommand implements RiskAwareCommand
 {
-    public const OPS = ['reply', 'note', 'transition', 'assign', 'escalate'];
+    public const OPS = ['reply', 'note', 'transition', 'assign', 'escalate', 'complaint.open', 'complaint.resolve']; // L-15: a complaint marked and decided
 
     public function op(): string
     {

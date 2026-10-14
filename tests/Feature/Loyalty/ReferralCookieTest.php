@@ -14,7 +14,10 @@ use Onhost\Domain\Organizations\Models\Organization;
  * is still attributed from the cookie; malformed codes are never stored.
  */
 
-beforeEach(fn () => Http::preventStrayRequests());
+beforeEach(function () {
+    Http::preventStrayRequests();
+    config()->set('onhost.partners.referral_cookie', true); // P20 (P-R75): the cookie is variant A, off by default (ReferralCookieSwitchTest)
+});
 
 it('remembers the invite code from a landing visit and attributes a later sign-up without the parameter', function () {
     [, $org] = $this->customerWithOrganization(['email' => 'jan@firma.cz'], ['name' => 'Firma Jan s.r.o.']);

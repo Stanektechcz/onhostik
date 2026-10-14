@@ -70,12 +70,29 @@ return [
         'deletion' => [
             'grace_days' => (int) env('ONHOST_DELETE_GRACE_DAYS', 30),          // the customer may bring a deactivated service back within this window
             'identity_checks' => (int) env('ONHOST_DELETE_IDENTITY_CHECKS', 5), // identifiers that must match before anything is deleted
-            'download_fee_minor' => ['CZK' => (int) env('ONHOST_ARCHIVE_DOWNLOAD_FEE_CZK', 50000), 'EUR' => (int) env('ONHOST_ARCHIVE_DOWNLOAD_FEE_EUR', 2000)],
+            'download_fee_minor' => ['CZK' => (int) env('ONHOST_ARCHIVE_DOWNLOAD_FEE_CZK', 0), 'EUR' => (int) env('ONHOST_ARCHIVE_DOWNLOAD_FEE_EUR', 0)], // P-R30 (LG-6, Data Act): free from launch
         ],
     ],
     // a rescue session boots the server from an image of the operator's ISO storage and ends by itself (H233)
     'rescue' => [
         'hours' => (int) env('ONHOST_RESCUE_HOURS', 8),
+    ],
+    // a customer's own installation image, only where the ordered VPS plan sells `custom_iso` (owner decision G-R5, TASK-0110,
+    // docs/runbooks/custom-iso.md): every upload is an ISO 9660 image, scanned by clamd before it is kept (never kept unscanned),
+    // on the `custom_isos` disk outside the web root; the plan's `custom_iso_max_mb` sets the size of one image
+    'custom_iso' => [
+        'disk' => env('ONHOST_CUSTOM_ISO_DISK', 'custom_isos'),
+        'default_max_mb' => (int) env('ONHOST_CUSTOM_ISO_DEFAULT_MAX_MB', 4096),   // a plan that sells custom_iso without its own custom_iso_max_mb
+        'scan_max_mb' => (int) env('ONHOST_CUSTOM_ISO_SCAN_MAX_MB', 4096),         // what clamd is set up to scan in full (StreamMaxLength, MaxScanSize, MaxFileSize); larger is refused
+        'org_quota_mb' => (int) env('ONHOST_CUSTOM_ISO_ORG_QUOTA_MB', 20480),      // all images of one organization together
+        'org_max_images' => (int) env('ONHOST_CUSTOM_ISO_ORG_MAX_IMAGES', 5),
+        'upload_timeout_seconds' => (int) env('ONHOST_CUSTOM_ISO_UPLOAD_TIMEOUT', 3600), // one image to the hypervisor's ISO storage
+        'scan_timeout_seconds' => (int) env('ONHOST_CUSTOM_ISO_SCAN_TIMEOUT', 900),
+        'org_max_inflight' => (int) env('ONHOST_CUSTOM_ISO_ORG_MAX_INFLIGHT', 2),   // uploads of one organization at the same time (review H1)
+        'uploads_per_hour' => (int) env('ONHOST_CUSTOM_ISO_UPLOADS_PER_HOUR', 10),  // POST …/isos per person (rate limiter custom-iso-upload)
+        'quarantine_days' => (int) env('ONHOST_CUSTOM_ISO_QUARANTINE_DAYS', 14),  // H1 review M1: an orphaned image file waits in quarantine/ this long before onhost:isos:sweep deletes it
+        'staging_hours' => (int) env('ONHOST_CUSTOM_ISO_STAGING_HOURS', 6),         // a staged upload older than this is dead: onhost:isos:sweep removes it
+        'delete_wait_seconds' => (int) env('ONHOST_CUSTOM_ISO_DELETE_WAIT', 120),   // how long a delete waits for the hypervisor's task before the step fails (review M2)
     ],
 
     'backups' => [
@@ -107,6 +124,8 @@ return [
         'step_up_ttl_minutes' => (int) env('ONHOST_STEP_UP_TTL', 10),
         'session_ttl_minutes' => (int) env('ONHOST_SESSION_TTL', 720),
         'staff_mfa_required' => (bool) env('ONHOST_STAFF_MFA_REQUIRED', true),
+        // R5 (TASK-0096): an order above this (minor units per currency) needs a verified e-mail; EmailVerificationGuard::DEFAULT_ORDER_LIMIT_MINOR
+        'unverified_order_limit_minor' => ['CZK' => 500000, 'EUR' => 20000],
         'max_failed_logins' => 8,
         'lockout_minutes' => 15,
         'trusted_device_days' => 30,
@@ -147,10 +166,26 @@ return [
         'deprecations' => [],
     ],
 
-    'legal_entity' => [ // the operator's own company for documents (LegalEntitySeeder / onhost:production:prepare --legal); config, not env(), so a cached configuration still carries it
-        'name' => env('ONHOST_LEGAL_NAME', ''), 'ico' => env('ONHOST_ICO', ''), 'dic' => env('ONHOST_DIC', ''), 'vat_id' => env('ONHOST_VAT_ID', ''),
-        'street' => env('ONHOST_STREET', ''), 'city' => env('ONHOST_CITY', ''), 'zip' => env('ONHOST_ZIP', ''),
-        'iban' => env('ONHOST_BANK_IBAN', ''), 'bic' => env('ONHOST_BANK_BIC', ''), 'bank_account' => env('ONHOST_BANK_ACCOUNT', ''),
+    // The operator's own company for documents (LegalEntitySeeder / onhost:production:prepare --legal); config, not env(), so a cached
+    // configuration still carries it. I-R11 (owner, 2026-10-08, "Vše potvrzuji"): the defaults are the operator's PUBLIC data as the
+    // register of economic subjects (ARES, https://ares.gov.cz/ekonomicke-subjekty-v-be/rest/ekonomicke-subjekty/08094616 and the
+    // trade licensing register part, read 2026-10-08) gives it: a natural person trading under a trade licence (legal form 101),
+    // seat Molákova 2145/5, Líšeň, 628 00 Brno, trade licence since 15. 4. 2019. ARES lists no DIČ and no VAT registration, which
+    // matches H-R0/I-R5 (not a VAT payer): no DIČ is invented and none is printed. `?:` instead of an env() default so an empty
+    // variable copied from an old .env.example does not blank the value. I-R15 (owner, 2026-10-08): the bank details are the operator's
+    // business account 6478243359/0800 (Česká spořitelna, IBAN CZ34 0800 0000 0064 7824 3359, BIC GIBACZPX) — the same defaults as
+    // `payments.bank` below, so documents, proformas, top-up instructions and the QR code name one account.
+    'legal_entity' => [
+        'name' => env('ONHOST_LEGAL_NAME') ?: 'Adrian Staněk', 'ico' => env('ONHOST_ICO') ?: '08094616', 'dic' => env('ONHOST_DIC', ''), 'vat_id' => env('ONHOST_VAT_ID', ''),
+        'street' => env('ONHOST_STREET') ?: 'Molákova 2145/5', 'city' => env('ONHOST_CITY') ?: 'Brno', 'zip' => env('ONHOST_ZIP') ?: '628 00',
+        'iban' => env('ONHOST_BANK_IBAN') ?: 'CZ3408000000006478243359', 'bic' => env('ONHOST_BANK_BIC') ?: 'GIBACZPX', 'bank_account' => env('ONHOST_BANK_ACCOUNT') ?: '6478243359/0800',
+        // TASK-0142: what the legal documents name (§ 1820 OZ, § 435 OZ): a telephone number, the address customers write to
+        // (withdrawals, complaints — not a no-reply sender; empty = mail.from.address) and the register entry. I-R11: the phone and
+        // the complaints/withdrawal mailbox are the owner's; the register entry is the trade licensing register (a sole trader is not
+        // in the commercial register), in Czech for the documents and in English for the public footer.
+        'phone' => env('ONHOST_LEGAL_PHONE') ?: '+420 736 741 902', 'email' => env('ONHOST_LEGAL_EMAIL') ?: 'reklamace@onhost.cz',
+        'registry' => env('ONHOST_LEGAL_REGISTRY') ?: 'fyzická osoba podnikající na základě živnostenského oprávnění, zapsaná v živnostenském rejstříku (od 15. 4. 2019)',
+        'registry_en' => env('ONHOST_LEGAL_REGISTRY_EN') ?: 'natural person trading under a trade licence, entered in the Czech trade licensing register (since 15 April 2019)',
     ],
 
     'support' => [ // paid work on a ticket (H29): offered with a price, billed only after the customer approved it
@@ -189,6 +224,9 @@ return [
 
     'payments' => [
         'default' => env('PAYMENT_GATEWAY', 'comgate'),
+        // H3 (TASK-0121): hosts besides the portal's and the application's own that a gateway (Comgate, GoPay, Stripe) may send a payer
+        // back to (https only); any other return address is refused before the gateway is called (Onhost\Providers\Payments\ReturnUrls)
+        'return_hosts' => array_values(array_filter(array_map('trim', explode(',', (string) env('PAYMENT_RETURN_HOSTS', ''))))),
         'comgate' => [
             'merchant' => env('COMGATE_MERCHANT'),
             'secret_ref' => env('COMGATE_SECRET_REF', 'env://COMGATE'),
@@ -210,10 +248,20 @@ return [
             'recurring' => (bool) env('STRIPE_RECURRING', true), // stored cards for automatic top-ups (setup_future_usage=off_session, off-session PaymentIntents)
         ],
         'bank' => [
-            'iban' => env('ONHOST_BANK_IBAN', ''),
-            'bic' => env('ONHOST_BANK_BIC', ''),
-            'account_number' => env('ONHOST_BANK_ACCOUNT', ''),
-            'fio_token' => env('ONHOST_BANK_FIO_TOKEN', ''), // Fio API token (read-only) of the account customers pay to; enables onhost:bank:sync
+            // I-R15: the operator's business account (Česká spořitelna) is the default — the same values as `legal_entity` above
+            'iban' => env('ONHOST_BANK_IBAN') ?: 'CZ3408000000006478243359',
+            'bic' => env('ONHOST_BANK_BIC') ?: 'GIBACZPX',
+            'account_number' => env('ONHOST_BANK_ACCOUNT') ?: '6478243359/0800',
+            'fio_token' => env('ONHOST_BANK_FIO_TOKEN', ''), // Fio API token (read-only) of the account customers pay to; enables onhost:bank:sync. I-R15: the account is at Česká spořitelna, not Fio — stays empty, transfers are paired in Nastavení → Bankovní platby
+        ],
+        // W6 (TASK-0228): onhost:payments:sweep re-reads the status of card intents still open when both the gateway's notification
+        // and the payer's return were lost. Only gateways with a status API (never `bank`: transfers are paired by statement lines);
+        // an intent younger than the grace period is left to the webhook and the return, one older than the cut-off to finance.
+        'sweep' => [
+            'providers' => array_values(array_filter(array_map('trim', explode(',', (string) env('ONHOST_PAYMENTS_SWEEP_PROVIDERS', 'comgate,gopay,stripe'))))),
+            'grace_minutes' => (int) env('ONHOST_PAYMENTS_SWEEP_GRACE_MINUTES', 10),
+            'max_age_hours' => (int) env('ONHOST_PAYMENTS_SWEEP_MAX_AGE_HOURS', 72),
+            'batch' => (int) env('ONHOST_PAYMENTS_SWEEP_BATCH', 50), // intents re-read per run, oldest first
         ],
     ],
 
@@ -265,6 +313,8 @@ return [
         'points' => ['order.paid_per_100' => 1, 'payment.on_time' => 10, 'mfa.enabled' => 50, 'backups.enabled' => 30, 'monitoring.enabled' => 20, 'service.first' => 100, 'anniversary' => 100, 'referral' => 200],
         'levels' => [['key' => 'bronze', 'name' => 'Bronze', 'min' => 0, 'reward_minor' => 0], ['key' => 'silver', 'name' => 'Silver', 'min' => 500, 'reward_minor' => 10000], ['key' => 'gold', 'name' => 'Gold', 'min' => 2000, 'reward_minor' => 30000], ['key' => 'platinum', 'name' => 'Platinum', 'min' => 5000, 'reward_minor' => 80000]],
         'reward_currency' => 'CZK',
+        // R6 (owner decision 2026-10-03): a payment earns points only from this amount (minor units; CZK 100), and a credit note or chargeback refund takes them back
+        'min_payment_minor' => ['CZK' => (int) env('ONHOST_LOYALTY_MIN_PAYMENT_MINOR', 10000), 'EUR' => 400, 'default' => 10000],
         // customer-to-customer referrals (audit §5j-2): points and promo credit for both sides once the invited organization pays its first document
         'referral' => ['referrer_points' => 200, 'referred_points' => 100, 'referrer_credit_minor' => (int) env('ONHOST_REFERRAL_CREDIT', 20000), 'referred_credit_minor' => (int) env('ONHOST_REFERRAL_WELCOME_CREDIT', 10000), 'max_per_30d' => (int) env('ONHOST_REFERRAL_MONTHLY_CAP', 20), 'clawback_days' => (int) env('ONHOST_REFERRAL_CLAWBACK_DAYS', 90)], // clawback_days: a chargeback of the referred organization within this window claws the referral back (§5l-4)
         // monthly missions (audit §5j-3): points per completed mission; the streak of on-time months that may earn a permanent discount (finance approves it)
@@ -279,7 +329,7 @@ return [
     // regional pricing (audit §5j-8): country groups with a suggested currency and a percentage on the catalogue price (staff override the table in Nastavení → Ceny)
     'pricing' => ['regions' => [
         ['key' => 'sk', 'label' => 'Slovensko', 'countries' => ['SK'], 'currency' => 'EUR', 'adjust_pct' => 0],
-        ['key' => 'eu', 'label' => 'EU', 'countries' => ['DE', 'AT', 'PL', 'HU', 'SI', 'HR', 'NL', 'BE', 'FR', 'IT', 'ES', 'PT', 'IE', 'FI', 'SE', 'DK', 'EE', 'LV', 'LT', 'LU', 'RO', 'BG', 'GR', 'CY', 'MT'], 'currency' => 'EUR', 'adjust_pct' => (float) env('ONHOST_PRICING_EU_ADJUST', 5)],
+        ['key' => 'eu', 'label' => 'EU', 'countries' => ['DE', 'AT', 'PL', 'HU', 'SI', 'HR', 'NL', 'BE', 'FR', 'IT', 'ES', 'PT', 'IE', 'FI', 'SE', 'DK', 'EE', 'LV', 'LT', 'LU', 'RO', 'BG', 'GR', 'CY', 'MT'], 'currency' => 'EUR', 'adjust_pct' => (float) env('ONHOST_PRICING_EU_ADJUST', 0)], // P-R29 (LG-5, geo-blocking): no EU surcharge
     ]],
 
     // sandbox tenants (audit §5j-9): provisioning routed to lab instances (`options.sandbox`), a promo credit to test with, no loyalty, no commissions
@@ -411,8 +461,25 @@ return [
         'imap_port' => (int) env('ONHOST_MAIL_IMAP_PORT', 993),
         'pop3_port' => (int) env('ONHOST_MAIL_POP3_PORT', 995),
         'smtp_port' => (int) env('ONHOST_MAIL_SMTP_PORT', 587),
-        // the lists asked about every node's sending address (BlocklistCheck); zone => the name an operator knows it by
-        'blocklists' => ['zen.spamhaus.org' => 'Spamhaus ZEN', 'bl.spamcop.net' => 'SpamCop', 'b.barracudacentral.org' => 'Barracuda'],
+    ],
+
+    // ── SP1 antispam and sending reputation (phase V, owner decision V-R1; docs/proposals/antispam-reputation.md) ──────────
+    'antispam' => [
+        // addresses the platform sends mail from besides every node's public_ipv4/public_ipv6 tag (the transactional relay, …)
+        'sending_addresses' => array_values(array_filter(array_map('trim', explode(',', (string) env('ONHOST_ANTISPAM_SENDING_ADDRESSES', ''))))),
+        'dnsbl' => [
+            // an own recursive resolver (host, host:port, [v6]:port) — blocklists refuse public resolvers; empty = the system resolver
+            // from resolv.conf, through which Spamhaus (without a DQS key), Barracuda, SURBL and URIBL are never asked
+            'resolver' => (string) env('ONHOST_DNSBL_RESOLVER', ''),
+            'timeout_seconds' => (float) env('ONHOST_DNSBL_TIMEOUT', 2.0), // per question, kept between 0.5 and 5 s
+            // optional secret: Spamhaus Data Query Service key (free for low volume); never logged, never stored with a listing
+            'spamhaus_dqs_key' => (string) env('ONHOST_SPAMHAUS_DQS_KEY', ''),
+            // keys of BlocklistCatalog::LISTS the operator switched off
+            'disabled' => array_values(array_filter(array_map('trim', explode(',', (string) env('ONHOST_DNSBL_DISABLED', ''))))),
+            'min_interval_minutes' => (int) env('ONHOST_DNSBL_MIN_INTERVAL_MINUTES', 60), // each (list, target) pair at most this often
+            'max_queries_per_run' => (int) env('ONHOST_DNSBL_MAX_QUERIES_PER_RUN', 2000),
+            'max_run_seconds' => (int) env('ONHOST_DNSBL_MAX_RUN_SECONDS', 1800), // a run stops asking after this; the rest waits for the next hour
+        ],
     ],
 
     'dns' => [
@@ -470,8 +537,9 @@ return [
 
     'sla' => [
         'classes' => [
-            'standard' => ['objective' => 99.9, 'contractual' => null, 'certified' => false],
-            'business' => ['objective' => 99.95, 'contractual' => 99.9, 'certified' => false],
+            // L-05: the contractual figures are the SLA in force (resources/legal/sla.md 2026-09, čl. 2): Standard 99.9 %, Business 99.95 %
+            'standard' => ['objective' => 99.9, 'contractual' => 99.9, 'certified' => false],
+            'business' => ['objective' => 99.95, 'contractual' => 99.95, 'certified' => false],
             'ha' => ['objective' => 99.995, 'contractual' => 99.99, 'certified' => false],
             'critical' => ['objective' => 99.999, 'contractual' => 99.99, 'certified' => false],
         ],
@@ -481,9 +549,17 @@ return [
         'error_budget_policy' => [25 => 'normal', 50 => 'review_high_risk', 75 => 'reliability_priority', 100 => 'freeze'],
         'auto_resolve_minutes' => 15,   // probe-sourced incidents in MONITORING auto-close after a stable period
         'credit_policies' => [          // versioned bands: credit % of monthly price when availability falls below the threshold
-            'business' => ['bands' => [['below' => 99.9, 'credit_percent' => 10], ['below' => 99.0, 'credit_percent' => 25], ['below' => 95.0, 'credit_percent' => 50]], 'cap_percent' => 50],
+            // L-05 (SLA 2026-09 čl. 2): % of the monthly price for every started hour over the monthly limit, capped
+            'standard' => ['bands' => [['per_started_hour_percent' => 5]], 'cap_percent' => 50],
+            'business' => ['bands' => [['per_started_hour_percent' => 10]], 'cap_percent' => 100],
             'ha' => ['bands' => [['below' => 99.99, 'credit_percent' => 10], ['below' => 99.9, 'credit_percent' => 25], ['below' => 99.0, 'credit_percent' => 50]], 'cap_percent' => 50],
             'critical' => ['bands' => [['below' => 99.99, 'credit_percent' => 25], ['below' => 99.9, 'credit_percent' => 50], ['below' => 99.0, 'credit_percent' => 100]], 'cap_percent' => 100],
+        ],
+        // L-05 (SLA 2026-09 čl. 2): planned maintenance announced 48 h ahead counts out of the downtime only outside working
+        // hours and for at most this many hours a month; the rest of it is downtime like any other
+        'maintenance' => [
+            'max_excluded_hours_per_month' => 4,
+            'working_hours' => ['timezone' => 'Europe/Prague', 'days' => [1, 2, 3, 4, 5], 'from' => '08:00', 'to' => '17:00'],
         ],
     ],
 
@@ -507,6 +583,10 @@ return [
     ],
 
     'partners' => [
+        // P20 (P-R75 / RF-1, variant C until the lawyer answers LG-4): the 30-day referral cookie `onhost_ref` needs consent unless it
+        // is strictly necessary, and there is no consent banner — off by default; the code of a `?ref=` link travels in the sign-up
+        // request instead. true = variant A (cookie set, read at sign-up, listed on the privacy page).
+        'referral_cookie' => (bool) env('ONHOST_PARTNERS_REFERRAL_COOKIE', false),
         // [tier, monthly paid volume threshold (minor units), revenue-share %] — prototype Onhost-partner.dc.html
         'tiers' => [['bronze', 0, 15], ['silver', 2500000, 18], ['gold', 5000000, 22], ['platinum', 12000000, 26]],
         'min_payout_minor' => 100000,
@@ -644,16 +724,30 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
         'allow_ips' => array_filter(explode(',', (string) env('ONHOST_METRICS_ALLOW_IPS', '127.0.0.1,::1'))),
     ],
 
+    // TASK-0179: the cookie list under the privacy page (App\Http\Support\CookieInventory). The hosting's aaPanel WAF sets
+    // `server_session_<hash>` on every site it protects (staging 2026-10-13, B1); set false only on a host whose WAF cookie is off.
+    'privacy' => ['hosting_waf_cookie' => true],
+
+    // P11 (P-R74, HS-1): Strict-Transport-Security is sent by the application only, as configured here (the aaPanel vhost's own
+    // header is switched off by the owner, docs/runbooks/hsts.md). `includeSubDomains` stays off until every subdomain of the
+    // apex has valid TLS; `preload` is sent only together with includeSubDomains and a max-age of at least one year (the preload
+    // list refuses anything else) and is a hard-to-undo commitment. The doctor row "HSTS is sent once and as configured" checks it.
+    'security' => [
+        'hsts' => [
+            'enabled' => (bool) env('ONHOST_HSTS_ENABLED', true),
+            'max_age' => (int) env('ONHOST_HSTS_MAX_AGE', 31536000),
+            'include_subdomains' => (bool) env('ONHOST_HSTS_INCLUDE_SUBDOMAINS', false),
+            'preload' => (bool) env('ONHOST_HSTS_PRELOAD', false),
+        ],
+    ],
+
     'content' => [
         'changelog_year' => 2026,
+        // I-R18 (TASK-0149): customer references live in the database (content_references), edited in Nastavení → Blog a reference
         'domain_page_tlds' => ['cz', 'com', 'eu'], // the TLDs the domain page leads with
         'game_product' => 'game',                 // the product the game configurator sells
         'plans_product' => 'web-hosting',
-        // marketing comparison table (prototype onhost-data.js compare(cs)); columns: parameter, start, pro, scale
-        'compare' => [
-            'cs' => [['vCPU', '2', '6', '16'], ['RAM', '4 GB', '16 GB', '64 GB'], ['NVMe disk', '80 GB', '320 GB', '1 TB'], ['Přenos dat', 'neomezeně', 'neomezeně', 'neomezeně'], ['Zálohy', '7 dní', '30 dní', '30 dní + replika'], ['CI/CD runner', '—', '1× shared', '2× dedikovaný'], ['Anti-DDoS', '100 Gbps', '600 Gbps', '1,2 Tbps'], ['SLA', '99,9 %', '99,95 %', '99,99 %'], ['Reakce podpory', '8 h', '30 min', '10 min / telefon']],
-            'en' => [['vCPU', '2', '6', '16'], ['RAM', '4 GB', '16 GB', '64 GB'], ['NVMe disk', '80 GB', '320 GB', '1 TB'], ['Transfer', 'unlimited', 'unlimited', 'unlimited'], ['Backups', '7 days', '30 days', '30 days + replica'], ['CI/CD runner', '—', '1× shared', '2× dedicated'], ['Anti-DDoS', '100 Gbps', '600 Gbps', '1.2 Tbps'], ['SLA', '99.9%', '99.95%', '99.99%'], ['Support response', '8 h', '30 min', '10 min / phone']],
-        ],
+        // the pricing page's comparison table is built from these plans (PricingPageSeam::compare, K7-2); the prototype's static VPS table is gone
         'tender_docs' => [
             'cs' => [
                 ['Technická specifikace', 'Konfigurace, lokality, parametry sítě a zálohování v podobě, kterou lze vložit do zadávací dokumentace.'],
@@ -780,4 +874,30 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
         'owner_recovery_cancel_window_days' => 30,
     ],
     // ── end TASK-0042 ──
+    // ── G7 (TASK-0115): customer webhooks — the queue lane of the deliveries and the overlap of a rotated signing secret ──
+    'webhooks' => [
+        // the lane DeliverWebhook goes to while a worker loops on it (onhost-queue@webhooks); otherwise, or when empty, the default queue
+        'queue' => (string) env('ONHOST_WEBHOOK_QUEUE', 'webhooks'),
+        // after a rotation the previous secret still signs (X-ONhost-Signature-Previous) for this long; 0 = the new one at once. Max one day
+        'secret_overlap_minutes' => max(0, min(1440, (int) env('ONHOST_WEBHOOK_SECRET_OVERLAP_MINUTES', 60))),
+    ],
+    // ── end G7 ──
+    // ── H3 (TASK-0121): what of a quote line's config the customer reads (Presenters::quoteLines) — an allow-list; the stored quote
+    // keeps everything. `executor` and `entitlements` are never shown, whatever this list says (vendor neutrality, the plan's internals) ──
+    'quote' => [
+        'customer_line_config' => [
+            'line_id', 'parent_line_id', 'parent_service_id', 'label', 'hostname', 'fqdn', 'domain', 'aliases', 'tld', 'period_years', 'action', 'discount_label',
+            'region', 'region_code', 'image', 'egg', 'version', 'options', 'options_priced', 'periods_billed', 'price_region', 'price_region_pct', 'loyalty_pct',
+            'sla_class', 'upgrade_of', 'plan_change', 'limit_raise', 'loyalty',
+        ],
+        // review L of PR #116: inside these values only these keys (a list such as options_priced: per item) — prices the customer pays,
+        // never a cost, a margin or who on the staff approved something (`limit_raise.waived` is shown only as true)
+        'customer_line_config_nested' => [
+            'options_priced' => ['key', 'label', 'qty', 'unit_net', 'net'],
+            'plan_change' => ['from_plan', 'to_plan', 'fraction', 'old_net_minor', 'new_net_minor', 'period', 'from_period', 'period_change', 'unused_credit_minor', 'service_id'],
+            'limit_raise' => ['service_id', 'metric', 'units', 'delta', 'option_key', 'label', 'unit_price_minor', 'months', 'list_net_minor', 'waived'],
+            'loyalty' => ['points', 'value_minor', 'eligible_lines', 'rate_micro', 'rate_amount', 'rate_valid_on'],
+        ],
+    ],
+    // ── end H3 ──
 ];

@@ -320,5 +320,5 @@ it('makes the provider serve what the platform holds: the repair after a differe
     // somebody from another organization may neither look nor publish
     [$reader] = $this->customerWithOrganization();
     $this->actingAs($reader, 'sanctum');
-    $this->postJson("/v1/dns/zones/{$zone->id}/republish")->assertForbidden();
+    $this->postJson("/v1/dns/zones/{$zone->id}/republish")->assertNotFound(); // a stranger to the organization: 404, as for a missing id (TASK-0098)
 });

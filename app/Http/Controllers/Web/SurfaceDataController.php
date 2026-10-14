@@ -7,6 +7,8 @@ namespace App\Http\Controllers\Web;
 use App\Http\Controllers\Controller;
 use App\Http\Support\CatalogPresentation;
 use App\Http\Support\CurrentOrganization;
+use App\Http\Support\PricingPageSeam;
+use App\Http\Support\PublicLegalLinks;
 use App\Http\Support\SurfacePricing;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
@@ -20,6 +22,7 @@ use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Catalog\PanelNavigation;
 use Onhost\Domain\Catalog\PricingRules;
 use Onhost\Domain\Content\ContentService;
+use Onhost\Domain\Content\TeamRoster;
 use Onhost\Domain\Domains\DomainService;
 use Onhost\Domain\Domains\Models\Domain;
 use Onhost\Domain\Identity\Authorization\Authorizer;
@@ -33,6 +36,7 @@ use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\OrderStateMachine;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
+use Onhost\Domain\Payments\CardPayments;
 use Onhost\Domain\Payments\Models\PaymentIntent;
 use Onhost\Domain\Payments\Models\PaymentStateMachineStates as PaymentState;
 use Onhost\Domain\Payments\PaymentService;
@@ -43,9 +47,11 @@ use Onhost\Domain\Provisioning\PlacementService;
 use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Provisioning\ServiceMigrationService;
 use Onhost\Domain\Services\AvailabilityWatch;
+use Onhost\Domain\Services\CdnAvailability;
 use Onhost\Domain\Services\ControlPlaneStatus;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Services\Penpot\PenpotBadges;
 use Onhost\Domain\Services\ServiceFreshness;
 use Onhost\Domain\Services\SuspensionHold;
 use Onhost\Domain\Services\UsageWatch;
@@ -68,6 +74,9 @@ final class SurfaceDataController extends Controller
 {
     private const CATEGORY = ['web' => 'web', 'managed' => 'firm', 'apps' => 'dev', 'cloud' => 'dev', 'game' => 'game', 'mail' => 'firm', 'addon' => 'firm', 'ai' => 'dev'];
 
+    /** The public site's status grid shows 30 days (`Onhost.dc.html`: `bars()`, `stRows`); `D.status()` must cover the same days. */
+    private const STATUS_GRID_DAYS = 30;
+
     public function __construct(private readonly CatalogService $catalog, private readonly ContentService $content, private readonly IncidentService $incidents, private readonly GameConfigurator $gameConfigurator) {}
 
     public function data(): Response
@@ -75,22 +84,32 @@ final class SurfaceDataController extends Controller
         $js = Cache::remember('surfaces:onhost-data.js', 60, function () {
             $payload = [];
             $vat = SurfacePricing::vat();
+            $cardPayments = app(CardPayments::class)->available();
             foreach (['cs', 'en'] as $locale) {
                 $payload[$locale] = [
-                    'catalog' => $this->catalogRows($locale), 'plans' => $this->planRows($locale), 'compare' => (array) config("onhost.content.compare.{$locale}", []),
+                    'catalog' => $this->catalogRows($locale), 'plans' => $this->planRows($locale), 'compare' => PricingPageSeam::compare($this->pricingProduct($locale), $locale), // K7-2: the table of the plans the cards show
+                    'yearlySave' => PricingPageSeam::yearlySave((array) ($this->pricingProduct($locale)['plans'] ?? []), $locale), // K7-2: derived from the catalogue's yearly prices, or nothing
                     'status' => $this->statusRows($locale), 'locations' => $this->content->locations($locale), 'changelog' => $this->content->changelog($locale),
                     'skus' => $this->skuIndex($locale), 'pages' => $this->pageRows($locale), 'webPlans' => $this->webPlanRows($locale), 'gameSlots' => $this->gameSlotRows(), 'gameConfig' => $this->gameConfigurator->offer($locale, 'CZK'),
                     'pricing' => $this->pricingRows(), 'addons' => $this->addonRows($locale), 'tlds' => $this->tldRows($locale),
                     // audit P1-6 (C2): the currency switch offers only currencies with a fresh ČNB rate; VAT is the tax rules' rate
                     'currencies' => SurfacePricing::currencies($locale !== 'en'), 'vat' => $vat === null ? null : ['rate' => $vat['rate'], 'percent' => $vat['percent'][$locale === 'en' ? 'en' : 'cs']],
+                    'vatPayer' => SurfacePricing::payer(), // L-10: a non-payer shows final prices with no VAT line
+                    // I-R18: only references staff published (real, customer-approved; a DEMO row only outside production or when staff published it)
+                    'references' => $this->content->references($locale),
+                    'blog' => $this->content->blog($locale), // I-R17: the published posts staff write in the administration
+                    'team' => TeamRoster::forLocale($locale), // I-R19: the real team, initials as avatars, neutral roles
+                    'contact' => ['phone' => (string) config('onhost.legal_entity.phone', ''), 'email' => (string) config('onhost.legal_entity.email', '')],
+                    // J4 (C-R10c/e): the card tile only while the gateway has its credentials; C-R10a: the footer's documents in force
+                    'cardPayments' => $cardPayments, 'legal' => PublicLegalLinks::forLocale($locale), 'legalDocs' => PublicLegalLinks::documents($locale), // L3 (M1): #/sluzba/legal lists the documents in force
                 ];
             }
             $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG);
 
             return "// Generated by ONhost from the catalog, status page and content — same shapes as the prototype onhost-data.js.\n"
                 ."window.ONHOST_DATA = (function () {\n  var D = {$json};\n  function L(cs) { return cs ? D.cs : D.en; }\n"
-                ."  return {\n    catalog: function (cs) { return L(cs).catalog; },\n    plans: function (cs) { return L(cs).plans; },\n    compare: function (cs) { return L(cs).compare; },\n"
-                ."    status: function (cs) { return L(cs).status; },\n    locations: function (cs) { return L(cs).locations; },\n    changelog: function (cs) { return L(cs).changelog; },\n    skus: function (cs) { return L(cs).skus; },\n    pages: function (cs) { return L(cs).pages; },\n    webPlans: function (cs) { return L(cs).webPlans; },\n    gameSlots: function (cs) { return L(cs).gameSlots; },\n    gameConfig: function (cs) { return L(cs).gameConfig; },\n    pricing: function (cs) { return L(cs).pricing; },\n    addons: function (cs) { return L(cs).addons; },\n    tlds: function (cs) { return L(cs).tlds; },\n    currencies: function (cs) { return L(cs === undefined ? true : cs).currencies; },\n    vat: function () { return D.cs.vat ? D.cs.vat.rate : null; },\n    vatPercent: function (cs) { var v = L(cs === undefined ? true : cs).vat; return v ? v.percent : null; },\n    generatedAt:".json_encode(now()->toIso8601String())."\n  };\n})();\n";
+                ."  return {\n    catalog: function (cs) { return L(cs).catalog; },\n    plans: function (cs) { return L(cs).plans; },\n    compare: function (cs) { return L(cs).compare; },\n    yearlySave: function (cs) { return L(cs === undefined ? true : cs).yearlySave || ''; },\n"
+                ."    status: function (cs) { return L(cs).status; },\n    locations: function (cs) { return L(cs).locations; },\n    changelog: function (cs) { return L(cs).changelog; },\n    skus: function (cs) { return L(cs).skus; },\n    pages: function (cs) { return L(cs).pages; },\n    webPlans: function (cs) { return L(cs).webPlans; },\n    gameSlots: function (cs) { return L(cs).gameSlots; },\n    gameConfig: function (cs) { return L(cs).gameConfig; },\n    pricing: function (cs) { return L(cs).pricing; },\n    addons: function (cs) { return L(cs).addons; },\n    tlds: function (cs) { return L(cs).tlds; },\n    currencies: function (cs) { return L(cs === undefined ? true : cs).currencies; },\n    vat: function () { return D.cs.vat ? D.cs.vat.rate : null; },\n    vatPercent: function (cs) { var v = L(cs === undefined ? true : cs).vat; return v ? v.percent : null; },\n    vatPayer: function () { return D.cs.vatPayer !== false; },\n    references: function (cs) { return L(cs === undefined ? true : cs).references || []; },\n    blog: function (cs) { return L(cs === undefined ? true : cs).blog || []; },\n    team: function (cs) { return L(cs === undefined ? true : cs).team || []; },\n    contact: function () { return D.cs.contact || {}; },\n    cardPayments: function () { return D.cs.cardPayments; },\n    legalLinks: function (cs) { return L(cs).legal || []; },\n    legalDocs: function (cs) { return L(cs === undefined ? true : cs).legalDocs || []; },\n    generatedAt:".json_encode(now()->toIso8601String())."\n  };\n})();\n";
         });
 
         return response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=60']);
@@ -129,7 +148,7 @@ final class SurfaceDataController extends Controller
                     $features = (array) ($plan['features'] ?? []);
                     $specs = array_values(array_map('strval', (array) ($features[$locale] ?? (array_is_list($features) ? $features : []))));
                     $plans[] = [
-                        'name' => (string) $plan['name'], 'tag' => $plan['highlighted'] ? ($cs ? 'Nejoblíbenější' : 'Most popular') : ($plan['sla_class'] === 'ha' ? 'SLA 99,99 %' : ''),
+                        'name' => (string) $plan['name'], 'tag' => $plan['highlighted'] ? ($cs ? 'Nejoblíbenější' : 'Most popular') : PricingPageSeam::slaTag($plan['sla_class'] ?? null, $locale), // K7-2: only an SLA figure the document in force contains
                         'price' => $yearly ? (int) round($month * 12) : (float) round($month, 2), 'unitYear' => $yearly ?: null,
                         'specs' => $specs === [] ? CatalogPresentation::bullets((array) $plan['entitlements'], $family, $locale, 6) : $specs,
                         'sku' => ['product_key' => $product['key'], 'plan_key' => $plan['key'], 'price_year' => self::yearlyPrice($plan)],
@@ -202,6 +221,9 @@ final class SurfaceDataController extends Controller
         }
         foreach (array_keys(self::COMING_PAGES) as $slug) {
             $out[$slug] ??= self::comingPage($cs);
+        }
+        if (! CdnAvailability::configured()) { // K7-5 / R4: without a CDN account the CDN page sells nothing (the cart would refuse it)
+            $out['cdn'] = self::comingPage($cs);
         }
 
         return $out;
@@ -278,7 +300,9 @@ final class SurfaceDataController extends Controller
             $register = self::amount($price->register());
             $plans[] = [
                 'name' => '.'.$policy->tld, 'tag' => $i === 0 ? ($cs ? 'Nejžádanější' : 'Most wanted') : '', 'price' => 0, 'unitYear' => true,
-                'priceLabel' => number_format($register, 0, ',', ' ').' Kč', 'priceNote' => ($vat === null ? ($cs ? '/ rok · bez DPH' : '/ year · excl. VAT') : ($cs ? '/ rok · s DPH ' : '/ year · incl. VAT ').number_format($register * (1 + $vat['rate']), 0, ',', ' ').' Kč').' Kč'.($cs ? ' · obnova ' : ' · renewal ').number_format(self::amount($price->renew()), 0, ',', ' ').($cs ? ' Kč / rok' : ' Kč / year'),
+                'priceLabel' => number_format($register, 0, ',', ' ').' Kč', 'priceNote' => ! SurfacePricing::payer() // L-10: a non-payer's price is final — no "s DPH", no "bez DPH"
+                    ? ($cs ? '/ rok · konečná cena, nejsme plátci DPH · obnova ' : '/ year · final price, we are not VAT registered · renewal ').number_format(self::amount($price->renew()), 0, ',', ' ').($cs ? ' Kč / rok' : ' Kč / year')
+                    : ($vat === null ? ($cs ? '/ rok · bez DPH' : '/ year · excl. VAT') : ($cs ? '/ rok · s DPH ' : '/ year · incl. VAT ').number_format($register * (1 + $vat['rate']), 0, ',', ' ').' Kč').' Kč'.($cs ? ' · obnova ' : ' · renewal ').number_format(self::amount($price->renew()), 0, ',', ' ').($cs ? ' Kč / rok' : ' Kč / year'),
                 'ctaLabel' => $cs ? 'Ověřit dostupnost' : 'Check availability', 'goto' => 'home',
                 'specs' => array_values(array_filter([
                     $cs ? 'Registrace na rok' : 'One-year registration', $cs ? 'DNS hosting v ceně' : 'DNS hosting included', $policy->dnssec_supported ? 'DNSSEC' : null,
@@ -401,8 +425,7 @@ final class SurfaceDataController extends Controller
 
     private function planRows(string $locale): array
     {
-        $productKey = (string) config('onhost.content.plans_product', 'web-hosting');
-        $product = collect($this->catalog->publicCatalog($locale, 'CZK'))->firstWhere('key', $productKey);
+        $product = $this->pricingProduct($locale);
         $rows = [];
         foreach ((array) ($product['plans'] ?? []) as $plan) {
             $features = (array) ($plan['features'] ?? []);
@@ -412,11 +435,21 @@ final class SurfaceDataController extends Controller
             }
             $rows[] = [
                 'key' => $plan['key'], 'price' => (int) round(isset($plan['price']['month']) ? self::amount($plan['price']['month']) : 0.0), 'hi' => (bool) $plan['highlighted'],
-                $locale => [(string) $plan['name'], $plan['highlighted'] ? ($locale === 'cs' ? 'Nejčastější volba' : 'Most popular') : ($plan['sla_class'] === 'ha' ? 'SLA 99,99 %' : ''), (string) $plan['description'], $features],
+                // K7-2: the card's cart line as the catalogue names it ("Webhosting Standard", not the prototype's "VPS Standard") and the catalogue's yearly price
+                'label' => trim((string) ($product['name'] ?? '').' '.$plan['name']), 'priceYear' => self::yearlyPrice($plan),
+                $locale => [(string) $plan['name'], $plan['highlighted'] ? ($locale === 'cs' ? 'Nejčastější volba' : 'Most popular') : PricingPageSeam::slaTag($plan['sla_class'] ?? null, $locale), (string) $plan['description'], $features],
             ];
         }
 
         return $rows;
+    }
+
+    /** @return array<string, mixed>|null the product whose plans the pricing page `#/ceny` shows */
+    private function pricingProduct(string $locale): ?array
+    {
+        $productKey = (string) config('onhost.content.plans_product', 'web-hosting');
+
+        return collect($this->catalog->publicCatalog($locale, 'CZK'))->firstWhere('key', $productKey);
     }
 
     /**
@@ -427,6 +460,7 @@ final class SurfaceDataController extends Controller
     private function skuIndex(string $locale): array
     {
         $index = [];
+        $pricingProduct = (string) config('onhost.content.plans_product', 'web-hosting'); // the product planRows() shows on the pricing page
         foreach ($this->catalog->publicCatalog($locale, 'CZK') as $product) {
             $plans = (array) ($product['plans'] ?? []);
             $cheapest = null;
@@ -440,6 +474,12 @@ final class SurfaceDataController extends Controller
                         if ($price !== null) {
                             $index[$prefix.mb_strtolower((string) $plan['name']).'|'.$price] = $entry;
                         }
+                    }
+                }
+                if ($product['key'] === $pricingProduct) { // the pricing page's cards (`ONHOST_DATA.plans`) add to the cart as "VPS <plan>" (prototype label; K7-1, TASK-0162)
+                    $index['vps '.mb_strtolower((string) $plan['name'])] = $entry;
+                    if ($price !== null) {
+                        $index['vps '.mb_strtolower((string) $plan['name']).'|'.$price] = $entry;
                     }
                 }
                 $index[mb_strtolower((string) $product['name'].' '.$plan['name'])] = $entry;
@@ -601,7 +641,9 @@ final class SurfaceDataController extends Controller
     private function statusRows(string $locale): array
     {
         $rows = [];
-        foreach ($this->incidents->publicStatus()['components'] as $component) {
+        // S2: the public site draws these as a grid of 30 days ("Posledních 30 dní", "/ 30 dní"); the default 90-day window put an
+        // outage from two months ago on a day of the last month and lowered the "30-day" uptime with it
+        foreach ($this->incidents->publicStatus(self::STATUS_GRID_DAYS)['components'] as $component) {
             $u = rtrim(rtrim(number_format((float) $component['u'], 3, '.', ''), '0'), '.');
             $rows[] = ['n' => $component['n'], 'u' => $locale === 'cs' ? str_replace('.', ',', $u).' %' : $u.'%', 'bad' => $component['bad'], 'state' => $component['state'], 'key' => $component['key']];
         }
@@ -704,6 +746,7 @@ final class SurfaceDataController extends Controller
         }
 
         $controlPlane = []; // per provider instance: can the service be managed right now (H324)
+        $penpot = PenpotBadges::for($services, $cs); // TASK-0131: "Penpot v ceně" on a web hosting row, the parent on a Penpot row
         foreach ($services as $s) {
             $spec = (array) ($s->desired_spec ?? []);
             $sub = $subs->get($s->id);
@@ -758,11 +801,11 @@ final class SurfaceDataController extends Controller
             };
             $groups[$category][] = [
                 'id' => $s->id, 'type' => $type, 'name' => $s->label ?: ($s->hostname ?: $s->name), 'spec' => $sizes ?? ($s->name.($spec['php_version'] ?? null ? ' · PHP '.$spec['php_version'] : '')),
-                'meta' => trim(($s->hostname ? $s->hostname.' · ' : '').strtoupper((string) $s->region_code).($s->sla_class !== 'standard' ? ' · SLA '.$s->sla_class : '').($planName ? ' · '.$planName : '').($billing !== '' ? ' · '.$billing : '').$usageNote.$downNote.$deletionNote.$staleNote.$controlNote), 'value' => $s->activated_at?->toDateString() ?? '',
+                'meta' => trim(($s->hostname ? $s->hostname.' · ' : '').strtoupper((string) $s->region_code).($s->sla_class !== 'standard' ? ' · SLA '.$s->sla_class : '').($planName ? ' · '.$planName : '').($billing !== '' ? ' · '.$billing : '').$usageNote.$downNote.$deletionNote.$staleNote.$controlNote.($penpot[$s->id]['note'] ?? '')), 'value' => $s->activated_at?->toDateString() ?? '',
                 'state' => $stateLabel, 'kind' => $kind, 'product' => $s->product_key, 'apiState' => $s->state, 'usage' => $usageTop !== null ? ['level' => $usage['level'] ?? 'ok', 'pct' => $usageTop['pct'], 'metric' => $usageTop['key']] : null,
                 'plan' => $planName, 'period' => $sub?->period, 'renews_at' => $renewsAt?->toIso8601String(), 'monthly' => $monthly, 'renewal' => $renewalAmount !== '' ? $renewalAmount : null,
                 'deletion' => $graceLeft === null ? null : ['grace_until' => $s->terminate_at?->toIso8601String(), 'days_left' => max(0, $graceLeft), 'archive_backup_id' => $deletion['archive_backup_id'] ?? null],
-                'freshness' => $freshness, 'control_plane' => $control, 'suspension' => SuspensionHold::of($s), 'availability' => $availability,
+                'freshness' => $freshness, 'control_plane' => $control, 'suspension' => SuspensionHold::of($s), 'availability' => $availability, 'penpot' => $penpot[$s->id]['penpot'] ?? null,
             ];
             if (in_array($s->family, ['cloud', 'game'], true)) {
                 $health = (array) ($s->health ?? []);
@@ -793,7 +836,7 @@ final class SurfaceDataController extends Controller
      */
     private static function panelPricing(string $locale): array
     {
-        return ['currencies' => SurfacePricing::currencies($locale !== 'en'), 'vat' => SurfacePricing::vat()['rate'] ?? null];
+        return ['currencies' => SurfacePricing::currencies($locale !== 'en'), 'vat' => SurfacePricing::vat()['rate'] ?? null, 'vat_payer' => SurfacePricing::payer()]; // L-10
     }
 
     /** Registrable TLDs with the organization's prices for the "Nová služba → Doména" wizard step (decimal amounts, periods, terms links). @return list<array<string,mixed>> */

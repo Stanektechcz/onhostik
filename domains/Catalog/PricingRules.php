@@ -6,6 +6,7 @@ namespace Onhost\Domain\Catalog;
 
 use Illuminate\Support\Carbon;
 use Onhost\Domain\Catalog\Models\Product;
+use Onhost\Domain\Services\CdnAvailability;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Settings\SettingsStore;
 
@@ -170,8 +171,8 @@ final class PricingRules
 
     // ── add-on products per product ────────────────────────────────────────────────────────────────────────────
 
-    /** Product keys that may be attached to a cart line of this product (staff mapping, else the seeded `meta.addon_products`). @return list<string> */
-    public function addonProducts(Product|string $product): array
+    /** Product keys that may be attached to a cart line of this product (staff mapping, else the seeded `meta.addon_products`). `$applySellSwitch` false = the staff / preflight reading: a family switched off at launch is still part of the stored mapping. @return list<string> */
+    public function addonProducts(Product|string $product, bool $applySellSwitch = true): array
     {
         $product = $product instanceof Product ? $product : $this->product($product);
         if ($product === null) {
@@ -184,7 +185,10 @@ final class PricingRules
             return [];
         }
         // a product that is not on sale is not offered as an add-on either: the mapping outlives a product being taken off sale
-        $onSale = Product::query()->whereIn('key', $keys)->where('state', 'active')->pluck('key')->all();
+        $onSale = Product::query()->whereIn('key', $keys)->where('state', 'active')->get(['key', 'family'])->filter(fn (Product $p) => ! $applySellSwitch || SellSwitch::allows($p->family))->pluck('key')->all();
+        if (! CdnAvailability::configured()) { // K7-5 / R4: the CDN add-on only with a CDN account that delivers it
+            $onSale = array_values(array_diff($onSale, [CdnAvailability::PRODUCT]));
+        }
 
         return array_values(array_filter($keys, fn (string $k) => in_array($k, $onSale, true)));
     }

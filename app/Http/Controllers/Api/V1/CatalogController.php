@@ -32,7 +32,7 @@ final class CatalogController extends ApiController
             if ($model === null) {
                 throw DomainError::notFound('product');
             }
-            $item = ['key' => $model->key, 'family' => $model->family, 'name' => $model->localizedName($locale), 'description' => $model->description[$locale] ?? null, 'meta' => $model->meta, 'state' => $model->state];
+            $item = ['key' => $model->key, 'family' => $model->family, 'name' => $model->localizedName($locale), 'description' => $model->description[$locale] ?? null, 'meta' => $model->meta, 'state' => $model->state, 'on_sale' => $model->isSellable()];
         }
 
         return response()->json(['data' => $item]);

@@ -14,8 +14,7 @@ final class ServiceAccountView
     /** @return array<string, mixed> */
     public static function account(ServiceAccount $account): array
     {
-        $role = PolicyBinding::query()->where('principal_type', 'service_account')->where('principal_id', (string) $account->getKey())
-            ->where('scope_type', 'organization')->where('scope_id', (string) $account->organization_id)->value('role_key');
+        $role = self::role($account);
         $tokens = $account->accessTokens()->orderByDesc('created_at')->orderByDesc('id')->get()->map(fn (PersonalAccessToken $token) => self::token($token))->all();
 
         return [
@@ -28,6 +27,15 @@ final class ServiceAccountView
             'created_at' => $account->created_at?->toIso8601String(),
             'tokens' => $tokens,
         ];
+    }
+
+    /** The account's organization role (its one binding there), or null when it has none. */
+    public static function role(ServiceAccount $account): ?string
+    {
+        $role = PolicyBinding::query()->where('principal_type', 'service_account')->where('principal_id', (string) $account->getKey())
+            ->where('scope_type', 'organization')->where('scope_id', (string) $account->organization_id)->value('role_key');
+
+        return is_string($role) ? $role : null;
     }
 
     /** @return array<string, mixed> */

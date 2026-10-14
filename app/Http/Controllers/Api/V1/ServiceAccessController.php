@@ -61,7 +61,7 @@ final class ServiceAccessController extends ApiController
         if ($service === null) {
             throw DomainError::notFound('service');
         }
-        $this->api->authorize($request, 'organization.members.manage', CommandScope::organization($service->organization_id));
+        $this->api->authorizeOrNotFound($request, 'organization.members.manage', CommandScope::organization($service->organization_id), 'service'); // a stranger: 404 (TASK-0098)
 
         return $service;
     }

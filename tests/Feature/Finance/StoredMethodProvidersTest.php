@@ -33,6 +33,7 @@ beforeEach(function () {
     $_ENV['GOPAY_CLIENT_ID'] = 'gp-client';
     $_ENV['GOPAY_CLIENT_SECRET'] = 'gp-secret-test';
     config()->set('onhost.payments.gopay.goid', 8123456789);
+    config()->set('onhost.payments.return_hosts', ['p']); // H3: the gateways send the payer back only to allowed hosts
 });
 
 afterEach(function () {
