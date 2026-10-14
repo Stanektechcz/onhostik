@@ -979,7 +979,7 @@ novější kód, zmrazí se nový cíl a generálka se zopakuje (B1).
 * (b) `COMGATE_CALLBACK_IPS` je prázdný, takže se odmítne **každé** oznámení Comgate, dokud vlastník nedodá CG-6. Platby se pak dokončí návratem
   plátce nebo úlohou W6.
 * (c) SP1a potřebuje na stagingu vlastní resolver nebo klíč Spamhaus DQS, jinak další cyklus ukáže nový řádek WARN.
-* (d) Revize katalogu 2026-09 nejsou na stagingu aplikované (čtyři oči).
+* (d) Revize katalogu 2026-09 nejsou na stagingu aplikované (`--apply` provede operátor na serveru, bez druhé osoby).
 
 **Zbývá z balíku W:** W2 (řádky doctoru včetně prodejní matice a allow-listu Comgate), W5 (runbook čtyř očí a komentář
 `IdentityCommandAuthorizer.php:116`), W7 (dokumenty kroků vlastníka, runbook oznámení Comgate), W8 (robustnost a integrace testů) a návazný
