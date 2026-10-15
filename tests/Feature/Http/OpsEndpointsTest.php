@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use App\Http\Middleware\RequestMetrics;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Incidents\Models\SlaProbe;
 
@@ -24,14 +26,14 @@ it('answers readiness with component checks and exports Prometheus metrics behin
 
 it('exports a cumulative request latency histogram next to the average (F7)', function () {
     config(['onhost.metrics.token' => 'prom-token', 'onhost.metrics.allow_ips' => ['203.0.113.9']]);
-    expect(\App\Http\Middleware\RequestMetrics::bucketKey('v1', 0.004))->toBe('metrics:http:v1:b0')
-        ->and(\App\Http\Middleware\RequestMetrics::bucketKey('v1', 0.3))->toBe('metrics:http:v1:b6')
-        ->and(\App\Http\Middleware\RequestMetrics::bucketKey('v1', 42.0))->toBe('metrics:http:v1:binf');
-    \Illuminate\Support\Facades\Cache::put('metrics:http:v1:b0', 3);
-    \Illuminate\Support\Facades\Cache::put('metrics:http:v1:b6', 2);
-    \Illuminate\Support\Facades\Cache::put('metrics:http:v1:binf', 1);
-    \Illuminate\Support\Facades\Cache::put('metrics:http:v1:ms', 43000);
-    \Illuminate\Support\Facades\Cache::put('metrics:http:v1:n', 6);
+    expect(RequestMetrics::bucketKey('v1', 0.004))->toBe('metrics:http:v1:b0')
+        ->and(RequestMetrics::bucketKey('v1', 0.3))->toBe('metrics:http:v1:b6')
+        ->and(RequestMetrics::bucketKey('v1', 42.0))->toBe('metrics:http:v1:binf');
+    Cache::put('metrics:http:v1:b0', 3);
+    Cache::put('metrics:http:v1:b6', 2);
+    Cache::put('metrics:http:v1:binf', 1);
+    Cache::put('metrics:http:v1:ms', 43000);
+    Cache::put('metrics:http:v1:n', 6);
 
     $body = (string) $this->withToken('prom-token')->get('/metrics')->assertOk()->getContent();
     expect($body)->toContain('# TYPE onhost_http_request_duration_seconds histogram')

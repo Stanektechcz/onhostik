@@ -56,7 +56,7 @@ it('lets the owner download the UBL form of an issued invoice and audits the dow
     $response = $this->get('/v1/invoices/'.$invoice->id.'/ubl')->assertOk()->assertHeader('Content-Type', 'application/xml; charset=UTF-8');
     expect((string) $response->headers->get('Content-Disposition'))->toContain('attachment')->toContain('.xml')
         ->and($response->getContent())->toContain('urn:fdc:peppol.eu:2017:poacc:billing:3.0')->toContain((string) $invoice->number);
-    expect(AuditEvent::query()->where('action', 'invoice.download')->where('resource_id',$invoice->id)->exists())->toBeTrue();
+    expect(AuditEvent::query()->where('action', 'invoice.download')->where('resource_id', $invoice->id)->exists())->toBeTrue();
 });
 
 it('answers 403 to a member of the organization without the invoice permission and 404 to another tenant', function () {
