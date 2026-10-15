@@ -9,15 +9,19 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Onhost\Domain\Billing\WithdrawalPolicy;
+use Onhost\Domain\Catalog\Models\Plan;
 use Onhost\Domain\Catalog\Models\PromoCode;
 use Onhost\Domain\Loyalty\Commands\RedeemPointsCommand;
 use Onhost\Domain\Loyalty\LoyaltyRedemptions;
 use Onhost\Domain\Orders\CheckoutService;
+use Onhost\Domain\Orders\Listeners\CountQuoteRequest;
 use Onhost\Domain\Orders\Models\Cart;
 use Onhost\Domain\Orders\QuoteService;
 use Onhost\Domain\Tax\VatNumberChecks;
 use Onhost\Domain\Tax\VatStanding;
 use Onhost\Platform\Errors\DomainError;
+use Onhost\Platform\Events\GenericEvent;
+use Onhost\Platform\Outbox\OutboxPublisher;
 
 /**
  * Server-side cart (handoff §4.3): anonymous carts are keyed by an opaque `X-Cart-Token`,
@@ -60,7 +64,7 @@ final class CartController extends ApiController
     }
 
     /** Lock prices, tax and document versions into a quote (valid for a limited time). */
-    public function quote(Request $request, QuoteService $quotes): JsonResponse
+    public function quote(Request $request, QuoteService $quotes, OutboxPublisher $outbox): JsonResponse
     {
         $cart = $this->cart($request);
         if (($cart->items ?? []) === []) {
@@ -82,6 +86,9 @@ final class CartController extends ApiController
         // customer keeps the tax explanation it always had, less the note that finance will look at who holds the number
         $versions = array_diff_key((array) $quote->versions, ['vat' => true, 'vat_review' => true]);
         $versions['tax_reasons'] = array_values(array_filter((array) ($versions['tax_reasons'] ?? []), fn ($reason) => ! str_contains((string) $reason, 'name_mismatch')));
+        if ((bool) config('onhost.funnel_metrics')) {
+            $this->countQuote($outbox, (array) $cart->items, (int) ($cart->commit_months ?? 1));
+        }
 
         return response()->json(['data' => [
             'quote_id' => $quote->id, 'valid_until' => $quote->valid_until?->toIso8601String(), 'currency' => $quote->currency, 'lines' => Presenters::quoteLines((array) $quote->lines), 'subtotal' => $quote->subtotal_minor, 'discount' => $quote->discount_minor, 'tax' => $quote->tax_minor, 'total' => $quote->total_minor, 'renewal_total' => $quote->renewal_total_minor, 'versions' => $versions,
@@ -103,6 +110,31 @@ final class CartController extends ApiController
         $cart = $this->cart($request);
 
         return $this->dispatch(new RedeemPointsCommand($organization->id, $this->eachRequestKey($request, 'loyalty.redeem'), ['cart_id' => $cart->id, 'points' => (int) $data['points']]), $this->api->context($request, $organization));
+    }
+
+    /**
+     * W4-6 (docs/compliance/dpia-funnel-telemetry.md): an anonymous metric of a successful quote — the catalog plan keys,
+     * the period and the locale, nothing else. Never the cart, quote, user, organization, address, agent or amounts.
+     *
+     * @param  array<int|string,mixed>  $items
+     */
+    private function countQuote(OutboxPublisher $outbox, array $items, int $commitMonths): void
+    {
+        $locale = app()->getLocale();
+        if (! in_array($locale, CountQuoteRequest::LOCALES, true)) {
+            return;
+        }
+        $keys = [];
+        foreach ($items as $item) {
+            if (is_array($item) && is_string($item['plan_key'] ?? null) && $item['plan_key'] !== '') {
+                $keys[] = $item['plan_key'];
+            }
+        }
+        $known = $keys === [] ? [] : Plan::query()->whereIn('key', array_values(array_unique($keys)))->pluck('key')->map(fn ($key) => (string) $key)->unique()->sort()->values()->all();
+        if ($known === []) {
+            return;
+        }
+        $outbox->publish(GenericEvent::of('cart.quote.requested', 'metric', now()->toDateString(), ['plan_keys' => array_slice($known, 0, 20), 'period' => $commitMonths >= 12 ? 'year' : 'month', 'locale' => $locale]));
     }
 
     private function cart(Request $request): Cart

@@ -74,6 +74,7 @@ use Onhost\Domain\Orders\Commands\PlaceOrderCommand;
 use Onhost\Domain\Orders\Commands\ReviewOrderCommand;
 use Onhost\Domain\Orders\Commands\StaffCancelOrderCommand;
 use Onhost\Domain\Orders\Commands\StaffCustomerCommand;
+use Onhost\Domain\Orders\Listeners\CountQuoteRequest;
 use Onhost\Domain\Orders\Listeners\FulfillPaidOrder;
 use Onhost\Domain\Orders\Listeners\ReleaseOrderReservation;
 use Onhost\Domain\Orders\Listeners\SettleOrderPayment;
@@ -208,6 +209,7 @@ final class DomainServiceProvider extends ServiceProvider
         Event::listen(PaymentSucceeded::class, SettleOrderPayment::class);
         Event::listen(PaymentSucceeded::class, SettleInvoicePayment::class);
         Event::listen('onhost.order.paid', FulfillPaidOrder::class);
+        Event::listen('onhost.cart.quote.requested', CountQuoteRequest::class); // W4-6: anonymous daily funnel aggregate, behind onhost.funnel_metrics
         Event::listen('onhost.incident.resolved', fn () => app(StatusSnapshot::class)->forget()); // N14: the public status snapshot is rebuilt after a resolution
         Event::listen('onhost.invoice.paid', SettleBillingAfterPayment::class);
         Event::listen('onhost.invoice.paid', ReleaseOrderReservation::class); // a postpaid order holds its share of the credit line until its invoice is paid
