@@ -664,6 +664,9 @@ final class Doctor extends Command
         $demo = User::query()->whereIn('email', ['demo@onhost.cz', 'agentura@onhost.cz', 'admin@onhost.cz', 'noc@onhost.cz', 'finance@onhost.cz', 'support@onhost.cz'])->count();
         $this->add('identity', 'no development accounts', $demo === 0, $demo > 0 ? "{$demo} DevAccountSeeder account(s) present" : '');
         $staff = User::query()->where('is_staff', true)->count();
+        // D4: OIDC is reserved configuration, not a feature — switching it on must not look like working staff SSO
+        $oidc = (bool) config('onhost.identity.oidc.enabled', false);
+        $this->add('identity', 'OIDC not implemented', ! $oidc, $oidc ? 'OIDC_ENABLED=true, but no OIDC sign-in exists: staff still sign in with password + MFA' : '', false, 'set OIDC_ENABLED=false; staff SSO over OIDC is not implemented yet');
         $this->add('identity', 'staff users exist', $staff > 0, "{$staff} staff user(s)");
         // four eyes need two heads (docs/runbooks/approvals.md): with fewer than two people who may decide approvals, a critical action of the only one can never be approved
         $deciders = ApprovalService::deciders()->count();

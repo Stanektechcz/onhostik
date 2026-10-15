@@ -136,6 +136,8 @@ return [
         'four_eyes' => (bool) env('ONHOST_FOUR_EYES', true),
         // ── TASK-0021 (owner decision 14): a password change revokes the person's personal API tokens, a reset always does. Off = the old "tokens kept" path and its mail
         'password_change_revokes_api_access' => (bool) env('ONHOST_PASSWORD_CHANGE_REVOKES_API_ACCESS', true),
+        // D4 (2026-10-15): reserved configuration only — no OIDC sign-in is implemented and nothing reads these keys;
+        // OIDC_ENABLED=true changes nothing but a Doctor WARN (`OIDC not implemented`)
         'oidc' => [
             'enabled' => (bool) env('OIDC_ENABLED', false),
             'issuer' => env('OIDC_ISSUER', 'https://id.onhost.cz/realms/onhost'),
