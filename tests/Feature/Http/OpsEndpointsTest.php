@@ -50,8 +50,8 @@ it('exports a cumulative request latency histogram next to the average (F7)', fu
 it('counts requests in the dedicated metrics cache store, not the app cache (N6)', function () {
     expect(config('cache.stores.metrics'))->toBeArray()->toHaveKey('driver');
     $this->getJson('/v1/status')->assertOk();
-    expect((int) \Illuminate\Support\Facades\Cache::store('metrics')->get('metrics:http:v1:n', 0))->toBeGreaterThanOrEqual(1)
-        ->and(\Illuminate\Support\Facades\Cache::store('array')->get('metrics:http:v1:n'))->toBeNull();
+    expect((int) Cache::store('metrics')->get('metrics:http:v1:n', 0))->toBeGreaterThanOrEqual(1)
+        ->and(Cache::store('array')->get('metrics:http:v1:n'))->toBeNull();
 });
 
 it('sends hardening headers with a CSP that allows only the vendored runtime and Google Fonts', function () {
