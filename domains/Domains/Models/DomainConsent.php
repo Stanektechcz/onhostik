@@ -6,7 +6,11 @@ namespace Onhost\Domain\Domains\Models;
 
 use Onhost\Platform\Eloquent\Model;
 
-/** Evidence of registry/registrar terms acceptance attached to the registration (blueprint §46.2, §45.4). */
+/**
+ * Evidence of registry/registrar terms acceptance attached to the registration (blueprint §46.2, §45.4).
+ *
+ * @property \Illuminate\Support\Carbon|null $accepted_at
+ */
 final class DomainConsent extends Model
 {
     protected static string $idPrefix = 'dcs';
