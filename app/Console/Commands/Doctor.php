@@ -615,6 +615,30 @@ final class Doctor extends Command
         // G2: the VAT mode documents are issued in, and the way out when the declaration (ONHOST_VAT_PAYER) and the legal entity disagree
         $vat = app(VatPayerMode::class)->report();
         $this->add('documents', 'VAT payer mode', $vat['consistent'], $vat['detail'], true, $vat['remedy']);
+        $this->einvoiceReadiness();
+    }
+
+    /** Days before the SK eFaktúra mandatory date from which a missing Peppol configuration is reported. */
+    public const EINVOICE_WARN_DAYS = 120;
+
+    /**
+     * C1: the SK eFaktúra (Peppol) obligation approaches while no access point is configured. Presence only, never a value of
+     * the configuration; a standing WARN that never blocks, because delivery has no adapter yet (decision C1: after the AP is chosen).
+     */
+    private function einvoiceReadiness(): void
+    {
+        $from = CarbonImmutable::parse((string) config('onhost.einvoice.sk_mandatory_from', '2027-01-01'))->startOfDay();
+        $days = (int) floor(CarbonImmutable::now()->startOfDay()->diffInDays($from, false));
+        $configured = (string) config('onhost.einvoice.peppol.base_url') !== '' && (string) config('onhost.einvoice.peppol.sender_id') !== '';
+        $due = $days <= self::EINVOICE_WARN_DAYS;
+        $detail = match (true) {
+            $configured => 'Peppol access point and sender ID set (SK eFaktúra from '.$from->toDateString().')',
+            ! $due => 'SK eFaktúra from '.$from->toDateString().' (in '.$days.' days); Peppol not configured yet, reported from '.self::EINVOICE_WARN_DAYS.' days before',
+            $days >= 0 => 'SK eFaktúra mandatory from '.$from->toDateString().' (in '.$days.' days) and no Peppol access point is configured; customers can only download UBL',
+            default => 'SK eFaktúra mandatory since '.$from->toDateString().' and no Peppol access point is configured; customers can only download UBL',
+        };
+        $this->add('documents', 'e-invoice (SK eFaktúra / Peppol) delivery', $configured || ! $due, $detail, false,
+            'choose a Peppol access point, set PEPPOL_BASE_URL and PEPPOL_SENDER_ID, store its key with onhost:secrets:set (PEPPOL_SECRET_REF), then php artisan config:cache');
     }
 
     /** ISO 13616 mod-97 check of an IBAN (letters → 10..35, country and check digits moved to the end, remainder 1). */
