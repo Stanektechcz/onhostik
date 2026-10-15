@@ -7,6 +7,7 @@ namespace Onhost\Domain\Services;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Onhost\Domain\Notifications\Lexicon;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Services\Metering\UsageMetrics;
@@ -311,6 +312,10 @@ final class UsageWatch
     /** Human wording of a metric for notifications. */
     public static function metricLabel(string $key, string $locale = 'cs'): string
     {
+        if (Lexicon::slovak($locale)) { // W5-5: lang/sk/surface.php
+            return $key === WebDiskTotal::METRIC ? __('surface.metric.web_disk_total', [], 'sk') : (in_array($key, ['disk', 'traffic', 'memory', 'mail', 'inodes', 'transfer'], true) ? __('surface.metric.'.$key, [], 'sk') : $key);
+        }
+
         return match ($key) {
             'disk' => $locale === 'cs' ? 'prostor' : 'disk space', 'traffic' => $locale === 'cs' ? 'přenos dat' : 'traffic', 'memory' => $locale === 'cs' ? 'paměť' : 'memory', 'mail' => $locale === 'cs' ? 'poštovní schránky' : 'mailboxes',
             'inodes' => $locale === 'cs' ? 'počet souborů' : 'file count', 'transfer' => $locale === 'cs' ? 'měsíční přenos dat' : 'monthly transfer',
