@@ -10,6 +10,7 @@ use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Support\Facades\Cache;
 use Onhost\Domain\Catalog\CatalogService;
+use Onhost\Domain\Orders\QuoteService;
 
 /*
  * K7-2 (L2, found by the K7 browser check, L-03): the pricing page `#/ceny` sells the catalogue's web hosting plans, but its
@@ -118,4 +119,31 @@ it('keeps the prototype copy in demo mode', function () {
     config(['onhost.ui.demo' => true]);
 
     expect($this->get('/')->assertOk()->getContent())->toContain("save: 'Ročně = 2 měsíce zdarma'")->toContain("go: pick('VPS ' + c[0], p.price) };");
+});
+
+it('shows on every pricing card the monthly and yearly price the cart quotes, in minor units of CZK', function () {
+    $data = ppcData($this);
+    $skus = $data['cs']['skus'];
+    $quotes = app(QuoteService::class); // the service behind POST api/v1/cart/quote (CartController::quote)
+    $customer = ['country' => 'CZ', 'customer_class' => 'b2c', 'vat_status' => 'unknown', 'ip_country' => null];
+
+    expect($data['cs']['plans'])->not->toBeEmpty();
+    foreach ($data['cs']['plans'] as $card) {
+        $sku = $skus[mb_strtolower($card['label'])];
+        expect($sku['plan_key'])->toBe($card['key'])->and($card['priceYear'])->not->toBeNull();
+        $item = ['line_id' => 'l1', 'product_key' => $sku['product_key'], 'plan_key' => $sku['plan_key'], 'qty' => 1, 'config' => []];
+        $month = $quotes->quote([$item + ['period' => 'month']], 'CZK', $customer, 1);
+        $year = $quotes->quote([$item + ['period' => 'year']], 'CZK', $customer, 12);
+
+        // The card shows the catalogue's list price WITHOUT VAT (SurfaceDataController::planRows() reads the plan's
+        // firstPeriodAmount, the amount QuoteService prices a line with before tax), so it is compared with the line's
+        // `unit_net`, not with its total including VAT. The card carries whole crowns (month) and crowns with two decimals
+        // (year); both are turned into minor units (haléře) and compared as integers.
+        $monthLine = (array) $month->lines[0];
+        $yearLine = (array) $year->lines[0];
+        expect($month->currency)->toBe('CZK')->and($year->currency)->toBe('CZK')
+            ->and($monthLine['period'])->toBe('month')->and($yearLine['period'])->toBe('year')
+            ->and((int) $card['price'] * 100)->toBe((int) $monthLine['unit_net'])
+            ->and((int) round((float) $card['priceYear'] * 100))->toBe((int) $yearLine['unit_net']);
+    }
 });
