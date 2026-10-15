@@ -16,6 +16,7 @@ use Onhost\Domain\Billing\RatingService;
 use Onhost\Domain\Billing\SubscriptionExpiryNotices;
 use Onhost\Domain\Billing\SubscriptionService;
 use Onhost\Domain\Compliance\ComplianceService;
+use Onhost\Domain\Content\Waitlist\WaitlistService;
 use Onhost\Domain\Dns\DnsService;
 use Onhost\Domain\Dns\Models\DnsRecord;
 use Onhost\Domain\Dns\Models\DnsZone;
@@ -441,7 +442,7 @@ Artisan::command('onhost:idempotency:prune', function () {
 })->purpose('Delete expired idempotency keys, in batches');
 
 // E2: waitlist retention — unconfirmed signups after 30 days, confirmed ones 12 months after the confirmation
-Artisan::command('onhost:waitlist:prune', function (\Onhost\Domain\Content\Waitlist\WaitlistService $waitlist) {
+Artisan::command('onhost:waitlist:prune', function (WaitlistService $waitlist) {
     $r = $waitlist->prune();
     $this->info("pruned waitlist signups: {$r['pending']} unconfirmed, {$r['confirmed']} confirmed");
 })->purpose('Delete waitlist signups past their retention (30 days unconfirmed, 12 months confirmed)');

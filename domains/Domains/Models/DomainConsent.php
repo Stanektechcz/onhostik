@@ -4,12 +4,13 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Domains\Models;
 
+use Illuminate\Support\Carbon;
 use Onhost\Platform\Eloquent\Model;
 
 /**
  * Evidence of registry/registrar terms acceptance attached to the registration (blueprint §46.2, §45.4).
  *
- * @property \Illuminate\Support\Carbon|null $accepted_at
+ * @property Carbon|null $accepted_at
  */
 final class DomainConsent extends Model
 {

@@ -4,13 +4,14 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Domains\Models;
 
+use Illuminate\Support\Carbon;
 use Onhost\Platform\Eloquent\Model;
 
 /**
  * AUTH-ID handling: encrypted at rest, short-lived, wiped after use, never logged (blueprint §46.5).
  *
- * @property \Illuminate\Support\Carbon $expires_at
- * @property \Illuminate\Support\Carbon|null $used_at
+ * @property Carbon $expires_at
+ * @property Carbon|null $used_at
  */
 final class DomainTransferSecret extends Model
 {

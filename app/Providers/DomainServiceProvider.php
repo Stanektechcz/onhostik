@@ -11,9 +11,9 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Onhost\Domain\Billing\Commands\ChargebackCommand;
 use Onhost\Domain\Billing\Commands\ChargebackCommandHandler;
+use Onhost\Domain\Billing\Commands\ChargebackStaffCommand;
 use Onhost\Domain\Billing\Commands\EarlyTerminationCommand;
 use Onhost\Domain\Billing\Commands\EarlyTerminationCommandHandler;
-use Onhost\Domain\Billing\Commands\ChargebackStaffCommand;
 use Onhost\Domain\Billing\Commands\ReinstateServiceCommand;
 use Onhost\Domain\Billing\Commands\ReinstateServiceCommandHandler;
 use Onhost\Domain\Billing\Commands\WithdrawalCommand;
@@ -49,6 +49,7 @@ use Onhost\Domain\Incidents\Commands\IncidentsCommandHandler;
 use Onhost\Domain\Incidents\Commands\OnCallCommand;
 use Onhost\Domain\Incidents\Commands\OnCallCommandHandler;
 use Onhost\Domain\Incidents\OnCallService;
+use Onhost\Domain\Incidents\StatusSnapshot;
 use Onhost\Domain\Integrations\Commands\IntegrationCommand;
 use Onhost\Domain\Integrations\Commands\IntegrationCommandHandler;
 use Onhost\Domain\Invoicing\Commands\InvoiceCommand;
@@ -207,7 +208,7 @@ final class DomainServiceProvider extends ServiceProvider
         Event::listen(PaymentSucceeded::class, SettleOrderPayment::class);
         Event::listen(PaymentSucceeded::class, SettleInvoicePayment::class);
         Event::listen('onhost.order.paid', FulfillPaidOrder::class);
-        Event::listen('onhost.incident.resolved', fn () => app(\Onhost\Domain\Incidents\StatusSnapshot::class)->forget()); // N14: the public status snapshot is rebuilt after a resolution
+        Event::listen('onhost.incident.resolved', fn () => app(StatusSnapshot::class)->forget()); // N14: the public status snapshot is rebuilt after a resolution
         Event::listen('onhost.invoice.paid', SettleBillingAfterPayment::class);
         Event::listen('onhost.invoice.paid', ReleaseOrderReservation::class); // a postpaid order holds its share of the credit line until its invoice is paid
         Event::listen('onhost.invoice.paid', AccruePartnerCommission::class);

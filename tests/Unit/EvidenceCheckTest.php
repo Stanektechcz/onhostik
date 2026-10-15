@@ -30,7 +30,7 @@ it('passes when every cited file and line exists at the revision', function () {
 });
 
 it('fails on a missing file and on a line past the end of the file', function () {
-    [$code, $out] = runEvidenceCheckN2("app/DoesNotExistN2.php:10 and composer.json:999999");
+    [$code, $out] = runEvidenceCheckN2('app/DoesNotExistN2.php:10 and composer.json:999999');
 
     expect($code)->toBe(1)
         ->and($out)->toContain('app/DoesNotExistN2.php:10 - file does not exist')
