@@ -69,6 +69,10 @@ jobs:
       - name: Role manual test sheet drift
         run: php artisan onhost:docs:roles --check
 
+      # F6: the baseline may only shrink; the ceiling lives in the script and is lowered when entries are fixed
+      - name: Larastan baseline ratchet
+        run: php scripts/ci/phpstan-baseline-ratchet.php
+
       - name: Static analysis (Larastan level 5, baseline = typing debt; new code must pass)
         run: vendor/bin/phpstan analyse --no-progress --memory-limit=2G
 
