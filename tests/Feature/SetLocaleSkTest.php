@@ -31,7 +31,7 @@ it('keeps Slovak visitors on Czech while the switch is off, also through ?locale
     $this->withHeader('Accept-Language', 'sk')->postJson('/slsk-probe', [])
         ->assertStatus(422)->assertJsonPath('errors.email.0', slskRequiredMessage('cs'));
     $this->withHeader('Accept-Language', 'en')->postJson('/slsk-probe?locale=sk', [])
-        ->assertStatus(422)->assertJsonPath('errors.email.0', trans('validation.custom.email.required', [], 'en'));
+        ->assertStatus(422)->assertJsonPath('errors.email.0', trans('validation.required', ['attribute' => 'email'], 'en'));
 });
 
 it('answers Slovak from lang/sk when the switch is on and falls back to Czech for access.php', function () {
@@ -51,10 +51,10 @@ it('answers Slovak from lang/sk when the switch is on and falls back to Czech fo
 it('quotes the same cart identically for ?locale=cs and ?locale=sk', function () {
     config()->set('onhost.locale_sk', true);
     $this->seed([CatalogSeeder::class, TaxRuleSeeder::class]);
-    $this->putJson('/v1/cart', ['items' => [['line_id' => 'l1', 'product_key' => 'web-hosting', 'plan_key' => 'standard', 'qty' => 1, 'config' => []]], 'commit_months' => 12, 'currency' => 'CZK'])->assertOk();
+    $token = (string) $this->putJson('/v1/cart', ['items' => [['line_id' => 'l1', 'product_key' => 'web-hosting', 'plan_key' => 'standard', 'qty' => 1, 'config' => []]], 'commit_months' => 12, 'currency' => 'CZK'])->assertOk()->json('data.token');
 
-    $cs = $this->postJson('/v1/cart/quote?locale=cs')->assertOk()->json('data');
-    $sk = $this->postJson('/v1/cart/quote?locale=sk')->assertOk()->json('data');
+    $cs = $this->withHeader('X-Cart-Token', $token)->postJson('/v1/cart/quote?locale=cs')->assertOk()->json('data');
+    $sk = $this->withHeader('X-Cart-Token', $token)->postJson('/v1/cart/quote?locale=sk')->assertOk()->json('data');
     foreach (['subtotal', 'tax', 'total', 'currency'] as $field) {
         expect($sk[$field])->toBe($cs[$field]);
     }
