@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Billing;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Organizations\Models\Organization;
@@ -44,7 +45,7 @@ final class SubscriptionExpiryNotices
             }
             $days = max(1, (int) ceil(now()->diffInSeconds($subscription->current_period_end) / 86400));
             $window = self::window($days);
-            $periodEnd = $subscription->current_period_end->toIso8601String();
+            $periodEnd = CarbonImmutable::parse($subscription->current_period_end)->toIso8601String();
             $sent = DB::transaction(function () use ($subscription, $service, $days, $window, $periodEnd): bool {
                 $organization = Organization::query()->lockForUpdate()->find($subscription->organization_id);
                 if ($organization === null) {

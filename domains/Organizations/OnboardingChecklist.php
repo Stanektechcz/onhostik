@@ -43,7 +43,7 @@ final class OnboardingChecklist
 
     public static function hiddenFor(?User $user, string $organizationId): bool
     {
-        $hidden = data_get((array) ($user?->preferences ?? []), self::PREFERENCE);
+        $hidden = data_get((array) ($user->preferences ?? []), self::PREFERENCE);
 
         return $hidden === true || (is_array($hidden) && in_array($organizationId, $hidden, true));
     }

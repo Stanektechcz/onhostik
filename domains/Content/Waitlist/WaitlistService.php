@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Content\Waitlist;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 use Onhost\Domain\Content\Models\WaitlistSignup;
 use Onhost\Domain\Notifications\NotificationService;
@@ -60,7 +61,7 @@ final class WaitlistService
         if ($signup?->state === WaitlistSignup::CONFIRMED) {
             return ['state' => 'pending_confirmation'];
         }
-        if ($signup !== null && $signup->token_sent_at !== null && $signup->token_sent_at->gt(now()->subMinutes(self::RESEND_MINUTES))) {
+        if ($signup !== null && $signup->token_sent_at !== null && CarbonImmutable::parse($signup->token_sent_at)->gt(now()->subMinutes(self::RESEND_MINUTES))) {
             return ['state' => 'pending_confirmation'];
         }
         $signup ??= new WaitlistSignup(['email' => $email, 'product' => $product, 'state' => WaitlistSignup::PENDING]);

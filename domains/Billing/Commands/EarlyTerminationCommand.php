@@ -14,7 +14,7 @@ use Onhost\Platform\Commands\OrganizationCommand;
  */
 final class EarlyTerminationCommand extends OrganizationCommand implements RiskAwareCommand
 {
-    public function permission(): ?string
+    public function permission(): string
     {
         return 'service.delete';
     }

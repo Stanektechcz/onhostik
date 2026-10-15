@@ -228,7 +228,7 @@ final class CatalogRevisions
     /**
      * What is still to do, per revision (only revisions with something pending).
      *
-     * @return array<string, array{plans: array<string, array{version: int, drop: array<string,string>, set: array<string, array{bag: string, from: mixed, to: mixed}>}>, products: array<string, array{cs: string, en: string}>, create?: list<string>, options?: array<string, string>, priced?: list<string>, offer?: bool}>
+     * @return array<string, array{plans: array<string, array{version: int, drop: array<string,string>, set: array<string, array{bag: string, from: mixed, to: mixed}>}>, products: array<string, array{cs: string, en: string}>, create?: list<string>, options?: array<string, string>, priced?: list<string>, offer?: bool, yearly?: array<string, array{version: int, prices: list<array{currency: string, from: int, to: int}>}>}>
      */
     public function pending(?string $id = null): array
     {
@@ -439,7 +439,7 @@ final class CatalogRevisions
     /**
      * One line for the doctor: 'revision: product/plan (−key, ~key), product key'.
      *
-     * @param  array<string, array{plans: array<string, array{drop: array<string,string>, set: array<string,mixed>}>, products: array<string,mixed>, create?: list<string>, options?: array<string,string>, priced?: list<string>, offer?: bool}>  $pending
+     * @param  array<string, array{plans: array<string, array{drop: array<string,string>, set: array<string,mixed>}>, products: array<string,mixed>, create?: list<string>, options?: array<string,string>, priced?: list<string>, offer?: bool, yearly?: array<string, mixed>}>  $pending
      */
     public static function summary(array $pending): string
     {
