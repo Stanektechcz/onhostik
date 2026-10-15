@@ -77,10 +77,10 @@ final class HealthController extends Controller
         $latency = [];
         foreach (RequestMetrics::FAMILIES as $family) {
             foreach (['2xx', '3xx', '4xx', '5xx'] as $class) {
-                $http[] = [['family' => $family, 'status' => $class], (int) Cache::get("metrics:http:{$family}:{$class}", 0)];
+                $http[] = [['family' => $family, 'status' => $class], (int) Cache::store('metrics')->get("metrics:http:{$family}:{$class}", 0)];
             }
-            $n = (int) Cache::get("metrics:http:{$family}:n", 0);
-            $latency[] = [['family' => $family], $n > 0 ? round(((int) Cache::get("metrics:http:{$family}:ms", 0)) / $n, 2) : 0.0];
+            $n = (int) Cache::store('metrics')->get("metrics:http:{$family}:n", 0);
+            $latency[] = [['family' => $family], $n > 0 ? round(((int) Cache::store('metrics')->get("metrics:http:{$family}:ms", 0)) / $n, 2) : 0.0];
         }
         $emit('onhost_http_requests_total', 'counter', 'HTTP requests by family and status class', $http);
         $emit('onhost_http_request_avg_ms', 'gauge', 'Average request duration since process start', $latency);
@@ -90,12 +90,12 @@ final class HealthController extends Controller
         foreach (RequestMetrics::FAMILIES as $family) {
             $cumulative = 0;
             foreach (RequestMetrics::BUCKETS as $i => $le) {
-                $cumulative += (int) Cache::get("metrics:http:{$family}:b{$i}", 0);
+                $cumulative += (int) Cache::store('metrics')->get("metrics:http:{$family}:b{$i}", 0);
                 $lines[] = 'onhost_http_request_duration_seconds_bucket{family="'.$family.'",le="'.$le.'"} '.$cumulative;
             }
-            $cumulative += (int) Cache::get("metrics:http:{$family}:binf", 0);
+            $cumulative += (int) Cache::store('metrics')->get("metrics:http:{$family}:binf", 0);
             $lines[] = 'onhost_http_request_duration_seconds_bucket{family="'.$family.'",le="+Inf"} '.$cumulative;
-            $lines[] = 'onhost_http_request_duration_seconds_sum{family="'.$family.'"} '.sprintf('%.6f', ((int) Cache::get("metrics:http:{$family}:ms", 0)) / 1000);
+            $lines[] = 'onhost_http_request_duration_seconds_sum{family="'.$family.'"} '.sprintf('%.6f', ((int) Cache::store('metrics')->get("metrics:http:{$family}:ms", 0)) / 1000);
             $lines[] = 'onhost_http_request_duration_seconds_count{family="'.$family.'"} '.$cumulative;
         }
         $emit('onhost_outbox_pending_oldest_seconds', 'gauge', 'Age of the oldest unpublished outbox message', [[[], $this->outboxLagSeconds()]]);
