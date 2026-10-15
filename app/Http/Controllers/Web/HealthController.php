@@ -84,6 +84,20 @@ final class HealthController extends Controller
         }
         $emit('onhost_http_requests_total', 'counter', 'HTTP requests by family and status class', $http);
         $emit('onhost_http_request_avg_ms', 'gauge', 'Average request duration since process start', $latency);
+        // F7: cumulative latency histogram (p95 via histogram_quantile); _sum is the millisecond total, so ms precision
+        $lines[] = '# HELP onhost_http_request_duration_seconds HTTP request duration by family';
+        $lines[] = '# TYPE onhost_http_request_duration_seconds histogram';
+        foreach (RequestMetrics::FAMILIES as $family) {
+            $cumulative = 0;
+            foreach (RequestMetrics::BUCKETS as $i => $le) {
+                $cumulative += (int) Cache::get("metrics:http:{$family}:b{$i}", 0);
+                $lines[] = 'onhost_http_request_duration_seconds_bucket{family="'.$family.'",le="'.$le.'"} '.$cumulative;
+            }
+            $cumulative += (int) Cache::get("metrics:http:{$family}:binf", 0);
+            $lines[] = 'onhost_http_request_duration_seconds_bucket{family="'.$family.'",le="+Inf"} '.$cumulative;
+            $lines[] = 'onhost_http_request_duration_seconds_sum{family="'.$family.'"} '.sprintf('%.6f', ((int) Cache::get("metrics:http:{$family}:ms", 0)) / 1000);
+            $lines[] = 'onhost_http_request_duration_seconds_count{family="'.$family.'"} '.$cumulative;
+        }
         $emit('onhost_outbox_pending_oldest_seconds', 'gauge', 'Age of the oldest unpublished outbox message', [[[], $this->outboxLagSeconds()]]);
         $emit('onhost_outbox_pending_total', 'gauge', 'Unpublished outbox messages', [[[], (int) DB::table('outbox_messages')->whereNull('published_at')->count()]]);
         // G7 (TASK-0115): the messages the relay gave up on, apart — the lag above no longer counts them (the relay cannot fix them)
