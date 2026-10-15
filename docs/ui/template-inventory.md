@@ -106,6 +106,7 @@ Smí (pouze datové seamy, žádný vzhled):
    návrhu má přednost) pro ovládací prvky, které žádný nemají; sdílený český plurál `window.OnhostI18n` v session bridge.
 
 8. veřejná dokumentace API (audit 2026-10 D3), vše mimo soubory prototypu: `onhost-public.js` a `onhost-docs.js` se pro `/surfaces/…` doplňují v `SurfaceController::asset` daty z `PublicApiDocs` (limity, hlavičky, koncové body ověřené proti routám, chyby, opakování webhooků, dva návody; v demo režimu zůstává příběh prototypu), věty s čísly v `Onhost.dc.html` mění kotvy v `SurfaceRenderer` (sleduje je `SeamAnchorTest`) a `/dokumentace/api` je samostatná stránka (`ApiDocsController`, vendorovaný Redoc v `public/vendor/redoc`, vlastní CSP bez `unsafe-eval`).
+9. SEO veřejného webu (N15, varianta B): `/sitemap.xml` (`SitemapController`, `PublicSeo`) jen s veřejnými indexovatelnými URL (bez košíku, přihlášení, registrace, obnovy hesla a podepsaných odkazů) a `<link rel="alternate" hreflang>` vkládané v `SurfaceController` před `</head>` vykreslené stránky (cs a x-default; sk až po schválení SK textů vlastníkem, JSON-LD Offer později).
 
 Nesmí: typografie, barevné tokeny, radius/shadows, spacing, navigační charakter, formulářové komponenty,
 tabulky/karty, responsivní chování (blueprint §59.2). Nová komponenta vzniká jen podle §59.4 a musí být
