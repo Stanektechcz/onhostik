@@ -28,7 +28,7 @@ Facts below were read from the repository or measured by commands; see `.ai/base
 | Static analysis | `vendor/bin/phpstan analyse --memory-limit=2G` | Larastan level 5 + `phpstan-baseline.neon` (typing debt; never add entries) |
 | Frontend build | `npm run build` | Vite |
 | E2E | `npm run e2e` | Playwright, `e2e/tests/surfaces.spec.ts`; CI `e2e.yml` |
-| Audits | `composer audit --locked`, `npm audit --audit-level=high` | CI `tests.yml`, `security.yml` |
+| Audits | `composer audit --locked`, `npm audit --audit-level=high` | CI `security.yml` only (policy: `docs/security/dependency-audit-policy.md`) |
 | Secrets | `.githooks/pre-commit` (private paths + gitleaks if installed), `.gitleaks.toml`, CI `security.yml` | `git config core.hooksPath` = `.githooks` |
 | Brain | `brain.ps1 status|update|doctor|test|security|audit|release|gate|task` | `scripts/ai/*.ps1` (PowerShell 5.1 compatible) |
 | Readiness | `php artisan onhost:doctor [--json]` | never against production from a workstation |
