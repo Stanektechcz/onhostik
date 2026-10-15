@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schedule;
 use Illuminate\Support\Facades\URL;
@@ -414,6 +415,29 @@ Artisan::command('onhost:files:prune', function (FileStore $files, AutomationLed
     $this->table(array_keys($stats), [$stats]);
 })->purpose('Delete marketplace evidence past its retention and expired data exports (audit §5q-4)');
 
+// A1: kernel log retention. Both delete in batches by primary key so a large backlog never holds one long lock.
+Artisan::command('onhost:provider-calls:prune {--days= : override onhost.provider_calls.retention_days}', function () {
+    $days = max(1, (int) ($this->option('days') ?? config('onhost.provider_calls.retention_days', 90)));
+    $batch = max(1, (int) config('onhost.provider_calls.prune_batch', 1000));
+    $cutoff = now()->subDays($days);
+    $deleted = 0;
+    do {
+        $ids = DB::table('provider_calls')->where('created_at', '<', $cutoff)->orderBy('id')->limit($batch)->pluck('id')->all();
+        $deleted += $ids === [] ? 0 : DB::table('provider_calls')->whereIn('id', $ids)->delete();
+    } while (count($ids) === $batch);
+    $this->info("pruned provider_calls: {$deleted} (older than {$days} days)");
+})->purpose('Delete provider call logs past their retention (90 days by default), in batches');
+
+Artisan::command('onhost:idempotency:prune', function () {
+    $batch = max(1, (int) config('onhost.provider_calls.prune_batch', 1000));
+    $deleted = 0;
+    do {
+        $ids = DB::table('idempotency_keys')->whereNotNull('expires_at')->where('expires_at', '<', now())->orderBy('id')->limit($batch)->pluck('id')->all();
+        $deleted += $ids === [] ? 0 : DB::table('idempotency_keys')->whereIn('id', $ids)->delete();
+    } while (count($ids) === $batch);
+    $this->info("pruned idempotency keys: {$deleted}");
+})->purpose('Delete expired idempotency keys, in batches');
+
 Artisan::command('onhost:files:scan', function (MarketplaceService $marketplace, AutomationLedger $ledger) {
     $stats = $marketplace->rescanEvidence();
     $ledger->record('files.scan', $stats);
@@ -561,6 +585,9 @@ Schedule::command('onhost:mail:health')->everyFiveMinutes()->withoutOverlapping(
 Schedule::command('onhost:webhooks:retry')->everyMinute()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:oncall:escalate')->everyMinute()->withoutOverlapping()->onOneServer(); // unacknowledged pages escalate (audit §5q-1)
 Schedule::command('onhost:files:prune')->dailyAt('04:25')->onOneServer(); // file retention (audit §5q-4)
+Schedule::command('onhost:provider-calls:prune')->dailyAt('03:00')->withoutOverlapping()->onOneServer(); // A1: provider_calls retention
+Schedule::command('onhost:idempotency:prune')->dailyAt('03:05')->withoutOverlapping()->onOneServer(); // A1: expired idempotency keys
+Schedule::command('model:prune', ['--model' => [\Onhost\Platform\Outbox\OutboxMessage::class]])->dailyAt('03:10')->withoutOverlapping()->onOneServer(); // A1: relayed outbox rows only
 Schedule::command('onhost:platform:backup')->dailyAt('02:15')->onOneServer(); // control plane backup (go-live §1)
 Schedule::command('onhost:platform:backup:verify')->dailyAt('03:15')->onOneServer();
 Schedule::command('onhost:oncall:remind')->everyFiveMinutes()->withoutOverlapping()->onOneServer(); // shift reminders (audit §5t-4)

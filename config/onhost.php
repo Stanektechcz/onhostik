@@ -462,6 +462,14 @@ return [
     // events and transactional mails leave within seconds through queued jobs (the minute scheduler stays as the safety net)
     'outbox' => [
         'eager' => (bool) env('ONHOST_OUTBOX_EAGER', true),
+        // A1: relayed messages are deleted by `model:prune` after this many days; an unrelayed one (published_at null) never is
+        'retention_days' => (int) env('ONHOST_OUTBOX_RETENTION_DAYS', 30),
+    ],
+
+    // A1: kernel log retention, pruned in batches by onhost:provider-calls:prune and onhost:idempotency:prune
+    'provider_calls' => [
+        'retention_days' => (int) env('ONHOST_PROVIDER_CALLS_RETENTION_DAYS', 90),
+        'prune_batch' => 1000,
     ],
 
     /*
