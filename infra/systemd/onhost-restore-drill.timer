@@ -1,0 +1,16 @@
+# /etc/systemd/system/onhost-restore-drill.timer — starts onhost-restore-drill.service once a month (item A7).
+# Persistent=false on purpose: a drill missed while the host was down is not replayed at boot (a restore at boot competes
+# with recovery); the doctor row "platform restore drill within 35 days" and OnhostRestoreDrillOverdue catch a missed month.
+# NOT enabled by the repository; see docs/runbooks/restore-drill-timer.md.
+[Unit]
+Description=Monthly ONhost restore drill
+
+[Timer]
+# first Tuesday of the month, 04:30 local time (after the 02:15 backup and the 03:15 verify)
+OnCalendar=Tue *-*-01..07 04:30:00
+RandomizedDelaySec=15min
+Persistent=false
+Unit=onhost-restore-drill.service
+
+[Install]
+WantedBy=timers.target
