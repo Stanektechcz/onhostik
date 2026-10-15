@@ -22,6 +22,7 @@ recorded in the hash-chained audit log. Never edit rows in the database during a
 | [panel-upgrade.md](panel-upgrade.md) | upgrading a panel: what the version gate does by itself, the maintenance window, accepting a version the adapter was not verified on |
 | [provisioning-queue.md](provisioning-queue.md) | failed or stuck operations, drift, freeze switch, capacity |
 | [webhooks.md](webhooks.md) | customer webhooks: the `webhooks` queue lane and its fallback, rotating a signing secret with an overlap window, suspended endpoints |
+| [slow-queries.md](slow-queries.md) | Slow database queries (N7): `pg_stat_statements`, slow log at 500 ms, `log_parameter_max_length = 0` (no bind values / PII); no query logging in the application |
 | [outbox-dead-letters.md](outbox-dead-letters.md) | events the outbox relay gave up on after 10 attempts: doctor row, `OnhostOutboxDeadLetters` alert, `onhost:outbox:dead-letters` (list, `--requeue`) |
 | [domains-registrar.md](domains-registrar.md) | WEDOS credit, renewals at risk, async registrations, reconciliation |
 | [billing-dunning.md](billing-dunning.md) | past-due invoices, suspension/resume, refunds, reconciliation mismatches |
