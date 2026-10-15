@@ -204,6 +204,7 @@ final class DomainServiceProvider extends ServiceProvider
         Event::listen(PaymentSucceeded::class, SettleOrderPayment::class);
         Event::listen(PaymentSucceeded::class, SettleInvoicePayment::class);
         Event::listen('onhost.order.paid', FulfillPaidOrder::class);
+        Event::listen('onhost.incident.resolved', fn () => app(\Onhost\Domain\Incidents\StatusSnapshot::class)->forget()); // N14: the public status snapshot is rebuilt after a resolution
         Event::listen('onhost.invoice.paid', SettleBillingAfterPayment::class);
         Event::listen('onhost.invoice.paid', ReleaseOrderReservation::class); // a postpaid order holds its share of the credit line until its invoice is paid
         Event::listen('onhost.invoice.paid', AccruePartnerCommission::class);
