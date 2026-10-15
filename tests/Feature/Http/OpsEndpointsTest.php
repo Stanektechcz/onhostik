@@ -22,6 +22,29 @@ it('answers readiness with component checks and exports Prometheus metrics behin
     expect((int) preg_replace('/\D/', '', (string) preg_replace('/.*onhost_outbox_pending_oldest_seconds (\d+).*/s', '$1', $body)))->toBeGreaterThanOrEqual(89);
 });
 
+it('exports a cumulative request latency histogram next to the average (F7)', function () {
+    config(['onhost.metrics.token' => 'prom-token', 'onhost.metrics.allow_ips' => ['203.0.113.9']]);
+    expect(\App\Http\Middleware\RequestMetrics::bucketKey('v1', 0.004))->toBe('metrics:http:v1:b0')
+        ->and(\App\Http\Middleware\RequestMetrics::bucketKey('v1', 0.3))->toBe('metrics:http:v1:b6')
+        ->and(\App\Http\Middleware\RequestMetrics::bucketKey('v1', 42.0))->toBe('metrics:http:v1:binf');
+    \Illuminate\Support\Facades\Cache::put('metrics:http:v1:b0', 3);
+    \Illuminate\Support\Facades\Cache::put('metrics:http:v1:b6', 2);
+    \Illuminate\Support\Facades\Cache::put('metrics:http:v1:binf', 1);
+    \Illuminate\Support\Facades\Cache::put('metrics:http:v1:ms', 43000);
+    \Illuminate\Support\Facades\Cache::put('metrics:http:v1:n', 6);
+
+    $body = (string) $this->withToken('prom-token')->get('/metrics')->assertOk()->getContent();
+    expect($body)->toContain('# TYPE onhost_http_request_duration_seconds histogram')
+        ->toContain('onhost_http_request_duration_seconds_bucket{family="v1",le="0.005"} 3')
+        ->toContain('onhost_http_request_duration_seconds_bucket{family="v1",le="0.25"} 3')
+        ->toContain('onhost_http_request_duration_seconds_bucket{family="v1",le="0.5"} 5')
+        ->toContain('onhost_http_request_duration_seconds_bucket{family="v1",le="10"} 5')
+        ->toContain('onhost_http_request_duration_seconds_bucket{family="v1",le="+Inf"} 6')
+        ->toContain('onhost_http_request_duration_seconds_sum{family="v1"} 43.000000')
+        ->toContain('onhost_http_request_duration_seconds_count{family="v1"} 6')
+        ->toContain('# TYPE onhost_http_request_avg_ms gauge');
+});
+
 it('sends hardening headers with a CSP that allows only the vendored runtime and Google Fonts', function () {
     $response = $this->get('/')->assertOk();
     $csp = (string) $response->headers->get('Content-Security-Policy');
