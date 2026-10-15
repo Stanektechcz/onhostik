@@ -123,7 +123,7 @@ explicitly; never `git add -A` in a checkout someone else works in. The pre-comm
   closure into a command class keeps the command name, signature and schedule; verify with `php artisan schedule:list`
   before and after, or with the ScheduleHealth test. Splitting `routes/console.php` (F3) waits until production
   runs. Before committing run `php scripts/ci/phpstan-baseline-ratchet.php`; it runs in CI (`tests.yml`, step
-  "Larastan baseline ratchet") and in the `brain.sh gate` (W4-2), not in `gate.ps1`.
+  "Larastan baseline ratchet"), not in `gate.ps1`; the `brain.sh gate` runs it once W4-2 is integrated.
 
 ## 12. Never
 
