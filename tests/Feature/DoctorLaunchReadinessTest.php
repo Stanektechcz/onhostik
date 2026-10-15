@@ -89,3 +89,23 @@ it('never puts the backup disk or the e-invoice driver into the summary detail',
         expect($summary['detail'])->not->toContain($driver);
     }
 });
+
+/** @param  list<array<string, mixed>>  $checks */
+function dlrAssertBlockingKeys(array $checks): void
+{
+    foreach ($checks as $row) {
+        expect($row)->toHaveKey('blocking')
+            ->and($row['blocking'])->toBeBool();
+        if ($row['status'] === 'FAIL') {
+            expect($row['blocking'])->toBeTrue((string) $row['check']);
+        }
+    }
+}
+
+it('writes a boolean blocking key on every JSON row', function () {
+    $this->travelTo(CarbonImmutable::parse('2026-09-15 12:00:00'));
+    $checks = dlrDoctorJson()['checks'];
+
+    dlrAssertBlockingKeys($checks);
+    expect(dlrSummaryRow($checks)['blocking'])->toBeFalse();
+});

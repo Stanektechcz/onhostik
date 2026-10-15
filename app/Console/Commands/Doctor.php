@@ -111,7 +111,7 @@ final class Doctor extends Command
         ['documents', 'e-invoice (SK eFaktúra / Peppol) delivery'],
     ];
 
-    /** @var list<array{area:string, check:string, status:string, detail:string, remedy:string, blocking?:bool}> */
+    /** @var list<array{area:string, check:string, status:string, detail:string, remedy:string, blocking:bool}> */
     private array $rows = [];
 
     private bool $production = false;
@@ -450,7 +450,7 @@ final class Doctor extends Command
 
     private function add(string $area, string $check, bool $ok, string $detail = '', bool $blocking = true, string $remedy = ''): void
     {
-        $this->rows[] = ['area' => $area, 'check' => $check, 'status' => $ok ? 'OK' : ($blocking && $this->production ? 'FAIL' : 'WARN'), 'detail' => $detail, 'remedy' => $ok ? '' : self::remedyOf($check, $detail, $remedy)];
+        $this->rows[] = ['area' => $area, 'check' => $check, 'status' => $ok ? 'OK' : ($blocking && $this->production ? 'FAIL' : 'WARN'), 'detail' => $detail, 'remedy' => $ok ? '' : self::remedyOf($check, $detail, $remedy), 'blocking' => $blocking];
     }
 
     /** The explicit remedy, else what follows the last ' — ' of the detail (older rows write the way out there); never invented. */
@@ -479,7 +479,7 @@ final class Doctor extends Command
     private function addChecked(array $row): void
     {
         if (! $row['ok'] && ($row['fail_everywhere'] ?? false)) {
-            $this->rows[] = ['area' => $row['area'], 'check' => $row['check'], 'status' => 'FAIL', 'detail' => $row['detail'], 'remedy' => (string) ($row['remedy'] ?? '')];
+            $this->rows[] = ['area' => $row['area'], 'check' => $row['check'], 'status' => 'FAIL', 'detail' => $row['detail'], 'remedy' => (string) ($row['remedy'] ?? ''), 'blocking' => true];
 
             return;
         }
