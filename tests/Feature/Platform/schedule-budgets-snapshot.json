@@ -1,5 +1,6 @@
 {
     "Onhost\\Domain\\Provisioning\\Jobs\\QueueHeartbeat": 720,
+    "model:prune --model=Onhost\\Platform\\Outbox\\OutboxMessage": 173400,
     "onhost:access:expire": 1200,
     "onhost:access:review": 1210200,
     "onhost:backups:run": 2400,
@@ -30,6 +31,7 @@
     "onhost:files:scan": 1800,
     "onhost:fx:sync": 173400,
     "onhost:game:templates:verify": 173400,
+    "onhost:idempotency:prune": 173400,
     "onhost:integrations:health": 720,
     "onhost:ipam:release-quarantine": 173400,
     "onhost:isos:sweep": 7800,
@@ -65,6 +67,7 @@
     "onhost:penpot:sweep": 1800,
     "onhost:platform:backup": 173400,
     "onhost:platform:backup:verify": 173400,
+    "onhost:provider-calls:prune": 173400,
     "onhost:provisioning:board": 1200,
     "onhost:provisioning:capacity-forecast": 173400,
     "onhost:provisioning:reconcile critical": 1200,
