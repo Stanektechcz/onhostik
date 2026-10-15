@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 // W3-2: scripts/ci/ci-timings.php computes CI timing metrics offline from a saved JSON file.
-function runCiTimingsW32(?array $fixture): array
+function runCiTimingsW32(?array $fixture, array $extraArgs = []): array
 {
     $root = dirname(__DIR__, 2);
     $args = [PHP_BINARY, $root.'/scripts/ci/ci-timings.php'];
@@ -13,6 +13,7 @@ function runCiTimingsW32(?array $fixture): array
         file_put_contents($file, (string) json_encode($fixture));
         $args[] = '--from-file='.$file;
     }
+    $args = array_merge($args, $extraArgs);
     $proc = proc_open($args, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
     $out = (string) stream_get_contents($pipes[1]);
     $err = (string) stream_get_contents($pipes[2]);
@@ -79,4 +80,34 @@ it('exits with code 2 without --from-file or --collect', function () {
     [$code, , $err] = runCiTimingsW32(null);
 
     expect($code)->toBe(2)->and($err)->toContain('usage');
+});
+
+it('computes wall from the first start to the last completion and keeps slowest_job', function () {
+    $run = ['id' => 7, 'head_sha' => 'sha7', 'conclusion' => 'success', 'jobs' => [
+        ['name' => 'a', 'conclusion' => 'success', 'started_at' => '2026-10-01T10:00:00Z', 'completed_at' => '2026-10-01T10:01:40Z'],
+        ['name' => 'b', 'conclusion' => 'success', 'started_at' => '2026-10-01T10:02:00Z', 'completed_at' => '2026-10-01T10:03:00Z'],
+    ]];
+    [$code, $json] = runCiTimingsW32(['runs' => [$run]]);
+
+    expect($code)->toBe(0)
+        ->and($json['wall']['max_s'])->toEqual(180)
+        ->and($json['slowest_job']['max_s'])->toEqual(100)
+        ->and($json['runs'])->toBe([['id' => 7, 'truncated' => false]]);
+});
+
+it('flags a run whose jobs response reports more than 100 jobs as truncated', function () {
+    $run = ciTimingsRunW32(9, 'success', [100]);
+    $run['total_count'] = 150;
+    [$code, $json, $err] = runCiTimingsW32(['runs' => [$run]]);
+
+    expect($code)->toBe(0)
+        ->and($json['runs'])->toBe([['id' => 9, 'truncated' => true]])
+        ->and($err)->toContain('more than 100 jobs');
+});
+
+it('exits with code 3 when --out cannot be written', function () {
+    $dir = sys_get_temp_dir().'/w43-missing-'.bin2hex(random_bytes(6));
+    [$code, , $err] = runCiTimingsW32(['runs' => [ciTimingsRunW32(1, 'success', [100])]], ['--out='.$dir.'/out.json']);
+
+    expect($code)->toBe(3)->and($err)->toContain('cannot write');
 });
