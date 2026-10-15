@@ -118,6 +118,7 @@ use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Files\FileStore;
 use Onhost\Platform\Ops\PlatformBackup;
 use Onhost\Platform\Ops\RestoreDrill;
+use Onhost\Platform\Outbox\OutboxMessage;
 use Onhost\Platform\Outbox\OutboxPublisher;
 use Onhost\Platform\Redaction\Redactor;
 use Onhost\Platform\Secrets\SecretStore;
@@ -587,7 +588,7 @@ Schedule::command('onhost:oncall:escalate')->everyMinute()->withoutOverlapping()
 Schedule::command('onhost:files:prune')->dailyAt('04:25')->onOneServer(); // file retention (audit §5q-4)
 Schedule::command('onhost:provider-calls:prune')->dailyAt('03:00')->withoutOverlapping()->onOneServer(); // A1: provider_calls retention
 Schedule::command('onhost:idempotency:prune')->dailyAt('03:05')->withoutOverlapping()->onOneServer(); // A1: expired idempotency keys
-Schedule::command('model:prune', ['--model' => [\Onhost\Platform\Outbox\OutboxMessage::class]])->dailyAt('03:10')->withoutOverlapping()->onOneServer(); // A1: relayed outbox rows only
+Schedule::command('model:prune', ['--model' => [OutboxMessage::class]])->dailyAt('03:10')->withoutOverlapping()->onOneServer(); // A1: relayed outbox rows only
 Schedule::command('onhost:platform:backup')->dailyAt('02:15')->onOneServer(); // control plane backup (go-live §1)
 Schedule::command('onhost:platform:backup:verify')->dailyAt('03:15')->onOneServer();
 Schedule::command('onhost:oncall:remind')->everyFiveMinutes()->withoutOverlapping()->onOneServer(); // shift reminders (audit §5t-4)

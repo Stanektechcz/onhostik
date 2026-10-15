@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Onhost\Platform\Events\GenericEvent;
@@ -77,7 +78,7 @@ it('prunes expired idempotency keys and keeps live ones', function () {
 });
 
 it('schedules the three retention jobs', function () {
-    $commands = collect(app(Illuminate\Console\Scheduling\Schedule::class)->events())->map(fn ($e) => (string) $e->command)->implode("\n");
+    $commands = collect(app(Schedule::class)->events())->map(fn ($e) => (string) $e->command)->implode("\n");
     expect($commands)->toContain('onhost:provider-calls:prune')
         ->and($commands)->toContain('onhost:idempotency:prune')
         ->and($commands)->toContain('model:prune');

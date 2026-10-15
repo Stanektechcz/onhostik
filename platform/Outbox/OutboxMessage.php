@@ -27,7 +27,7 @@ final class OutboxMessage extends Model
     /** @return Builder<static> */
     public function prunable(): Builder
     {
-        return static::query()->whereNotNull('published_at')
+        return self::query()->whereNotNull('published_at')
             ->where('published_at', '<', now()->subDays(max(1, (int) config('onhost.outbox.retention_days', 30))));
     }
 
