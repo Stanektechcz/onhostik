@@ -58,6 +58,25 @@ the platform). Its URL is **not in the repository**: `url_file: /etc/alertmanage
 **Without the file the heartbeat is disabled:** the config still loads, the Watchdog notification fails and is logged, nothing else
 changes. Rollback: delete `heartbeat.url` and pause the check at the service.
 
+## Quarterly alert-delivery drill (N10)
+
+The rules and the routing are checked in CI (`promtool check rules`, `amtool check-config`); what CI cannot prove is that a page
+actually **reaches a person**. Once per quarter (first working week of January, April, July, October) the owner (Adrian, recipient
+of A3) runs this drill on the monitoring VM only — never against production data and never by stopping the platform's relay or queue.
+
+1. **Page path:** `amtool alert add OnhostDrill severity=page --annotation=summary="quarterly delivery drill"
+   --alertmanager.url=http://localhost:9093` → within 5 minutes an on-call alert appears in the staff console (*Incidenty → On-call*)
+   and the e-mail arrives; acknowledge and resolve it in the console. Note both arrival times.
+2. **Ticket path:** the same with `severity=ticket` and alert name `OnhostDrillTicket` → only the e-mail arrives, no on-call alert.
+3. **Dead man's switch:** stop Alertmanager for longer than the heartbeat grace period (5 minutes + margin) → Healthchecks.io alerts
+   the owner; start Alertmanager again and confirm the check returns to up.
+4. **Rule sanity:** in Prometheus *Alerts* the count still matches step 4 of the setup above, and `Watchdog` is firing.
+
+**Pass:** all four steps within their time limits. **Fail:** any step missing or late → open an incident, fix the route or receiver,
+repeat the failed step. **Record (no secrets):** date, arrival times per step, pass/fail, in the operations log or the release
+readiness report. Rollback: none needed; expire leftover drill alerts with `amtool silence add alertname=~"OnhostDrill.*"` or let them
+resolve.
+
 **Rollback:** stop the three services; nothing on the production host changes except the metrics token (remove it + `config:cache`).
 
 **What to send back (no secrets):** the outputs of step 3, a screenshot or the text of *Status → Targets* and *Alerts* (counts),
