@@ -82,7 +82,11 @@ function qbAddPlans(int $count, string $productKey = 'web-hosting', string $pref
     }
 }
 
-/** $count cart lines of web hosting, cycling through the seeded plans. */
+/**
+ * $count cart lines of web hosting, cycling through the seeded plans.
+ *
+ * @return list<array{line_id: string, product_key: string, plan_key: string}>
+ */
 function qbItems(int $count): array
 {
     $plans = ['start', 'standard', 'profi'];
