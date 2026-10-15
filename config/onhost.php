@@ -16,6 +16,7 @@ return [
     'locales' => ['cs', 'sk', 'en'],
     'timezone_display' => 'Europe/Prague',
     'demo_mode' => (bool) env('ONHOST_DEMO_MODE', false), // surface role switcher etc. — never in production
+    'funnel_metrics' => (bool) env('ONHOST_FUNNEL_METRICS', false), // W4-6: anonymous cart-quote metric into funnel_daily (docs/compliance/dpia-funnel-telemetry.md); production switch-on is the owner's step
 
     // Web hosting tools on top of the panels: CDN/WAF in front of sites (Cloudflare), platform-issued certificates, uptime checks, deploy and imports
     'cdn' => [

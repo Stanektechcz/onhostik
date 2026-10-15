@@ -516,6 +516,7 @@ final class NotificationRouter
             // at once — in the portal and the owner by mail, a security notice that cannot be switched off; staff see it on the security line ──
             'service.staff_panel_login' => $this->staffPanelLogin($m, $p, $org, $email, $portal),
             // ── end TASK-0039 ──
+            'cart.quote.requested' => null, // W4-6: an anonymous metric for funnel_daily only — nobody is notified
             default => null,
         };
     }
