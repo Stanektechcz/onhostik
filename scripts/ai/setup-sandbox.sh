@@ -56,11 +56,11 @@ if ! command -v composer >/dev/null 2>&1; then
     exit 1
 fi
 
-if ! composer install --no-interaction --prefer-dist --no-progress; then
-    # In a fresh sandbox usually only the scripts step (package:discover) fails.
-    warn "composer install failed; retrying with --no-scripts"
-    composer install --no-interaction --prefer-dist --no-progress --no-scripts
-    # --no-scripts here too: post-autoload-dump runs the same package:discover that just failed.
-    composer dump-autoload --no-interaction --no-scripts
-    warn "WARNING: composer scripts (package:discover) were skipped; Laravel package discovery may be stale"
+# Always --no-scripts: post-install-cmd (.githooks/install.php) would rewrite core.hooksPath in the .git
+# config shared by parallel worktrees. Package discovery then runs explicitly and must succeed.
+composer install --no-interaction --prefer-dist --no-progress --no-scripts
+composer dump-autoload --no-interaction --no-scripts
+if ! APP_ENV=testing php artisan package:discover --ansi; then
+    warn "ERROR: php artisan package:discover failed; Laravel package discovery is broken"
+    exit 1
 fi
