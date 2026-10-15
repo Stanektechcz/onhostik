@@ -7,6 +7,7 @@
     "onhost:bank:sync": 1200,
     "onhost:billing:dunning": 173400,
     "onhost:billing:expire-holds": 1800,
+    "onhost:billing:expiry-notices": 173400,
     "onhost:billing:meter": 7800,
     "onhost:billing:overdue": 173400,
     "onhost:billing:rate": 1200,
