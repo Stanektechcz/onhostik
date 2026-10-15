@@ -97,7 +97,21 @@ final class Doctor extends Command
         'Turnstile protects registration and public forms' => 'create a Cloudflare Turnstile widget and set TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY in the server environment, then php artisan config:cache; or switch enforcement off deliberately with ONHOST_TURNSTILE_ENFORCE_REGISTER=false and ONHOST_TURNSTILE_ENFORCE_FORMS=false',
     ];
 
-    /** @var list<array{area:string, check:string, status:string, detail:string, remedy:string}> */
+    /**
+     * W3-3: the rows a launch needs green — off-site platform backup (A4), a recent database dump (A2), a verified
+     * platform backup and e-invoice delivery (C1). Matched by area and check title; the dump title carries its warn
+     * window, so it is matched by prefix. The `launch readiness` row summarises them and never changes the exit code.
+     *
+     * @var list<array{0:string, 1:string}>
+     */
+    public const LAUNCH_CHECKS = [
+        ['storage', 'platform backup disk off the server'],
+        ['storage', 'platform backup verified within 26 h'],
+        ['storage', 'platform database dump within'],
+        ['documents', 'e-invoice (SK eFaktúra / Peppol) delivery'],
+    ];
+
+    /** @var list<array{area:string, check:string, status:string, detail:string, remedy:string, blocking?:bool}> */
     private array $rows = [];
 
     private bool $production = false;
@@ -155,6 +169,7 @@ final class Doctor extends Command
         foreach (app(ReputationHealth::class)->checks() as $check) { // SP1a (V-R1): sending addresses and customer domains on no major blocklist
             $this->addChecked($check);
         }
+        $this->launchReadiness();
 
         $fails = count(array_filter($this->rows, fn ($r) => $r['status'] === 'FAIL'));
         $warns = count(array_filter($this->rows, fn ($r) => $r['status'] === 'WARN'));
@@ -413,6 +428,24 @@ final class Doctor extends Command
         $slow = app(OperationLatency::class)->slow();
         $target = OperationLatency::targetSeconds();
         $this->add('speed', "actions a person waits for finish within {$target} s (p95, 24 h)", $slow === [], $slow === [] ? 'nothing slower' : implode('; ', array_map(fn (array $r) => "{$r['provider']} {$r['action']}: p95 {$r['p95_s']} s (queue {$r['wait_p95_s']} s, {$r['count']}×)", array_slice($slow, 0, 5))), false);
+    }
+
+    /**
+     * W3-3: one non-blocking row derived from the LAUNCH_CHECKS rows already collected. The detail names only the
+     * checks that are not OK (never configuration values, disks, URLs or environment keys); a non-blocking row is at
+     * worst WARN, so it never adds a FAIL and the exit code stays the blocking rows' verdict.
+     */
+    private function launchReadiness(): void
+    {
+        $failing = [];
+        foreach (self::LAUNCH_CHECKS as [$area, $check]) {
+            $rows = array_filter($this->rows, fn (array $row): bool => $row['area'] === $area && str_starts_with($row['check'], $check));
+            if ($rows === [] || array_filter($rows, fn (array $row): bool => $row['status'] !== 'OK') !== []) {
+                $failing[] = $check;
+            }
+        }
+        $ok = $failing === [];
+        $this->rows[] = ['area' => 'launch', 'check' => 'launch readiness (A4, A2, C1)', 'status' => $ok ? 'OK' : 'WARN', 'detail' => $ok ? 'all launch checks pass' : 'not OK: '.implode('; ', $failing), 'remedy' => $ok ? '' : 'see the rows listed in detail', 'blocking' => false];
     }
 
     private function add(string $area, string $check, bool $ok, string $detail = '', bool $blocking = true, string $remedy = ''): void
