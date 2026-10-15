@@ -470,6 +470,9 @@ final class Doctor extends Command
         foreach (app(RestoreDrill::class)->checks() as $check) { // P13: a restore that was really tried, within 35 days
             $this->addChecked($check);
         }
+        $warnMinutes = max(1, (int) config('onhost.platform_backup.db_dump_warn_minutes', 70)); // A2: RPO 1 h — the hourly --db-only dump
+        $dumpAt = isset($backup['last_db']['at']) ? CarbonImmutable::parse((string) $backup['last_db']['at']) : null;
+        $this->add('storage', "platform database dump within {$warnMinutes} min", $dumpAt !== null && $dumpAt->gt(now()->subMinutes($warnMinutes)), $dumpAt !== null ? 'set '.$backup['last_db']['set'].' taken '.$dumpAt->diffForHumans().' — onhost:platform:backup --db-only runs hourly' : 'no dump yet — onhost:platform:backup --db-only runs hourly', false);
         $this->add('storage', 'platform backup disk off the server', ! $this->production || $backup['disk'] !== 'local', $backup['disk'].($backup['disk'] === 'local' ? ' (production: an S3-compatible disk — ONHOST_PLATFORM_BACKUP_DISK)' : ''), false);
         try {
             DB::select('select 1');

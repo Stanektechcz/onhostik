@@ -482,21 +482,30 @@ Artisan::command('onhost:oncall:remind', function (OnCallRota $rota, AutomationL
     $this->line("reminders: {$sent}");
 })->purpose('Remind the next on-call an hour before the shift (audit §5t-4)');
 
-Artisan::command('onhost:platform:backup', function (PlatformBackup $backup, AutomationLedger $ledger) {
+Artisan::command('onhost:platform:backup {--db-only : the database dump alone, kept 48 h (hourly, RPO 1 h — docs/runbooks/backups.md)}', function (PlatformBackup $backup, AutomationLedger $ledger) {
     if (! $ledger->enabled('platform.backup')) {
         $this->warn('platform.backup is switched off');
 
         return 0;
     }
+    $dbOnly = (bool) $this->option('db-only');
+    $lock = Cache::lock(PlatformBackup::LOCK_KEY, 2 * 3600); // A2: the hourly dump and the nightly full set never run at once
+    if (! $lock->get()) {
+        $this->warn('another platform backup is running; skipped');
+
+        return 0;
+    }
     try {
-        $r = $backup->run();
+        $r = $backup->run($dbOnly);
     } catch (Throwable $e) {
-        $ledger->record('platform.backup', [], $e->getMessage());
+        $ledger->record('platform.backup', ['db_only' => $dbOnly], $e->getMessage());
         $this->error('Backup failed: '.$e->getMessage());
 
         return 1;
+    } finally {
+        $lock->release();
     }
-    $ledger->record('platform.backup', ['set' => $r['set'], 'bytes' => array_sum(array_column($r['files'], 'bytes')), 'pruned' => $r['pruned']]);
+    $ledger->record('platform.backup', ['set' => $r['set'], 'db_only' => $dbOnly, 'bytes' => array_sum(array_column($r['files'], 'bytes')), 'pruned' => $r['pruned']]);
     $this->table(['file', 'bytes', 'sha256'], array_map(fn ($n, $f) => [$n, $f['bytes'], substr($f['sha256'], 0, 16).'…'], array_keys($r['files']), $r['files']));
     $this->info("Set {$r['set']} on disk ".config('onhost.platform_backup.disk')." ({$r['database']}); pruned {$r['pruned']}");
 
@@ -590,6 +599,7 @@ Schedule::command('onhost:idempotency:prune')->dailyAt('03:05')->withoutOverlapp
 Schedule::command('model:prune', ['--model' => [\Onhost\Platform\Outbox\OutboxMessage::class]])->dailyAt('03:10')->withoutOverlapping()->onOneServer(); // A1: relayed outbox rows only
 Schedule::command('onhost:platform:backup')->dailyAt('02:15')->onOneServer(); // control plane backup (go-live §1)
 Schedule::command('onhost:platform:backup:verify')->dailyAt('03:15')->onOneServer();
+Schedule::command('onhost:platform:backup', ['--db-only'])->hourlyAt(40)->onOneServer(); // A2: RPO 1 h for the control plane database
 Schedule::command('onhost:oncall:remind')->everyFiveMinutes()->withoutOverlapping()->onOneServer(); // shift reminders (audit §5t-4)
 Schedule::command('onhost:game:templates:verify')->dailyAt('05:10')->onOneServer(); // template drift against the panel (audit §5s)
 Schedule::command('onhost:files:scan')->everyTenMinutes()->withoutOverlapping()->onOneServer(); // retry of the virus scan (audit §5r-4)

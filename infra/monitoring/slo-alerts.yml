@@ -63,10 +63,10 @@ groups:
         labels: { severity: ticket }
         annotations: { summary: "WEDOS credit below reserve — renewals at risk", runbook: docs/runbooks/domains-registrar.md }
       - alert: OnhostBackupStale
-        expr: time() - onhost_platform_backup_verified_timestamp > 26 * 3600
+        expr: (time() - onhost_platform_backup_verified_timestamp > 26 * 3600) or (time() - onhost_platform_backup_db_timestamp > 70 * 60)
         for: 30m
         labels: { severity: page }
-        annotations: { summary: "No verified platform backup for 26 h", runbook: docs/runbooks/go-live-checklist.md }
+        annotations: { summary: "No verified platform backup for 26 h or no database dump for 70 min (RPO 1 h)", runbook: docs/runbooks/backups.md }
       - alert: OnhostAutomationDead
         expr: onhost_automation_alive == 0
         for: 5m
