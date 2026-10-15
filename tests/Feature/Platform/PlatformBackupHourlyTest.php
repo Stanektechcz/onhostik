@@ -36,7 +36,7 @@ it('takes a database-only set without the file archive and keeps it apart from t
     $db = $backup->run(true);
 
     expect($db['set'])->toBe('platform-backups/20261020-034000-db')
-        ->and(array_keys($db['files']))->toBe(['database.sqlite'])
+        ->and(array_keys($db['files']))->toHaveCount(1)->and(array_keys($db['files'])[0])->toStartWith('database.') // .sqlite here, .pgdump on PostgreSQL
         ->and(array_keys($full['files']))->toContain('files.tar.gz')
         ->and($backup->latestSet())->toBe($full['set'])
         ->and($backup->latestSet(true))->toBe($db['set'])
