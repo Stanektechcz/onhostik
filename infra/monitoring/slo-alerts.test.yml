@@ -257,3 +257,59 @@ tests:
         exp_alerts:
           - exp_labels: { severity: ticket }
             exp_annotations: { summary: "The newest platform restore drill failed: the platform backups may not restore", runbook: docs/runbooks/backups.md }
+  # ── A5: mail reputation and the operations backlog ───────────────────────────────────────────────────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'onhost_mail_blocklist_listings{weight="major",kind="address"}'
+        values: '1x60'
+      - series: 'onhost_mail_blocklist_listings{weight="info",kind="domain"}'
+        values: '3x60'
+      - series: 'onhost_mail_blocklist_listings{weight="minor",kind="domain"}'
+        values: '0x600'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: OnhostMailBlocklisted
+        exp_alerts: []
+      - eval_time: 45m
+        alertname: OnhostMailBlocklisted
+        exp_alerts:
+          - exp_labels: { severity: ticket, weight: major, kind: address }
+            exp_annotations: { summary: "1 open major blocklist listing(s) of a sending address", runbook: docs/runbooks/mail-reputation.md }
+  - interval: 1m
+    input_series:
+      - series: 'onhost_mail_reputation_last_check_timestamp'
+        values: '600x600'
+    alert_rule_test:
+      - eval_time: 6h
+        alertname: OnhostMailReputationStale
+        exp_alerts: []
+      - eval_time: 7h
+        alertname: OnhostMailReputationStale
+        exp_alerts:
+          - exp_labels: { severity: ticket }
+            exp_annotations: { summary: "No blocklist answer for 6 hours: the hourly reputation check is not running or every list refuses us", runbook: docs/runbooks/mail-reputation.md }
+  - interval: 1m
+    input_series:
+      - series: 'onhost_mail_reputation_last_check_timestamp'
+        values: '0x600'
+    alert_rule_test:
+      - eval_time: 9h
+        alertname: OnhostMailReputationStale
+        exp_alerts: []
+  - interval: 1m
+    input_series:
+      - series: 'onhost_operations_backlog{queue="provider-pterodactyl"}'
+        values: '5x40'
+      - series: 'onhost_operations_backlog{queue="default"}'
+        values: '2x40'
+      - series: 'onhost_operations_backlog_threshold'
+        values: '2x40'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: OnhostOperationsBacklog
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: OnhostOperationsBacklog
+        exp_alerts:
+          - exp_labels: { severity: ticket, queue: provider-pterodactyl }
+            exp_annotations: { summary: "5 operation(s) overdue on queue provider-pterodactyl, above the backlog threshold", runbook: docs/runbooks/provisioning-queue.md }

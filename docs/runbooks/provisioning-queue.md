@@ -18,6 +18,14 @@ FAILED | COMPENSATING | CANCELLED | DEAD. `GET …/jobs/{id}` adds attempts and 
   (delete the half-created VM, release addresses, release the wallet hold). Cancelling a WAITING operation
   whose remote task already succeeded creates drift; run reconcile afterwards.
 
+### Alert OnhostOperationsBacklog (ticket, A5)
+
+`onhost_operations_backlog{queue}` (operations due longer than `ONHOST_QUEUE_BACKLOG_AGE_MINUTES`) has been above
+`onhost_operations_backlog_threshold` (`ONHOST_QUEUE_BACKLOG_THRESHOLD`) for 15 minutes on the named queue. Check that a
+worker serves that queue (`#/jobsadm`, the doctor's *operation backlog* row), look for a provider in `CIRCUIT_OPEN` or
+rate limiting in the jobs list, and start a second worker for the queue if the provider is healthy. The alert clears
+once the queue drains below the threshold.
+
 ## How long things take (`OperationLatency`)
 
 "An action is done in seconds" is a number, not a promise: the operations board (`GET /v1/staff/provisioning/board`,
