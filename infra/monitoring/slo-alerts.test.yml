@@ -257,3 +257,51 @@ tests:
         exp_alerts:
           - exp_labels: { severity: ticket }
             exp_annotations: { summary: "The newest platform restore drill failed: the platform backups may not restore", runbook: docs/runbooks/backups.md }
+
+  # ── A3 meta: Watchdog always fires; with no series at all every absent() rule fires after 10 minutes ───────────────────────
+  - interval: 1m
+    input_series: []
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: Watchdog
+        exp_alerts:
+          - exp_labels: { severity: heartbeat }
+            exp_annotations: { summary: "Always firing: the dead man's switch of the monitoring pipeline", runbook: docs/runbooks/monitoring-setup.md }
+      - eval_time: 5m
+        alertname: OnhostMetricsAbsent
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: OnhostMetricsAbsent
+        exp_alerts:
+          - exp_labels: { severity: page }
+            exp_annotations: { summary: "No onhost HTTP metrics for 10 minutes: /metrics is not scraped (token, network or app down)", runbook: docs/runbooks/monitoring-setup.md }
+      - eval_time: 15m
+        alertname: OnhostOutboxMetricAbsent
+        exp_alerts:
+          - exp_labels: { severity: page }
+            exp_annotations: { summary: "The outbox lag metric is missing: OnhostOutboxLag cannot fire", runbook: docs/runbooks/monitoring-setup.md }
+      - eval_time: 15m
+        alertname: OnhostAutomationMetricAbsent
+        exp_alerts:
+          - exp_labels: { severity: page }
+            exp_annotations: { summary: "The scheduler/worker heartbeat metric is missing: OnhostAutomationDead cannot fire", runbook: docs/runbooks/monitoring-setup.md }
+
+  # ── A3 meta: the key metrics are scraped, no absent() alert ──────────────────────────────────────────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'onhost_http_requests_total{family="api",status="2xx"}'
+        values: '0+10x30'
+      - series: 'onhost_outbox_pending_oldest_seconds'
+        values: '0x30'
+      - series: 'onhost_automation_alive{machine="worker"}'
+        values: '1x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: OnhostMetricsAbsent
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: OnhostOutboxMetricAbsent
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: OnhostAutomationMetricAbsent
+        exp_alerts: []
