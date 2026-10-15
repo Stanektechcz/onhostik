@@ -12,10 +12,14 @@ declare(strict_types=1);
  * --from-file reads {"workflow":..,"branch":..,"runs":[{"id":..,"head_sha":..,"conclusion":..,"jobs":[{"name":..,
  * "conclusion":..,"started_at":..,"completed_at":..}]}]} (newest run first) and computes offline.
  * Only runs and jobs with conclusion=success are used. Per job: n, median, p90 (nearest rank), min, max in seconds;
- * per run: wall = max over jobs (the slowest shard decides). spread = (p90 - median) / median; spread > 0.20 marks
- * the metric inconclusive. Output never contains user names, tokens or environment values.
- * Exit codes: 0 ok, 1 no usable data or gh request failed, 2 usage error or gh not authenticated.
+ * per run: wall = max(completed_at) - min(started_at) over its jobs (elapsed time of the whole run, including shards
+ * that start late) and slowest_job = the longest single job (the pre-W4-3 wall definition, kept for comparison).
+ * spread = (p90 - median) / median; spread > 0.20 marks the metric inconclusive. A run whose jobs response reports
+ * total_count > 100 (only one page of 100 is read) is warned about on stderr and listed with truncated=true. Output never contains user names, tokens or environment values.
+ * Exit codes: 0 ok, 1 no usable data or gh request failed, 2 usage error or gh not authenticated, 3 --out not writable.
  */
+
+$devNull = DIRECTORY_SEPARATOR === '\\' ? 'NUL' : '/dev/null';
 
 function ciTimingsFail(string $message, int $code): never
 {
@@ -47,10 +51,10 @@ function ciTimingsMetric(array $values): array
 }
 
 /** @return array<string, mixed> */
-function ciTimingsGh(string $endpoint): array
+function ciTimingsGh(string $endpoint, string $devNull): array
 {
     $out = [];
-    exec('gh api -X GET '.escapeshellarg($endpoint).' 2>/dev/null', $out, $code);
+    exec('gh api -X GET '.escapeshellarg($endpoint).' 2>'.$devNull, $out, $code);
     if ($code !== 0) {
         ciTimingsFail('gh api request failed: '.$endpoint, 1);
     }
@@ -73,20 +77,21 @@ if (isset($opts['from-file'])) {
     $branch = (string) ($opts['branch'] ?? 'development');
     $limit = max(1, min(100, (int) ($opts['runs'] ?? 20)));
     $authOut = [];
-    exec('gh auth status >/dev/null 2>&1', $authOut, $authCode);
+    exec('gh auth status >'.$devNull.' 2>&1', $authOut, $authCode);
     if ($authCode !== 0) {
         ciTimingsFail('gh is not authenticated', 2);
     }
     $base = 'repos/{owner}/{repo}';
     $list = ciTimingsGh($base.'/actions/workflows/'.rawurlencode($workflow).'/runs?branch='.rawurlencode($branch)
-        .'&status=success&per_page='.$limit);
+        .'&status=success&per_page='.$limit, $devNull);
     $input = ['workflow' => $workflow, 'branch' => $branch, 'runs' => []];
     foreach (array_slice((array) ($list['workflow_runs'] ?? []), 0, $limit) as $run) {
-        $jobs = ciTimingsGh($base.'/actions/runs/'.(int) $run['id'].'/jobs?per_page=100');
+        $jobs = ciTimingsGh($base.'/actions/runs/'.(int) $run['id'].'/jobs?per_page=100', $devNull);
         $input['runs'][] = [
             'id' => (int) $run['id'],
             'head_sha' => (string) ($run['head_sha'] ?? ''),
             'conclusion' => (string) ($run['conclusion'] ?? ''),
+            'total_count' => (int) ($jobs['total_count'] ?? 0),
             'jobs' => array_map(static fn (array $j): array => [
                 'name' => (string) ($j['name'] ?? ''),
                 'conclusion' => (string) ($j['conclusion'] ?? ''),
@@ -101,13 +106,17 @@ if (isset($opts['from-file'])) {
 
 $perJob = [];
 $walls = [];
+$slowest = [];
+$runInfo = [];
 $runIds = [];
 $shas = [];
 foreach ($input['runs'] as $run) {
     if (! is_array($run) || ($run['conclusion'] ?? null) !== 'success') {
         continue;
     }
-    $wall = null;
+    $slowestJob = null;
+    $firstStart = null;
+    $lastEnd = null;
     foreach ((array) ($run['jobs'] ?? []) as $job) {
         if (! is_array($job) || ($job['conclusion'] ?? null) !== 'success') {
             continue;
@@ -119,11 +128,20 @@ foreach ($input['runs'] as $run) {
         }
         $seconds = (float) ($end - $start);
         $perJob[(string) ($job['name'] ?? '')][] = $seconds;
-        $wall = $wall === null ? $seconds : max($wall, $seconds);
+        $slowestJob = $slowestJob === null ? $seconds : max($slowestJob, $seconds);
+        $firstStart = $firstStart === null ? $start : min($firstStart, $start);
+        $lastEnd = $lastEnd === null ? $end : max($lastEnd, $end);
     }
-    if ($wall !== null) {
-        $walls[] = $wall;
-        $runIds[] = (int) ($run['id'] ?? 0);
+    if ($slowestJob !== null && $firstStart !== null && $lastEnd !== null) {
+        $walls[] = (float) ($lastEnd - $firstStart);
+        $slowest[] = $slowestJob;
+        $runId = (int) ($run['id'] ?? 0);
+        $truncated = (int) ($run['total_count'] ?? 0) > 100;
+        if ($truncated) {
+            fwrite(STDERR, 'warning: run '.$runId.' reports more than 100 jobs, only the first 100 were read'.PHP_EOL);
+        }
+        $runInfo[] = ['id' => $runId, 'truncated' => $truncated];
+        $runIds[] = $runId;
         $shas[] = (string) ($run['head_sha'] ?? '');
     }
 }
@@ -139,13 +157,17 @@ $result = [
     'branch' => (string) ($input['branch'] ?? ''),
     'run_ids' => $runIds,
     'head_sha' => ['from' => $shas[count($shas) - 1], 'to' => $shas[0]],
+    'runs' => $runInfo,
     'wall' => ciTimingsMetric($walls),
+    'slowest_job' => ciTimingsMetric($slowest),
     'jobs' => array_map('ciTimingsMetric', $perJob),
 ];
 
 $json = json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES).PHP_EOL;
 if (isset($opts['out'])) {
-    file_put_contents((string) $opts['out'], $json);
+    if (@file_put_contents((string) $opts['out'], $json) === false) {
+        ciTimingsFail('cannot write output file', 3);
+    }
 }
 echo $json;
 exit(0);
