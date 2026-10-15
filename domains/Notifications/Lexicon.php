@@ -285,6 +285,9 @@ final class Lexicon
         'Reklamace přijata' => 'Complaint received', 'Uplatněna ' => 'Lodged on ', ', vyřídíme nejpozději do ' => ', we will settle it by ',
         'Reklamace vyřízena' => 'Complaint settled', 'Reklamace uznána zčásti ' => 'Complaint partially accepted on ', 'Reklamace uznána ' => 'Complaint accepted on ',
         'Reklamace zamítnuta ' => 'Complaint rejected on ', 'Reklamace ' => 'Complaint ',
+        // navrhy wave 2: E3 early termination refund and N18 expiry notice
+        'Předčasné ukončení: ' => 'Early termination: ', 'Vrátili jsme nevyužité měsíce' => 'We refunded the unused months', ' za nevyužité celé měsíce služby ' => ' for the unused whole months of the service ', ' je na dobropisu.' => ' is on a credit note.',
+        ' skončí za ' => ' ends in ', 'Nebude prodloužena, končí ' => 'It will not be renewed and ends on ', '. Chcete-li ji zachovat, zapněte automatické prodloužení.' => '. To keep it, turn on automatic renewal.',
     ];
 
     public static function translate(?string $text, string $locale): ?string

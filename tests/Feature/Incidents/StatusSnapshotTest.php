@@ -28,7 +28,7 @@ it('serves the cached snapshot, the last good one on failure, and drops it on in
     Cache::forget(StatusSnapshot::KEY);
     Cache::forget(StatusSnapshot::LAST_GOOD_KEY);
     $first = $this->getJson('/v1/status')->assertOk()->json('data');
-    expect(Cache::get(StatusSnapshot::KEY))->toBe($first)->and(Cache::get(StatusSnapshot::LAST_GOOD_KEY))->toBe($first);
+    expect(Cache::get(StatusSnapshot::KEY))->toEqual($first)->and(Cache::get(StatusSnapshot::LAST_GOOD_KEY))->toEqual($first); // JSON turns 100.0 into 100
 
     Event::dispatch('onhost.incident.resolved', [null]);
     expect(Cache::has(StatusSnapshot::KEY))->toBeFalse();
