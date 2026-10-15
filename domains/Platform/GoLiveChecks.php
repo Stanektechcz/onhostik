@@ -55,7 +55,7 @@ final class GoLiveChecks
     {
         return [
             $this->totp(), $this->phpBinary(), $this->revision(), $this->fx(), $this->trustedProxies(),
-            $this->apiBaseUrl(), $this->cacheStore(), $this->tokenOrganization(),
+            $this->apiBaseUrl(), $this->cacheStore(), $this->tokenOrganization(), $this->staffReach(), $this->grantCascade(),
             app(OutboxDeadLetters::class)->row(), // G7 (TASK-0115): events the relay gave up on
             // G10 (TASK-0119): what phase G added
             $this->legalEntityVatMode(), $this->vatMode(), $this->customIsoScanner(), $this->customIsoStorage(), $this->loyalty(), $this->webhookSecretOverlap(),
@@ -195,6 +195,26 @@ final class GoLiveChecks
         return $this->row('security', 'API tokens must name an organisation (R9)', $on,
             $on ? 'ONHOST_TOKEN_ORGANIZATION_REQUIRED=true' : 'off: a token without an organisation still works across organisations',
             'php artisan operator:tokens:unbound --dry-run (tell the holders), then ONHOST_TOKEN_ORGANIZATION_REQUIRED=true and php artisan config:cache');
+    }
+
+    /** B1 (panel 2026-10-15): staff reach stays in shadow mode until the operator switches it on; a standing WARN, never a timed FAIL. */
+    private function staffReach(): array
+    {
+        $on = (bool) config('onhost.staff_reach_enforced', false);
+
+        return $this->row('security', 'staff roles do not reach customer permissions (P0-15)', $on,
+            $on ? 'ONHOST_STAFF_REACH_ENFORCED=true' : 'off: staff roles and JIT elevations still reach customer permissions (only recorded as authz.staff_reach)',
+            'php artisan operator:authz:staff-reach --days=7 must stay empty, then ONHOST_STAFF_REACH_ENFORCED=true and php artisan config:cache');
+    }
+
+    /** B1 (panel 2026-10-15): grants of somebody who lost the right to give them are only recorded until the cascade is on. */
+    private function grantCascade(): array
+    {
+        $on = (bool) config('onhost.grants.cascade_enabled', false);
+
+        return $this->row('security', 'grants cascade when their giver loses the right (S1-02)', $on,
+            $on ? 'ONHOST_GRANT_CASCADE_ENABLED=true' : 'off: grants of a removed or demoted giver stay active and are only recorded',
+            'php artisan operator:grants:cascade --dry-run (review, tell the customers), then ONHOST_GRANT_CASCADE_ENABLED=true and php artisan config:cache');
     }
 
     // ── G10 (TASK-0119): the rows of phase G ──

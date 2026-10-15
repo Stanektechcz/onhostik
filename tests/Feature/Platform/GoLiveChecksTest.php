@@ -207,3 +207,19 @@ it('keeps a note out of the remedy column', function () {
         expect($row['remedy'])->not->toStartWith('nothing is sent');
     }
 });
+
+it('warns, never fails, while staff reach and the grant cascade are off, even in production (B1)', function () {
+    $rows = ['staff roles do not reach customer permissions (P0-15)' => ['onhost.staff_reach_enforced', 'operator:authz:staff-reach'],
+        'grants cascade when their giver loses the right (S1-02)' => ['onhost.grants.cascade_enabled', 'operator:grants:cascade --dry-run']];
+    foreach ($rows as $check => [$key, $command]) {
+        config([$key => false]);
+        $off = goLiveRow($check, new GoLiveChecks(production: true));
+        expect($off['ok'])->toBeFalse()->and($off['blocking'])->toBeFalse()->and($off['remedy'])->toContain($command);
+        expect(goLiveDoctor($check, production: true)['status'])->toBe('WARN');
+
+        config([$key => true]);
+        expect(goLiveRow($check))->toMatchArray(['ok' => true, 'remedy' => '', 'blocking' => false]);
+    }
+    config(['onhost.token_organization_required' => false]);
+    expect(goLiveDoctor('API tokens must name an organisation (R9)', production: true)['status'])->toBe('WARN');
+});
