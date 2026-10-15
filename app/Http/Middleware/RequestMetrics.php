@@ -45,14 +45,14 @@ final class RequestMetrics
                 default => 'web',
             };
             $class = intdiv($response->getStatusCode(), 100).'xx';
-            Cache::increment("metrics:http:{$family}:{$class}");
+            Cache::store('metrics')->increment("metrics:http:{$family}:{$class}");
             $seconds = microtime(true) - $started;
             $ms = (int) round($seconds * 1000);
-            Cache::increment(self::bucketKey($family, $seconds));
-            Cache::increment("metrics:http:{$family}:ms", $ms);
-            Cache::increment("metrics:http:{$family}:n");
+            Cache::store('metrics')->increment(self::bucketKey($family, $seconds));
+            Cache::store('metrics')->increment("metrics:http:{$family}:ms", $ms);
+            Cache::store('metrics')->increment("metrics:http:{$family}:n");
             if ($ms > 1000) {
-                Cache::increment("metrics:http:{$family}:slow");
+                Cache::store('metrics')->increment("metrics:http:{$family}:slow");
             }
         } catch (\Throwable) {
             // metrics must never break a request

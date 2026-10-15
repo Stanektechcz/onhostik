@@ -29,11 +29,11 @@ it('exports a cumulative request latency histogram next to the average (F7)', fu
     expect(RequestMetrics::bucketKey('v1', 0.004))->toBe('metrics:http:v1:b0')
         ->and(RequestMetrics::bucketKey('v1', 0.3))->toBe('metrics:http:v1:b6')
         ->and(RequestMetrics::bucketKey('v1', 42.0))->toBe('metrics:http:v1:binf');
-    Cache::put('metrics:http:v1:b0', 3);
-    Cache::put('metrics:http:v1:b6', 2);
-    Cache::put('metrics:http:v1:binf', 1);
-    Cache::put('metrics:http:v1:ms', 43000);
-    Cache::put('metrics:http:v1:n', 6);
+    Cache::store('metrics')->put('metrics:http:v1:b0', 3);
+    Cache::store('metrics')->put('metrics:http:v1:b6', 2);
+    Cache::store('metrics')->put('metrics:http:v1:binf', 1);
+    Cache::store('metrics')->put('metrics:http:v1:ms', 43000);
+    Cache::store('metrics')->put('metrics:http:v1:n', 6);
 
     $body = (string) $this->withToken('prom-token')->get('/metrics')->assertOk()->getContent();
     expect($body)->toContain('# TYPE onhost_http_request_duration_seconds histogram')
@@ -45,6 +45,13 @@ it('exports a cumulative request latency histogram next to the average (F7)', fu
         ->toContain('onhost_http_request_duration_seconds_sum{family="v1"} 43.000000')
         ->toContain('onhost_http_request_duration_seconds_count{family="v1"} 6')
         ->toContain('# TYPE onhost_http_request_avg_ms gauge');
+});
+
+it('counts requests in the dedicated metrics cache store, not the app cache (N6)', function () {
+    expect(config('cache.stores.metrics'))->toBeArray()->toHaveKey('driver');
+    $this->getJson('/v1/status')->assertOk();
+    expect((int) \Illuminate\Support\Facades\Cache::store('metrics')->get('metrics:http:v1:n', 0))->toBeGreaterThanOrEqual(1)
+        ->and(\Illuminate\Support\Facades\Cache::store('array')->get('metrics:http:v1:n'))->toBeNull();
 });
 
 it('sends hardening headers with a CSP that allows only the vendored runtime and Google Fonts', function () {
