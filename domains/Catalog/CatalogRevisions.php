@@ -63,6 +63,8 @@ use Onhost\Platform\Errors\DomainError;
  *  - `requires` (optional): what the installation must deliver before the revision may be published (`blockers()`); `apply()`
  *    refuses the whole revision while anything is missing and publishes nothing of it. `custom_iso` = CustomIsoReadiness
  *    (owner decision I-R9: clamd, the image volume and the Proxmox ISO storage, rehearsal R15–R17).
+ *  - `yearly_months` (optional, E3): every plan sold by the month gets a new version whose yearly price is that many months
+ *    (`pendingYearly`) — the only kind besides `price_defined` that writes a price; held versions keep theirs.
  */
 final class CatalogRevisions
 {
@@ -101,6 +103,16 @@ final class CatalogRevisions
             'create' => ['penpot'],
             'price_defined' => ['penpot'],
             'penpot_offer' => true,
+        ],
+        // Owner decision E3 (2026-10-15): a year costs ten months ("two months free", 16.7 %) on every plan sold by the month. Customers
+        // on the versions they hold keep their price; an add-on priced by the year (SSL, `billing_unit` year) and a product defined in
+        // code with its own rule (Penpot, H-R7: a year is twelve months) are left alone.
+        '2026-10-yearly-ten-months' => [
+            'reason' => 'Rozhodnutí vlastníka E3 (2026-10-15): roční předplatné stojí 10 měsíčních cen (2 měsíce zdarma) — nové verze tarifů s roční cenou = 10 × měsíční; stávající smlouvy drží svou cenu.',
+            'plans' => [],
+            'rewrite' => [],
+            'products' => [],
+            'yearly_months' => 10,
         ],
         '2026-09-honest-promises' => [
             'reason' => 'Rozhodnutí vlastníka 2/4/6/18 (2026-09-25): PITR, počet spojení, dedikovaná odchozí IP a dedikovaná databáze se neposkytují a interval záloh „1h“ se opravuje na „hourly“ — nové verze bez nich, ceny beze změny, stávající smlouvy beze změny.',
@@ -228,9 +240,10 @@ final class CatalogRevisions
             $options = $this->pendingOptions($revision);
             $priced = $this->pendingPriced($revision);
             $offer = ! empty(self::definition($revision)['penpot_offer']) && ! app(PenpotOffer::class)->configured();
-            if ($plans !== [] || $products !== [] || $create !== [] || $options !== [] || $priced !== [] || $offer) {
+            $yearly = $this->pendingYearly($revision);
+            if ($plans !== [] || $products !== [] || $create !== [] || $options !== [] || $priced !== [] || $offer || $yearly !== []) {
                 $out[$revision] = ['plans' => $plans, 'products' => $products] + ($create === [] ? [] : ['create' => $create]) + ($options === [] ? [] : ['options' => $options])
-                    + ($priced === [] ? [] : ['priced' => $priced]) + ($offer ? ['offer' => true] : []);
+                    + ($priced === [] ? [] : ['priced' => $priced]) + ($offer ? ['offer' => true] : []) + ($yearly === [] ? [] : ['yearly' => $yearly]);
             }
         }
 
@@ -275,6 +288,11 @@ final class CatalogRevisions
         }
         if (! empty($pending['offer'])) {
             $rows[] = ['kind' => 'offer', 'target' => PenpotOffer::KEY, 'rules' => app(PenpotOffer::class)->defaults()];
+        }
+        foreach ($pending['yearly'] ?? [] as $target => $change) {
+            $version = $this->currentVersion($target);
+            $rows[] = ['kind' => 'yearly', 'target' => $target, 'from' => $change['version'], 'to' => $this->nextNumber($version), 'prices' => $change['prices'],
+                'subscriptions' => Subscription::query()->where('plan_version_id', $version->id)->whereIn('state', ['active', 'past_due'])->count()];
         }
         foreach ($pending['plans'] as $target => $change) {
             $version = $this->currentVersion($target);
@@ -362,6 +380,18 @@ final class CatalogRevisions
                     $done[] = ['kind' => 'offer', 'target' => PenpotOffer::KEY, 'error' => $e->error.': '.$e->getMessage()];
                 }
             }
+            foreach ($pending['yearly'] ?? [] as $target => $change) { // E3: only the yearly price rows change; a held version keeps its price
+                [$product, $plan] = explode('/', $target, 2);
+                $prices = array_map(fn (array $p) => ['currency' => $p['currency'], 'period' => 'year', 'amount' => number_format($p['to'] / 100, 2, '.', '')], $change['prices']);
+                $key = 'catalog.revise:'.$revision.':'.$target.':v'.$change['version'].':n'.$this->nextNumber($this->currentVersion($target));
+                try {
+                    $result = $bus->dispatch(new CatalogCommand(mb_substr($key, 0, 190), ['op' => 'plan.publish', 'product_key' => $product, 'plan_key' => $plan, 'base_version' => $change['version'],
+                        'prices' => $prices, 'confirm_large_change' => true, 'keep_promos' => true, 'reason' => $reason]), $context);
+                    $done[] = ['kind' => 'yearly', 'target' => $target, 'from' => $change['version'], 'to' => (int) $result['version']];
+                } catch (DomainError $e) {
+                    $done[] = ['kind' => 'yearly', 'target' => $target, 'from' => $change['version'], 'error' => $e->error.': '.$e->getMessage()];
+                }
+            }
             foreach ($pending['plans'] as $target => $change) {
                 [$product, $plan] = explode('/', $target, 2);
                 // keep_promos: a revision changes no price, so an introductory price on sale stays on sale (review round 1)
@@ -432,6 +462,9 @@ final class CatalogRevisions
             if (! empty($p['offer'])) {
                 $items[] = 'Penpot per web hosting tariff';
             }
+            foreach (array_keys($p['yearly'] ?? []) as $target) {
+                $items[] = $target.' (yearly price)';
+            }
             foreach (array_keys($p['options'] ?? []) as $option) {
                 $items[] = 'option '.$option.' withdrawn';
             }
@@ -453,7 +486,7 @@ final class CatalogRevisions
     /**
      * A revision as the code reads it (the constant's literal types are narrower than what a revision may hold).
      *
-     * @return array{reason: string, plans: array<string, list<string>>, rewrite: array<string, array<string, mixed>>, products: array<string, array{match: string, description: array{cs: string, en: string}}>, create?: list<string>, drop_undelivered?: list<string>, withdraw_undelivered_options?: list<string>, wording?: string, grant?: array<string, array<string, mixed>>, proposal?: bool, price_defined?: list<string>, penpot_offer?: bool}
+     * @return array{reason: string, plans: array<string, list<string>>, rewrite: array<string, array<string, mixed>>, products: array<string, array{match: string, description: array{cs: string, en: string}}>, create?: list<string>, drop_undelivered?: list<string>, withdraw_undelivered_options?: list<string>, wording?: string, grant?: array<string, array<string, mixed>>, proposal?: bool, price_defined?: list<string>, penpot_offer?: bool, yearly_months?: int}
      */
     private static function definition(string $revision): array
     {
@@ -581,6 +614,47 @@ final class CatalogRevisions
             $prices = Price::query()->whereIn('plan_version_id', $versions)->where('state', 'active');
             if ($versions !== [] && (clone $prices)->exists() && ! (clone $prices)->where('amount_minor', '>', 0)->exists()) {
                 $out[] = $key;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * E3 (`yearly_months`): every plan on sale whose current version prices a year at anything but N × its month, per currency.
+     * Products priced by the year (`meta.billing_unit` year) and products defined in code (`PRODUCTS`, their own pricing rule)
+     * are never touched; a zero month price is not a price to derive from.
+     *
+     * @return array<string, array{version: int, prices: list<array{currency: string, from: int, to: int}>}>
+     */
+    private function pendingYearly(string $revision): array
+    {
+        $months = (int) (self::definition($revision)['yearly_months'] ?? 0);
+        if ($months <= 0) {
+            return [];
+        }
+        $out = [];
+        foreach (Product::query()->where('state', 'active')->orderBy('key')->get() as $product) {
+            if (array_key_exists((string) $product->key, self::PRODUCTS) || data_get($product->meta, 'billing_unit') === 'year') {
+                continue;
+            }
+            foreach (Plan::query()->where('product_id', $product->id)->where('state', 'active')->orderBy('key')->get() as $plan) {
+                $version = $plan->currentVersion();
+                if ($version === null) {
+                    continue;
+                }
+                $active = Price::query()->where('plan_version_id', $version->id)->where('state', 'active')->get();
+                $changes = [];
+                foreach ($active->where('period', 'year') as $year) {
+                    $month = $active->first(fn (Price $p) => $p->period === 'month' && $p->currency === $year->currency);
+                    $target = $month === null ? 0 : (int) $month->amount_minor * $months;
+                    if ($target > 0 && (int) $year->amount_minor !== $target) {
+                        $changes[] = ['currency' => (string) $year->currency, 'from' => (int) $year->amount_minor, 'to' => $target];
+                    }
+                }
+                if ($changes !== []) {
+                    $out[$product->key.'/'.$plan->key] = ['version' => (int) $version->version, 'prices' => $changes];
+                }
             }
         }
 

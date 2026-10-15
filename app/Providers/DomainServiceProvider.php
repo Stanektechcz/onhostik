@@ -11,6 +11,8 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Onhost\Domain\Billing\Commands\ChargebackCommand;
 use Onhost\Domain\Billing\Commands\ChargebackCommandHandler;
+use Onhost\Domain\Billing\Commands\EarlyTerminationCommand;
+use Onhost\Domain\Billing\Commands\EarlyTerminationCommandHandler;
 use Onhost\Domain\Billing\Commands\ChargebackStaffCommand;
 use Onhost\Domain\Billing\Commands\ReinstateServiceCommand;
 use Onhost\Domain\Billing\Commands\ReinstateServiceCommandHandler;
@@ -146,6 +148,7 @@ final class DomainServiceProvider extends ServiceProvider
         DecideOrderApprovalCommand::class => OrdersCommandHandler::class, // TASK-0021: owner decision 20
         ChargebackCommand::class => ChargebackCommandHandler::class,
         ChargebackStaffCommand::class => ChargebackCommandHandler::class,
+        EarlyTerminationCommand::class => EarlyTerminationCommandHandler::class, // owner decision E3: whole unused months of a yearly subscription
         ReinstateServiceCommand::class => ReinstateServiceCommandHandler::class, // TASK-0025 pay and restore
         WithdrawalCommand::class => WithdrawalCommandHandler::class, // TASK-0025 consumer withdrawal
         WithdrawalStaffCommand::class => WithdrawalCommandHandler::class, // TASK-0025 consumer withdrawal (a letter finance records)
