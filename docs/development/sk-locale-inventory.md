@@ -25,6 +25,20 @@ Naměřeno: **8** řádků. Šest z nich je v `SurfaceRenderer.php` a překrýv�
 Legenda sloupce „sk dnes“: **cs** znamená, že `sk` spadne do češtiny (podmínka `!== 'en'`). **en** znamená, že
 `sk` spadne do angličtiny (podmínka `=== 'cs'`).
 
+## Přepočet nad 8817e21 (W5-5, commit 1)
+
+Oba vzory výše spuštěné znovu nad `8817e21` (vlny 1 až 4 sloučené), 2026-10-15: vzor 1 **39** řádků, vzor 2 **8**
+řádků, čísla řádků v tabulkách beze změny. Rozpad zůstává **20 řádků cs** a **19 řádků en**; návrh W5-5 uváděl
+„19 větví“, což odpovídá jen sloupci en. Tabulka vzoru 2 (CatalogController:95, Lexicon:317 a šest `Intl.NumberFormat`)
+se také nezměnila.
+
+Referenční snapshoty pro `tests/Feature/SkLocalePhase2Test.php` patří do `tests/fixtures/sk-phase2/`. Uložený je
+`surfaces.sha1.json` (sha1 `apps/surfaces/*.dc.html`). HTML stránek z `PublicSeo::paths()`, `GET /v1/catalog`
+a `POST /v1/cart/quote` pro `?locale=sk` a `?locale=cs` (CSRF, nonce, UUID a časy normalizované) se nahrají tak, že se
+test zkopíruje do checkoutu `8817e21` a spustí `SK2_RECORD=1 php artisan test --filter=SkLocalePhase2Test`; vzniklé
+soubory se commitnou sem. V prostředí W5-5 nebyl nainstalovaný `vendor/`, takže nahrané zatím nejsou a test (a) se do té
+doby přeskočí (viz „Stav po W5-5“).
+
 ## Vzor 1: výskyty
 
 | soubor:řádek | co větví | sk dnes | navrhovaná oprava |
