@@ -26,6 +26,10 @@ final class StatusHost
         if ($host === '' || $host === $portal || $host === 'localhost' || filter_var($host, FILTER_VALIDATE_IP) || ! in_array($path, ['', 'badge.svg'], true)) {
             return $next($request);
         }
+        // N14: the platform status page on its own host (config onhost.status.host, off by default) — its root opens /stav
+        if (config('onhost.status.host_enabled') && $host === strtolower((string) config('onhost.status.host')) && $path === '') {
+            return redirect('/stav');
+        }
         $organization = $this->status->forHost($host);
         if ($organization === null) {
             return $next($request);

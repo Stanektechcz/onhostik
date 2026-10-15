@@ -797,7 +797,11 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
 
     'status' => [
         'maintenance_lead_hours' => 48,
-        'custom_cname' => env('ONHOST_STATUS_CNAME'), // the CNAME target of the customers' own status hosts (audit §5k-3); empty = the portal host
+        'custom_cname' => env('ONHOST_STATUS_CNAME'),
+        // N14: the platform status page on its own host; off until DNS and TLS for the host are in place (cutover)
+        'host_enabled' => (bool) env('ONHOST_STATUS_HOST_ENABLED', false),
+        'host' => env('ONHOST_STATUS_HOST', 'status.onhost.cz'),
+        'snapshot_ttl' => 60, // seconds the public snapshot is reused; incident.resolved drops it at once // the CNAME target of the customers' own status hosts (audit §5k-3); empty = the portal host
         'components' => [
             'web-cz1' => 'Web Hosting CZ1', 'managed' => 'Managed Hosting', 'apps-cz1' => 'Apps CZ1', 'cloud-cz1' => 'Cloud CZ1',
             'games-cz1' => 'Games CZ1', 'dns' => 'DNS', 'domains' => 'Domains/Registrar', 'mail' => 'Mail',
