@@ -116,6 +116,15 @@ explicitly; never `git add -A` in a checkout someone else works in. The pre-comm
 - Debt found on the way goes into the task's *Findings*; fix it now only when the task needs it or it is a severe
   security/correctness risk. Otherwise add one line to *Known issues* in `.ai/PROJECT_STATE.md`.
 
+- **Ratchets (W3-7).** Whoever edits, within their owned paths, a file that has entries in `phpstan-baseline.neon`
+  or a closure command in `routes/*.php` may clean it up, and then in the same commit lowers `MAX_ENTRIES` and
+  `MAX_ERRORS` in `scripts/ci/phpstan-baseline-ratchet.php` and the ceiling in `tests/Unit/ConsoleClosureRatchetTest.php`
+  by the actual difference. There is no fixed quota, and cleanup outside owned paths is forbidden. Converting a
+  closure into a command class keeps the command name, signature and schedule; verify with `php artisan schedule:list`
+  before and after, or with the ScheduleHealth test. Splitting `routes/console.php` (F3) waits until production
+  runs. Before committing run `php scripts/ci/phpstan-baseline-ratchet.php`; it runs in CI (`tests.yml`, step
+  "Larastan baseline ratchet") and in the `brain.sh gate` (W4-2), not in `gate.ps1`.
+
 ## 12. Never
 
 Destructive Git (`reset --hard`, `clean -fd`, `checkout -- .`, `restore .`, `push --force`, deleting others'
