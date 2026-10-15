@@ -59,7 +59,19 @@ jobs:
         run: vendor/bin/pint --test
 
       - name: Pest
-        run: php artisan test --compact
+        id: pest
+        run: mkdir -p build && php artisan test --compact --log-junit build/junit.xml
+
+      # W5-4: report only. The Pest step above decides the job colour; this step never does (continue-on-error).
+      - name: Classify failures against the baseline (report only)
+        if: always()
+        continue-on-error: true
+        run: |
+          out=build/gate-classify.json
+          code=0
+          php scripts/ci/gate-classify.php --junit=build/junit.xml --baseline=.ai/baseline/baseline.json --pest-exit=${{ steps.pest.outcome == 'success' && '0' || '1' }} --format=json > "$out" || code=$?
+          php -r '$r = json_decode((string) file_get_contents($argv[1]), true); if (! is_array($r)) { echo "### gate-classify (sqlite)\n\nno JSON result\n"; exit(0); } $v = is_string($r["verdict"] ?? null) ? $r["verdict"] : "?"; echo "### gate-classify (sqlite): {$v}\n\n"; foreach (["regression" => "REGRESSION", "preexisting" => "PREEXISTING"] as $k => $label) { foreach ((array) ($r[$k] ?? []) as $t) { echo "- {$label} `{$t}`\n"; } }' "$out" >> "$GITHUB_STEP_SUMMARY"
+          exit "$code"
 
       # the committed contract must be what the routes generate (php artisan onhost:openapi); a deploy never rewrites it
       - name: OpenAPI contract drift
@@ -139,7 +151,19 @@ jobs:
         run: php artisan migrate --force
 
       - name: Pest on PostgreSQL (shard ${{ matrix.shard }} of 4)
-        run: php artisan test --compact --shard=${{ matrix.shard }}/4
+        id: pest
+        run: mkdir -p build && php artisan test --compact --shard=${{ matrix.shard }}/4 --log-junit build/junit-shard-${{ matrix.shard }}.xml
+
+      # W5-4: report only. The Pest step above decides the job colour; this step never does (continue-on-error).
+      - name: Classify failures against the baseline (report only)
+        if: always()
+        continue-on-error: true
+        run: |
+          out=build/gate-classify.json
+          code=0
+          php scripts/ci/gate-classify.php --junit=build/junit-shard-${{ matrix.shard }}.xml --baseline=.ai/baseline/baseline.json --pest-exit=${{ steps.pest.outcome == 'success' && '0' || '1' }} --format=json > "$out" || code=$?
+          php -r '$r = json_decode((string) file_get_contents($argv[1]), true); if (! is_array($r)) { echo "### gate-classify (postgres shard ${{ matrix.shard }})\n\nno JSON result\n"; exit(0); } $v = is_string($r["verdict"] ?? null) ? $r["verdict"] : "?"; echo "### gate-classify (postgres shard ${{ matrix.shard }}): {$v}\n\n"; foreach (["regression" => "REGRESSION", "preexisting" => "PREEXISTING"] as $k => $label) { foreach ((array) ($r[$k] ?? []) as $t) { echo "- {$label} `{$t}`\n"; } }' "$out" >> "$GITHUB_STEP_SUMMARY"
+          exit "$code"
 
   # Staging (and the planned production host) run PHP 8.5, while every other job here pins 8.3 — the lowest version
   # composer.json allows. This job runs the same SQLite suite and the gated deployer A → B → A on PHP 8.5, so a
