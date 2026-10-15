@@ -125,3 +125,10 @@ released when the service fails or is terminated, and disappears by itself once 
   namespaces (one name is normally both), the alias list of a web line is validated with it, and one cart cannot order
   one name twice. `ServiceService::desiredSpec` asks again inside the transaction that creates the service, so two
   carts racing for one name end there. See `security-boundaries.md` §18.
+## Queue retry_after vs worker timeout (A8)
+
+`onhost-queue@.service` runs `queue:work --timeout=900`. `config/queue.php` defaults `retry_after` to **960** for
+redis, database and beanstalkd, so a job is never re-reserved while its first run is still alive (double
+provisioning or double charge). Production `REDIS_QUEUE_RETRY_AFTER` / `DB_QUEUE_RETRY_AFTER` /
+`BEANSTALKD_QUEUE_RETRY_AFTER` in `/etc/onhost/app.env` must be unset or greater than the timeout; when raising
+`--timeout`, raise these and `TimeoutStopSec` too. `tests/Unit/QueueJobPolicyTest.php` enforces the defaults.
