@@ -1,33 +1,36 @@
-# Kontrakt: `onhost:doctor --json` (W5-7)
+# Kontrakt: `php artisan onhost:doctor --json` → `infra/aapanel/deploy-gate.php`
 
-Tvar, který tiskne `app/Console/Commands/Doctor.php` (:177) a čte `infra/aapanel/deploy-gate.php` (`readReport` :554, `rows` :194-203).
-Kontrakt výstup nemění, jen ho popisuje. Hlídají ho `tests/Feature/Platform/DoctorJsonContractTest.php` a
-`tests/Feature/Platform/StagingIsolationDoctorTest.php` (řádek `fail_everywhere`).
+* Producent: `app/Console/Commands/Doctor.php` (výpis JSON, ~ř. 177).
+* Konzument: `infra/aapanel/deploy-gate.php` (`readReport()` ~ř. 555–566, `rows()` ~ř. 195–208), volaný z `deploy.sh`.
+* Testy: `tests/Feature/Platform/DoctorJsonContractTest.php` (tvar + reálný výstup projde parserem),
+  `tests/Feature/Platform/DeployGateTest.php` (soudce; existence gatovaných názvů řádků).
 
-## Horní úroveň
+## Obálka
 
-| klíč | typ | význam |
-|---|---|---|
-| `environment` | string | `app()->environment()` |
-| `fail` | int | počet řádků se stavem `FAIL` |
-| `warn` | int | počet řádků se stavem `WARN` |
-| `checks` | list | řádky v pořadí výpisu |
+```
+{ "environment": string, "fail": int, "warn": int, "checks": list<Row> }
+```
 
-## Řádek (`checks[]`), klíče přesně v tomto pořadí
+## Řádek (`Row`)
 
-| klíč | typ | význam |
-|---|---|---|
-| `area` | string | oblast (např. `storage`, `launch`) |
-| `check` | string | název kontroly; `area|check` je klíč řádku v deploy gate a v expected-nonok seznamu |
-| `status` | `OK` \| `WARN` \| `FAIL` | |
-| `detail` | string | zjištění |
-| `remedy` | string | náprava; prázdný řetězec u `OK` |
-| `blocking` | bool | `true`: v produkci FAIL, jinde WARN (`Doctor::add`) |
+```
+{ "area": string, "check": string, "status": "OK"|"WARN"|"FAIL", "detail": string, "remedy": string, "blocking": bool }
+```
 
-`fail_everywhere` (`Doctor::addChecked`, `domains/Platform/IsolationChecks.php`) je vstupní příznak kontroly, ne klíč výstupu:
-neúspěšný řádek je `FAIL` v každém prostředí a má `blocking: true`.
+* Název řádku je `area|check`; deploy-gate na něj gatuje (seznamy HARD, GATED a drained v deploy-gate.php).
+  Názvy musí být v rámci jednoho výstupu unikátní (parser je klíčuje podle názvu).
+* `blocking=true` platí pro každý řádek se `status=FAIL`, včetně `addChecked` s `fail_everywhere` (Doctor.php ~ř. 482).
+* Neblokující řádek (`blocking=false`) je nejhůř `WARN`.
 
-## Pravidla změn
+## Co konzument čte
 
-- Nový klíč řádku nebo horní úrovně je změna kontraktu: upravit tento soubor, contract test a ověřit deploy gate.
-- Odebrat nebo přejmenovat `area`, `check`, `status` nebo `checks` nelze bez současné změny `deploy-gate.php`.
+* Pouze `environment`, `checks[].area`, `checks[].check` a `checks[].status`.
+* `checks` musí být JSON list (`array_is_list`), jinak HARD-FAIL „not JSON with a checks list“.
+* Toleruje text před JSON (např. PHP notice): bere nejvnější objekt `{ … }`.
+
+## Pravidla změny
+
+* Přidat nový klíč (do obálky nebo řádku) smí kdokoli bez úpravy deploy-gate.
+* Přejmenování nebo odebrání `environment`/`checks`/`area`/`check`/`status`, změna povolených hodnot `status`
+  nebo změna názvu řádku, na který deploy-gate gatuje (HARD / GATED / drained), musí jít **ve stejném PR** jako
+  úprava `infra/aapanel/deploy-gate.php` a `tests/Feature/Platform/DeployGateTest.php`.
