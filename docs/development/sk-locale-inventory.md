@@ -89,3 +89,24 @@ Právní texty (VOP, souhlasy) se ve větvích kódu nenašly. Jsou v obsahu (`C
 * Riziko duplicitního obsahu (rozhodnutí vlny 2 #18): kdyby URL `/sk` při fallbacku servírovaly český text,
   vyhledávače uvidí duplicitu cs/sk. Proto se `sk` přidá do `LANGUAGES` až s vlastními SK texty. Do té doby
   musí SK URL mít canonical na cs, nebo noindex.
+
+## Stav po W4-4
+
+* `lang/sk` obsahuje jen `auth.php`, `passwords.php` a `validation.php`: strojový překlad z `lang/cs`, stejné klíče
+  i placeholdery (hlídá `tests/Unit/LangSkParityTest.php`), čeká na jedno čtení vlastníkem (owner-queue řádek 9).
+  `access.php` a `permissions.php` v `lang/sk` záměrně nejsou a padají přes fallback sk→cs (`AppServiceProvider`).
+  Právní texty (VOP, GDPR) se nepřekládaly.
+* Přepínač `config('onhost.locale_sk')` (`ONHOST_LOCALE_SK`, výchozí `false`) řídí celou množinu jazyků
+  v `SetLocale` (`?locale=` i Accept-Language). Vypnutý: chování beze změny, `sk` → `cs`, `?locale=sk` se ignoruje.
+  Zapnutý: `sk` je podporované locale (`tests/Feature/SetLocaleSkTest.php`).
+* Kontrola jiných míst, která nastavují locale (`setLocale(|HasLocalePreference|->locale =` přes `app`, `domains`,
+  `platform`): jen `SetLocale.php:32` a fallback v `AppServiceProvider.php:48`; `DiscordService.php:165/314/355`
+  locale jen porovnává. `HasLocalePreference` se nikde nepoužívá.
+* Ceny na locale nezávisí: stejný košík pro `?locale=cs` a `?locale=sk` dává shodné subtotal, tax, total a currency.
+* `PublicSeo::LANGUAGES` zůstává `['cs']`, hreflang `sk` se nevydává.
+
+Zapnutí `ONHOST_LOCALE_SK` má dvě podmínky:
+
+1. oprava 19 řádků se sloupcem „en“ výše, kde `sk` dnes padá do angličtiny (samostatný follow-up task
+   onhost-backend, mimo tuto větev);
+2. přečtení textů `lang/sk` Adrianem.
