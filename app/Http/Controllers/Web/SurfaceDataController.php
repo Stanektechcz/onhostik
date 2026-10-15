@@ -30,6 +30,7 @@ use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Incidents\IncidentService;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Invoicing\Models\LegalEntity;
+use Onhost\Domain\Notifications\Lexicon;
 use Onhost\Domain\Orders\CreditOrderApprovals;
 use Onhost\Domain\Orders\Models\ConsentDocument;
 use Onhost\Domain\Orders\Models\Order;
@@ -438,7 +439,7 @@ final class SurfaceDataController extends Controller
                 'key' => $plan['key'], 'price' => (int) round(isset($plan['price']['month']) ? self::amount($plan['price']['month']) : 0.0), 'hi' => (bool) $plan['highlighted'],
                 // K7-2: the card's cart line as the catalogue names it ("Webhosting Standard", not the prototype's "VPS Standard") and the catalogue's yearly price
                 'label' => trim((string) ($product['name'] ?? '').' '.$plan['name']), 'priceYear' => self::yearlyPrice($plan),
-                $locale => [(string) $plan['name'], $plan['highlighted'] ? ($locale === 'cs' ? 'Nejčastější volba' : 'Most popular') : PricingPageSeam::slaTag($plan['sla_class'] ?? null, $locale), (string) $plan['description'], $features],
+                $locale => [(string) $plan['name'], $plan['highlighted'] ? (Lexicon::slovak($locale) ? __('surface.most_popular', [], 'sk') : ($locale === 'cs' ? 'Nejčastější volba' : 'Most popular')) : PricingPageSeam::slaTag($plan['sla_class'] ?? null, $locale), (string) $plan['description'], $features],
             ];
         }
 
@@ -646,7 +647,7 @@ final class SurfaceDataController extends Controller
         // outage from two months ago on a day of the last month and lowered the "30-day" uptime with it
         foreach ($this->incidents->publicStatus(self::STATUS_GRID_DAYS)['components'] as $component) {
             $u = rtrim(rtrim(number_format((float) $component['u'], 3, '.', ''), '0'), '.');
-            $rows[] = ['n' => $component['n'], 'u' => $locale === 'cs' ? str_replace('.', ',', $u).' %' : $u.'%', 'bad' => $component['bad'], 'state' => $component['state'], 'key' => $component['key']];
+            $rows[] = ['n' => $component['n'], 'u' => $locale === 'cs' || Lexicon::slovak($locale) ? str_replace('.', ',', $u).' %' : $u.'%', 'bad' => $component['bad'], 'state' => $component['state'], 'key' => $component['key']];
         }
 
         return $rows;
@@ -722,7 +723,7 @@ final class SurfaceDataController extends Controller
 
     private function panelPayload(string $organizationId, string $locale, User $user): array
     {
-        $cs = $locale === 'cs';
+        $cs = $locale === 'cs' || Lexicon::slovak($locale); // W5-5: sk reads the Czech panel texts, never English
         $t = fn (string $a, string $b) => $cs ? $a : $b;
         $can = $this->panelPermissions($user, $organizationId);
         $services = $this->panelServices($user, $organizationId, $can);

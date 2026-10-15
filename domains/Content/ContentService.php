@@ -10,6 +10,7 @@ use Onhost\Domain\Content\Models\Lead;
 use Onhost\Domain\Content\Models\Location;
 use Onhost\Domain\Content\Models\Post;
 use Onhost\Domain\Content\Models\StockItem;
+use Onhost\Domain\Notifications\Lexicon;
 use Onhost\Domain\Notifications\NotificationService;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Partners\PartnerService;
@@ -117,7 +118,7 @@ final class ContentService
     public function changelog(string $locale, ?string $tag = null): array
     {
         return ChangelogEntry::query()->where('state', 'published')->when($tag !== null && $tag !== 'all', fn ($q) => $q->where('tag', $tag))->orderByDesc('entry_date')->get()
-            ->map(fn (ChangelogEntry $e) => [$locale === 'cs' ? $e->entry_date->format('j. n.') : $e->entry_date->format('j M'), $e->tag, ChangelogEntry::LABELS[$locale][$e->tag] ?? strtoupper($e->tag), $e->title[$locale] ?? $e->title['cs'] ?? '', $e->body[$locale] ?? $e->body['cs'] ?? ''])->values()->all();
+            ->map(fn (ChangelogEntry $e) => [$locale === 'cs' || Lexicon::slovak($locale) ? $e->entry_date->format('j. n.') : $e->entry_date->format('j M'), $e->tag, ChangelogEntry::LABELS[$locale][$e->tag] ?? strtoupper($e->tag), $e->title[$locale] ?? $e->title['cs'] ?? '', $e->body[$locale] ?? $e->body['cs'] ?? ''])->values()->all();
     }
 
     /** `[code, city, country, ping, live][]` */
@@ -133,6 +134,13 @@ final class ContentService
 
         return StockItem::query()->whereNotIn('sku', self::NOT_ON_SALE_STOCK)->orderBy('sort')->get()->reject($invented)->map(function (StockItem $s) use ($locale) {
             $price = Money::minor($s->price_minor, $s->currency)->format($locale);
+            if (Lexicon::slovak($locale)) { // W5-5: lang/sk/surface.php, plural forms through trans_choice
+                return [$s->name, $s->spec[$locale] ?? $s->spec['cs'] ?? '', $price, __('surface.stock_unit', [], 'sk'), match (true) {
+                    $s->available > 0 => trans_choice('surface.stock_units', (int) $s->available, ['count' => $s->available], 'sk'),
+                    $s->lead_days > 0 => __('surface.stock_lead', ['days' => $s->lead_days], 'sk'),
+                    default => __('surface.stock_on_order', [], 'sk'),
+                }, $s->availability];
+            }
             $unit = $locale === 'cs' ? 'nájem / měsíc' : 'rental / month';
             $availability = match (true) {
                 $s->available > 0 => $locale === 'cs' ? "{$s->available} ".($s->available === 1 ? 'kus' : ($s->available < 5 ? 'kusy' : 'kusů')).' skladem' : "{$s->available} units in stock",

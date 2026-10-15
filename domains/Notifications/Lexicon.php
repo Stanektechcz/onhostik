@@ -290,6 +290,15 @@ final class Lexicon
         ' skončí za ' => ' ends in ', 'Nebude prodloužena, končí ' => 'It will not be renewed and ends on ', '. Chcete-li ji zachovat, zapněte automatické prodloužení.' => '. To keep it, turn on automatic renewal.',
     ];
 
+    /**
+     * W5-5: Slovak gets its own branch only while config('onhost.locale_sk') is on; off, 'sk' (which CatalogController and
+     * CartController can still read from the query) keeps every pre-W5-5 output byte for byte. Never decides currency, price or tax.
+     */
+    public static function slovak(string $locale): bool
+    {
+        return $locale === 'sk' && (bool) config('onhost.locale_sk', false);
+    }
+
     public static function translate(?string $text, string $locale): ?string
     {
         if ($text === null || $text === '' || $locale === 'cs' || $locale === 'sk') {
