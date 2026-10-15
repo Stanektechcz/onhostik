@@ -46,6 +46,16 @@ it('fails outside local when Redis or cache keys carry Laravel\'s default prefix
     expect(isolationDoctorRows()[ISOLATION_PREFIX_ROW]['status'])->toBe('OK');
 });
 
+it('writes a fail_everywhere row in the contract shape: FAIL, blocking true and a remedy, outside production (W5-7)', function () {
+    config(['cache.default' => 'database', 'queue.default' => 'redis', 'app.name' => 'ONhost', 'database.redis.options.prefix' => 'laravel_database_', 'cache.prefix' => 'onhost_staging']);
+    $row = isolationDoctorRows()[ISOLATION_PREFIX_ROW];
+
+    expect(array_keys($row))->toBe(['area', 'check', 'status', 'detail', 'remedy', 'blocking'])
+        ->and($row['status'])->toBe('FAIL')
+        ->and($row['blocking'])->toBeTrue()
+        ->and($row['remedy'])->toBeString();
+});
+
 it('does not judge the Redis prefix of an installation that uses Redis for nothing', function () {
     config(['cache.default' => 'database', 'queue.default' => 'database', 'session.driver' => 'database', 'database.redis.options.prefix' => 'onhost-database-', 'cache.prefix' => 'onhost_staging']);
 
