@@ -13,7 +13,7 @@ use Onhost\Platform\Files\VirusScanner;
  * effect; ClamAV with enforcement and no host is UNAVAILABLE in production instead of a silent pass.
  */
 
-/** @return array<string, array{area:string, check:string, status:string, detail:string}> */
+/** @return array<string, array{area:string, check:string, status:string, detail:string, blocking:bool}> */
 function isolationDoctorRows(): array
 {
     Artisan::call('onhost:doctor', ['--json' => true]);
@@ -34,6 +34,7 @@ it('fails outside local when Redis or cache keys carry Laravel\'s default prefix
         $row = isolationDoctorRows()[ISOLATION_PREFIX_ROW];
 
         expect($row['status'])->toBe('FAIL', "redis '{$redis}', cache '{$cache}' (not production, still FAIL)")
+            ->and($row['blocking'])->toBeTrue()
             ->and($row['detail'])->toContain('REDIS_PREFIX')->toContain('CACHE_PREFIX');
     }
 
