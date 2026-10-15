@@ -1,12 +1,14 @@
 <?php
 
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Storage;
 
 /** A4: the backup-disk doctor row is blocking and asks for an s3 driver, not merely "not local". */
 function backupDiskDoctorRow(string $disk, bool $production): array
 {
     config(['onhost.platform_backup.disk' => $disk]);
     if ($production) {
+        Artisan::call('onhost:doctor', ['--json' => true]); // builds the env secret store before production refuses it
         app()->instance('env', 'production');
     }
     Artisan::call('onhost:doctor', ['--json' => true]);
@@ -24,6 +26,7 @@ it('fails the backup disk row in production for local and public disks, with the
 
 it('passes the backup disk row in production for an s3 disk', function () {
     config(['filesystems.disks.offsite' => ['driver' => 's3', 'bucket' => 'b', 'region' => 'eu-central-1', 'key' => 'k', 'secret' => 's']]);
+    Storage::fake('offsite'); // the s3 adapter is not installed: backup status and the restore drill read a local stand-in, the driver config stays s3
 
     expect(backupDiskDoctorRow('offsite', true)['status'])->toBe('OK');
 });
