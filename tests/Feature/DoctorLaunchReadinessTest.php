@@ -6,6 +6,7 @@ use App\Console\Commands\Doctor;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 
 /*
  * W3-3: Doctor::LAUNCH_CHECKS names the rows a launch needs green (A4, A2, platform backup, C1); one non-blocking
@@ -77,6 +78,7 @@ it('reports a due e-invoice without Peppol and keeps the exit code of the blocki
 });
 
 it('never puts the backup disk or the e-invoice driver into the summary detail', function () {
+    Storage::fake('dlr-secret-disk');
     config(['onhost.platform_backup.disk' => 'dlr-secret-disk']);
 
     $summary = dlrSummaryRow(dlrDoctorJson()['checks']);
