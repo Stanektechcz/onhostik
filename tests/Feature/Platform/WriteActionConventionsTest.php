@@ -33,6 +33,7 @@ const WAC_ALLOWLIST = [
     'Onhost\\Domain\\Identity\\Commands\\WebSessionCommand' => ['rules' => ['permission', 'risk'], 'until' => '2027-01-15', 'reason' => 'null permission: a person ends their own web sessions; handler checks the actor'],
     'Onhost\\Domain\\Organizations\\Commands\\AcceptInvitationCommand' => ['rules' => ['permission', 'risk'], 'until' => '2027-01-15', 'reason' => 'null permission: the invitee has no role yet; the invitation token is the authorization'],
     'Onhost\\Domain\\Organizations\\Commands\\CreateOrganizationCommand' => ['rules' => ['permission', 'risk'], 'until' => '2027-01-15', 'reason' => 'null permission: creating an organization precedes any role in it'],
+    'Onhost\\Domain\\Content\\Commands\\WaitlistCommand' => ['rules' => ['permission'], 'until' => '2027-01-15', 'reason' => 'null permission: E2 public waitlist, a guest has no role; the mailed token authorizes confirm/withdraw (RiskAwareCommand declares the risk)'],
     // permission() returns null: system-internal, the handler admits the system actor only
     'Onhost\\Domain\\Services\\Penpot\\PaperParentCommand' => ['rules' => ['permission', 'risk'], 'until' => '2027-01-15', 'reason' => 'null permission: system-internal, handler admits the system actor only'],
     'Onhost\\Domain\\Services\\Metering\\AnnounceDiskTotalCommand' => ['rules' => ['permission'], 'until' => '2027-01-15', 'reason' => 'null permission: system-internal, handler checks the actor (RiskAwareCommand declares the risk)'],

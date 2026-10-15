@@ -70,6 +70,12 @@ final class AppServiceProvider extends ServiceProvider
 
             return array_values(array_filter([Limit::perMinute(10)->by('ip:'.$request->ip()), $email === '' ? null : Limit::perMinute(5)->by('email:'.$email)]));
         });
+        // E2: the waitlist mails a stranger's address — 10 an hour per address, 3 an hour per e-mail (no e-mail, no e-mail bucket)
+        RateLimiter::for('waitlist', function (Request $request) {
+            $email = strtolower(trim((string) $request->input('email', '')));
+
+            return array_values(array_filter([Limit::perHour(10)->by('waitlist-ip:'.$request->ip()), $email === '' ? null : Limit::perHour(3)->by('waitlist-email:'.hash('sha256', $email))]));
+        });
         RateLimiter::for('payment-callbacks', fn (Request $request) => Limit::perMinute(120)->by('pay:'.$request->ip()));
         // keyed by ADDRESS only: the callers are unauthenticated, so a key that includes the presented bearer gave every rotated value a fresh bucket (D7)
         RateLimiter::for('probes', fn (Request $request) => Limit::perMinute((int) config('onhost.api.probes_rate_limit_per_minute', 600))->by('probe:'.$request->ip()));

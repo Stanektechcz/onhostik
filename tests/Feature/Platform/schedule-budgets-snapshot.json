@@ -94,6 +94,7 @@
     "onhost:status:verify-domains": 7800,
     "onhost:support:sla": 1200,
     "onhost:vat:recheck": 173400,
+    "onhost:waitlist:prune": 173400,
     "onhost:web-tools:prune": 7800,
     "onhost:webhooks:retry": 720,
     "onhost:withdrawals:finish": 7800

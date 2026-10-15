@@ -132,6 +132,10 @@ Route::middleware('throttle:public')->group(function (): void {
     Route::post('tender/request', [ContentController::class, 'tender'])->middleware('throttle:auth');
     Route::get('reseller/tiers', [ContentController::class, 'resellerTiers']);
     Route::post('reseller/apply', [ContentController::class, 'resellerApply'])->middleware('throttle:auth');
+    // E2: waitlist with double opt-in (per address and per e-mail, see RateLimiter `waitlist`)
+    Route::post('waitlist', [ContentController::class, 'waitlistSignup'])->middleware('throttle:waitlist');
+    Route::post('waitlist/confirm', [ContentController::class, 'waitlistConfirm'])->middleware('throttle:waitlist');
+    Route::post('waitlist/withdraw', [ContentController::class, 'waitlistWithdraw'])->middleware('throttle:waitlist');
 });
 
 // ── signed in (cookie session or bearer token) ───────────────────────────────

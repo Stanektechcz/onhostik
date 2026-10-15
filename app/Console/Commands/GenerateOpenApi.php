@@ -317,7 +317,7 @@ final class GenerateOpenApi extends Command
         return match (true) {
             in_array($first, ['catalog', 'domains'], true) && ($parts[2] ?? '') === 'check' => 'catalog',
             in_array($first, ['auth', 'me', 'tokens'], true) => 'identity',
-            in_array($first, ['posts', 'kb', 'changelog', 'locations', 'stock', 'leads', 'tender', 'reseller'], true) => 'content',
+            in_array($first, ['posts', 'kb', 'changelog', 'locations', 'stock', 'leads', 'tender', 'reseller', 'waitlist'], true) => 'content',
             in_array($first, ['status', 'incidents', 'probes', 'my', 'sla-credits'], true) => 'status',
             in_array($first, ['abuse', 'abuse-cases', 'data-requests'], true) => 'compliance',
             in_array($first, ['wallet', 'payments', 'invoices', 'subscriptions', 'usage', 'dunning', 'webhooks'], true) => 'billing',

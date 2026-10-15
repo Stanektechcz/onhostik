@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Notifications;
 
 use Carbon\CarbonImmutable;
+use Onhost\Domain\Content\Waitlist\WaitlistService;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Orders\CreditOrderPolicy;
@@ -327,6 +328,8 @@ final class NotificationRouter
             'partner.application.received' => $this->internal($m, 'partner', 'Nová partnerská přihláška', ($p['company'] ?? '').' · '.($p['model'] ?? ''), '/sprava/zakaznici', 'info'),
             'partner.approved' => $this->customer($m, 'partner', 'Partnerský účet schválen', 'Kód '.($p['code'] ?? '').' · '.($p['tier'] ?? '').' '.($p['rate'] ?? '').' %', '/partner/prehled', 'info'),
             'partner.tier.changed' => $this->customer($m, 'partner', 'Stupeň přepočítán: '.($p['to'] ?? ''), 'Sazba '.($p['rate'] ?? '').' % · objem '.$money($p['volume'] ?? null), '/partner/prehled', 'info'),
+            // E2: the double opt-in mail; the token is minted here so it never rides the outbox (confirmed/withdrawn: audit only)
+            'waitlist.signup.requested' => app(WaitlistService::class)->sendConfirmation((string) $m->aggregate_id),
             'lead.received' => $this->internal($m, 'sales', 'Nová poptávka: '.($p['kind'] ?? ''), ($p['company'] ?? $p['name'] ?? '').' · '.($p['email'] ?? ''), '/sprava/zakaznici', 'info'),
             'partner.payout.requested' => $this->internal($m, 'partner', 'Žádost o výplatu provize', ($org?->name ?? '').' · '.$money($p['amount'] ?? null), '/sprava/fakturace', 'warn'),
             'partner.payout.paid' => $this->customer($m, 'partner', 'Provize vyplacena', $money($p['amount'] ?? null), '/partner/vyplaty', 'info', $email, 'payout', ['castka' => $money($p['amount'] ?? null), 'obdobi' => $p['period'] ?? '', 'url' => "{$portal}/partner/vyplaty"]),
