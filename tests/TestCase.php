@@ -52,8 +52,22 @@ abstract class TestCase extends BaseTestCase
         if (! is_string($target) || $target === '') {
             return;
         }
-        $offset = (float) (new \DateTimeImmutable($target.' 12:00:00', new \DateTimeZone('UTC')))->format('U.u') - microtime(true);
+        $offset = (float) self::timeBombSweepTarget($target)->format('U.u') - microtime(true);
         Carbon::setTestNow(static fn () => Carbon::instance(new \DateTimeImmutable('@'.sprintf('%.6F', microtime(true) + $offset))));
+    }
+
+    /**
+     * F1 (nightly-clock.yml): a bare date (`2027-04-01`) keeps meaning noon UTC of that day; a full ISO-8601 time
+     * (`2026-10-15T23:30:00Z`) is taken as given, UTC when it names no zone, so a run can stand just before or after midnight.
+     */
+    protected static function timeBombSweepTarget(string $target): \DateTimeImmutable
+    {
+        $utc = new \DateTimeZone('UTC');
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $target) === 1) {
+            return new \DateTimeImmutable($target.' 12:00:00', $utc);
+        }
+
+        return (new \DateTimeImmutable($target, $utc))->setTimezone($utc);
     }
 
     protected function tearDown(): void
