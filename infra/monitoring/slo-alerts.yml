@@ -143,3 +143,28 @@ groups:
         for: 15m
         labels: { severity: ticket }
         annotations: { summary: "The newest platform restore drill failed: the platform backups may not restore", runbook: docs/runbooks/backups.md }
+
+  # A3 (navrhy 2026-10-15): the monitoring watches itself. Watchdog always fires and Alertmanager forwards it to an external
+  # heartbeat (route severity=heartbeat, URL from a file outside the repo): when the pings stop, the heartbeat service tells a
+  # person that Prometheus, Alertmanager or the VM is down. The absent() rules catch a scrape that returns nothing.
+  - name: onhost-meta
+    rules:
+      - alert: Watchdog
+        expr: vector(1)
+        labels: { severity: heartbeat }
+        annotations: { summary: "Always firing: the dead man's switch of the monitoring pipeline", runbook: docs/runbooks/monitoring-setup.md }
+      - alert: OnhostMetricsAbsent
+        expr: absent(onhost_http_requests_total)
+        for: 10m
+        labels: { severity: page }
+        annotations: { summary: "No onhost HTTP metrics for 10 minutes: /metrics is not scraped (token, network or app down)", runbook: docs/runbooks/monitoring-setup.md }
+      - alert: OnhostOutboxMetricAbsent
+        expr: absent(onhost_outbox_pending_oldest_seconds)
+        for: 10m
+        labels: { severity: page }
+        annotations: { summary: "The outbox lag metric is missing: OnhostOutboxLag cannot fire", runbook: docs/runbooks/monitoring-setup.md }
+      - alert: OnhostAutomationMetricAbsent
+        expr: absent(onhost_automation_alive)
+        for: 10m
+        labels: { severity: page }
+        annotations: { summary: "The scheduler/worker heartbeat metric is missing: OnhostAutomationDead cannot fire", runbook: docs/runbooks/monitoring-setup.md }
