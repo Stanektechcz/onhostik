@@ -13,6 +13,7 @@ use Onhost\Domain\Billing\ChargebackAnalyst;
 use Onhost\Domain\Billing\DunningService;
 use Onhost\Domain\Billing\MeteringService;
 use Onhost\Domain\Billing\RatingService;
+use Onhost\Domain\Billing\SubscriptionExpiryNotices;
 use Onhost\Domain\Billing\SubscriptionService;
 use Onhost\Domain\Compliance\ComplianceService;
 use Onhost\Domain\Dns\DnsService;
@@ -623,6 +624,7 @@ Schedule::command('onhost:billing:rate')->everyFiveMinutes()->withoutOverlapping
 Schedule::command('onhost:billing:renewals')->hourlyAt(20)->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:billing:dunning')->dailyAt('06:00')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:billing:runway')->dailyAt('07:30')->withoutOverlapping()->onOneServer();
+Schedule::command('onhost:billing:expiry-notices')->dailyAt('07:40')->withoutOverlapping()->onOneServer(); // N18: services that end with their paid period
 Schedule::command('onhost:dns:platform-sync')->hourlyAt(25)->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:dns:drift')->dailyAt('03:40')->withoutOverlapping()->onOneServer(); // what the DNS providers serve vs what we hold
 Schedule::command('onhost:fx:sync')->timezone('Europe/Prague')->weekdays()->at('14:40')->withoutOverlapping()->onOneServer(); // the national bank publishes at 14:30
@@ -1460,6 +1462,10 @@ Artisan::command('onhost:dns:platform-sync {--service=* : limit to these service
 Artisan::command('onhost:billing:runway', function (WalletForecast $forecast) {
     $this->table(['checked', 'warned'], [$forecast->warnLow()]);
 })->purpose('Warn organizations whose credit will not cover the renewals of the next two weeks');
+
+Artisan::command('onhost:billing:expiry-notices', function (SubscriptionExpiryNotices $notices) {
+    $this->table(['checked', 'notified'], [$notices->run()]);
+})->purpose('Tell customers 14/7/1 days ahead that a service ends with its paid period because it is not to renew (N18)');
 
 Artisan::command('onhost:certificates:issue-pending {--limit=20}', function (CertificateAutoIssuer $issuer, AutomationLedger $ledger) {
     if ($ledger->off('certificates.issue')) {
