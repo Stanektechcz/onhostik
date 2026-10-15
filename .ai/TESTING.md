@@ -54,3 +54,24 @@ Add to the list only with proof (the same failure at the base revision), remove 
 
 VERIFIED = a command ran and its output shows the claim. ASSUMED = reasoning or reading code only. NOT TESTED = no
 evidence. Reports and task files keep the three apart.
+
+## Cloud sandbox (Linux)
+
+Claude Code cloud sessions run on Linux without PowerShell, so `brain.ps1` does not run there.
+
+- **SessionStart hook** (`.claude/settings.json` → `scripts/ai/setup-sandbox.sh`): does nothing unless
+  `CLAUDE_CODE_REMOTE=true`. In the sandbox it checks every `ext-*` of `composer.json` against `php -m`, installs a
+  missing `php8.3-bcmath` with apt as root (`apt-get update` only after a failed install), and otherwise fails naming
+  the missing extension (never `--ignore-platform-req`). Then `composer install` unless `vendor/` is current with
+  `composer.lock`; a failing scripts step is retried with `--no-scripts` plus a warning. It never creates or reads
+  `.env`, never runs `key:generate`/`migrate`, never calls panels: `phpunit.xml` carries the test env and `APP_KEY`.
+  A second start skips everything within seconds.
+- **`./brain.sh gate [--quick] [tests…]`**: Pint, Larastan and the PHPStan baseline ratchet (not with `--quick`),
+  Pest with a JUnit report (with `--quick` only `critical_flows[].tests` of the baseline plus the given paths), then
+  `php scripts/ci/gate-classify.php` sorts failures into REGRESSION / PREEXISTING against
+  `.ai/baseline/baseline.json`; a missing or empty JUnit report is a FAIL. Prints `VERDICT PASS|FAIL` and the steps.
+  No frontend build here; `gate.ps1` stays the reference gate until it uses `gate-classify.php` too.
+- **SQLite vs CI**: the sandbox runs Pest on SQLite `:memory:` (phpunit.xml) like Windows; PostgreSQL 16 runs only in
+  CI job `pest-postgres`. A sandbox PASS says nothing about PostgreSQL-specific behaviour.
+- Without `vendor/` (hook not run or failed) none of this runs: report Pest/Pint/Larastan as **NOT TESTED**, with
+  `php -l` as the only evidence, never as VERIFIED.

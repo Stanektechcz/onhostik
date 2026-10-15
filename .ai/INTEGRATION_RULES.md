@@ -59,6 +59,11 @@ gitleaks:
 Local alternative, only on the human's request: in a **clean** checkout of `development`,
 `git merge --ff-only <branch>`. Never merge into a checkout that has someone else's uncommitted work.
 
+A conflict on `MAX_ENTRIES`, `MAX_ERRORS` (`scripts/ci/phpstan-baseline-ratchet.php`) or the closure ceiling
+(`tests/Unit/ConsoleClosureRatchetTest.php`) is not resolved by taking either side or the plain minimum: run the
+ratchet script and `ConsoleClosureRatchetTest` on the merged tree and set the constants to the measured values.
+These are ≤ the minimum of both sides, because each branch may have removed different entries. Never raise them.
+
 ## 6. After integration
 
 - Rerun `brain.ps1 gate` on the integrated `development` (in a clean worktree) — branch results are not enough.

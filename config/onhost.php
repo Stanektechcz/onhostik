@@ -14,8 +14,10 @@ return [
     'portal_url' => env('ONHOST_PORTAL_URL', env('APP_URL', 'http://localhost:8000')),
     'default_locale' => env('ONHOST_DEFAULT_LOCALE', 'cs'),
     'locales' => ['cs', 'sk', 'en'],
+    'locale_sk' => (bool) env('ONHOST_LOCALE_SK', false), // W4-4: Slovak as a supported request locale (SetLocale); off until the owner reads lang/sk
     'timezone_display' => 'Europe/Prague',
     'demo_mode' => (bool) env('ONHOST_DEMO_MODE', false), // surface role switcher etc. — never in production
+    'funnel_metrics' => (bool) env('ONHOST_FUNNEL_METRICS', false), // W4-6: anonymous cart-quote metric into funnel_daily (docs/compliance/dpia-funnel-telemetry.md); production switch-on is the owner's step
 
     // Web hosting tools on top of the panels: CDN/WAF in front of sites (Cloudflare), platform-issued certificates, uptime checks, deploy and imports
     'cdn' => [
