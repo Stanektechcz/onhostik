@@ -172,6 +172,7 @@ final class HealthController extends Controller
         // operations the doctor checks by hand, as time series (go-live checklist §1): backups, the queue worker and scheduler heartbeats, the virus scanner, on-call
         $backup = app(PlatformBackup::class)->status();
         $emit('onhost_platform_backup_verified_timestamp', 'gauge', 'Unix time of the last verified platform backup (0 = none)', [[[], isset($backup['verified']['at']) ? Carbon::parse((string) $backup['verified']['at'])->getTimestamp() : 0]]);
+        $emit('onhost_platform_backup_db_timestamp', 'gauge', 'Unix time of the newest platform database dump, hourly or nightly (0 = none)', [[[], isset($backup['last_db']['at']) ? Carbon::parse((string) $backup['last_db']['at'])->getTimestamp() : 0]]);
         // P13: the newest restore drill (infra/aapanel/restore-drill.sh) — its time and whether the restored copy passed
         $drill = app(RestoreDrill::class)->latest();
         $emit('onhost_platform_restore_drill_timestamp', 'gauge', 'Unix time of the newest platform restore drill (0 = none)', [[[], $drill !== null ? Carbon::parse((string) ($drill['at'] ?? '@0'))->getTimestamp() : 0]]);

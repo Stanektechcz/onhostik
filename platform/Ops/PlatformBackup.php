@@ -19,6 +19,8 @@ use Throwable;
  * disk by default, an S3-compatible bucket off the server in production. `verify()` reads the newest set back: sizes
  * and hashes must match and the database dump must be restorable (`pg_restore --list`, SQLite integrity check).
  * Sets older than the retention are pruned; the doctor warns when the newest verified set is older than a day.
+ * A2 (RPO 1 h): `run(true)` takes the database alone as `Ymd-His-db`, hourly, kept 48 h on the same (off-site) disk;
+ * the doctor warns when the newest dump of any kind is older than 70 minutes.
  */
 final class PlatformBackup
 {
@@ -28,6 +30,15 @@ final class PlatformBackup
 
     public const VERIFIED_KEY = 'onhost:platform:backup:verified';
 
+    /** A2: the newest database dump of any kind (hourly db-only or nightly full set) */
+    public const LAST_DB_KEY = 'onhost:platform:backup:last-db';
+
+    /** A2: shared by the hourly dump and the nightly full set, so they never run at once */
+    public const LOCK_KEY = 'onhost:platform:backup:lock';
+
+    /** A2: suffix of a database-only set (`platform-backups/Ymd-His-db`) */
+    public const DB_ONLY_SUFFIX = '-db';
+
     public function disk(): Filesystem
     {
         return Storage::disk((string) config('onhost.platform_backup.disk', 'local') ?: 'local');
@@ -36,9 +47,9 @@ final class PlatformBackup
     /**
      * @return array{set:string, files:array<string,array{bytes:int, sha256:string}>, database:string, pruned:int}
      */
-    public function run(): array
+    public function run(bool $dbOnly = false): array
     {
-        $set = self::PREFIX.'/'.now()->utc()->format('Ymd-His');
+        $set = self::PREFIX.'/'.now()->utc()->format('Ymd-His').($dbOnly ? self::DB_ONLY_SUFFIX : '');
         $work = storage_path('app/platform-backup-work');
         if (! is_dir($work) && ! mkdir($work, 0750, true)) {
             throw new RuntimeException("cannot create {$work}");
@@ -48,11 +59,11 @@ final class PlatformBackup
             $counts = $this->counts(); // P13: taken before the dump, so the restore drill can check the restored copy holds at least these
             $dump = $this->dumpDatabase($work);
             $files[$dump['name']] = $this->store($set, $dump['name'], $dump['path']);
-            $archive = $this->archiveFiles($work);
+            $archive = $dbOnly ? null : $this->archiveFiles($work);
             if ($archive !== null) {
                 $files['files.tar.gz'] = $this->store($set, 'files.tar.gz', $archive);
             }
-            $manifest = ['created_at' => now()->toIso8601String(), 'database' => $dump['driver'], 'app_version' => (string) config('app.version', ''), 'counts' => $counts, 'files' => $files];
+            $manifest = ['created_at' => now()->toIso8601String(), 'database' => $dump['driver'], 'db_only' => $dbOnly, 'app_version' => (string) config('app.version', ''), 'counts' => $counts, 'files' => $files];
             $this->disk()->put($set.'/manifest.json', (string) json_encode($manifest, JSON_PRETTY_PRINT));
         } finally {
             foreach (glob($work.'/*') ?: [] as $leftover) {
@@ -60,7 +71,11 @@ final class PlatformBackup
             }
             @rmdir($work);
         }
-        cache()->forever(self::LAST_KEY, ['set' => $set, 'at' => now()->toIso8601String(), 'bytes' => array_sum(array_column($files, 'bytes'))]);
+        $last = ['set' => $set, 'at' => now()->toIso8601String(), 'bytes' => array_sum(array_column($files, 'bytes'))];
+        cache()->forever(self::LAST_DB_KEY, $last);
+        if (! $dbOnly) {
+            cache()->forever(self::LAST_KEY, $last);
+        }
 
         return ['set' => $set, 'files' => $files, 'database' => $dump['driver'], 'pruned' => $this->prune()];
     }
@@ -129,17 +144,23 @@ final class PlatformBackup
         return ['set' => $set, 'ok' => $ok, 'problems' => $problems, 'created_at' => $manifest['created_at'] ?? null];
     }
 
-    /** @return array{last:?array<string,mixed>, verified:?array<string,mixed>, disk:string, retention_days:int} */
+    /** @return array{last:?array<string,mixed>, verified:?array<string,mixed>, last_db:?array<string,mixed>, disk:string, retention_days:int} */
     public function status(): array
     {
         $last = cache()->get(self::LAST_KEY);
         $verified = cache()->get(self::VERIFIED_KEY);
+        $lastDb = cache()->get(self::LAST_DB_KEY);
+        if ($lastDb === null) { // the cache was flushed: the newest set of any kind carries a dump, its name is its time (UTC)
+            $newest = $this->latestSet(true);
+            $stamp = $newest !== null ? self::stamp($newest) : null;
+            $lastDb = $stamp !== null ? ['set' => $newest, 'at' => $stamp->format(DATE_ATOM)] : null;
+        }
         if ($last === null || $verified === null) { // the cache was flushed: read the newest set from the backup disk
             $set = $this->latestSet();
             if ($set !== null) {
                 $manifest = json_decode((string) ($this->disk()->get($set.'/manifest.json') ?? ''), true);
                 $last ??= is_array($manifest) ? ['set' => $set, 'at' => (string) ($manifest['created_at'] ?? ''), 'bytes' => array_sum(array_map(fn ($f) => (int) ($f['bytes'] ?? 0), (array) ($manifest['files'] ?? [])))] : null;
-                foreach (array_reverse((array) $this->disk()->directories(self::PREFIX)) as $candidate) {
+                foreach (array_reverse($this->sets(false)) as $candidate) {
                     if ($verified !== null) {
                         break;
                     }
@@ -149,7 +170,7 @@ final class PlatformBackup
             }
         }
 
-        return ['last' => $last, 'verified' => $verified, 'disk' => (string) config('onhost.platform_backup.disk', 'local'), 'retention_days' => (int) config('onhost.platform_backup.retention_days', 30)];
+        return ['last' => $last, 'verified' => $verified, 'last_db' => $lastDb, 'disk' => (string) config('onhost.platform_backup.disk', 'local'), 'retention_days' => (int) config('onhost.platform_backup.retention_days', 30)];
     }
 
     /**
@@ -170,12 +191,29 @@ final class PlatformBackup
         return $counts;
     }
 
-    public function latestSet(): ?string
+    /** The newest full set (database and files); with $withDbOnly also the hourly database-only sets. */
+    public function latestSet(bool $withDbOnly = false): ?string
     {
-        $sets = $this->disk()->directories(self::PREFIX);
-        rsort($sets);
+        $sets = $this->sets($withDbOnly);
 
-        return $sets[0] ?? null;
+        return $sets === [] ? null : $sets[count($sets) - 1];
+    }
+
+    /** @return list<string> the sets on the backup disk, oldest first */
+    private function sets(bool $withDbOnly): array
+    {
+        $sets = array_values(array_filter((array) $this->disk()->directories(self::PREFIX), fn (string $s) => $withDbOnly || ! str_ends_with($s, self::DB_ONLY_SUFFIX)));
+        sort($sets);
+
+        return $sets;
+    }
+
+    /** The UTC time a set was taken, read from its name. */
+    private static function stamp(string $set): ?\DateTimeImmutable
+    {
+        $stamp = \DateTimeImmutable::createFromFormat('!Ymd-His', substr(basename($set), 0, 15), new \DateTimeZone('UTC'));
+
+        return $stamp === false ? null : $stamp;
     }
 
     /** @return array{name:string, path:string, driver:string} */
@@ -333,19 +371,26 @@ final class PlatformBackup
         return [];
     }
 
-    /** Sets older than the retention are removed; the newest set always stays. */
+    /**
+     * Full sets older than the retention and database-only sets older than `db_only_retention_hours` (A2: 48 h) are
+     * removed; the newest set of each kind always stays.
+     */
     private function prune(): int
     {
         $keep = max(1, (int) config('onhost.platform_backup.retention_days', 30));
+        $keepDbHours = max(2, (int) config('onhost.platform_backup.db_only_retention_hours', 48));
         $disk = $this->disk();
-        $sets = $disk->directories(self::PREFIX);
-        sort($sets);
+        $all = $this->sets(true);
+        $dbOnly = array_values(array_filter($all, fn (string $s) => str_ends_with($s, self::DB_ONLY_SUFFIX)));
+        $full = array_values(array_diff($all, $dbOnly));
         $pruned = 0;
-        foreach (array_slice($sets, 0, -1) as $set) {
-            $stamp = \DateTimeImmutable::createFromFormat('Ymd-His', basename($set), new \DateTimeZone('UTC'));
-            if ($stamp !== false && $stamp < now()->utc()->subDays($keep)) {
-                $disk->deleteDirectory($set);
-                $pruned++;
+        foreach ([[array_slice($full, 0, -1), now()->utc()->subDays($keep)], [array_slice($dbOnly, 0, -1), now()->utc()->subHours($keepDbHours)]] as [$candidates, $cutoff]) {
+            foreach ($candidates as $set) {
+                $stamp = self::stamp($set);
+                if ($stamp !== null && $stamp < $cutoff) {
+                    $disk->deleteDirectory($set);
+                    $pruned++;
+                }
             }
         }
 

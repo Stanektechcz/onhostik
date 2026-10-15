@@ -56,6 +56,8 @@ return [
     'platform_backup' => [ // backups of the control plane itself: database dump + private file store (go-live checklist §1)
         'disk' => env('ONHOST_PLATFORM_BACKUP_DISK', 'local'),      // a filesystems.disks entry; S3-compatible and off the server in production
         'retention_days' => (int) env('ONHOST_PLATFORM_BACKUP_RETENTION_DAYS', 30),
+        'db_only_retention_hours' => (int) env('ONHOST_PLATFORM_BACKUP_DB_ONLY_RETENTION_HOURS', 48), // A2: the hourly database-only sets (RPO 1 h)
+        'db_dump_warn_minutes' => (int) env('ONHOST_PLATFORM_BACKUP_DB_WARN_MINUTES', 70),          // A2: doctor WARN when the newest dump is older
         'files_root' => env('ONHOST_PLATFORM_BACKUP_FILES_ROOT'),   // default storage/app/private
         'service_archive_days' => (int) env('ONHOST_SERVICE_ARCHIVE_DAYS', 60), // a terminated service is archived (files, databases, metadata) and kept this long — audit §5aa
         'game_archive_timeout' => (int) env('ONHOST_GAME_ARCHIVE_TIMEOUT', 1800),

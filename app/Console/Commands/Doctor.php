@@ -470,6 +470,9 @@ final class Doctor extends Command
         foreach (app(RestoreDrill::class)->checks() as $check) { // P13: a restore that was really tried, within 35 days
             $this->addChecked($check);
         }
+        $warnMinutes = max(1, (int) config('onhost.platform_backup.db_dump_warn_minutes', 70)); // A2: RPO 1 h — the hourly --db-only dump
+        $dumpAt = isset($backup['last_db']['at']) ? CarbonImmutable::parse((string) $backup['last_db']['at']) : null;
+        $this->add('storage', "platform database dump within {$warnMinutes} min", $dumpAt !== null && $dumpAt->gt(now()->subMinutes($warnMinutes)), $dumpAt !== null ? 'set '.$backup['last_db']['set'].' taken '.$dumpAt->diffForHumans().' — onhost:platform:backup --db-only runs hourly' : 'no dump yet — onhost:platform:backup --db-only runs hourly', false);
         $backupDriver = (string) config('filesystems.disks.'.$backup['disk'].'.driver', 'missing'); // A4: an S3-compatible disk, not merely "not local" (public is this server too)
         $this->add('storage', 'platform backup disk off the server', ! $this->production || $backupDriver === 's3', $backup['disk'].' (driver '.$backupDriver.')', true, 'create the off-site S3 bucket with a lifecycle rule (owner step PR-10), composer require league/flysystem-aws-s3-v3 (then php artisan onhost:oss-inventory), define it as an s3 disk in config/filesystems.php, set ONHOST_PLATFORM_BACKUP_DISK to it, then php artisan config:cache');
         try {
