@@ -37,29 +37,33 @@ the time lock (proofs: `StaffModeTest` "P0-16 re-check", `PayAndRestoreTest` "P0
 
 The first three entries below are written down but still **allowed** until the operator switches the rule on. Until then the
 look-back for these is not a look-back: a clean report means only "not used yet", and a re-run after the Phase 0 deploy may
-grow. The last entry, found by the same re-check, has no switch and no fix yet. Phase 0 is not signed off while this list has
-an entry. Switch each rule on as its line says (or land the fix), then strike the line (the register test in
+grow. Phase 0 is not signed off while this list has an entry. Switch each rule on as its line says (or land the fix), then strike the line (the register test in
 `PhaseZeroOpenItemsTest.php` reads this list).
+
+Struck by TASK-0046 (proofs in `tests/Feature/Security/LastPhaseZeroLeaksTest.php`): `GET /v1/me` (PA-04, P0-09; found by the
+P0-16 re-check) now answers a token bound to an organization with that organization only, and a token bound to none with only
+the id and name of the other organizations; the portal session keeps the full answer ("answers GET /v1/me over a token bound to
+one organization…", "…bound to no organization…", "keeps the full GET /v1/me for the portal session…"). The customer-route
+half of `archive.restore` (IF-4, P0-08) is closed: a global staff binding no longer passes `assertMayRestore` on the customer's
+archive or action endpoint ("refuses on the customer routes an archive restore that only a global staff binding allows…").
+Both were open until TASK-0046 is deployed; the look-back still has to cover that time (reads of `/v1/me` are not audited).
 
 * `IF-4` (P0-08, then P0-15, TASK-0039): a global staff role, or a JIT elevation, still reaches the customer keys it holds
   (`support.ticket.read`, `backup.delete`, `backup.restore`, …) in every organization. Each such allow is now written once per
   person, key, organization and day to `security_events` kind `authz.staff_reach`, and a customer CRITICAL key reached this
   way is CRITICAL. It is refused once `ONHOST_STAFF_REACH_ENFORCED=true`, which is due when
   `php artisan operator:authz:staff-reach --days=7` has stayed empty; P0-15 then takes the customer keys off the staff roles.
-* `archive.restore` (IF-4, P0-08, TASK-0039): a global `backup.read`/`backup.restore` binding still passes
-  `ServiceArchiveService::assertMayRestore` for every organization — one member of staff can restore an archive over a
-  customer's live site. It is written to `authz.staff_reach` and refused with the same switch, `ONHOST_STAFF_REACH_ENFORCED`.
+* `archive.restore` (IF-4, P0-08, TASK-0039; staff mode only since TASK-0046): on the customer routes a global staff binding no
+  longer restores (struck above). In staff mode (`/v1/staff/services/{id}/actions`) a staff role that carries the restore
+  (`backup_dr_admin`) still restores an archive over any customer's live site on the platform's authority, a step-up and a
+  reason being the only brakes (`LastPhaseZeroLeaksTest` "lets a member of staff restore an archive in staff mode…"). It is
+  written to `authz.staff_reach` and refused with the same switch, `ONHOST_STAFF_REACH_ENFORCED`.
 * `PA-04` (IF-5, P0-09, TASK-0039): a token bound to an organization acts for that organization only, and never with a staff
   role's global reach. A token stored with **no** organization (`personal_access_tokens.organization_id` empty) still acts
   for every organization its person belongs to, until `ONHOST_TOKEN_ORGANIZATION_REQUIRED=true`: list them with
   `php artisan operator:tokens:unbound --dry-run`, tell the owners, then switch it on. Look-back source: `token_cross_org`.
   Runs queued with a token before this release carry no `desired.token_id` and finish on the person's full view even after the
   token is revoked; deploy when none is in flight, or let them finish first.
-* `GET /v1/me` (PA-04, P0-09; P0-16 re-check on the final chain, MEDIUM, **no switch, no fix yet**): the route is open to
-  tokens and returns every current membership of the token's person, each with the full organization record (billing e-mail,
-  company and VAT ids, address, settings, the person's role there). A token bound to organization A reads organization B's
-  data. Fix: answer a token with its own organization only, proven by a failing-first test in `TokenPrincipalTest`. The
-  `token_cross_org` source does not see it (reads are not audited).
 
 ## Still open after Slice 1
 

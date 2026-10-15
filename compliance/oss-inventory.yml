@@ -838,7 +838,7 @@ components:
     homepage: 'https://symfony.com'
   -
     name: symfony/http-foundation
-    version: v7.4.18
+    version: v7.4.21
     license: MIT
     scope: runtime
     source: 'https://github.com/symfony/http-foundation.git'

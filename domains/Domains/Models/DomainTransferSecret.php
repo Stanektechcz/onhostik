@@ -4,9 +4,15 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Domains\Models;
 
+use Illuminate\Support\Carbon;
 use Onhost\Platform\Eloquent\Model;
 
-/** AUTH-ID handling: encrypted at rest, short-lived, wiped after use, never logged (blueprint §46.5). */
+/**
+ * AUTH-ID handling: encrypted at rest, short-lived, wiped after use, never logged (blueprint §46.5).
+ *
+ * @property Carbon $expires_at
+ * @property Carbon|null $used_at
+ */
 final class DomainTransferSecret extends Model
 {
     protected static string $idPrefix = 'dts';

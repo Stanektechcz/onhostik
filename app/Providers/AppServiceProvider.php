@@ -10,6 +10,7 @@ use Illuminate\Console\Events\ScheduledTaskFailed;
 use Illuminate\Console\Events\ScheduledTaskFinished;
 use Illuminate\Console\Events\ScheduledTaskSkipped;
 use Illuminate\Console\Events\ScheduledTaskStarting;
+use Illuminate\Foundation\Events\LocaleUpdated;
 use Illuminate\Http\Request;
 use Illuminate\Queue\Events\Looping;
 use Illuminate\Support\Facades\Event;
@@ -42,6 +43,10 @@ final class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Event::listen(Looping::class, [QueueLaneHeartbeat::class, 'handle']); // every worker loop stamps its own lane (TASK-0045)
+        // C2 (panel 2026-10-15): a stored 'sk' preference reads Czech strings before English; every other locale keeps config('app.fallback_locale')
+        Event::listen(LocaleUpdated::class, function (LocaleUpdated $event): void {
+            $this->app['translator']->setFallback($event->locale === 'sk' ? 'cs' : (string) config('app.fallback_locale', 'en'));
+        });
         // P14: every scheduled job records its last start, success, failure and skip (ScheduleHealth, doctor row and /metrics)
         Event::listen(ScheduledTaskStarting::class, [ScheduleHealth::class, 'starting']);
         Event::listen(ScheduledTaskFinished::class, [ScheduleHealth::class, 'finished']);
@@ -64,6 +69,12 @@ final class AppServiceProvider extends ServiceProvider
             $email = strtolower(trim((string) ($request->input('email') ?? $request->input('customer.email') ?? '')));
 
             return array_values(array_filter([Limit::perMinute(10)->by('ip:'.$request->ip()), $email === '' ? null : Limit::perMinute(5)->by('email:'.$email)]));
+        });
+        // E2: the waitlist mails a stranger's address — 10 an hour per address, 3 an hour per e-mail (no e-mail, no e-mail bucket)
+        RateLimiter::for('waitlist', function (Request $request) {
+            $email = strtolower(trim((string) $request->input('email', '')));
+
+            return array_values(array_filter([Limit::perHour(10)->by('waitlist-ip:'.$request->ip()), $email === '' ? null : Limit::perHour(3)->by('waitlist-email:'.hash('sha256', $email))]));
         });
         RateLimiter::for('payment-callbacks', fn (Request $request) => Limit::perMinute(120)->by('pay:'.$request->ip()));
         // keyed by ADDRESS only: the callers are unauthenticated, so a key that includes the presented bearer gave every rotated value a fresh bucket (D7)

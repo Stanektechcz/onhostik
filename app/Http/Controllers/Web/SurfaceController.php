@@ -10,6 +10,7 @@ use App\Http\Support\CreditClaimsSeam;
 use App\Http\Support\CurrentOrganization;
 use App\Http\Support\PublicApiDocs;
 use App\Http\Support\PublicContentSeam;
+use App\Http\Support\PublicSeo;
 use App\Http\Support\ServicePageClaimsSeam;
 use App\Http\Support\SurfaceRenderer;
 use Illuminate\Http\Request;
@@ -178,6 +179,9 @@ final class SurfaceController extends Controller
             return redirect(self::PARTNER_APPLICATION);
         }
         $html = $this->renderer->render($surface, $boot, $demo); // the credit/bonus/archive sentences are corrected inside render(), in the template only (G8 item 9, H2)
+        if ($surface === 'public' && ! $demo) {
+            $html = PublicSeo::withHreflang($html, $request->path()); // N15: hreflang through the head seam, sitemap pages only
+        }
         $headers = ['Content-Type' => 'text/html; charset=utf-8', 'Cache-Control' => 'no-store', 'X-Frame-Options' => 'SAMEORIGIN', 'Referrer-Policy' => 'strict-origin-when-cross-origin'];
         if (in_array($surface, self::CONCEPT_SURFACES, true)) {
             $headers['X-Robots-Tag'] = 'noindex, nofollow';

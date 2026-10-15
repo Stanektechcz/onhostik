@@ -1,0 +1,35 @@
+# /etc/systemd/system/onhost-restore-drill.service — the monthly restore drill of the platform backup (P13, item A7).
+# Runs /usr/local/sbin/onhost-restore-drill.sh as root (the script drops to RUN_USER for artisan itself): a root-owned
+# copy of infra/aapanel/restore-drill.sh taken from root's repository, never the script in $APP_DIR, which www can write
+# (a script www could edit would run as root). Started only by onhost-restore-drill.timer or by hand. NOT enabled by the
+# repository: installing and enabling it is an owner step
+# (docs/runbooks/restore-drill-timer.md). Any non-zero exit (1 restored copy failed, 2 refused, 3 export/restore failed)
+# marks the unit failed.
+#
+# The DB password is never in this file nor in the environment file: it comes from a root-only systemd credential
+# (a libpq pgpass line) read through PGPASSFILE. Without the env file or the credential the unit does not start.
+[Unit]
+Description=ONhost restore drill of the platform backup (monthly)
+After=network-online.target postgresql.service
+Wants=network-online.target
+ConditionPathExists=/etc/onhost/restore-drill.env
+ConditionPathExists=/etc/onhost/credentials/restore-drill.pgpass
+
+[Service]
+Type=oneshot
+User=root
+# SITE, APP_DIR, PHP, RUN_USER, PGHOST, PGPORT, PGUSER (no password) — see the runbook
+EnvironmentFile=/etc/onhost/restore-drill.env
+LoadCredential=pgpass:/etc/onhost/credentials/restore-drill.pgpass
+# Read by the root-side psql/pg_dump/pg_restore only; artisan runs under setpriv with env -i and cannot read %d.
+Environment=PGPASSFILE=%d/pgpass
+# SITE and APP_DIR must be set explicitly: the script would otherwise fall back to the staging defaults.
+ExecStart=/bin/sh -c ': "$${SITE:?SITE missing in restore-drill.env}" "$${APP_DIR:?APP_DIR missing in restore-drill.env}"; exec /bin/bash /usr/local/sbin/onhost-restore-drill.sh'
+TimeoutStartSec=4h
+Nice=10
+IOSchedulingClass=idle
+PrivateTmp=true
+StandardInput=null
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true

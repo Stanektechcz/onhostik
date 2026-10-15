@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use App\Http\Middleware\RequestMetrics;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Incidents\Models\SlaProbe;
 
@@ -20,6 +22,36 @@ it('answers readiness with component checks and exports Prometheus metrics behin
         ->toContain('onhost_outbox_pending_total 1')->toContain('onhost_probe_last_seen_timestamp{probe="portal-cz",component="portal",location="probe-cz-external"}')
         ->toContain('onhost_status_component_operational{component="portal",state="operational"} 1')->toContain('onhost_registrar_credit_czk');
     expect((int) preg_replace('/\D/', '', (string) preg_replace('/.*onhost_outbox_pending_oldest_seconds (\d+).*/s', '$1', $body)))->toBeGreaterThanOrEqual(89);
+});
+
+it('exports a cumulative request latency histogram next to the average (F7)', function () {
+    config(['onhost.metrics.token' => 'prom-token', 'onhost.metrics.allow_ips' => ['203.0.113.9']]);
+    expect(RequestMetrics::bucketKey('v1', 0.004))->toBe('metrics:http:v1:b0')
+        ->and(RequestMetrics::bucketKey('v1', 0.3))->toBe('metrics:http:v1:b6')
+        ->and(RequestMetrics::bucketKey('v1', 42.0))->toBe('metrics:http:v1:binf');
+    Cache::store('metrics')->put('metrics:http:v1:b0', 3);
+    Cache::store('metrics')->put('metrics:http:v1:b6', 2);
+    Cache::store('metrics')->put('metrics:http:v1:binf', 1);
+    Cache::store('metrics')->put('metrics:http:v1:ms', 43000);
+    Cache::store('metrics')->put('metrics:http:v1:n', 6);
+
+    $body = (string) $this->withToken('prom-token')->get('/metrics')->assertOk()->getContent();
+    expect($body)->toContain('# TYPE onhost_http_request_duration_seconds histogram')
+        ->toContain('onhost_http_request_duration_seconds_bucket{family="v1",le="0.005"} 3')
+        ->toContain('onhost_http_request_duration_seconds_bucket{family="v1",le="0.25"} 3')
+        ->toContain('onhost_http_request_duration_seconds_bucket{family="v1",le="0.5"} 5')
+        ->toContain('onhost_http_request_duration_seconds_bucket{family="v1",le="10"} 5')
+        ->toContain('onhost_http_request_duration_seconds_bucket{family="v1",le="+Inf"} 6')
+        ->toContain('onhost_http_request_duration_seconds_sum{family="v1"} 43.000000')
+        ->toContain('onhost_http_request_duration_seconds_count{family="v1"} 6')
+        ->toContain('# TYPE onhost_http_request_avg_ms gauge');
+});
+
+it('counts requests in the dedicated metrics cache store, not the app cache (N6)', function () {
+    expect(config('cache.stores.metrics'))->toBeArray()->toHaveKey('driver');
+    $this->getJson('/v1/status')->assertOk();
+    expect((int) Cache::store('metrics')->get('metrics:http:v1:n', 0))->toBeGreaterThanOrEqual(1)
+        ->and(Cache::store('array')->get('metrics:http:v1:n'))->toBeNull();
 });
 
 it('sends hardening headers with a CSP that allows only the vendored runtime and Google Fonts', function () {

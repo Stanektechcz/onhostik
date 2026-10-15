@@ -581,3 +581,24 @@ the next A–C cycle (or the drill runs before step B), in production it is a go
 `onhost:backups:compute-plan` lists no `MISSING` and the PBS test VM restored (PX-3, P-R50); `backups.as_sold` after
 `onhost:backups:frequency-plan` (PX-4, P-R51: retention = the days a restorable point exists); `mail.backup_retention` after
 `onhost:mail:backup-retention` without `--apply`. None is switched by this package.
+
+## RPO of the control plane database: one hour (A2, owner decision 2026-10-15)
+
+The owner set the recovery point objective of the control plane database to **1 hour** (invoices and the ledger
+cannot lose a day). Until WAL archiving (wal-g) runs on the production host, an hourly dump carries it:
+
+* `onhost:platform:backup --db-only` runs every hour at :40 and writes `platform-backups/<Ymd-His>-db` (database dump and
+  manifest only) to the same backup disk as the nightly set — off-site S3 in production (bucket PR-10, doctor row
+  "platform backup disk off the server"). Same dump, same manifest and checksums, same `verify` path as the full set.
+* The hourly run and the nightly full set (02:15) share one cache lock (`onhost:platform:backup:lock`); whichever comes
+  second skips with a warning and the next slot takes over.
+* Retention: database-only sets 48 h (`ONHOST_PLATFORM_BACKUP_DB_ONLY_RETENTION_HOURS`), full sets
+  `ONHOST_PLATFORM_BACKUP_RETENTION_DAYS`; the newest set of each kind is never pruned. Retention applies on the
+  off-site disk itself; the bucket lifecycle rule (PR-10) must not delete sooner.
+* `onhost:platform:backup:verify`, `export-db` and the restore drill pick the newest **full** set by default; to restore
+  the newest hourly dump name it: `onhost:platform:backup:export-db platform-backups/<Ymd-His>-db --to=<new file>`.
+* Doctor WARN "platform database dump within 70 min" (`ONHOST_PLATFORM_BACKUP_DB_WARN_MINUTES`); metric
+  `onhost_platform_backup_db_timestamp`; alert `OnhostBackupStale` also pages when no dump is newer than 70 min for 30 min.
+
+**When it fires:** run `php artisan onhost:platform:backup --db-only` by hand, then `onhost:platform:backup:verify
+<set>` on the set it printed; if the dump fails, see the doctor rows for the backup disk and `ONHOST_PG_BIN`.

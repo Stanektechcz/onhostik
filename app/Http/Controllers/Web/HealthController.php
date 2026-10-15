@@ -77,13 +77,27 @@ final class HealthController extends Controller
         $latency = [];
         foreach (RequestMetrics::FAMILIES as $family) {
             foreach (['2xx', '3xx', '4xx', '5xx'] as $class) {
-                $http[] = [['family' => $family, 'status' => $class], (int) Cache::get("metrics:http:{$family}:{$class}", 0)];
+                $http[] = [['family' => $family, 'status' => $class], (int) Cache::store('metrics')->get("metrics:http:{$family}:{$class}", 0)];
             }
-            $n = (int) Cache::get("metrics:http:{$family}:n", 0);
-            $latency[] = [['family' => $family], $n > 0 ? round(((int) Cache::get("metrics:http:{$family}:ms", 0)) / $n, 2) : 0.0];
+            $n = (int) Cache::store('metrics')->get("metrics:http:{$family}:n", 0);
+            $latency[] = [['family' => $family], $n > 0 ? round(((int) Cache::store('metrics')->get("metrics:http:{$family}:ms", 0)) / $n, 2) : 0.0];
         }
         $emit('onhost_http_requests_total', 'counter', 'HTTP requests by family and status class', $http);
         $emit('onhost_http_request_avg_ms', 'gauge', 'Average request duration since process start', $latency);
+        // F7: cumulative latency histogram (p95 via histogram_quantile); _sum is the millisecond total, so ms precision
+        $lines[] = '# HELP onhost_http_request_duration_seconds HTTP request duration by family';
+        $lines[] = '# TYPE onhost_http_request_duration_seconds histogram';
+        foreach (RequestMetrics::FAMILIES as $family) {
+            $cumulative = 0;
+            foreach (RequestMetrics::BUCKETS as $i => $le) {
+                $cumulative += (int) Cache::store('metrics')->get("metrics:http:{$family}:b{$i}", 0);
+                $lines[] = 'onhost_http_request_duration_seconds_bucket{family="'.$family.'",le="'.$le.'"} '.$cumulative;
+            }
+            $cumulative += (int) Cache::store('metrics')->get("metrics:http:{$family}:binf", 0);
+            $lines[] = 'onhost_http_request_duration_seconds_bucket{family="'.$family.'",le="+Inf"} '.$cumulative;
+            $lines[] = 'onhost_http_request_duration_seconds_sum{family="'.$family.'"} '.sprintf('%.6f', ((int) Cache::store('metrics')->get("metrics:http:{$family}:ms", 0)) / 1000);
+            $lines[] = 'onhost_http_request_duration_seconds_count{family="'.$family.'"} '.$cumulative;
+        }
         $emit('onhost_outbox_pending_oldest_seconds', 'gauge', 'Age of the oldest unpublished outbox message', [[[], $this->outboxLagSeconds()]]);
         $emit('onhost_outbox_pending_total', 'gauge', 'Unpublished outbox messages', [[[], (int) DB::table('outbox_messages')->whereNull('published_at')->count()]]);
         // G7 (TASK-0115): the messages the relay gave up on, apart — the lag above no longer counts them (the relay cannot fix them)
@@ -158,6 +172,7 @@ final class HealthController extends Controller
         // operations the doctor checks by hand, as time series (go-live checklist §1): backups, the queue worker and scheduler heartbeats, the virus scanner, on-call
         $backup = app(PlatformBackup::class)->status();
         $emit('onhost_platform_backup_verified_timestamp', 'gauge', 'Unix time of the last verified platform backup (0 = none)', [[[], isset($backup['verified']['at']) ? Carbon::parse((string) $backup['verified']['at'])->getTimestamp() : 0]]);
+        $emit('onhost_platform_backup_db_timestamp', 'gauge', 'Unix time of the newest platform database dump, hourly or nightly (0 = none)', [[[], isset($backup['last_db']['at']) ? Carbon::parse((string) $backup['last_db']['at'])->getTimestamp() : 0]]);
         // P13: the newest restore drill (infra/aapanel/restore-drill.sh) — its time and whether the restored copy passed
         $drill = app(RestoreDrill::class)->latest();
         $emit('onhost_platform_restore_drill_timestamp', 'gauge', 'Unix time of the newest platform restore drill (0 = none)', [[[], $drill !== null ? Carbon::parse((string) ($drill['at'] ?? '@0'))->getTimestamp() : 0]]);

@@ -6,8 +6,11 @@ namespace App\Http\Controllers\Api\V1;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
+use Onhost\Domain\Content\Commands\WaitlistCommand;
 use Onhost\Domain\Content\ContentService;
 use Onhost\Domain\Content\Models\Lead;
+use Onhost\Domain\Content\Waitlist\WaitlistService;
 use Onhost\Domain\Risk\Turnstile;
 
 /** Public content and forms for Onhost.dc.html (`onhost-data.js` / `onhost-content.js` shapes). */
@@ -88,6 +91,37 @@ final class ContentController extends ApiController
         $result = $content->resellerApply($data, $this->api->context($request, $organization), $organization);
 
         return response()->json(['data' => ['lead_id' => $result['lead']->id, 'partner' => $result['partner'] ? ['id' => $result['partner']->id, 'code' => $result['partner']->code, 'state' => $result['partner']->state] : null]], 201);
+    }
+
+    /**
+     * E2: "tell me when {product} is available" — double opt-in. The answer is the same for a new, a pending and a confirmed
+     * address (202), so the form tells nobody who is on the list; the confirmation mail goes out through the outbox.
+     */
+    public function waitlistSignup(Request $request, Turnstile $turnstile): JsonResponse
+    {
+        $turnstile->requireForForm($request, 'waitlist');
+        $data = $request->validate([
+            'email' => ['required', 'email', 'max:190'], 'product' => ['required', 'string', 'max:64', 'regex:'.WaitlistService::PRODUCT_PATTERN],
+            'consent' => ['accepted'], 'consent_version' => ['required', 'string', 'max:20'],
+        ]);
+
+        return $this->ok($this->bus->dispatch(new WaitlistCommand('waitlist.signup:'.Str::ulid(), [
+            'op' => 'signup', 'email' => $data['email'], 'product' => $data['product'], 'consent_version' => $data['consent_version'], 'locale' => $this->locale($request),
+        ]), $this->api->context($request)), 202);
+    }
+
+    public function waitlistConfirm(Request $request): JsonResponse
+    {
+        $data = $request->validate(['token' => ['required', 'string', 'max:128']]);
+
+        return $this->ok($this->bus->dispatch(new WaitlistCommand('waitlist.confirm:'.Str::ulid(), ['op' => 'confirm', 'token' => $data['token']]), $this->api->context($request)));
+    }
+
+    public function waitlistWithdraw(Request $request): JsonResponse
+    {
+        $data = $request->validate(['token' => ['required', 'string', 'max:128']]);
+
+        return $this->ok($this->bus->dispatch(new WaitlistCommand('waitlist.withdraw:'.Str::ulid(), ['op' => 'withdraw', 'token' => $data['token']]), $this->api->context($request)));
     }
 
     private function locale(Request $request): string

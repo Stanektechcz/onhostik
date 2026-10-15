@@ -56,6 +56,8 @@ return [
     'platform_backup' => [ // backups of the control plane itself: database dump + private file store (go-live checklist §1)
         'disk' => env('ONHOST_PLATFORM_BACKUP_DISK', 'local'),      // a filesystems.disks entry; S3-compatible and off the server in production
         'retention_days' => (int) env('ONHOST_PLATFORM_BACKUP_RETENTION_DAYS', 30),
+        'db_only_retention_hours' => (int) env('ONHOST_PLATFORM_BACKUP_DB_ONLY_RETENTION_HOURS', 48), // A2: the hourly database-only sets (RPO 1 h)
+        'db_dump_warn_minutes' => (int) env('ONHOST_PLATFORM_BACKUP_DB_WARN_MINUTES', 70),          // A2: doctor WARN when the newest dump is older
         'files_root' => env('ONHOST_PLATFORM_BACKUP_FILES_ROOT'),   // default storage/app/private
         'service_archive_days' => (int) env('ONHOST_SERVICE_ARCHIVE_DAYS', 60), // a terminated service is archived (files, databases, metadata) and kept this long — audit §5aa
         'game_archive_timeout' => (int) env('ONHOST_GAME_ARCHIVE_TIMEOUT', 1800),
@@ -136,6 +138,8 @@ return [
         'four_eyes' => (bool) env('ONHOST_FOUR_EYES', true),
         // ── TASK-0021 (owner decision 14): a password change revokes the person's personal API tokens, a reset always does. Off = the old "tokens kept" path and its mail
         'password_change_revokes_api_access' => (bool) env('ONHOST_PASSWORD_CHANGE_REVOKES_API_ACCESS', true),
+        // D4 (2026-10-15): reserved configuration only — no OIDC sign-in is implemented and nothing reads these keys;
+        // OIDC_ENABLED=true changes nothing but a Doctor WARN (`OIDC not implemented`)
         'oidc' => [
             'enabled' => (bool) env('OIDC_ENABLED', false),
             'issuer' => env('OIDC_ISSUER', 'https://id.onhost.cz/realms/onhost'),
@@ -462,6 +466,18 @@ return [
     // events and transactional mails leave within seconds through queued jobs (the minute scheduler stays as the safety net)
     'outbox' => [
         'eager' => (bool) env('ONHOST_OUTBOX_EAGER', true),
+        // A1: relayed messages are deleted by `model:prune` after this many days; an unrelayed one (published_at null) never is
+        'retention_days' => (int) env('ONHOST_OUTBOX_RETENTION_DAYS', 30),
+    ],
+
+    // A1: kernel log retention, pruned in batches by onhost:provider-calls:prune and onhost:idempotency:prune
+    'provider_calls' => [
+        'retention_days' => (int) env('ONHOST_PROVIDER_CALLS_RETENTION_DAYS', 90),
+    ],
+
+    // A1: batch size shared by the retention prunes (onhost:provider-calls:prune, onhost:idempotency:prune)
+    'retention' => [
+        'prune_batch' => 1000,
     ],
 
     /*
@@ -781,7 +797,11 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
 
     'status' => [
         'maintenance_lead_hours' => 48,
-        'custom_cname' => env('ONHOST_STATUS_CNAME'), // the CNAME target of the customers' own status hosts (audit §5k-3); empty = the portal host
+        'custom_cname' => env('ONHOST_STATUS_CNAME'),
+        // N14: the platform status page on its own host; off until DNS and TLS for the host are in place (cutover)
+        'host_enabled' => (bool) env('ONHOST_STATUS_HOST_ENABLED', false),
+        'host' => env('ONHOST_STATUS_HOST', 'status.onhost.cz'),
+        'snapshot_ttl' => 60, // seconds the public snapshot is reused; incident.resolved drops it at once // the CNAME target of the customers' own status hosts (audit §5k-3); empty = the portal host
         'components' => [
             'web-cz1' => 'Web Hosting CZ1', 'managed' => 'Managed Hosting', 'apps-cz1' => 'Apps CZ1', 'cloud-cz1' => 'Cloud CZ1',
             'games-cz1' => 'Games CZ1', 'dns' => 'DNS', 'domains' => 'Domains/Registrar', 'mail' => 'Mail',

@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schedule;
 use Illuminate\Support\Facades\URL;
@@ -12,8 +13,10 @@ use Onhost\Domain\Billing\ChargebackAnalyst;
 use Onhost\Domain\Billing\DunningService;
 use Onhost\Domain\Billing\MeteringService;
 use Onhost\Domain\Billing\RatingService;
+use Onhost\Domain\Billing\SubscriptionExpiryNotices;
 use Onhost\Domain\Billing\SubscriptionService;
 use Onhost\Domain\Compliance\ComplianceService;
+use Onhost\Domain\Content\Waitlist\WaitlistService;
 use Onhost\Domain\Dns\DnsService;
 use Onhost\Domain\Dns\Models\DnsRecord;
 use Onhost\Domain\Dns\Models\DnsZone;
@@ -117,6 +120,7 @@ use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Files\FileStore;
 use Onhost\Platform\Ops\PlatformBackup;
 use Onhost\Platform\Ops\RestoreDrill;
+use Onhost\Platform\Outbox\OutboxMessage;
 use Onhost\Platform\Outbox\OutboxPublisher;
 use Onhost\Platform\Redaction\Redactor;
 use Onhost\Platform\Secrets\SecretStore;
@@ -414,6 +418,35 @@ Artisan::command('onhost:files:prune', function (FileStore $files, AutomationLed
     $this->table(array_keys($stats), [$stats]);
 })->purpose('Delete marketplace evidence past its retention and expired data exports (audit §5q-4)');
 
+// A1: kernel log retention. Both delete in batches by primary key so a large backlog never holds one long lock.
+Artisan::command('onhost:provider-calls:prune {--days= : override onhost.provider_calls.retention_days}', function () {
+    $days = max(1, (int) ($this->option('days') ?? config('onhost.provider_calls.retention_days', 90)));
+    $batch = max(1, (int) config('onhost.retention.prune_batch', 1000));
+    $cutoff = now()->subDays($days);
+    $deleted = 0;
+    do {
+        $ids = DB::table('provider_calls')->where('created_at', '<', $cutoff)->orderBy('id')->limit($batch)->pluck('id')->all();
+        $deleted += $ids === [] ? 0 : DB::table('provider_calls')->whereIn('id', $ids)->delete();
+    } while (count($ids) === $batch);
+    $this->info("pruned provider_calls: {$deleted} (older than {$days} days)");
+})->purpose('Delete provider call logs past their retention (90 days by default), in batches');
+
+Artisan::command('onhost:idempotency:prune', function () {
+    $batch = max(1, (int) config('onhost.retention.prune_batch', 1000));
+    $deleted = 0;
+    do {
+        $ids = DB::table('idempotency_keys')->whereNotNull('expires_at')->where('expires_at', '<', now())->orderBy('id')->limit($batch)->pluck('id')->all();
+        $deleted += $ids === [] ? 0 : DB::table('idempotency_keys')->whereIn('id', $ids)->delete();
+    } while (count($ids) === $batch);
+    $this->info("pruned idempotency keys: {$deleted}");
+})->purpose('Delete expired idempotency keys, in batches');
+
+// E2: waitlist retention — unconfirmed signups after 30 days, confirmed ones 12 months after the confirmation
+Artisan::command('onhost:waitlist:prune', function (WaitlistService $waitlist) {
+    $r = $waitlist->prune();
+    $this->info("pruned waitlist signups: {$r['pending']} unconfirmed, {$r['confirmed']} confirmed");
+})->purpose('Delete waitlist signups past their retention (30 days unconfirmed, 12 months confirmed)');
+
 Artisan::command('onhost:files:scan', function (MarketplaceService $marketplace, AutomationLedger $ledger) {
     $stats = $marketplace->rescanEvidence();
     $ledger->record('files.scan', $stats);
@@ -458,21 +491,30 @@ Artisan::command('onhost:oncall:remind', function (OnCallRota $rota, AutomationL
     $this->line("reminders: {$sent}");
 })->purpose('Remind the next on-call an hour before the shift (audit §5t-4)');
 
-Artisan::command('onhost:platform:backup', function (PlatformBackup $backup, AutomationLedger $ledger) {
+Artisan::command('onhost:platform:backup {--db-only : the database dump alone, kept 48 h (hourly, RPO 1 h — docs/runbooks/backups.md)}', function (PlatformBackup $backup, AutomationLedger $ledger) {
     if (! $ledger->enabled('platform.backup')) {
         $this->warn('platform.backup is switched off');
 
         return 0;
     }
+    $dbOnly = (bool) $this->option('db-only');
+    $lock = Cache::lock(PlatformBackup::LOCK_KEY, 2 * 3600); // A2: the hourly dump and the nightly full set never run at once
+    if (! $lock->get()) {
+        $this->warn('another platform backup is running; skipped');
+
+        return 0;
+    }
     try {
-        $r = $backup->run();
+        $r = $backup->run($dbOnly);
     } catch (Throwable $e) {
-        $ledger->record('platform.backup', [], $e->getMessage());
+        $ledger->record('platform.backup', ['db_only' => $dbOnly], $e->getMessage());
         $this->error('Backup failed: '.$e->getMessage());
 
         return 1;
+    } finally {
+        $lock->release();
     }
-    $ledger->record('platform.backup', ['set' => $r['set'], 'bytes' => array_sum(array_column($r['files'], 'bytes')), 'pruned' => $r['pruned']]);
+    $ledger->record('platform.backup', ['set' => $r['set'], 'db_only' => $dbOnly, 'bytes' => array_sum(array_column($r['files'], 'bytes')), 'pruned' => $r['pruned']]);
     $this->table(['file', 'bytes', 'sha256'], array_map(fn ($n, $f) => [$n, $f['bytes'], substr($f['sha256'], 0, 16).'…'], array_keys($r['files']), $r['files']));
     $this->info("Set {$r['set']} on disk ".config('onhost.platform_backup.disk')." ({$r['database']}); pruned {$r['pruned']}");
 
@@ -561,8 +603,13 @@ Schedule::command('onhost:mail:health')->everyFiveMinutes()->withoutOverlapping(
 Schedule::command('onhost:webhooks:retry')->everyMinute()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:oncall:escalate')->everyMinute()->withoutOverlapping()->onOneServer(); // unacknowledged pages escalate (audit §5q-1)
 Schedule::command('onhost:files:prune')->dailyAt('04:25')->onOneServer(); // file retention (audit §5q-4)
+Schedule::command('onhost:provider-calls:prune')->dailyAt('03:00')->withoutOverlapping()->onOneServer(); // A1: provider_calls retention
+Schedule::command('onhost:waitlist:prune')->dailyAt('03:10')->withoutOverlapping()->onOneServer(); // E2: waitlist retention
+Schedule::command('onhost:idempotency:prune')->dailyAt('03:05')->withoutOverlapping()->onOneServer(); // A1: expired idempotency keys
+Schedule::command('model:prune', ['--model' => [OutboxMessage::class]])->dailyAt('03:10')->withoutOverlapping()->onOneServer(); // A1: relayed outbox rows only
 Schedule::command('onhost:platform:backup')->dailyAt('02:15')->onOneServer(); // control plane backup (go-live §1)
 Schedule::command('onhost:platform:backup:verify')->dailyAt('03:15')->onOneServer();
+Schedule::command('onhost:platform:backup', ['--db-only'])->hourlyAt(40)->onOneServer(); // A2: RPO 1 h for the control plane database
 Schedule::command('onhost:oncall:remind')->everyFiveMinutes()->withoutOverlapping()->onOneServer(); // shift reminders (audit §5t-4)
 Schedule::command('onhost:game:templates:verify')->dailyAt('05:10')->onOneServer(); // template drift against the panel (audit §5s)
 Schedule::command('onhost:files:scan')->everyTenMinutes()->withoutOverlapping()->onOneServer(); // retry of the virus scan (audit §5r-4)
@@ -595,6 +642,7 @@ Schedule::command('onhost:billing:rate')->everyFiveMinutes()->withoutOverlapping
 Schedule::command('onhost:billing:renewals')->hourlyAt(20)->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:billing:dunning')->dailyAt('06:00')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:billing:runway')->dailyAt('07:30')->withoutOverlapping()->onOneServer();
+Schedule::command('onhost:billing:expiry-notices')->dailyAt('07:40')->withoutOverlapping()->onOneServer(); // N18: services that end with their paid period
 Schedule::command('onhost:dns:platform-sync')->hourlyAt(25)->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:dns:drift')->dailyAt('03:40')->withoutOverlapping()->onOneServer(); // what the DNS providers serve vs what we hold
 Schedule::command('onhost:fx:sync')->timezone('Europe/Prague')->weekdays()->at('14:40')->withoutOverlapping()->onOneServer(); // the national bank publishes at 14:30
@@ -1432,6 +1480,10 @@ Artisan::command('onhost:dns:platform-sync {--service=* : limit to these service
 Artisan::command('onhost:billing:runway', function (WalletForecast $forecast) {
     $this->table(['checked', 'warned'], [$forecast->warnLow()]);
 })->purpose('Warn organizations whose credit will not cover the renewals of the next two weeks');
+
+Artisan::command('onhost:billing:expiry-notices', function (SubscriptionExpiryNotices $notices) {
+    $this->table(['checked', 'notified'], [$notices->run()]);
+})->purpose('Tell customers 14/7/1 days ahead that a service ends with its paid period because it is not to renew (N18)');
 
 Artisan::command('onhost:certificates:issue-pending {--limit=20}', function (CertificateAutoIssuer $issuer, AutomationLedger $ledger) {
     if ($ledger->off('certificates.issue')) {

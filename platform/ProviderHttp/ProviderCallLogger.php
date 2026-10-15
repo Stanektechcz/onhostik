@@ -11,8 +11,8 @@ use Onhost\Platform\Observability\Tracer;
 use Onhost\Platform\Redaction\Redactor;
 
 /**
- * Every vendor call is written to `provider_calls` with masked bodies (retention 90
- * days, pruned by `onhost:provider-calls:prune`). Bodies above 16 KB are truncated.
+ * Every vendor call is written to `provider_calls` with masked bodies (retention
+ * `onhost.provider_calls.retention_days`, 90 by default, pruned by `onhost:provider-calls:prune`). Bodies above 16 KB are truncated.
  */
 final class ProviderCallLogger
 {

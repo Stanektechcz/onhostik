@@ -13,6 +13,7 @@ Run and summarize (do not paste raw output):
 3. `git log --oneline -5 development` and, for each active task branch, `git log --oneline development..<branch>`.
 4. `.ai/state/last-gate.json` of this worktree if present (verdict, regressions, when).
 5. `.ai/PROJECT_STATE.md` → *Known issues* and *Next safe steps*.
+   Then list every row of `.ai/owner-queue.md` that is not `DONE` (step, status, date) under *Attention needed*.
 6. Optional when asked: `gh run list --branch development --workflow tests --limit 3` (CI incl. PostgreSQL).
 
 Answer in this shape: **Where you are** · **Active work** (table) · **Health** (gate/CI) · **Attention needed** ·

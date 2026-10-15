@@ -62,3 +62,15 @@ it('routes pages to the platform webhook and to e-mail, tickets to e-mail', func
         ->and($pager['email_configs'] ?? [])->not->toBeEmpty()
         ->and($receivers[$config['route']['receiver']]['email_configs'] ?? [])->not->toBeEmpty();
 });
+
+it('forwards the Watchdog only to the heartbeat, whose URL is read from a file outside the repository', function () {
+    expect(alertRulesAlerts()['Watchdog'] ?? null)->toBe('vector(1)');
+    $config = Yaml::parseFile(base_path('infra/monitoring/alertmanager.yml'));
+    $route = collect($config['route']['routes'])->first(fn (array $r) => in_array('severity = heartbeat', $r['matchers'] ?? [], true));
+    expect($route)->not->toBeNull()->and($route['continue'] ?? false)->toBeFalse();
+    $receiver = collect($config['receivers'])->keyBy('name')[$route['receiver']];
+    expect($receiver)->not->toHaveKey('email_configs')
+        ->and($receiver['webhook_configs'])->toHaveCount(1)
+        ->and($receiver['webhook_configs'][0])->not->toHaveKey('url')
+        ->and($receiver['webhook_configs'][0]['url_file'])->toStartWith('/etc/alertmanager/');
+});
