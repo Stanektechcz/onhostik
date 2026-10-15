@@ -439,6 +439,12 @@ Artisan::command('onhost:idempotency:prune', function () {
     $this->info("pruned idempotency keys: {$deleted}");
 })->purpose('Delete expired idempotency keys, in batches');
 
+// E2: waitlist retention — unconfirmed signups after 30 days, confirmed ones 12 months after the confirmation
+Artisan::command('onhost:waitlist:prune', function (\Onhost\Domain\Content\Waitlist\WaitlistService $waitlist) {
+    $r = $waitlist->prune();
+    $this->info("pruned waitlist signups: {$r['pending']} unconfirmed, {$r['confirmed']} confirmed");
+})->purpose('Delete waitlist signups past their retention (30 days unconfirmed, 12 months confirmed)');
+
 Artisan::command('onhost:files:scan', function (MarketplaceService $marketplace, AutomationLedger $ledger) {
     $stats = $marketplace->rescanEvidence();
     $ledger->record('files.scan', $stats);
@@ -587,6 +593,7 @@ Schedule::command('onhost:webhooks:retry')->everyMinute()->withoutOverlapping()-
 Schedule::command('onhost:oncall:escalate')->everyMinute()->withoutOverlapping()->onOneServer(); // unacknowledged pages escalate (audit §5q-1)
 Schedule::command('onhost:files:prune')->dailyAt('04:25')->onOneServer(); // file retention (audit §5q-4)
 Schedule::command('onhost:provider-calls:prune')->dailyAt('03:00')->withoutOverlapping()->onOneServer(); // A1: provider_calls retention
+Schedule::command('onhost:waitlist:prune')->dailyAt('03:10')->withoutOverlapping()->onOneServer(); // E2: waitlist retention
 Schedule::command('onhost:idempotency:prune')->dailyAt('03:05')->withoutOverlapping()->onOneServer(); // A1: expired idempotency keys
 Schedule::command('model:prune', ['--model' => [OutboxMessage::class]])->dailyAt('03:10')->withoutOverlapping()->onOneServer(); // A1: relayed outbox rows only
 Schedule::command('onhost:platform:backup')->dailyAt('02:15')->onOneServer(); // control plane backup (go-live §1)
