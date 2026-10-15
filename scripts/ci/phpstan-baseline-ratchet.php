@@ -10,7 +10,7 @@ declare(strict_types=1);
  * Usage: php scripts/ci/phpstan-baseline-ratchet.php [path-to-baseline]
  */
 
-const MAX_ENTRIES = 639;
+const MAX_ENTRIES = 636;
 
 $path = $argv[1] ?? dirname(__DIR__, 2).'/phpstan-baseline.neon';
 $contents = @file_get_contents($path);

@@ -6,7 +6,12 @@ namespace Onhost\Domain\Domains\Models;
 
 use Onhost\Platform\Eloquent\Model;
 
-/** AUTH-ID handling: encrypted at rest, short-lived, wiped after use, never logged (blueprint §46.5). */
+/**
+ * AUTH-ID handling: encrypted at rest, short-lived, wiped after use, never logged (blueprint §46.5).
+ *
+ * @property \Illuminate\Support\Carbon $expires_at
+ * @property \Illuminate\Support\Carbon|null $used_at
+ */
 final class DomainTransferSecret extends Model
 {
     protected static string $idPrefix = 'dts';

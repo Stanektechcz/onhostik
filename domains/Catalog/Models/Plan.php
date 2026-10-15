@@ -33,7 +33,9 @@ final class Plan extends Model
 
     public function currentVersion(): ?PlanVersion
     {
-        return $this->versions()->where('version', $this->current_version)->first();
+        $version = $this->versions()->where('version', $this->current_version)->first();
+
+        return $version instanceof PlanVersion ? $version : null;
     }
 
     public function localizedName(string $locale = 'cs'): string

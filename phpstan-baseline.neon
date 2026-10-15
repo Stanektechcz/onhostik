@@ -1038,11 +1038,6 @@ parameters:
 			count: 1
 			path: domains/Catalog/Commands/CatalogCommand.php
 
-		-
-			message: '#^Method Onhost\\Domain\\Catalog\\Models\\Plan\:\:currentVersion\(\) should return Onhost\\Domain\\Catalog\\Models\\PlanVersion\|null but returns Illuminate\\Database\\Eloquent\\Model\|null\.$#'
-			identifier: return.type
-			count: 1
-			path: domains/Catalog/Models/Plan.php
 
 		-
 			message: '#^Cannot call method isFuture\(\) on string\.$#'
@@ -1290,17 +1285,7 @@ parameters:
 			count: 1
 			path: domains/Domains/Models/Domain.php
 
-		-
-			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
-			identifier: method.nonObject
-			count: 1
-			path: domains/Domains/Models/DomainConsent.php
 
-		-
-			message: '#^Cannot call method isFuture\(\) on string\.$#'
-			identifier: method.nonObject
-			count: 1
-			path: domains/Domains/Models/DomainTransferSecret.php
 
 		-
 			message: '#^Cannot call method lt\(\) on string\.$#'
