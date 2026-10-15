@@ -105,8 +105,10 @@ Právní texty (VOP, souhlasy) se ve větvích kódu nenašly. Jsou v obsahu (`C
 * Ceny na locale nezávisí: stejný košík pro `?locale=cs` a `?locale=sk` dává shodné subtotal, tax, total a currency.
 * `PublicSeo::LANGUAGES` zůstává `['cs']`, hreflang `sk` se nevydává.
 
-Zapnutí `ONHOST_LOCALE_SK` má dvě podmínky:
+Fáze 2 (samostatný task, podmíněný schválením textů) a zapnutí `ONHOST_LOCALE_SK` mají čtyři podmínky:
 
 1. oprava 19 řádků se sloupcem „en“ výše, kde `sk` dnes padá do angličtiny (samostatný follow-up task
    onhost-backend, mimo tuto větev);
-2. přečtení textů `lang/sk` Adrianem.
+2. přečtení textů `lang/sk` Adrianem (W4-K3);
+3. rozhodnutí o `access.php` a `permissions.php` (přeložit, nebo ponechat fallback sk→cs);
+4. přidání `sk` do `PublicSeo::LANGUAGES` (hreflang) ve stejném commitu, který přepínač zapíná pro veřejný web.
