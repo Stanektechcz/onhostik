@@ -79,7 +79,8 @@ row, counts as failed (outside production a blocking row is `WARN`, not `FAIL`: 
   ran as another environment than the deployer read from `.env`, ownership, and the HTTP checks.
 * **GATED — stop the deploy, overridable:** `app|APP_URL uses https`, `storage|queue driver`, `secrets|secrets driver`,
   `tls|CA bundle for outbound TLS`, `catalog|the metering gap ratchet is not growing`,
-  `storage|platform backup disk off the server`. Outside production:
+  `storage|platform backup disk off the server` (OK in production only for an `s3`-driver disk with
+  `league/flysystem-aws-s3-v3` installed — `local` and `public` FAIL; always OK outside production). Outside production:
   `ALLOW_DOCTOR_FAIL="<first 12 characters of the target SHA>:<reason, 10+ characters>"`, validated in preflight,
   logged with operator, both SHAs and the accepted rows. In production the variable is refused; a GATED row passes only
   through a line `Accept-Gate: <area|check> — <reason>` in the signed message of the owner's tag (a tag with anything after its signature is refused in preflight).

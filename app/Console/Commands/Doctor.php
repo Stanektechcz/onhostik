@@ -470,7 +470,8 @@ final class Doctor extends Command
         foreach (app(RestoreDrill::class)->checks() as $check) { // P13: a restore that was really tried, within 35 days
             $this->addChecked($check);
         }
-        $this->add('storage', 'platform backup disk off the server', ! $this->production || $backup['disk'] !== 'local', $backup['disk'].($backup['disk'] === 'local' ? ' (production: an S3-compatible disk — ONHOST_PLATFORM_BACKUP_DISK)' : ''), false);
+        $backupDriver = (string) config('filesystems.disks.'.$backup['disk'].'.driver', 'missing'); // A4: an S3-compatible disk, not merely "not local" (public is this server too)
+        $this->add('storage', 'platform backup disk off the server', ! $this->production || $backupDriver === 's3', $backup['disk'].' (driver '.$backupDriver.')', true, 'create the off-site S3 bucket with a lifecycle rule (owner step PR-10), composer require league/flysystem-aws-s3-v3 (then php artisan onhost:oss-inventory), define it as an s3 disk in config/filesystems.php, set ONHOST_PLATFORM_BACKUP_DISK to it, then php artisan config:cache');
         try {
             DB::select('select 1');
             $this->add('storage', 'database reachable', true, (string) config('database.default'));
