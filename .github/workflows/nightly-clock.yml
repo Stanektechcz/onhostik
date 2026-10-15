@@ -1,0 +1,59 @@
+name: nightly-clock
+
+# F1 (panel decision 2026-10-15): the Pest suite with the clock shifted just before and just after midnight UTC
+# (ONHOST_TEST_CLOCK, tests/TestCase.php), where a fixed 12:00 misses day-boundary bugs. Nightly and on demand only,
+# never on pull requests and never a required check: a red run is a report, not a gate.
+on:
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-clock
+  cancel-in-progress: false
+
+jobs:
+  pest-clock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        clock: ['23:30:00Z', '00:30:00Z']
+    name: pest @ ${{ matrix.clock }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, intl, sqlite3, pdo_sqlite, gd, bcmath, sodium
+          coverage: none
+
+      - name: Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-${{ runner.os }}-
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Prepare the application
+        run: touch .env   # phpunit.xml carries the test environment
+
+      - name: Shifted clock
+        run: echo "ONHOST_TEST_CLOCK=$(date -u +%F)T${{ matrix.clock }}" >> "$GITHUB_ENV"
+
+      - name: Pest
+        run: |
+          echo "ONHOST_TEST_CLOCK=$ONHOST_TEST_CLOCK"
+          php artisan test --compact
