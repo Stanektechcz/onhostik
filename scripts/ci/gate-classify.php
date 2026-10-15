@@ -5,7 +5,10 @@ declare(strict_types=1);
 /*
  * W4-2: classify failing tests of a Pest JUnit report against .ai/baseline/baseline.json.
  *
- *   php scripts/ci/gate-classify.php --junit=<file> --baseline=.ai/baseline/baseline.json
+ *   php scripts/ci/gate-classify.php --junit=<file> --baseline=.ai/baseline/baseline.json [--format=text|json]
+ *
+ * W5-3: --format=json prints one object {verdict, regression, preexisting, evidence, pest_exit} on stdout
+ * with the same exit codes; argument and baseline errors still go to stderr with exit 2 and no stdout.
  *
  * Exit 0 = no regression, 1 = regression (a missing or empty JUnit report counts as one, like
  * scripts/ai/gate.ps1), 2 = the baseline is missing or invalid, or the arguments are wrong.
@@ -63,12 +66,13 @@ function gateClassifyJunitFailures(string $path): ?array
 }
 
 if (PHP_SAPI === 'cli' && realpath((string) ($_SERVER['SCRIPT_FILENAME'] ?? '')) === __FILE__) {
-    $options = getopt('', ['junit:', 'baseline:', 'pest-exit:']);
+    $options = getopt('', ['junit:', 'baseline:', 'pest-exit:', 'format:']);
     $junit = is_string($options['junit'] ?? null) ? $options['junit'] : '';
     $baselinePath = is_string($options['baseline'] ?? null) ? $options['baseline'] : '';
     $pestExit = is_string($options['pest-exit'] ?? null) ? (int) $options['pest-exit'] : 0;
-    if ($junit === '' || $baselinePath === '') {
-        fwrite(STDERR, "usage: php scripts/ci/gate-classify.php --junit=<file> --baseline=<baseline.json> [--pest-exit=<code>]\n");
+    $format = is_string($options['format'] ?? null) ? $options['format'] : 'text';
+    if ($junit === '' || $baselinePath === '' || ! in_array($format, ['text', 'json'], true)) {
+        fwrite(STDERR, "usage: php scripts/ci/gate-classify.php --junit=<file> --baseline=<baseline.json> [--pest-exit=<code>] [--format=text|json]\n");
         exit(2);
     }
 
@@ -79,14 +83,27 @@ if (PHP_SAPI === 'cli' && realpath((string) ($_SERVER['SCRIPT_FILENAME'] ?? ''))
     }
 
     $failed = gateClassifyJunitFailures($junit);
+    $evidence = 'junit';
     if ($failed === null) {
+        $evidence = 'missing-junit';
         // No report means no evidence, whatever the exit code said: never let that pass.
         $failed = ["<pest produced no JUnit report (exit {$pestExit}); no test evidence>"];
     } elseif ($pestExit !== 0 && $failed === []) {
+        $evidence = 'no-failure-named';
         $failed = ["<pest exited {$pestExit} but the report names no failing test>"];
     }
 
     $result = gateClassify(array_values(array_unique($failed)), $baseline);
+    if ($format === 'json') {
+        echo json_encode([
+            'verdict' => $result['regression'] === [] ? 'PASS' : 'FAIL',
+            'regression' => $result['regression'],
+            'preexisting' => $result['preexisting'],
+            'evidence' => $evidence,
+            'pest_exit' => $pestExit,
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR)."\n";
+        exit($result['regression'] === [] ? 0 : 1);
+    }
     foreach ($result['regression'] as $key) {
         echo "REGRESSION  {$key}\n";
     }
