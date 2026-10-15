@@ -24,6 +24,7 @@ use App\Http\Controllers\Api\V1\MeController;
 use App\Http\Controllers\Api\V1\NotificationController;
 use App\Http\Controllers\Api\V1\OrderController;
 use App\Http\Controllers\Api\V1\OrganizationController;
+use App\Http\Controllers\Api\V1\OnboardingController;
 use App\Http\Controllers\Api\V1\OrganizationStatusController;
 use App\Http\Controllers\Api\V1\PartnerController;
 use App\Http\Controllers\Api\V1\PaymentController;
@@ -270,6 +271,7 @@ Route::middleware([ThrottleFailedAuth::class, 'auth:sanctum', 'token.scope', 'th
     Route::get('account/green', [GreenController::class, 'account']); // footprint (audit §5j-10)
     Route::get('account/status-page', [OrganizationStatusController::class, 'mine']); // status page settings and preview (audit §5j-5)
     Route::post('account/status-page/verify', [OrganizationStatusController::class, 'verify']); // the customer's own status host (audit §5k-3)
+    Route::get('account/onboarding', [OnboardingController::class, 'show']); // N13: derived checklist (domain, DNS, first web); hidden via PATCH /me preferences
     Route::get('wallet/transactions', [WalletController::class, 'transactions']);
     Route::post('wallet/topup', [WalletController::class, 'topup']);
     Route::put('wallet/auto-topup', [WalletController::class, 'autoTopup']);

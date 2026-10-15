@@ -36,6 +36,7 @@ use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\OrderStateMachine;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
+use Onhost\Domain\Organizations\OnboardingChecklist;
 use Onhost\Domain\Payments\CardPayments;
 use Onhost\Domain\Payments\Models\PaymentIntent;
 use Onhost\Domain\Payments\Models\PaymentStateMachineStates as PaymentState;
@@ -826,6 +827,7 @@ final class SurfaceDataController extends Controller
             'services' => $groups + self::stateGroups($groups), 'service_cats' => self::serviceCats($groups), 'servers' => $servers, 'organization' => $organizationId, 'kpis' => $this->kpis($organizationId, $services, $cs, $can), 'billing' => $this->billing($organizationId, $services, $cs, $can),
             'nav' => self::navWithStateViews(self::navFor(app(PanelNavigation::class)->effective($organizationId), $groups, $can), $groups), 'catalog' => $this->panelCatalog($locale), 'regions' => Region::query()->where('state', 'active')->orderBy('code')->get()->map(fn ($r) => ['code' => $r->code, 'name' => $r->name, 'datacenter' => $r->datacenter])->all(),
             'consents' => $this->consentVersions(), 'tlds' => $this->panelTlds($organizationId), 'game_config' => $this->gameConfigurator->offer($locale, 'CZK'), 'generated_at' => now()->toIso8601String(),
+            'onboarding' => app(OnboardingChecklist::class)->build($organizationId, $user, $locale), // N13: derived checklist, same as GET /v1/account/onboarding
         ] + self::panelPricing($locale);
     }
 
