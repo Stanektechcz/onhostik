@@ -143,6 +143,23 @@ groups:
         for: 15m
         labels: { severity: ticket }
         annotations: { summary: "The newest platform restore drill failed: the platform backups may not restore", runbook: docs/runbooks/backups.md }
+      # A5 (panel 2026-10-15): the mail reputation and backlog gauges were exported without an alert. Binary thresholds;
+      # "info" listings are informational lists and do not hurt delivery, "never asked" (0) is the doctor's row.
+      - alert: OnhostMailBlocklisted
+        expr: onhost_mail_blocklist_listings{weight=~"major|minor"} > 0
+        for: 30m
+        labels: { severity: ticket }
+        annotations: { summary: "{{ $value }} open {{ $labels.weight }} blocklist listing(s) of a sending {{ $labels.kind }}", runbook: docs/runbooks/mail-reputation.md }
+      - alert: OnhostMailReputationStale
+        expr: onhost_mail_reputation_last_check_timestamp > 0 and time() - onhost_mail_reputation_last_check_timestamp > 6 * 3600
+        for: 30m
+        labels: { severity: ticket }
+        annotations: { summary: "No blocklist answer for 6 hours: the hourly reputation check is not running or every list refuses us", runbook: docs/runbooks/mail-reputation.md }
+      - alert: OnhostOperationsBacklog
+        expr: onhost_operations_backlog > scalar(max(onhost_operations_backlog_threshold))
+        for: 15m
+        labels: { severity: ticket }
+        annotations: { summary: "{{ $value }} operation(s) overdue on queue {{ $labels.queue }}, above the backlog threshold", runbook: docs/runbooks/provisioning-queue.md }
 
   # A3 (navrhy 2026-10-15): the monitoring watches itself. Watchdog always fires and Alertmanager forwards it to an external
   # heartbeat (route severity=heartbeat, URL from a file outside the repo): when the pings stop, the heartbeat service tells a
