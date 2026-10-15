@@ -32,10 +32,11 @@ missing="$(missing_exts)"
 if grep -qw bcmath <<<"$missing"; then
     if [ "$(id -u)" = "0" ] && command -v apt-get >/dev/null 2>&1; then
         export DEBIAN_FRONTEND=noninteractive
-        if ! apt-get install -y php8.3-bcmath >/dev/null 2>&1; then
+        bcmath_pkg="php$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')-bcmath"
+        if ! apt-get install -y "$bcmath_pkg" >/dev/null 2>&1; then
             # The package index of a fresh image is often empty: update only when the install failed.
             apt-get update >/dev/null 2>&1 || true
-            apt-get install -y php8.3-bcmath >/dev/null 2>&1 || true
+            apt-get install -y "$bcmath_pkg" >/dev/null 2>&1 || true
         fi
         missing="$(missing_exts)"
     fi
@@ -46,7 +47,7 @@ if [ -n "$missing" ]; then
 fi
 
 # 2) Composer dependencies, skipped when vendor/ is current with composer.lock.
-if [ -f vendor/autoload.php ] && [ -f vendor/composer/installed.json ] \
+if [ -f vendor/autoload.php ] && [ -f vendor/composer/installed.json ] && [ -f bootstrap/cache/packages.php ] \
     && ! [ composer.lock -nt vendor/composer/installed.json ]; then
     exit 0
 fi
