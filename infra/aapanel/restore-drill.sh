@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ONhost control plane — the restore drill (P13, phase R; docs/runbooks/backups.md "Restore drill"). Monthly, as root:
 #
-#   PGHOST=127.0.0.1 PGUSER=<the application's role: CREATEDB, no superuser> [PGPASSWORD in the shell, never in a file] bash restore-drill.sh
+#   PGHOST=127.0.0.1 PGUSER=<the application's role: CREATEDB, no superuser> [PGPASSWORD in the shell; unattended runs (systemd timer) use PGPASSFILE from a root-only credential] bash restore-drill.sh
 #
 # The newest platform backup set is exported through the application (`onhost:platform:backup:export-db`, so it works on any
 # backup disk, an S3 bucket included, and checks size and SHA-256 against the manifest), restored with pg_restore into a
@@ -74,7 +74,7 @@ mkdir -p "$(dirname "$DRILL_LOCK")" 2>/dev/null || true
 exec 8>"$DRILL_LOCK"
 flock -n 8 || die 2 "another restore drill is running ($DRILL_LOCK)"
 ROLE_POWER="$(pg psql -X -A -t -v ON_ERROR_STOP=1 --dbname=postgres -c "select (rolsuper or pg_has_role(current_user, 'pg_execute_server_program', 'member') or pg_has_role(current_user, 'pg_write_server_files', 'member') or pg_has_role(current_user, 'pg_read_server_files', 'member'))::int || ',' || rolcreatedb::int from pg_roles where rolname = current_user")" \
-  || die 2 "cannot reach PostgreSQL as ${PGUSER:-$(id -un)} (PGHOST/PGPORT/PGUSER; the password stays in the shell)"
+  || die 2 "cannot reach PostgreSQL as ${PGUSER:-$(id -un)} (PGHOST/PGPORT/PGUSER; password from PGPASSWORD in the shell or PGPASSFILE under the timer; host:port in the pgpass line must match PGHOST/PGPORT)"
 # The dump is written by the application (www): a compromised site could plant one. Restored by a superuser (or a role that may run
 # programs or touch server files) it could reach the database server's shell, so the drill restores only as a plain role with
 # CREATEDB — the application's own role is the natural choice: it gains nothing it did not have.

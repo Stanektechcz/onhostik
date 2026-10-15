@@ -46,10 +46,10 @@ function pzoOpenItems(): array
     ];
 }
 
-/** The holes TASK-0039 closed: struck from the open list. @return list<string> */
+/** The holes TASK-0039 closed, and GET /v1/me closed by TASK-0046 (LastPhaseZeroLeaksTest): struck from the open list. @return list<string> */
 function pzoClosedItems(): array
 {
-    return ['EXPL-1', 'EXPL-2', 'EXPL-3', 'SS-1', 'SS-14', 'credit.maySpend', 'SS-5', 'SE-3', 'backup.delete', 'SS-4', 'PA-06'];
+    return ['EXPL-1', 'EXPL-2', 'EXPL-3', 'SS-1', 'SS-14', 'credit.maySpend', 'SS-5', 'SE-3', 'backup.delete', 'SS-4', 'PA-06', 'GET /v1/me'];
 }
 
 it('records in the breach register only what TASK-0039 left open, with the switch that closes it, and strikes what it closed', function () {

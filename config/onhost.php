@@ -56,6 +56,8 @@ return [
     'platform_backup' => [ // backups of the control plane itself: database dump + private file store (go-live checklist §1)
         'disk' => env('ONHOST_PLATFORM_BACKUP_DISK', 'local'),      // a filesystems.disks entry; S3-compatible and off the server in production
         'retention_days' => (int) env('ONHOST_PLATFORM_BACKUP_RETENTION_DAYS', 30),
+        'db_only_retention_hours' => (int) env('ONHOST_PLATFORM_BACKUP_DB_ONLY_RETENTION_HOURS', 48), // A2: the hourly database-only sets (RPO 1 h)
+        'db_dump_warn_minutes' => (int) env('ONHOST_PLATFORM_BACKUP_DB_WARN_MINUTES', 70),          // A2: doctor WARN when the newest dump is older
         'files_root' => env('ONHOST_PLATFORM_BACKUP_FILES_ROOT'),   // default storage/app/private
         'service_archive_days' => (int) env('ONHOST_SERVICE_ARCHIVE_DAYS', 60), // a terminated service is archived (files, databases, metadata) and kept this long — audit §5aa
         'game_archive_timeout' => (int) env('ONHOST_GAME_ARCHIVE_TIMEOUT', 1800),
@@ -136,6 +138,8 @@ return [
         'four_eyes' => (bool) env('ONHOST_FOUR_EYES', true),
         // ── TASK-0021 (owner decision 14): a password change revokes the person's personal API tokens, a reset always does. Off = the old "tokens kept" path and its mail
         'password_change_revokes_api_access' => (bool) env('ONHOST_PASSWORD_CHANGE_REVOKES_API_ACCESS', true),
+        // D4 (2026-10-15): reserved configuration only — no OIDC sign-in is implemented and nothing reads these keys;
+        // OIDC_ENABLED=true changes nothing but a Doctor WARN (`OIDC not implemented`)
         'oidc' => [
             'enabled' => (bool) env('OIDC_ENABLED', false),
             'issuer' => env('OIDC_ISSUER', 'https://id.onhost.cz/realms/onhost'),
@@ -253,6 +257,26 @@ return [
             'bic' => env('ONHOST_BANK_BIC') ?: 'GIBACZPX',
             'account_number' => env('ONHOST_BANK_ACCOUNT') ?: '6478243359/0800',
             'fio_token' => env('ONHOST_BANK_FIO_TOKEN', ''), // Fio API token (read-only) of the account customers pay to; enables onhost:bank:sync. I-R15: the account is at Česká spořitelna, not Fio — stays empty, transfers are paired in Nastavení → Bankovní platby
+        ],
+        // W6 (TASK-0228): onhost:payments:sweep re-reads the status of card intents still open when both the gateway's notification
+        // and the payer's return were lost. Only gateways with a status API (never `bank`: transfers are paired by statement lines);
+        // an intent younger than the grace period is left to the webhook and the return, one older than the cut-off to finance.
+        'sweep' => [
+            'providers' => array_values(array_filter(array_map('trim', explode(',', (string) env('ONHOST_PAYMENTS_SWEEP_PROVIDERS', 'comgate,gopay,stripe'))))),
+            'grace_minutes' => (int) env('ONHOST_PAYMENTS_SWEEP_GRACE_MINUTES', 10),
+            'max_age_hours' => (int) env('ONHOST_PAYMENTS_SWEEP_MAX_AGE_HOURS', 72),
+            'batch' => (int) env('ONHOST_PAYMENTS_SWEEP_BATCH', 50), // intents re-read per run, oldest first
+        ],
+        // TASK-0235: onhost:payments:reconcile compares yesterday's provider settlements (Europe/Prague day) with intents and the
+        // ledger, once per provider and day. A provider without credentials is skipped; `bank` needs none (its statement lines).
+        'reconcile' => [
+            'providers' => array_values(array_filter(array_map('trim', explode(',', (string) env('ONHOST_PAYMENTS_RECONCILE_PROVIDERS', 'comgate,gopay,stripe,bank'))))),
+            // days a provider may take to pay a payment out: the run of day D reports a payout missing only for intents paid on
+            // D minus this (a larger value only reports later, never falsely). ASSUMED, not verified with any account: Comgate
+            // reconciles by transfer date and GoPay by statement date (a payout after one or more working days; 5 covers a weekend
+            // with a holiday); Stripe's adapter lists balance transactions by charge creation (same day; 2 for a late-night charge);
+            // the bank's settlement is the matched statement line itself
+            'settlement_lag_days' => ['comgate' => 5, 'gopay' => 5, 'stripe' => 2, 'bank' => 0],
         ],
     ],
 
@@ -442,6 +466,18 @@ return [
     // events and transactional mails leave within seconds through queued jobs (the minute scheduler stays as the safety net)
     'outbox' => [
         'eager' => (bool) env('ONHOST_OUTBOX_EAGER', true),
+        // A1: relayed messages are deleted by `model:prune` after this many days; an unrelayed one (published_at null) never is
+        'retention_days' => (int) env('ONHOST_OUTBOX_RETENTION_DAYS', 30),
+    ],
+
+    // A1: kernel log retention, pruned in batches by onhost:provider-calls:prune and onhost:idempotency:prune
+    'provider_calls' => [
+        'retention_days' => (int) env('ONHOST_PROVIDER_CALLS_RETENTION_DAYS', 90),
+    ],
+
+    // A1: batch size shared by the retention prunes (onhost:provider-calls:prune, onhost:idempotency:prune)
+    'retention' => [
+        'prune_batch' => 1000,
     ],
 
     /*
@@ -763,7 +799,11 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
 
     'status' => [
         'maintenance_lead_hours' => 48,
-        'custom_cname' => env('ONHOST_STATUS_CNAME'), // the CNAME target of the customers' own status hosts (audit §5k-3); empty = the portal host
+        'custom_cname' => env('ONHOST_STATUS_CNAME'),
+        // N14: the platform status page on its own host; off until DNS and TLS for the host are in place (cutover)
+        'host_enabled' => (bool) env('ONHOST_STATUS_HOST_ENABLED', false),
+        'host' => env('ONHOST_STATUS_HOST', 'status.onhost.cz'),
+        'snapshot_ttl' => 60, // seconds the public snapshot is reused; incident.resolved drops it at once // the CNAME target of the customers' own status hosts (audit §5k-3); empty = the portal host
         'components' => [
             'web-cz1' => 'Web Hosting CZ1', 'managed' => 'Managed Hosting', 'apps-cz1' => 'Apps CZ1', 'cloud-cz1' => 'Cloud CZ1',
             'games-cz1' => 'Games CZ1', 'dns' => 'DNS', 'domains' => 'Domains/Registrar', 'mail' => 'Mail',

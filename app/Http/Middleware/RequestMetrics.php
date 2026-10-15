@@ -17,6 +17,21 @@ final class RequestMetrics
 {
     public const FAMILIES = ['v1', 'staff', 'surfaces', 'web'];
 
+    /** F7: upper bounds (seconds) of the onhost_http_request_duration_seconds histogram; +Inf is implicit. */
+    public const BUCKETS = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0];
+
+    /** Cache key of the (non-cumulative) bucket a duration falls into; the exporter accumulates. */
+    public static function bucketKey(string $family, float $seconds): string
+    {
+        foreach (self::BUCKETS as $i => $le) {
+            if ($seconds <= $le) {
+                return "metrics:http:{$family}:b{$i}";
+            }
+        }
+
+        return "metrics:http:{$family}:binf";
+    }
+
     public function handle(Request $request, Closure $next): Response
     {
         $started = microtime(true);
@@ -30,12 +45,14 @@ final class RequestMetrics
                 default => 'web',
             };
             $class = intdiv($response->getStatusCode(), 100).'xx';
-            Cache::increment("metrics:http:{$family}:{$class}");
-            $ms = (int) round((microtime(true) - $started) * 1000);
-            Cache::increment("metrics:http:{$family}:ms", $ms);
-            Cache::increment("metrics:http:{$family}:n");
+            Cache::store('metrics')->increment("metrics:http:{$family}:{$class}");
+            $seconds = microtime(true) - $started;
+            $ms = (int) round($seconds * 1000);
+            Cache::store('metrics')->increment(self::bucketKey($family, $seconds));
+            Cache::store('metrics')->increment("metrics:http:{$family}:ms", $ms);
+            Cache::store('metrics')->increment("metrics:http:{$family}:n");
             if ($ms > 1000) {
-                Cache::increment("metrics:http:{$family}:slow");
+                Cache::store('metrics')->increment("metrics:http:{$family}:slow");
             }
         } catch (\Throwable) {
             // metrics must never break a request

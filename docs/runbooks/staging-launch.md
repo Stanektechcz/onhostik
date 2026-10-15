@@ -548,6 +548,8 @@ QUEUE_CONNECTION=redis
 CACHE_STORE=redis
 SESSION_DRIVER=redis
 ONHOST_SECRETS_DRIVER=db
+# TASK-0229: the sell-switch matrix is fail-closed; staging must keep selling (A–C drills, smoke orders, Penpot paper-parent)
+ONHOST_SELL_DEFAULT=true
 REDIS_PREFIX?
 CACHE_PREFIX?
 REDIS_PREFIX!=<production REDIS_PREFIX, question 14>
@@ -736,6 +738,10 @@ The doctor rows expected non-OK on staging (O11). The gate stops a staging relea
 HARD, GATED nor a liveness row and is not on this list (pre-mortem: the gate used to wave every other row through, and
 the rows WARN on staging by design are exactly the ones production FAILs on). Draft it from the current doctor, then
 let the owner give each row its reason in the release record:
+
+Phase W2 adds one such row while staging has no Comgate account (empty `COMGATE_CALLBACK_IPS`, WARN by design): put the line
+`payments|Comgate notification allow-list is filled` on the list, with that reason. (`sales|product families are for sale`
+is OK on staging as long as `ONHOST_SELL_DEFAULT=true`.)
 
 ```bash
 cd $APP && $AS_WWW $P artisan onhost:doctor --json > /root/staging-doctor-s4b.json

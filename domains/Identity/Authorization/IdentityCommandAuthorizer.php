@@ -113,7 +113,8 @@ final class IdentityCommandAuthorizer implements CommandAuthorizer
         // TASK-0037 (program IF-10, D8): one operator runs the platform alone (ONHOST_FOUR_EYES=false on the server). The waiver
         // used to cover EVERY actor — anybody holding a critical permission acted alone. It covers only the one person who could
         // be the second person (the sole holder of iam.approval.decide); everybody else asks them. And their own critical action
-        // is not run at once: it waits a time lock (onhost.identity.time_lock_hours, 24 h, program §10 O4) with a notice, and
+        // is not run at once: it waits a time lock (config onhost.four_eyes_time_lock_hours, env ONHOST_FOUR_EYES_TIME_LOCK_HOURS,
+        // 24 h, at least 1; program §10 O4) with a notice, and
         // anybody who may decide approvals — the operator included — can cancel it meanwhile.
         $waived = $needsApproval && ApprovalService::waivesFor((string) $context->actorId);
         $needsApproval = $needsApproval && ! $waived;

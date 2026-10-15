@@ -14,8 +14,10 @@ use Onhost\Domain\Identity\EmailVerificationGuard;
 use Onhost\Domain\Identity\Models\EmailVerificationToken;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Identity\Notifications\GuestAccountNotification;
+use Onhost\Domain\Orders\CheckoutService;
 use Onhost\Domain\Orders\Commands\PlaceOrderCommand;
 use Onhost\Domain\Orders\Models\Order;
+use Onhost\Domain\Orders\Models\Quote;
 use Onhost\Domain\Orders\QuoteService;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\OrganizationService;
@@ -81,24 +83,35 @@ final class CheckoutController extends ApiController
         if (($data['payment']['mode'] ?? null) === 'gateway') {
             app(CardPayments::class)->assertAvailable(isset($data['payment']['provider']) ? (string) $data['payment']['provider'] : null);
         }
-
         $c = $data['customer'];
+        $country = strtoupper((string) ($c['country'] ?? 'CZ'));
+        $vatId = $c['vat_id'] ?? ($c['dic'] ?? null);
+        $customerClass = self::customerClass($c['ico'] ?? null, $vatId);
+        $currency = $data['currency'] ?? OrganizationService::defaultCurrency($country); // the currency the new organization gets (SK → EUR)
+        $locale = (string) ($c['locale'] ?? (in_array(app()->getLocale(), ['cs', 'en'], true) ? app()->getLocale() : 'cs'));
+        // W8 + TASK-0236: what the quote or the order would refuse is refused before the account exists — the whole quote and the
+        // consents, rehearsed in a transaction that is rolled back (an account without an order used to stay behind)
+        $quotes->assertNewCustomerQuote(
+            array_values($data['items']), $currency, ['country' => $country, 'customer_class' => $customerClass],
+            (int) ($data['commit_months'] ?? 1), $data['promo_code'] ?? null, $locale,
+            fn (Quote $quote) => self::assertConsents($quote, (array) $data['consents'], $customerClass),
+        );
+
         $email = strtolower(trim((string) $c['email']));
         if (User::query()->where('email', $email)->exists()) {
             throw new DomainError('account_exists', 'Účet s tímto e-mailem už existuje. Přihlaste se a dokončete objednávku.', 409, ['field' => 'email']);
         }
-        $locale = (string) ($c['locale'] ?? (in_array(app()->getLocale(), ['cs', 'en'], true) ? app()->getLocale() : 'cs'));
         $ip = $request->ip();
         $agent = mb_substr((string) $request->userAgent(), 0, 250);
         $sessionId = $this->api->sessionId($request);
 
-        [$user, $organization, $token] = DB::transaction(function () use ($organizations, $c, $email, $locale, $ip, $agent, $sessionId, $data): array {
+        [$user, $organization, $token] = DB::transaction(function () use ($organizations, $c, $email, $locale, $ip, $agent, $sessionId, $data, $country, $vatId): array {
             $user = User::query()->create(['name' => trim((string) $c['name']), 'email' => $email, 'password' => Str::random(40), 'locale' => $locale, 'timezone' => 'Europe/Prague', 'is_staff' => false, 'state' => 'active']);
             $context = new CommandContext('user', $user->id, null, null, $ip, $agent, $sessionId, correlationId: CommandContext::currentCorrelationId());
             $company = trim((string) ($c['company'] ?? ''));
             $organization = $organizations->create($user, [
                 'name' => $company !== '' ? $company : trim((string) $c['name']), 'type' => $company !== '' || ! empty($c['ico']) ? 'company' : 'person',
-                'ico' => $c['ico'] ?? null, 'dic' => $c['dic'] ?? null, 'vat_id' => $c['vat_id'] ?? ($c['dic'] ?? null), 'country' => strtoupper((string) ($c['country'] ?? 'CZ')),
+                'ico' => $c['ico'] ?? null, 'dic' => $c['dic'] ?? null, 'vat_id' => $vatId, 'country' => $country,
                 'street' => $c['street'] ?? null, 'city' => $c['city'] ?? null, 'postal_code' => $c['postal_code'] ?? null, 'locale' => $locale, 'billing_email' => $email,
             ], $context);
             if (! empty($data['partner_code'])) {
@@ -115,7 +128,7 @@ final class CheckoutController extends ApiController
         // otherwise the number is asked about briefly before the quote, and a failure leaves it unknown (destination VAT, review)
         $organization = app(VatNumberChecks::class)->refreshBeforeQuote($organization->refresh());
         $quote = $quotes->quote(
-            array_values($data['items']), $data['currency'] ?? $organization->currency ?? 'CZK',
+            array_values($data['items']), $data['currency'] ?? $organization->currency ?? $currency,
             VatStanding::taxCustomer($organization),
             (int) ($data['commit_months'] ?? 1), $data['promo_code'] ?? null, $organization, $locale,
         );
@@ -138,6 +151,27 @@ final class CheckoutController extends ApiController
         $this->startSession($request, $user);
 
         return response()->json(array_merge($result, ['account' => ['created' => true, 'user' => Presenters::user($user), 'organization' => Presenters::organization($organization, 'owner')]]), 201);
+    }
+
+    /** The class OrganizationService::create() gives the new organization: a business when it has an IČO or a VAT number. */
+    private static function customerClass(?string $ico, ?string $vatId): string
+    {
+        return ! empty($ico) || ! empty($vatId) ? 'b2b' : 'b2c';
+    }
+
+    /**
+     * The consents CheckoutService::placeOrder() will ask for, asked of the rehearsed quote before the account exists: a guest who
+     * left out the registrar's terms used to get an account and a 422, and then `account_exists`.
+     *
+     * @param  array<string,mixed>  $consents
+     */
+    private static function assertConsents(Quote $quote, array $consents, string $customerClass): void
+    {
+        foreach (app(CheckoutService::class)->requiredDocuments($quote, (new Organization)->forceFill(['customer_class' => $customerClass])) as $key) {
+            if (! isset($consents[$key])) {
+                throw new DomainError('consent_required', "Consent to document '{$key}' is required.", 422, ['field' => 'terms', 'missing' => $key]);
+            }
+        }
     }
 
     private function startSession(Request $request, User $user): void

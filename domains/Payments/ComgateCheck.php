@@ -40,6 +40,7 @@ final class ComgateCheck
         $state = $this->provider()->credentialState();
         $ref = (string) config('onhost.payments.comgate.secret_ref', 'env://COMGATE');
         $merchant = (string) (config('onhost.payments.comgate.merchant') ?? '');
+        $allowlist = count(ComgatePaymentProvider::callbackAllowlist()); // W1: the entries the notification check really uses
 
         return [
             'provider' => 'comgate', 'default_gateway' => config('onhost.payments.default') === 'comgate',
@@ -48,7 +49,8 @@ final class ComgateCheck
             'test_mode' => ComgateMode::test(), 'test_mode_source' => ComgateMode::source(), 'test_mode_env' => (bool) config('onhost.payments.comgate.test', true),
             'gateway_host' => (string) (parse_url((string) config('onhost.payments.comgate.base_url'), PHP_URL_HOST) ?: ''),
             'recurring' => (bool) config('onhost.payments.comgate.recurring', true),
-            'callback_allowlist' => count((array) config('onhost.payments.comgate.callback_allowlist', [])),
+            'callback_allowlist' => $allowlist,
+            'callback_notice' => $allowlist === 0 ? 'Seznam adres Comgate pro notifikace (COMGATE_CALLBACK_IPS) je prázdný: platforma odmítne každou notifikaci o platbě (HTTP 403), dokud do něj nebudou doplněny adresy Comgate.' : null,
             'merchant_hint' => $merchant !== '' ? str_repeat('•', max(0, mb_strlen($merchant) - 3)).mb_substr($merchant, -3) : null,
             'last_check' => $this->settings->get(self::LAST_CHECK),
             'production' => app()->environment('production'),

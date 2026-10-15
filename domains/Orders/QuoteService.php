@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Orders;
 
+use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Catalog\CatalogService;
 use Onhost\Domain\Catalog\Models\PlanVersion;
@@ -51,6 +52,15 @@ final class QuoteService
     /** Keys a client might put a transfer code under; never kept in a quote or an order line (TASK-0058). */
     private const TRANSFER_SECRET_KEYS = ['auth_info', 'authinfo', 'authid', 'auth_code', 'auth_id', 'transfer_code', 'epp_code'];
 
+    /** Line kinds (lineKind()): a plan line is priced from its own product and plan by CatalogService::resolve(). */
+    public const LINE_PLAN = 'plan';
+
+    public const LINE_DOMAIN = 'domain';
+
+    public const LINE_LIMIT_RAISE = 'limit_raise';
+
+    public const LINE_PENPOT = 'penpot';
+
     public function __construct(
         private readonly CatalogService $catalog,
         private readonly TaxEngine $tax,
@@ -58,6 +68,93 @@ final class QuoteService
         private readonly LimitRaiseLine $limitRaise,
         private readonly PenpotLine $penpot,
     ) {}
+
+    /**
+     * The one place that knows which cart lines the quote prices without resolving the line's own product and plan: a domain
+     * (TLD price list), a limit raise (an option of a running service) and a Penpot (priced by its parent's tariff).
+     *
+     * @param  array<string,mixed>  $item
+     */
+    public static function lineKind(array $item): string
+    {
+        return match ((string) ($item['product_key'] ?? '')) {
+            'domain' => self::LINE_DOMAIN,
+            LimitRaises::PRODUCT => self::LINE_LIMIT_RAISE,
+            PenpotOffer::PRODUCT => self::LINE_PENPOT,
+            default => self::LINE_PLAN,
+        };
+    }
+
+    /**
+     * W8 (TASK-0234): what the quote would refuse about the cart of somebody who has no account yet, asked BEFORE the guest
+     * checkout creates one. The guest quote runs after the account exists (it needs the organization's VAT standing), so each
+     * of these refusals used to leave an account behind without an order or a set-password mail, and the next try then said
+     * `account_exists`. The same calls and the same errors as quote(): an unknown product or an inactive plan (404),
+     * `product_not_sellable` (the launch sell switch, W3), `price_unavailable`; a plan change needs a service of one's own,
+     * which somebody without an account cannot have (422 `upgrade_needs_account`). Domains and limit raises have no product
+     * family of their own to switch off; the quote decides those.
+     *
+     * @param  array<int|string,array<string,mixed>>  $items
+     */
+    public function assertNewCustomerCart(array $items, Currency|string $currency, int $commitMonths): void
+    {
+        foreach ($items as $index => $item) {
+            if (! empty($item['config']['upgrade_of'])) {
+                throw new DomainError('upgrade_needs_account', 'A plan change is ordered from the account that owns the service.', 422, ['field' => "items.{$index}.config.upgrade_of"]);
+            }
+            $kind = self::lineKind($item);
+            if ($kind === self::LINE_PLAN) {
+                $this->catalog->resolve((string) $item['product_key'], (string) ($item['plan_key'] ?? ''), $currency, self::linePeriod($item, $commitMonths));
+            } elseif ($kind === self::LINE_PENPOT) {
+                $this->catalog->resolve(PenpotOffer::PRODUCT, PenpotOffer::PLAN, $currency, $commitMonths >= 12 ? 'year' : 'month'); // as PenpotLine::build()
+            }
+        }
+    }
+
+    /**
+     * TASK-0236: the whole quote of somebody who has no account yet, rehearsed BEFORE the guest checkout creates one. W8 asked
+     * only the catalogue; every other refusal of quote() — a CDN add-on without a CDN account, a location not on offer, an
+     * invalid promo code, a TLD or a period that is not sold, a sold-out server, a name another customer serves — still came
+     * after the account existed and left it behind (no order, no set-password mail, the next try `account_exists`).
+     *
+     * The rehearsal is quote() itself for a customer without an organization (a new organization has no services, no loyalty
+     * and no checked VAT number, so it is priced and refused the same way), inside a transaction that is always rolled back:
+     * the quote and tax rows it writes never exist for anybody. quote() calls no provider and sends nothing; an outbox row or an
+     * after-commit job would go with the rollback too. `$alsoAssert` runs further checks of the rehearsed quote inside the same
+     * transaction (the consents the order will ask for).
+     *
+     * Why not one transaction around account, quote and order: the VIES check of the new organization's VAT number (a provider
+     * call with a timeout) has to run after the organization exists and before the quote, and is kept outside every transaction
+     * (TASK-0031); and an unverified e-mail over the limit deliberately keeps the account (EmailVerificationGuard).
+     *
+     * What the rehearsal does NOT cover, so it can still leave an account behind: refusals that depend on the real organization
+     * — what VIES says about its VAT number and the tax evidence that follows from it (e.g. `tax_evidence_conflict`), and the
+     * EmailVerificationGuard limit (`email_unverified`, which keeps the account on purpose) — and races between the rehearsal
+     * and the placement (capacity sold out, a promo code spent, a site name claimed in between, a payment-provider error).
+     *
+     * @param  list<array<string,mixed>>  $items
+     * @param  array{country?:string,customer_class?:string,ip_country?:?string}  $customer
+     * @param  (callable(Quote):void)|null  $alsoAssert
+     */
+    public function assertNewCustomerQuote(array $items, Currency|string $currency, array $customer, int $commitMonths, ?string $promoCode, string $locale = 'cs', ?callable $alsoAssert = null): void
+    {
+        $this->assertNewCustomerCart($items, $currency, $commitMonths); // its own errors first (`upgrade_needs_account`)
+        DB::beginTransaction();
+        try {
+            $quote = $this->quote($items, $currency, $customer, $commitMonths, $promoCode, null, $locale);
+            if ($alsoAssert !== null) {
+                $alsoAssert($quote);
+            }
+        } finally {
+            DB::rollBack();
+        }
+    }
+
+    /** @param  array<string,mixed>  $item */
+    private static function linePeriod(array $item, int $commitMonths): string
+    {
+        return isset($item['period']) ? (string) $item['period'] : ($commitMonths >= 12 ? 'year' : 'month');
+    }
 
     /**
      * One line is one service, so a quantity is that many lines. A quantity used to be priced × N (renewals too) while ONE service
@@ -97,7 +194,7 @@ final class QuoteService
                 throw new DomainError('quantity_too_large', "At most {$max} of one service fit on one order line.", 422, ['field' => "items.{$index}.qty", 'max' => $max]);
             }
             $named = array_values(array_filter(['fqdn', 'domain', 'hostname'], fn (string $key) => ! empty($config[$key])));
-            if (($item['product_key'] ?? '') === 'domain' || ($item['product_key'] ?? '') === LimitRaises::PRODUCT || ! empty($config['upgrade_of']) || $named !== []) {
+            if (in_array(self::lineKind($item), [self::LINE_DOMAIN, self::LINE_LIMIT_RAISE], true) || ! empty($config['upgrade_of']) || $named !== []) {
                 throw new DomainError('quantity_unsupported', 'This line names one thing (a domain name, a site, a service that changes its plan); add another line for another one.', 422, ['field' => "items.{$index}.qty"]);
             }
             for ($copy = 1; $copy <= $qty; $copy++) {
@@ -184,7 +281,7 @@ final class QuoteService
         $parentProducts = []; // cart lines that may carry add-ons (line id → product key)
         foreach ($items as $index => $item) {
             $cartLines[(string) ($item['line_id'] ?? ('l'.($index + 1)))] = $item;
-            if (($item['product_key'] ?? '') !== 'domain' && empty($item['config']['parent_line_id'])) {
+            if (self::lineKind($item) !== self::LINE_DOMAIN && empty($item['config']['parent_line_id'])) {
                 $parentProducts[(string) ($item['line_id'] ?? ('l'.($index + 1)))] = (string) ($item['product_key'] ?? '');
             }
         }
@@ -195,7 +292,8 @@ final class QuoteService
             $config = (array) ($item['config'] ?? []);
             $lineId = (string) ($item['line_id'] ?? ('l'.($index + 1)));
 
-            if ($productKey === 'domain') {
+            $kind = self::lineKind($item);
+            if ($kind === self::LINE_DOMAIN) {
                 $fqdn = Hostname::canonical((string) ($config['fqdn'] ?? ''));
                 $tld = Hostname::tld($fqdn);
                 $policy = $this->catalog->tld($tld);
@@ -236,7 +334,7 @@ final class QuoteService
 
                 continue;
             }
-            if ($productKey === LimitRaises::PRODUCT) { // one number of one service, at its product's option price (TASK-0022 limit-raise)
+            if ($kind === self::LINE_LIMIT_RAISE) { // one number of one service, at its product's option price (TASK-0022 limit-raise)
                 $line = $this->limitRaise->build($organization, $item, $currency, $lineId, $raised, $waiver, $locale);
                 $lines[] = $line;
                 $subtotal = $subtotal->add($line['unit_net']);
@@ -245,7 +343,7 @@ final class QuoteService
 
                 continue;
             }
-            if ($productKey === PenpotOffer::PRODUCT) { // one Penpot for one service, priced by that service's tariff (owner decision H-R7)
+            if ($kind === self::LINE_PENPOT) { // one Penpot for one service, priced by that service's tariff (owner decision H-R7)
                 $line = $this->penpot->build($organization, $item, $cartLines, $currency, $lineId, $commitMonths >= 12 ? 'year' : 'month', $penpots, $locale);
                 $versions['plans'][] = $line['plan_version_id'];
                 $versions['prices'][] = $line['price_id'];
@@ -261,12 +359,19 @@ final class QuoteService
             }
             $planKey = (string) ($item['plan_key'] ?? '');
             $requestedPeriod = isset($item['period']) ? (string) $item['period'] : null;
-            $period = $requestedPeriod ?? ($commitMonths >= 12 ? 'year' : 'month');
-            $resolved = $this->catalog->resolve($productKey, $planKey, $currency, $period);
-            $change = ! empty($config['upgrade_of']) ? $this->planChange($organization, (string) $config['upgrade_of'], $resolved['product'], $planKey, $resolved['version'], $requestedPeriod) : null;
+            $period = self::linePeriod($item, $commitMonths);
+            $change = null;
+            if (! empty($config['upgrade_of'])) {
+                // a plan change of the customer's own running service is no new sale: the launch sell switch is waived, but only on this
+                // path, where planChange() throws for a stranger's, cancelled or suspended service before the line is used
+                $resolved = $this->catalog->resolve($productKey, $planKey, $currency, $period, true);
+                $change = $this->planChange($organization, (string) $config['upgrade_of'], $resolved['product'], $planKey, $resolved['version'], $requestedPeriod);
+            } else {
+                $resolved = $this->catalog->resolve($productKey, $planKey, $currency, $period);
+            }
             if ($change !== null && $change['period'] !== $period) {
                 $period = $change['period'];
-                $resolved = $this->catalog->resolve($productKey, $planKey, $currency, $period); // a plan change keeps the subscription's billing period unless the line asks for the other one
+                $resolved = $this->catalog->resolve($productKey, $planKey, $currency, $period, true); // a plan change keeps the subscription's billing period unless the line asks for the other one
             }
             $product = $resolved['product'];
             $price = $resolved['price'];

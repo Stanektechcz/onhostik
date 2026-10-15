@@ -9,10 +9,22 @@ route:
   group_interval: 5m
   repeat_interval: 4h
   routes:
+    # A3: Watchdog (severity=heartbeat) goes only to the external heartbeat, every minute, never to people
+    - matchers: ['severity = heartbeat']
+      receiver: heartbeat
+      group_wait: 0s
+      group_interval: 1m
+      repeat_interval: 1m
     - matchers: ['severity = page']
       receiver: pager
       repeat_interval: 1h
 receivers:
+  # A3: the heartbeat URL (Healthchecks.io, Better Stack, ...) is a secret and never in the repo: the operator writes it to
+  # /etc/alertmanager/heartbeat.url (0600). Without the file no ping leaves (Alertmanager logs a failed notify) = disabled.
+  - name: heartbeat
+    webhook_configs:
+      - url_file: /etc/alertmanager/heartbeat.url
+        send_resolved: false
   - name: pager
     webhook_configs:
       - url: https://onhost.cz/v1/webhooks/alertmanager   # the platform opens one on-call alert per firing rule (and pages through ONHOST_ONCALL_PROVIDER)

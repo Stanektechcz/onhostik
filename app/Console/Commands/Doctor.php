@@ -33,9 +33,11 @@ use Onhost\Domain\Notifications\MailHealth;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\OrderStateMachine;
 use Onhost\Domain\Payments\ComgateCheck;
+use Onhost\Domain\Payments\ReconciliationHealth;
 use Onhost\Domain\Platform\GoLiveChecks;
 use Onhost\Domain\Platform\HstsHealth;
 use Onhost\Domain\Platform\IsolationChecks;
+use Onhost\Domain\Platform\LaunchReadinessChecks;
 use Onhost\Domain\Platform\QueueLaneHeartbeat;
 use Onhost\Domain\Platform\ScheduleHealth;
 use Onhost\Domain\Provisioning\AutomationLedger;
@@ -136,12 +138,16 @@ final class Doctor extends Command
             $this->addChecked($check);
         }
         // ── end TASK-0045 ──
+        $this->addChecked((new LaunchReadinessChecks)->sellMatrix()); // W2: the fail-closed sell matrix (W3)
         // ── E11: what an operator meets on the way to go-live; every row names its remedy ──
         foreach ((new GoLiveChecks)->rows() as $check) {
             $this->addChecked($check);
         }
         // ── end E11 ──
         foreach (app(HstsHealth::class)->checks() as $check) { // P11 (P-R74): HSTS once, from the application, as configured
+            $this->addChecked($check);
+        }
+        foreach (app(ReconciliationHealth::class)->checks() as $check) { // TASK-0235: a gateway whose settlements went unchecked yesterday
             $this->addChecked($check);
         }
         foreach (app(ScheduleHealth::class)->checks() as $check) { // P14: every scheduled job within its age budget
@@ -468,7 +474,11 @@ final class Doctor extends Command
         foreach (app(RestoreDrill::class)->checks() as $check) { // P13: a restore that was really tried, within 35 days
             $this->addChecked($check);
         }
-        $this->add('storage', 'platform backup disk off the server', ! $this->production || $backup['disk'] !== 'local', $backup['disk'].($backup['disk'] === 'local' ? ' (production: an S3-compatible disk — ONHOST_PLATFORM_BACKUP_DISK)' : ''), false);
+        $warnMinutes = max(1, (int) config('onhost.platform_backup.db_dump_warn_minutes', 70)); // A2: RPO 1 h — the hourly --db-only dump
+        $dumpAt = isset($backup['last_db']['at']) ? CarbonImmutable::parse((string) $backup['last_db']['at']) : null;
+        $this->add('storage', "platform database dump within {$warnMinutes} min", $dumpAt !== null && $dumpAt->gt(now()->subMinutes($warnMinutes)), $dumpAt !== null ? 'set '.$backup['last_db']['set'].' taken '.$dumpAt->diffForHumans().' — onhost:platform:backup --db-only runs hourly' : 'no dump yet — onhost:platform:backup --db-only runs hourly', false);
+        $backupDriver = (string) config('filesystems.disks.'.$backup['disk'].'.driver', 'missing'); // A4: an S3-compatible disk, not merely "not local" (public is this server too)
+        $this->add('storage', 'platform backup disk off the server', ! $this->production || $backupDriver === 's3', $backup['disk'].' (driver '.$backupDriver.')', true, 'create the off-site S3 bucket with a lifecycle rule (owner step PR-10), composer require league/flysystem-aws-s3-v3 (then php artisan onhost:oss-inventory), define it as an s3 disk in config/filesystems.php, set ONHOST_PLATFORM_BACKUP_DISK to it, then php artisan config:cache');
         try {
             DB::select('select 1');
             $this->add('storage', 'database reachable', true, (string) config('database.default'));
@@ -606,6 +616,7 @@ final class Doctor extends Command
         $testMode = $gateway === 'comgate' ? ComgateMode::test() : (bool) config("onhost.payments.{$gateway}.test", true);
         $this->add('payments', 'card gateway live mode', ! $testMode, $testMode ? 'test flag on'.($gateway === 'comgate' ? ' (set by '.ComgateMode::source().')' : '') : 'live');
         if ($gateway === 'comgate') { // the last check staff ran in the administration (connection or 1 Kč test payment)
+            $this->addChecked((new LaunchReadinessChecks)->comgateAllowlist()); // W2: an empty list refuses every notification (W1)
             $last = (array) (app(SettingsStore::class)->get(ComgateCheck::LAST_CHECK) ?? []);
             $this->add('payments', 'Comgate answered the last administration check', ($last['ok'] ?? false) === true,
                 $last === [] ? 'never checked — Nastavení → Integrace → Platební brána Comgate, "Ověřit spojení"' : ($last['kind'] ?? '?').' at '.($last['at'] ?? '?').': '.mb_substr((string) ($last['message'] ?? ''), 0, 160), false);
@@ -635,6 +646,30 @@ final class Doctor extends Command
         // G2: the VAT mode documents are issued in, and the way out when the declaration (ONHOST_VAT_PAYER) and the legal entity disagree
         $vat = app(VatPayerMode::class)->report();
         $this->add('documents', 'VAT payer mode', $vat['consistent'], $vat['detail'], true, $vat['remedy']);
+        $this->einvoiceReadiness();
+    }
+
+    /** Days before the SK eFaktúra mandatory date from which a missing Peppol configuration is reported. */
+    public const EINVOICE_WARN_DAYS = 120;
+
+    /**
+     * C1: the SK eFaktúra (Peppol) obligation approaches while no access point is configured. Presence only, never a value of
+     * the configuration; a standing WARN that never blocks, because delivery has no adapter yet (decision C1: after the AP is chosen).
+     */
+    private function einvoiceReadiness(): void
+    {
+        $from = CarbonImmutable::parse((string) config('onhost.einvoice.sk_mandatory_from', '2027-01-01'))->startOfDay();
+        $days = (int) floor(CarbonImmutable::now()->startOfDay()->diffInDays($from, false));
+        $configured = (string) config('onhost.einvoice.peppol.base_url') !== '' && (string) config('onhost.einvoice.peppol.sender_id') !== '';
+        $due = $days <= self::EINVOICE_WARN_DAYS;
+        $detail = match (true) {
+            $configured => 'Peppol access point and sender ID set (SK eFaktúra from '.$from->toDateString().')',
+            ! $due => 'SK eFaktúra from '.$from->toDateString().' (in '.$days.' days); Peppol not configured yet, reported from '.self::EINVOICE_WARN_DAYS.' days before',
+            $days >= 0 => 'SK eFaktúra mandatory from '.$from->toDateString().' (in '.$days.' days) and no Peppol access point is configured; customers can only download UBL',
+            default => 'SK eFaktúra mandatory since '.$from->toDateString().' and no Peppol access point is configured; customers can only download UBL',
+        };
+        $this->add('documents', 'e-invoice (SK eFaktúra / Peppol) delivery', $configured || ! $due, $detail, false,
+            'choose a Peppol access point, set PEPPOL_BASE_URL and PEPPOL_SENDER_ID, store its key with onhost:secrets:set (PEPPOL_SECRET_REF), then php artisan config:cache');
     }
 
     /** ISO 13616 mod-97 check of an IBAN (letters → 10..35, country and check digits moved to the end, remainder 1). */
@@ -660,6 +695,9 @@ final class Doctor extends Command
         $demo = User::query()->whereIn('email', ['demo@onhost.cz', 'agentura@onhost.cz', 'admin@onhost.cz', 'noc@onhost.cz', 'finance@onhost.cz', 'support@onhost.cz'])->count();
         $this->add('identity', 'no development accounts', $demo === 0, $demo > 0 ? "{$demo} DevAccountSeeder account(s) present" : '');
         $staff = User::query()->where('is_staff', true)->count();
+        // D4: OIDC is reserved configuration, not a feature — switching it on must not look like working staff SSO
+        $oidc = (bool) config('onhost.identity.oidc.enabled', false);
+        $this->add('identity', 'OIDC not implemented', ! $oidc, $oidc ? 'OIDC_ENABLED=true, but no OIDC sign-in exists: staff still sign in with password + MFA' : '', false, 'set OIDC_ENABLED=false; staff SSO over OIDC is not implemented yet');
         $this->add('identity', 'staff users exist', $staff > 0, "{$staff} staff user(s)");
         // four eyes need two heads (docs/runbooks/approvals.md): with fewer than two people who may decide approvals, a critical action of the only one can never be approved
         $deciders = ApprovalService::deciders()->count();

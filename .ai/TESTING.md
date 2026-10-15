@@ -6,6 +6,7 @@
 | --- | --- |
 | One file / focused | `php artisan test --compact tests/Feature/Orders/CheckoutTest.php` (several paths allowed) |
 | Suite | `php artisan test --compact [--testsuite=Unit|Feature|Contract]` |
+| Inner loop (local habit, never evidence) | `php artisan test --compact --dirty` runs only test files with uncommitted changes; finish with the suite or the gate, CI always runs all shards |
 | Critical flows + style | `.\brain.ps1 gate -Quick` |
 | Full gate with baseline comparison | `.\brain.ps1 gate [-Task TASK-NNNN]` (Pint, Larastan, Pest, Vite build) |
 | Style / static analysis | `vendor/bin/pint --test` · `vendor/bin/phpstan analyse --memory-limit=2G` |

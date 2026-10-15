@@ -34,7 +34,9 @@ final class CatalogService
             $query->where('state', 'active');
         }
 
-        return $query->get();
+        $products = $query->get();
+
+        return $sellableOnly ? $products->filter(fn (Product $p) => SellSwitch::allows($p->family))->values() : $products;
     }
 
     public function product(string $key): Product
@@ -48,11 +50,11 @@ final class CatalogService
     }
 
     /** @return array{product:Product, plan:Plan, version:PlanVersion, price:Price} */
-    public function resolve(string $productKey, string $planKey, Currency|string $currency, string $period = 'month'): array
+    public function resolve(string $productKey, string $planKey, Currency|string $currency, string $period = 'month', bool $existingCustomer = false): array
     {
         $currency = $currency instanceof Currency ? $currency : Currency::fromString($currency);
         $product = $this->product($productKey);
-        if (! $product->isSellable()) {
+        if (! $product->isSellable($existingCustomer)) {
             throw new DomainError('product_not_sellable', "Product {$productKey} is not currently sellable.", 409);
         }
         $plan = $product->plans->firstWhere('key', $planKey);

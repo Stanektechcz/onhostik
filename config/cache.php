@@ -47,6 +47,15 @@ return [
             'lock_table' => env('DB_CACHE_LOCK_TABLE'),
         ],
 
+        // N6: request metrics counters (RequestMetrics + /metrics exporter) get their own store, so the driver can be
+        // switched by env (e.g. METRICS_CACHE_DRIVER=redis) without moving the app cache. Defaults to the app cache driver.
+        'metrics' => [
+            'driver' => env('METRICS_CACHE_DRIVER') ?: env('CACHE_STORE', 'database'),
+            'connection' => env('METRICS_CACHE_CONNECTION'),
+            'table' => env('DB_CACHE_TABLE', 'cache'),
+            'serialize' => false,
+        ],
+
         'file' => [
             'driver' => 'file',
             'path' => storage_path('framework/cache/data'),

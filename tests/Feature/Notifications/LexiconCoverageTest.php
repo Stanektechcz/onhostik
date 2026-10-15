@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Http;
 use Onhost\Domain\Notifications\Lexicon;
 use Onhost\Domain\Notifications\Models\Notification;
 use Onhost\Platform\Events\GenericEvent;
+use Onhost\Platform\Outbox\OutboxMessage;
 use Onhost\Platform\Outbox\OutboxPublisher;
 
 /*
@@ -49,10 +50,18 @@ it('leaves no Czech phrase in any customer or user notification of an English or
             // an event whose publisher insists on a shape is covered by its own feature test
         }
     }
-    try {
-        $outbox->relayPending();
-    } catch (Throwable) {
+    // Relay the whole outbox, not one batch: one relay takes 100 messages and the router names over 300 events, so a
+    // single call rendered only the first batch — on PostgreSQL a different batch per run, which is how a Czech phrase
+    // could hide for a week and then fail a merge it had nothing to do with (dev run 38634578429).
+    for ($round = 0; $round < 20; $round++) {
+        try {
+            if ($outbox->relayPending(500) === 0) {
+                break;
+            }
+        } catch (Throwable) {
+        }
     }
+    expect(OutboxMessage::query()->whereNull('published_at')->where('attempts', 0)->count())->toBe(0); // every event was rendered or tried
     $left = [];
     Notification::query()->where('locale', 'en')->get()->each(function (Notification $n) use (&$left) {
         $words = array_merge(Lexicon::untranslated((string) $n->title), Lexicon::untranslated((string) $n->body));
@@ -61,4 +70,23 @@ it('leaves no Czech phrase in any customer or user notification of an English or
         }
     });
     expect($left)->toBe([]);
+});
+
+it('renders both API token decisions and every complaint outcome in English', function () {
+    [, $org] = $this->customerWithOrganization(['email' => 'lex2@shop.uk', 'locale' => 'en'], ['locale' => 'en', 'name' => 'Lexicon Two Ltd']);
+    $outbox = app(OutboxPublisher::class);
+    foreach (['approved', 'rejected'] as $decision) {
+        $outbox->publish(GenericEvent::of('iam.token_approval.decided', 'approval', 'apr_'.$decision, ['decision' => $decision, 'action' => 'service.delete', 'token_name' => 'ci'], $org->id));
+    }
+    foreach (['accepted', 'partially_accepted', 'rejected'] as $i => $outcome) {
+        $outbox->publish(GenericEvent::of('ticket.complaint.resolved', 'ticket', 'tkt_'.$outcome, ['number' => 'R-'.$i, 'outcome' => $outcome, 'resolved_at' => '2026-10-14T10:00:00Z', 'resolution' => 'Done.'], $org->id));
+    }
+    $outbox->relayPending();
+
+    $rows = Notification::query()->where('organization_id', $org->id)->where('locale', 'en')->get();
+    $text = $rows->map(fn (Notification $n) => $n->title.' | '.$n->body)->implode("\n");
+    expect($rows)->toHaveCount(5)
+        ->and(Lexicon::untranslated($text))->toBe([])
+        ->and($text)->toContain('API token request approved: service.delete', 'API token request declined: service.delete',
+            'Complaint accepted on 14. 10. 2026', 'Complaint partially accepted on 14. 10. 2026', 'Complaint rejected on 14. 10. 2026');
 });

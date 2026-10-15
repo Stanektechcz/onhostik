@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schedule;
 use Illuminate\Support\Facades\URL;
@@ -12,8 +13,10 @@ use Onhost\Domain\Billing\ChargebackAnalyst;
 use Onhost\Domain\Billing\DunningService;
 use Onhost\Domain\Billing\MeteringService;
 use Onhost\Domain\Billing\RatingService;
+use Onhost\Domain\Billing\SubscriptionExpiryNotices;
 use Onhost\Domain\Billing\SubscriptionService;
 use Onhost\Domain\Compliance\ComplianceService;
+use Onhost\Domain\Content\Waitlist\WaitlistService;
 use Onhost\Domain\Dns\DnssecWatch;
 use Onhost\Domain\Dns\DnsService;
 use Onhost\Domain\Dns\Models\DnsRecord;
@@ -51,6 +54,8 @@ use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Domain\Partners\Commands\PartnerCommand;
 use Onhost\Domain\Partners\PartnerService;
 use Onhost\Domain\Payments\BankStatementImporter;
+use Onhost\Domain\Payments\PendingPaymentSweep;
+use Onhost\Domain\Payments\SettlementReconciliation;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Provisioning\CapacityForecast;
 use Onhost\Domain\Provisioning\CapacityPlanner;
@@ -119,6 +124,7 @@ use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Files\FileStore;
 use Onhost\Platform\Ops\PlatformBackup;
 use Onhost\Platform\Ops\RestoreDrill;
+use Onhost\Platform\Outbox\OutboxMessage;
 use Onhost\Platform\Outbox\OutboxPublisher;
 use Onhost\Platform\Redaction\Redactor;
 use Onhost\Platform\Secrets\SecretStore;
@@ -354,6 +360,52 @@ Artisan::command('onhost:bank:sync {--from=} {--to=}', function (BankStatementIm
     return 0;
 })->purpose('Download new incoming transfers from the Fio bank API and settle the proformas / top-ups they pay');
 
+Artisan::command('onhost:payments:sweep {--limit= : intents re-read in this run (default onhost.payments.sweep.batch)}', function (PendingPaymentSweep $sweep) {
+    // W6 (TASK-0228): a provider without credentials or an intent the provider cannot answer is a warning in the log, never exit 1
+    $limit = $this->option('limit');
+    $limit = is_int($limit) ? (string) $limit : $limit;
+    if ($limit !== null && (! is_string($limit) || preg_match('/^[1-9][0-9]{0,5}$/', $limit) !== 1)) {
+        $this->error('--limit must be a whole number from 1 to 999999 (intents re-read in this run).');
+
+        return 1;
+    }
+    $s = $sweep->run($limit !== null ? (int) $limit : null);
+    $this->info(sprintf('payments sweep: checked %d, settled %d, failed %d, open %d, errors %d, skipped %s',
+        $s['checked'], $s['settled'], $s['failed'], $s['open'], $s['errors'], $s['skipped'] === [] ? '-' : implode(' ', $s['skipped'])));
+
+    return 0;
+})->purpose('Re-read the provider status of card payments left pending (lost notification and lost return) and settle, fail or cancel them');
+
+Artisan::command('onhost:payments:reconcile {--provider= : one provider (default: every one in onhost.payments.reconcile.providers)} {--date= : one accounting day YYYY-MM-DD, Europe/Prague (default: yesterday and every earlier day of the catch-up window without a run)}', function (SettlementReconciliation $reconciliation) {
+    // TASK-0235: once per provider and day; a provider without credentials is skipped and one that fails does not stop the others.
+    // Exit 1 only when every provider tried failed: one gateway's outage is a log warning and a doctor row, a run that reconciled
+    // nothing is a failed job. Without --date the days missed since the last run (scheduler down, a provider failed) come first.
+    $date = $this->option('date');
+    if ($date !== null && ! SettlementReconciliation::isReconcilableDay((string) $date)) {
+        $this->error('--date must be a past day as YYYY-MM-DD (Europe/Prague); today is not over yet.');
+
+        return 1;
+    }
+    $provider = $this->option('provider');
+    if ($provider !== null && ! $reconciliation->isKnownProvider((string) $provider)) {
+        $this->error('--provider must be a configured payment provider.');
+
+        return 1;
+    }
+    $providers = $provider !== null ? [(string) $provider] : $reconciliation->configuredProviders();
+    $done = $failed = 0;
+    $list = fn (array $keys) => $keys === [] ? '-' : implode(' ', $keys);
+    foreach ($date !== null ? [(string) $date] : SettlementReconciliation::catchUpDays($providers) as $day) {
+        $s = $reconciliation->run($day, $providers);
+        $done += count($s['reconciled']) + count($s['already']);
+        $failed += count($s['failed']);
+        $this->info(sprintf('payments reconcile %s: reconciled %s, already %s, skipped %s, failed %s, mismatches %d',
+            $s['day'], $list($s['reconciled']), $list($s['already']), $list($s['skipped']), $list($s['failed']), $s['mismatches']));
+    }
+
+    return $failed > 0 && $done === 0 ? 1 : 0;
+})->purpose('Reconcile yesterday\'s provider settlements (bank statement lines included) with payment intents and the ledger, once per provider and day, catching up missed days');
+
 Artisan::command('onhost:webhooks:retry', function (WebhookDispatcher $webhooks) {
     $this->table(['queued', 'dead'], [$webhooks->retryDue()]);
 })->purpose('Queue the due webhook attempts (backoff retries); endpoints no longer active end their deliveries');
@@ -369,6 +421,35 @@ Artisan::command('onhost:files:prune', function (FileStore $files, AutomationLed
     $ledger->record('files.prune', $stats);
     $this->table(array_keys($stats), [$stats]);
 })->purpose('Delete marketplace evidence past its retention and expired data exports (audit §5q-4)');
+
+// A1: kernel log retention. Both delete in batches by primary key so a large backlog never holds one long lock.
+Artisan::command('onhost:provider-calls:prune {--days= : override onhost.provider_calls.retention_days}', function () {
+    $days = max(1, (int) ($this->option('days') ?? config('onhost.provider_calls.retention_days', 90)));
+    $batch = max(1, (int) config('onhost.retention.prune_batch', 1000));
+    $cutoff = now()->subDays($days);
+    $deleted = 0;
+    do {
+        $ids = DB::table('provider_calls')->where('created_at', '<', $cutoff)->orderBy('id')->limit($batch)->pluck('id')->all();
+        $deleted += $ids === [] ? 0 : DB::table('provider_calls')->whereIn('id', $ids)->delete();
+    } while (count($ids) === $batch);
+    $this->info("pruned provider_calls: {$deleted} (older than {$days} days)");
+})->purpose('Delete provider call logs past their retention (90 days by default), in batches');
+
+Artisan::command('onhost:idempotency:prune', function () {
+    $batch = max(1, (int) config('onhost.retention.prune_batch', 1000));
+    $deleted = 0;
+    do {
+        $ids = DB::table('idempotency_keys')->whereNotNull('expires_at')->where('expires_at', '<', now())->orderBy('id')->limit($batch)->pluck('id')->all();
+        $deleted += $ids === [] ? 0 : DB::table('idempotency_keys')->whereIn('id', $ids)->delete();
+    } while (count($ids) === $batch);
+    $this->info("pruned idempotency keys: {$deleted}");
+})->purpose('Delete expired idempotency keys, in batches');
+
+// E2: waitlist retention — unconfirmed signups after 30 days, confirmed ones 12 months after the confirmation
+Artisan::command('onhost:waitlist:prune', function (WaitlistService $waitlist) {
+    $r = $waitlist->prune();
+    $this->info("pruned waitlist signups: {$r['pending']} unconfirmed, {$r['confirmed']} confirmed");
+})->purpose('Delete waitlist signups past their retention (30 days unconfirmed, 12 months confirmed)');
 
 Artisan::command('onhost:files:scan', function (MarketplaceService $marketplace, AutomationLedger $ledger) {
     $stats = $marketplace->rescanEvidence();
@@ -414,21 +495,30 @@ Artisan::command('onhost:oncall:remind', function (OnCallRota $rota, AutomationL
     $this->line("reminders: {$sent}");
 })->purpose('Remind the next on-call an hour before the shift (audit §5t-4)');
 
-Artisan::command('onhost:platform:backup', function (PlatformBackup $backup, AutomationLedger $ledger) {
+Artisan::command('onhost:platform:backup {--db-only : the database dump alone, kept 48 h (hourly, RPO 1 h — docs/runbooks/backups.md)}', function (PlatformBackup $backup, AutomationLedger $ledger) {
     if (! $ledger->enabled('platform.backup')) {
         $this->warn('platform.backup is switched off');
 
         return 0;
     }
+    $dbOnly = (bool) $this->option('db-only');
+    $lock = Cache::lock(PlatformBackup::LOCK_KEY, 2 * 3600); // A2: the hourly dump and the nightly full set never run at once
+    if (! $lock->get()) {
+        $this->warn('another platform backup is running; skipped');
+
+        return 0;
+    }
     try {
-        $r = $backup->run();
+        $r = $backup->run($dbOnly);
     } catch (Throwable $e) {
-        $ledger->record('platform.backup', [], $e->getMessage());
+        $ledger->record('platform.backup', ['db_only' => $dbOnly], $e->getMessage());
         $this->error('Backup failed: '.$e->getMessage());
 
         return 1;
+    } finally {
+        $lock->release();
     }
-    $ledger->record('platform.backup', ['set' => $r['set'], 'bytes' => array_sum(array_column($r['files'], 'bytes')), 'pruned' => $r['pruned']]);
+    $ledger->record('platform.backup', ['set' => $r['set'], 'db_only' => $dbOnly, 'bytes' => array_sum(array_column($r['files'], 'bytes')), 'pruned' => $r['pruned']]);
     $this->table(['file', 'bytes', 'sha256'], array_map(fn ($n, $f) => [$n, $f['bytes'], substr($f['sha256'], 0, 16).'…'], array_keys($r['files']), $r['files']));
     $this->info("Set {$r['set']} on disk ".config('onhost.platform_backup.disk')." ({$r['database']}); pruned {$r['pruned']}");
 
@@ -525,8 +615,13 @@ Schedule::command('onhost:mail:health')->everyFiveMinutes()->withoutOverlapping(
 Schedule::command('onhost:webhooks:retry')->everyMinute()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:oncall:escalate')->everyMinute()->withoutOverlapping()->onOneServer(); // unacknowledged pages escalate (audit §5q-1)
 Schedule::command('onhost:files:prune')->dailyAt('04:25')->onOneServer(); // file retention (audit §5q-4)
+Schedule::command('onhost:provider-calls:prune')->dailyAt('03:00')->withoutOverlapping()->onOneServer(); // A1: provider_calls retention
+Schedule::command('onhost:waitlist:prune')->dailyAt('03:10')->withoutOverlapping()->onOneServer(); // E2: waitlist retention
+Schedule::command('onhost:idempotency:prune')->dailyAt('03:05')->withoutOverlapping()->onOneServer(); // A1: expired idempotency keys
+Schedule::command('model:prune', ['--model' => [OutboxMessage::class]])->dailyAt('03:10')->withoutOverlapping()->onOneServer(); // A1: relayed outbox rows only
 Schedule::command('onhost:platform:backup')->dailyAt('02:15')->onOneServer(); // control plane backup (go-live §1)
 Schedule::command('onhost:platform:backup:verify')->dailyAt('03:15')->onOneServer();
+Schedule::command('onhost:platform:backup', ['--db-only'])->hourlyAt(40)->onOneServer(); // A2: RPO 1 h for the control plane database
 Schedule::command('onhost:oncall:remind')->everyFiveMinutes()->withoutOverlapping()->onOneServer(); // shift reminders (audit §5t-4)
 Schedule::command('onhost:game:templates:verify')->dailyAt('05:10')->onOneServer(); // template drift against the panel (audit §5s)
 Schedule::command('onhost:files:scan')->everyTenMinutes()->withoutOverlapping()->onOneServer(); // retry of the virus scan (audit §5r-4)
@@ -547,6 +642,8 @@ Schedule::command('onhost:registrar:reconcile')->dailyAt(sprintf('%02d:00', (int
 Schedule::command('onhost:bank:sync')->everyFiveMinutes()->withoutOverlapping()->onOneServer()->when(fn () => (string) config('onhost.payments.bank.fio_token', '') !== '');
 Schedule::command('onhost:billing:expire-holds')->everyTenMinutes()->onOneServer();
 Schedule::command('onhost:orders:settle')->everyTenMinutes()->withoutOverlapping()->onOneServer();
+Schedule::command('onhost:payments:sweep')->everyTenMinutes()->withoutOverlapping()->onOneServer();
+Schedule::command('onhost:payments:reconcile')->timezone('Europe/Prague')->dailyAt('05:15')->withoutOverlapping()->onOneServer(); // TASK-0235: yesterday's settlements, a quiet hour after the night jobs
 // a service left in SUSPENDING/RESUMING/RESIZING by a step the panel refused accepts nothing until it is put back; nothing is sent to a panel
 Schedule::command('onhost:services:release-stranded --apply --minutes=30')->everyTenMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:services:rescue-expire')->everyTenMinutes()->withoutOverlapping()->onOneServer();
@@ -557,6 +654,7 @@ Schedule::command('onhost:billing:rate')->everyFiveMinutes()->withoutOverlapping
 Schedule::command('onhost:billing:renewals')->hourlyAt(20)->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:billing:dunning')->dailyAt('06:00')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:billing:runway')->dailyAt('07:30')->withoutOverlapping()->onOneServer();
+Schedule::command('onhost:billing:expiry-notices')->dailyAt('07:40')->withoutOverlapping()->onOneServer(); // N18: services that end with their paid period
 Schedule::command('onhost:dns:platform-sync')->hourlyAt(25)->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:dns:drift')->dailyAt('03:40')->withoutOverlapping()->onOneServer(); // what the DNS providers serve vs what we hold
 Schedule::command('onhost:fx:sync')->timezone('Europe/Prague')->weekdays()->at('14:40')->withoutOverlapping()->onOneServer(); // the national bank publishes at 14:30
@@ -1428,6 +1526,10 @@ Artisan::command('onhost:dns:platform-sync {--service=* : limit to these service
 Artisan::command('onhost:billing:runway', function (WalletForecast $forecast) {
     $this->table(['checked', 'warned'], [$forecast->warnLow()]);
 })->purpose('Warn organizations whose credit will not cover the renewals of the next two weeks');
+
+Artisan::command('onhost:billing:expiry-notices', function (SubscriptionExpiryNotices $notices) {
+    $this->table(['checked', 'notified'], [$notices->run()]);
+})->purpose('Tell customers 14/7/1 days ahead that a service ends with its paid period because it is not to renew (N18)');
 
 Artisan::command('onhost:certificates:issue-pending {--limit=20}', function (CertificateAutoIssuer $issuer, AutomationLedger $ledger) {
     if ($ledger->off('certificates.issue')) {

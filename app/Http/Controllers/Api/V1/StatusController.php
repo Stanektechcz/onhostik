@@ -12,14 +12,15 @@ use Onhost\Domain\Incidents\Models\Incident;
 use Onhost\Domain\Incidents\Models\SlaCredit;
 use Onhost\Domain\Incidents\Presenters;
 use Onhost\Domain\Incidents\SlaService;
+use Onhost\Domain\Incidents\StatusSnapshot;
 use Onhost\Platform\Errors\DomainError;
 
 /** Public status page (`/stav`) and the customer's own incident/SLA view (`/panel`). */
 final class StatusController extends ApiController
 {
-    public function status(IncidentService $incidents): JsonResponse
+    public function status(StatusSnapshot $snapshot): JsonResponse
     {
-        return response()->json(['data' => $incidents->publicStatus()]);
+        return response()->json(['data' => $snapshot->get()]); // N14: allowlisted fields, last good snapshot on failure
     }
 
     public function incidents(Request $request, IncidentService $incidents): JsonResponse

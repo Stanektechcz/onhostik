@@ -150,14 +150,14 @@ function e2eIspPanel(array &$panel): void
     });
 }
 
-/** Merchant + secret for the Comgate adapter; the callback allow-list is opened for the test. Pest.php removes the environment afterwards. */
+/** Merchant + secret for the Comgate adapter; the callback allow-list holds the test request's address (W1: an empty list refuses every notification). Pest.php removes the environment afterwards. */
 function e2eComgateEnvironment(): void
 {
     putenv('COMGATE_MERCHANT=123456');
     putenv('COMGATE_SECRET=topsecret');
     $_ENV['COMGATE_MERCHANT'] = '123456';
     $_ENV['COMGATE_SECRET'] = 'topsecret';
-    config(['onhost.payments.comgate.callback_allowlist' => []]);
+    config(['onhost.payments.comgate.callback_allowlist' => ['127.0.0.1']]); // W1: the test request comes from 127.0.0.1; an empty list refuses every notification
 }
 
 /**

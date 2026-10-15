@@ -38,3 +38,53 @@ it('stores a platform secret behind a db:// reference from the command line and 
     $this->artisan('onhost:secrets:set db://oncall/pager base_url --remove')->expectsOutputToContain('Removed base_url')->assertExitCode(0);
     expect(app(SecretStore::class)->read(SecretRef::parse('db://oncall/pager')))->toBe(['routing_key' => 'pd-routing-key-123']);
 });
+
+/*
+ * F4: the contract covers every config/onhost*.php file and every variable name (not only a fixed prefix list), and the
+ * reverse direction: a key in .env.example must be read by the configuration (config/*.php, bootstrap/app.php, the
+ * $flag() helper of config/onhost-sell.php) or be a reviewed exemption - a stale key is noise an operator fills for nothing.
+ */
+function envTemplateF4Keys(): array
+{
+    preg_match_all('/^([A-Z0-9_]+)=/m', (string) file_get_contents(base_path('.env.example')), $m);
+
+    return array_values(array_unique($m[1]));
+}
+
+function envTemplateF4ReadKeys(array $files): array
+{
+    $keys = [];
+    foreach ($files as $file) {
+        preg_match_all("/(?:env|\\\$flag)\\(\\s*'([A-Z0-9_]+)'/", (string) file_get_contents($file), $m);
+        $keys = array_merge($keys, $m[1]);
+    }
+
+    return array_values(array_unique($keys));
+}
+
+function envTemplateF4DefaultsOnly(): array
+{
+    // Reviewed: internal switches and vendor endpoints whose built-in default is the only correct value; a blank line
+    // in the template would override that default with '' (env() returns '' for KEY=).
+    return ['ONHOST_DEMO_MODE', 'ONHOST_OUTBOX_EAGER', 'ONHOST_DEFAULT_LOCALE', 'ONHOST_PORTAL_URL', 'ONHOST_PLATFORM_BACKUP_FILES_ROOT', 'ONHOST_ORDER_RISK_DISPOSABLE', 'ONHOST_ORDER_RISK_FIRST_CZK', 'ONHOST_ORDER_RISK_FIRST_EUR', 'WEDOS_ENDPOINT', 'WEDOS_PUBLIC_PRICELIST_URL', 'WEDOS_CLOCK_MAX_OFFSET_SECONDS', 'SUBREG_ENDPOINT', 'SUBREG_PUBLIC_PRICELIST_URL', 'COMGATE_BASE_URL', 'COMGATE_SECRET_REF', 'GOPAY_BASE_URL', 'PEPPOL_BASE_URL', 'VIES_ENDPOINT', 'CLOUDFLARE_API_BASE', 'DISCORD_API_BASE', 'SANCTUM_TOKEN_PREFIX', 'AI_OPENAI_EMBEDDING_MODEL', 'AI_ANTHROPIC_BASE_URL'];
+}
+
+function envTemplateF4Exempt(): array
+{
+    // Laravel standard keys the framework reads outside the published config (hashing default, Vite, broadcasting, mail),
+    // and COMGATE_SECRET, read through the env:// secrets driver (COMGATE_SECRET_REF=env://COMGATE).
+    return ['BCRYPT_ROUNDS', 'BROADCAST_CONNECTION', 'MAIL_ENCRYPTION', 'VITE_APP_NAME', 'COMGATE_SECRET'];
+}
+
+it('lists every variable any config/onhost*.php file reads, whatever its prefix', function () {
+    $files = glob(base_path('config/onhost*.php')) ?: [];
+    expect($files)->toContain(base_path('config/onhost.php'), base_path('config/onhost-sell.php'));
+    $read = envTemplateF4ReadKeys($files);
+    expect(array_values(array_diff($read, envTemplateF4Keys(), envTemplateF4DefaultsOnly())))->toBe([]);
+    expect(array_values(array_diff(envTemplateF4DefaultsOnly(), $read)))->toBe([], 'stale exemption: the configuration no longer reads it');
+});
+
+it('carries no key in .env.example that nothing reads, except Laravel standard keys and reviewed ones', function () {
+    $read = envTemplateF4ReadKeys(array_merge(glob(base_path('config/*.php')) ?: [], [base_path('bootstrap/app.php')]));
+    expect(array_values(array_diff(envTemplateF4Keys(), $read, envTemplateF4Exempt())))->toBe([]);
+});

@@ -38,6 +38,7 @@ final class NotificationService
         'complaint-received' => 'legal.notice', 'complaint-resolved' => 'legal.notice', // L-15: § 19 ZOS confirmations of a complaint on a durable medium
         'ownership-offered' => 'account', 'ownership-transferred' => 'account', 'owner-recovery-opened' => 'security.login', 'member-mfa-reset' => 'security.login', // TASK-0042: the owner recovery notice is a security notice
         'access-restored' => 'account', // TASK-0044: the person whose access a snapshot gave back
+        'service-expiring' => 'legal.notice', // N18: a service ends with its paid period (contractual notice, mandatory kind so it cannot be switched off)
     ];
 
     public function notify(string $audience, string $kind, string $title, ?string $body = null, ?string $surface = null, ?string $organizationId = null, ?string $userId = null, ?string $refType = null, ?string $refId = null, ?string $event = null, string $severity = 'info', string $locale = 'cs'): ?Notification
