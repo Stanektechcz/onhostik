@@ -23,7 +23,7 @@ function a1ProviderCall(string $id, Carbon $at): void
 
 it('prunes provider_calls past 90 days in batches and keeps the recent ones', function () {
     $this->travelTo(Carbon::parse('2026-10-15 03:00:00', 'UTC'));
-    config(['onhost.provider_calls.prune_batch' => 2]);
+    config(['onhost.retention.prune_batch' => 2]);
     foreach (range(1, 5) as $i) {
         a1ProviderCall('pc_a1_old_'.$i, now()->subDays(91));
     }
@@ -66,7 +66,7 @@ it('prunes only relayed outbox messages past retention; an unrelayed one survive
 
 it('prunes expired idempotency keys and keeps live ones', function () {
     $this->travelTo(Carbon::parse('2026-10-15 03:05:00', 'UTC'));
-    config(['onhost.provider_calls.prune_batch' => 1]);
+    config(['onhost.retention.prune_batch' => 1]);
     foreach (['a1-exp-1' => now()->subHour(), 'a1-exp-2' => now()->subDays(3), 'a1-live' => now()->addHour()] as $key => $expires) {
         DB::table('idempotency_keys')->insert(['key' => $key, 'scope' => 'a1-probe', 'created_at' => now()->subDays(4), 'expires_at' => $expires]);
     }

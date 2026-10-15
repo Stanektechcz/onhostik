@@ -469,6 +469,10 @@ return [
     // A1: kernel log retention, pruned in batches by onhost:provider-calls:prune and onhost:idempotency:prune
     'provider_calls' => [
         'retention_days' => (int) env('ONHOST_PROVIDER_CALLS_RETENTION_DAYS', 90),
+    ],
+
+    // A1: batch size shared by the retention prunes (onhost:provider-calls:prune, onhost:idempotency:prune)
+    'retention' => [
         'prune_batch' => 1000,
     ],
 

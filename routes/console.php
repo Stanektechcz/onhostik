@@ -418,7 +418,7 @@ Artisan::command('onhost:files:prune', function (FileStore $files, AutomationLed
 // A1: kernel log retention. Both delete in batches by primary key so a large backlog never holds one long lock.
 Artisan::command('onhost:provider-calls:prune {--days= : override onhost.provider_calls.retention_days}', function () {
     $days = max(1, (int) ($this->option('days') ?? config('onhost.provider_calls.retention_days', 90)));
-    $batch = max(1, (int) config('onhost.provider_calls.prune_batch', 1000));
+    $batch = max(1, (int) config('onhost.retention.prune_batch', 1000));
     $cutoff = now()->subDays($days);
     $deleted = 0;
     do {
@@ -429,7 +429,7 @@ Artisan::command('onhost:provider-calls:prune {--days= : override onhost.provide
 })->purpose('Delete provider call logs past their retention (90 days by default), in batches');
 
 Artisan::command('onhost:idempotency:prune', function () {
-    $batch = max(1, (int) config('onhost.provider_calls.prune_batch', 1000));
+    $batch = max(1, (int) config('onhost.retention.prune_batch', 1000));
     $deleted = 0;
     do {
         $ids = DB::table('idempotency_keys')->whereNotNull('expires_at')->where('expires_at', '<', now())->orderBy('id')->limit($batch)->pluck('id')->all();
