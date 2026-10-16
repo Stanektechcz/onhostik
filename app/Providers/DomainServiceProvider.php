@@ -54,6 +54,8 @@ use Onhost\Domain\Integrations\Commands\IntegrationCommand;
 use Onhost\Domain\Integrations\Commands\IntegrationCommandHandler;
 use Onhost\Domain\Invoicing\Commands\InvoiceCommand;
 use Onhost\Domain\Invoicing\Commands\InvoicingCommandHandler;
+use Onhost\Domain\Invoicing\Commands\SendEInvoiceCommand;
+use Onhost\Domain\Invoicing\Commands\SendEInvoiceHandler;
 use Onhost\Domain\Invoicing\Listeners\SettleInvoicePayment;
 use Onhost\Domain\Loyalty\Commands\AccountLoyaltyCommand;
 use Onhost\Domain\Loyalty\Commands\LoyaltyCommand;
@@ -184,6 +186,7 @@ final class DomainServiceProvider extends ServiceProvider
         ProvisioningCommand::class => ProvisioningCommandHandler::class,
         CapacityCommand::class => CapacityCommandHandler::class,
         InvoiceCommand::class => InvoicingCommandHandler::class,
+        SendEInvoiceCommand::class => SendEInvoiceHandler::class, // W7-1: Peppol layer 1, driver null by default
         IncidentCommand::class => IncidentsCommandHandler::class,
         WorkOfferStaffCommand::class => WorkOfferCommandHandler::class,
         WorkOfferDecisionCommand::class => WorkOfferCommandHandler::class,
