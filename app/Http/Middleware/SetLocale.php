@@ -32,6 +32,10 @@ final class SetLocale
         if (in_array('sk', $supported, true) && ($request->path() === 'sk' || str_starts_with($request->path(), 'sk/'))) {
             $wanted = 'sk';
         }
+        // W7-3-EN: the English public site under /en/, only while config('onhost.locale_en_urls') is on
+        if ((bool) config('onhost.locale_en_urls', false) && ($request->path() === 'en' || str_starts_with($request->path(), 'en/'))) {
+            $wanted = 'en';
+        }
         if (is_string($wanted) && in_array($wanted, $supported, true)) {
             app()->setLocale($wanted);
         }
