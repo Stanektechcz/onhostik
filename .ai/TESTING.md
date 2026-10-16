@@ -70,6 +70,9 @@ Claude Code cloud sessions run on Linux without PowerShell, so `brain.ps1` does 
   Pest with a JUnit report (with `--quick` only `critical_flows[].tests` of the baseline plus the given paths), then
   `php scripts/ci/gate-classify.php` sorts failures into REGRESSION / PREEXISTING against
   `.ai/baseline/baseline.json`; a missing or empty JUnit report is a FAIL. Prints `VERDICT PASS|FAIL` and the steps.
+  `--format=json` (W5-3; default `text`, byte-identical to before) prints one object
+  `{"verdict","regression","preexisting","evidence":"junit|missing-junit|no-failure-named","pest_exit"}` on stdout
+  with the same exit codes 0/1/2; argument and baseline errors stay on stderr with exit 2 and empty stdout.
   No frontend build here; `gate.ps1` stays the reference gate until it uses `gate-classify.php` too.
 - **SQLite vs CI**: the sandbox runs Pest on SQLite `:memory:` (phpunit.xml) like Windows; PostgreSQL 16 runs only in
   CI job `pest-postgres`. A sandbox PASS says nothing about PostgreSQL-specific behaviour.

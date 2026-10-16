@@ -25,6 +25,20 @@ Naměřeno: **8** řádků. Šest z nich je v `SurfaceRenderer.php` a překrýv�
 Legenda sloupce „sk dnes“: **cs** znamená, že `sk` spadne do češtiny (podmínka `!== 'en'`). **en** znamená, že
 `sk` spadne do angličtiny (podmínka `=== 'cs'`).
 
+## Přepočet nad 8817e21 (W5-5, commit 1)
+
+Oba vzory výše spuštěné znovu nad `8817e21` (vlny 1 až 4 sloučené), 2026-10-15: vzor 1 **39** řádků, vzor 2 **8**
+řádků, čísla řádků v tabulkách beze změny. Rozpad zůstává **20 řádků cs** a **19 řádků en**; návrh W5-5 uváděl
+„19 větví“, což odpovídá jen sloupci en. Tabulka vzoru 2 (CatalogController:95, Lexicon:317 a šest `Intl.NumberFormat`)
+se také nezměnila.
+
+Referenční snapshoty pro `tests/Feature/SkLocalePhase2Test.php` patří do `tests/fixtures/sk-phase2/`. Uložený je
+`surfaces.sha1.json` (sha1 `apps/surfaces/*.dc.html`). HTML stránek z `PublicSeo::paths()`, `GET /v1/catalog`
+a `POST /v1/cart/quote` pro `?locale=sk` a `?locale=cs` (CSRF, nonce, UUID a časy normalizované) se nahrají tak, že se
+test zkopíruje do checkoutu `8817e21` a spustí `SK2_RECORD=1 php artisan test --filter=SkLocalePhase2Test`; vzniklé
+soubory se commitnou sem. V prostředí W5-5 nebyl nainstalovaný `vendor/`, takže nahrané zatím nejsou a test (a) se do té
+doby přeskočí (viz „Stav po W5-5“).
+
 ## Vzor 1: výskyty
 
 | soubor:řádek | co větví | sk dnes | navrhovaná oprava |
@@ -112,3 +126,34 @@ Fáze 2 (samostatný task, podmíněný schválením textů) a zapnutí `ONHOST_
 2. přečtení textů `lang/sk` Adrianem (W4-K3);
 3. rozhodnutí o `access.php` a `permissions.php` (přeložit, nebo ponechat fallback sk→cs);
 4. přidání `sk` do `PublicSeo::LANGUAGES` (hreflang) ve stejném commitu, který přepínač zapíná pro veřejný web.
+
+## Stav po W5-5
+
+Varianta B1: větve opravené hned, za přepínačem `config('onhost.locale_sk')` (výchozí `false`). Rozhoduje
+`Lexicon::slovak($locale)`: pravda jen pro `sk` se zapnutým přepínačem. Vypnutý přepínač vrací ve všech větvích výstup
+z `8817e21` beze změny, i když `sk` přijde přímo z query (`CartController:84`, `CatalogController:95`).
+
+| řádky | sk se zapnutým přepínačem |
+|---|---|
+| SurfaceDataController:441 (štítek tarifu) | `lang/sk/surface.php` `most_popular` |
+| SurfaceDataController:649 (uptime) | desetinná čárka a ` %` jako cs |
+| SurfaceDataController:725 (panel) | české texty panelu (žádná angličtina); vlastní SK texty panelu jsou další krok |
+| SurfaceRenderer:1246, 1361, 1362 (`Intl.NumberFormat`) | seam `intlLocale()`: `cs-CZ` / `sk-SK` / `en-US`; vypnuto přesně původní výraz |
+| SurfaceRenderer:549, 550 (přepínač jazyka) | beze změny: prototyp zná jen cs a en, `ONHOST.locale = sk` startuje v češtině |
+| ContentService:120 (datum) | `j. n.` jako cs |
+| ContentService:136 až 140 (sklad) | `lang/sk/surface.php`, skloňování přes `trans_choice` |
+| UsageWatch:315 až 317 (metriky) | `lang/sk/surface.php` `metric.*` |
+| 20 řádků se sloupcem „cs“ | beze změny: sk dostává češtinu, ne angličtinu |
+| Lexicon:295 a :317 | beze změny: `translate()` vrací pro sk český text; tabulka `SK` se nepřidala, částečná tabulka by dala směs cs/sk |
+
+Odchylky od zadání: mapa `Intl` drží pro angličtinu `en-US` (dnešní hodnota), ne `en-GB`, aby se anglický formát
+neměnil; tabulka `SK` v `Lexicon` a explicitní SK texty pro 20 řádků „cs“ (asistent, katalog, e-maily Identity,
+onboarding, věrnostní program, panel) zůstávají otevřené, protože vyžadují delší SK texty ke čtení vlastníkem.
+
+Měna, její pořadí, ceny, DPH, `TaxRule` ani šablona faktury na locale nezávisí; návrh „pro sk EUR první“
+(SurfaceDataController:97, :841) se zamítá, měna jde z košíku a legal entity. `lang/sk/surface.php` je nový soubor bez
+dvojčete v `lang/cs` (české texty jsou ve větvích kódu); `LangSkParityTest` hlídá jeho klíče, placeholdery a hlavičku.
+
+**B2 je otevřené rozhodnutí** (sk do `PublicSeo::LANGUAGES`, hreflang, sitemap). Doporučení: podsložka `/sk/` na stejné
+doméně (bez kroku v DNS) a `sk` do `LANGUAGES` až ve stejném commitu jako vlastní SK URL. Připomínky Adriana z W4-K3
+se zapracují samostatným commitem, až dorazí.

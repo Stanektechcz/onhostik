@@ -22,6 +22,7 @@ use Onhost\Domain\Tax\VatStanding;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Outbox\OutboxPublisher;
+use Throwable;
 
 /**
  * Server-side cart (handoff §4.3): anonymous carts are keyed by an opaque `X-Cart-Token`,
@@ -87,7 +88,13 @@ final class CartController extends ApiController
         $versions = array_diff_key((array) $quote->versions, ['vat' => true, 'vat_review' => true]);
         $versions['tax_reasons'] = array_values(array_filter((array) ($versions['tax_reasons'] ?? []), fn ($reason) => ! str_contains((string) $reason, 'name_mismatch')));
         if ((bool) config('onhost.funnel_metrics')) {
-            $this->countQuote($outbox, (array) $cart->items, (int) ($cart->commit_months ?? 1));
+            // W5-1: an anonymous metric, not a domain write (W4-6), so outside the CommandBus; a failing metric never costs the
+            // customer the quote. Reported without context: no plan keys, locale or cart reach the log.
+            try {
+                $this->countQuote($outbox, (array) $cart->items, (int) ($cart->commit_months ?? 1));
+            } catch (Throwable $e) {
+                report($e);
+            }
         }
 
         return response()->json(['data' => [

@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 use Database\Seeders\CatalogSeeder;
 use Database\Seeders\TaxRuleSeeder;
+use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Exceptions;
 use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Outbox\OutboxMessage;
 use Onhost\Platform\Outbox\OutboxPublisher;
@@ -92,5 +95,47 @@ it('has no route that reads the aggregate', function () {
         expect(str_contains($source, 'funnel_daily'))->toBeFalse("{$file} names funnel_daily")
             ->and(str_contains($source, 'CountQuoteRequest'))->toBeFalse("{$file} names CountQuoteRequest")
             ->and(stripos($source, 'funnel'))->toBeFalse("{$file} names the funnel aggregate");
+    }
+});
+
+/**
+ * W5-1: the amounts of a guest quote of the given plans, with the metric switch as given.
+ *
+ * @param  list<string>  $plans
+ * @return array{subtotal: mixed, tax: mixed, total: mixed, currency: mixed}
+ */
+function cqmW51Amounts($test, array $plans, bool $metrics): array
+{
+    config(['onhost.funnel_metrics' => $metrics]);
+    $lines = array_map(fn (string $plan) => ['product_key' => 'web-hosting', 'plan_key' => $plan, 'qty' => 1, 'config' => []], $plans);
+    $token = (string) $test->putJson('/v1/cart', ['items' => $lines, 'commit_months' => 1, 'currency' => 'CZK'])->assertOk()->json('data.token');
+    $data = $test->withHeader('X-Cart-Token', $token)->postJson('/v1/cart/quote?locale=en')->assertOk()->json('data');
+
+    return ['subtotal' => $data['subtotal'], 'tax' => $data['tax'], 'total' => $data['total'], 'currency' => $data['currency']];
+}
+
+it('answers the quote with the same amounts when publishing the metric fails (W5-1)', function () {
+    $expected = cqmW51Amounts($this, ['standard'], false);
+
+    // OutboxPublisher is final: a real instance is bound and its publish throws for the metric event only
+    app()->instance(OutboxPublisher::class, app()->make(OutboxPublisher::class));
+    OutboxMessage::creating(function (OutboxMessage $message) {
+        if ($message->name === 'cart.quote.requested') {
+            throw new RuntimeException('outbox unavailable');
+        }
+    });
+    Exceptions::fake();
+    $logged = [];
+    Event::listen(MessageLogged::class, function (MessageLogged $event) use (&$logged) {
+        $logged[] = $event->message.' '.json_encode($event->context);
+    });
+
+    expect(cqmW51Amounts($this, ['standard'], true))->toBe($expected);
+
+    Exceptions::assertReported(RuntimeException::class);
+    expect(cqmMessages())->toHaveCount(0);
+    foreach ($logged as $line) {
+        expect(str_contains($line, 'standard'))->toBeFalse('the log names the plan key')
+            ->and(str_contains($line, 'plan_keys'))->toBeFalse('the log names plan_keys');
     }
 });
