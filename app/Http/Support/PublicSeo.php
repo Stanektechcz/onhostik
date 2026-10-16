@@ -5,6 +5,10 @@ declare(strict_types=1);
 namespace App\Http\Support;
 
 use App\Http\Controllers\Web\SurfaceController;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
+use Onhost\Domain\Content\ContentEditor;
+use Onhost\Domain\Content\ContentService;
 
 /**
  * N15 (variant B, ROZHODNUTI-vlna2 2026-10-15): the public site's sitemap and its hreflang links, both through seams only.
@@ -179,7 +183,7 @@ final class PublicSeo
             return implode("\n", $tags);
         }
         $tags[] = $hreflang;
-        $url = self::base().($lang === 'sk' ? self::skPath($cs) : $cs);
+        $url = self::base().($lang === 'sk' ? self::langPath('sk', $cs) : $cs);
         $siteName = self::text($lang, 'home', 'site_name') ?: 'ONhost';
         $tags[] = '<link rel="canonical" href="'.self::attr($url).'">';
         $og = ['og:type' => 'website', 'og:title' => $title, 'og:description' => $description, 'og:url' => $url, 'og:locale' => $lang === 'sk' ? 'sk_SK' : 'cs_CZ', 'og:site_name' => $siteName];
@@ -200,7 +204,7 @@ final class PublicSeo
     /** @return list<array<string, mixed>> the JSON-LD nodes of one page (no logo, no offers: W7-K4 and one price source) */
     private static function graph(string $lang, string $cs, string $url, string $siteName): array
     {
-        $home = self::base().($lang === 'sk' ? self::skPath('/') : '/');
+        $home = self::base().($lang === 'sk' ? self::langPath('sk', '/') : '/');
         $id = LegalIdentitySeam::identity();
         $organization = ['@type' => 'Organization', '@id' => self::base().'/#organization', 'name' => $siteName, 'url' => self::base().'/'];
         if ($id['name'] !== '') {
@@ -226,11 +230,72 @@ final class PublicSeo
     }
 
     /** W7-3 head seam: everything of head() goes right before </head> in one replacement; the prototype file stays untouched. */
-    public static function withHead(string $html, string $path): string
+    /** @param  array<string, mixed>|null  $article  W7-4: the published post of a /blog/{slug} page */
+    public static function withHead(string $html, string $path, ?array $article = null): string
     {
-        $head = self::head($path);
+        $head = $article === null ? self::head($path) : self::articleHead($path, $article);
 
         return $head === '' ? $html : (string) preg_replace('~</head>~', addcslashes($head, '\\$')."\n</head>", $html, 1);
+    }
+
+    /** W7-4: a page that is not there (an unknown, draft or withheld post) carries noindex in its head as well as in its header. */
+    public static function withNoindex(string $html): string
+    {
+        return (string) preg_replace('~</head>~', '<meta name="robots" content="noindex, nofollow">'."\n</head>", $html, 1);
+    }
+
+    /**
+     * W7-4: the head of a published blog post — its title and perex, a self canonical (a Slovak page without a Slovak title of its own
+     * is canonical to the Czech one), og:type article and JSON-LD BlogPosting. The author (a member of staff) is deliberately left out
+     * until their consent is on record.
+     *
+     * @param  array<string, mixed>  $article
+     */
+    private static function articleHead(string $path, array $article): string
+    {
+        [$lang] = self::split($path);
+        $slug = (string) ($article['slug'] ?? '');
+        $cs = '/blog/'.$slug;
+        $own = $lang === 'cs' || ($article['translated'] ?? false) === true;
+        $url = self::base().($lang === 'sk' && $own ? self::langPath('sk', $cs) : $cs);
+        $title = (string) ($article['title'] ?? '');
+        $description = (string) ($article['excerpt'] ?? '');
+        $siteName = self::text($lang, 'home', 'site_name') ?: 'ONhost';
+        $tags = [];
+        if ($title !== '') {
+            $tags[] = '<title>'.self::attr($title.' | '.$siteName).'</title>';
+        }
+        if ($description !== '') {
+            $tags[] = '<meta name="description" content="'.self::attr($description).'">';
+        }
+        $links = ['<link rel="alternate" hreflang="cs" href="'.self::attr(self::base().$cs).'">'];
+        if (in_array('sk', self::languages(), true) && $lang === 'sk' && $own) { // a Czech page cannot tell yet; the sitemap carries the pair
+            $links[] = '<link rel="alternate" hreflang="sk" href="'.self::attr(self::base().self::langPath('sk', $cs)).'">';
+        }
+        $links[] = '<link rel="alternate" hreflang="x-default" href="'.self::attr(self::base().$cs).'">';
+        $tags[] = implode("\n", $links);
+        $tags[] = '<link rel="canonical" href="'.self::attr($url).'">';
+        $og = ['og:type' => 'article', 'og:title' => $title, 'og:description' => $description, 'og:url' => $url, 'og:locale' => $lang === 'sk' && $own ? 'sk_SK' : 'cs_CZ', 'og:site_name' => $siteName];
+        foreach ($og as $property => $content) {
+            if ($content !== '') {
+                $tags[] = '<meta property="'.$property.'" content="'.self::attr($content).'">';
+            }
+        }
+        $tags[] = '<meta name="twitter:card" content="summary">';
+        $posting = array_filter([
+            '@type' => 'BlogPosting', 'headline' => $title, 'description' => $description,
+            'datePublished' => is_string($article['date'] ?? null) ? $article['date'] : null,
+            'dateModified' => is_string($article['updated_at'] ?? null) ? $article['updated_at'] : null,
+            'inLanguage' => $lang === 'sk' && $own ? 'sk' : 'cs', 'mainEntityOfPage' => $url, 'publisher' => ['@id' => self::base().'/#organization'],
+        ], fn (mixed $v): bool => $v !== null && $v !== '');
+        $graph = self::graph($lang, $cs, $url, $siteName);
+        $graph[] = $posting;
+        $json = json_encode(['@context' => 'https://schema.org', '@graph' => $graph], JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if (is_string($json)) {
+            $tags[] = '<script type="application/ld+json">'.$json.'</script>';
+        }
+
+        return implode("\n", $tags);
     }
 
     /** Head seam: the links go right before </head> of the rendered page; the prototype file itself stays untouched. */
@@ -249,9 +314,16 @@ final class PublicSeo
         return $links === '' ? $html : (string) preg_replace('~</head>~', $links."\n</head>", $html, 1);
     }
 
+    /** The sitemap, cached for an hour (W7-4); ContentEditor forgets it with every write of a post or reference. */
     public static function sitemap(): string
     {
+        return (string) Cache::remember(ContentEditor::SITEMAP_CACHE_KEY, 3600, fn (): string => self::buildSitemap());
+    }
+
+    private static function buildSitemap(): string
+    {
         $twins = array_values(array_diff(self::languages(), ['cs']));
+        $sk = in_array('sk', $twins, true);
         $xml = '<?xml version="1.0" encoding="UTF-8"?>'."\n".'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"'.($twins !== [] ? ' xmlns:xhtml="http://www.w3.org/1999/xhtml"' : '').'>'."\n";
         foreach (self::paths() as $path) {
             $langs = array_values(array_filter($twins, fn (string $lang) => self::hasTwin($lang, $path)));
@@ -269,6 +341,22 @@ final class PublicSeo
             $alternates .= '<xhtml:link rel="alternate" hreflang="x-default" href="'.self::xml(self::base().$path).'"/>';
             foreach ($locs as $loc) {
                 $xml .= '  <url><loc>'.self::xml(self::base().$loc).'</loc>'.$alternates.'</url>'."\n";
+            }
+        }
+        // W7-4: the published blog posts (one query); the Slovak twin only with the switch on and a Slovak title of its own
+        foreach (app(ContentService::class)->sitemapPosts() as $post) {
+            $path = '/blog/'.$post['slug'];
+            $lastmod = $post['updated_at'] === null ? '' : '<lastmod>'.Carbon::parse($post['updated_at'])->toAtomString().'</lastmod>';
+            if (! ($sk && $post['sk'])) {
+                $xml .= '  <url><loc>'.self::xml(self::base().$path).'</loc>'.$lastmod.'</url>'."\n";
+
+                continue;
+            }
+            $alternates = '<xhtml:link rel="alternate" hreflang="cs" href="'.self::xml(self::base().$path).'"/>'
+                .'<xhtml:link rel="alternate" hreflang="sk" href="'.self::xml(self::base().self::langPath('sk', $path)).'"/>'
+                .'<xhtml:link rel="alternate" hreflang="x-default" href="'.self::xml(self::base().$path).'"/>';
+            foreach ([$path, self::langPath('sk', $path)] as $loc) {
+                $xml .= '  <url><loc>'.self::xml(self::base().$loc).'</loc>'.$lastmod.$alternates.'</url>'."\n";
             }
         }
 

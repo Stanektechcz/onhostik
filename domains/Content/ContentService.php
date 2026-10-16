@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Content;
 
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Carbon;
 use Onhost\Domain\Content\Models\ChangelogEntry;
 use Onhost\Domain\Content\Models\ContentReference;
 use Onhost\Domain\Content\Models\Lead;
@@ -54,7 +56,7 @@ final class ContentService
     /** @return list<array<string,mixed>> `{ slug, cat, title, excerpt, date, read, author, featured }` */
     public function posts(string $locale, ?string $category = null, string $kind = 'blog'): array
     {
-        $posts = Post::query()->where('kind', $kind)->where('state', 'published')->whereNotIn('slug', self::WITHHELD_POSTS)->orderByDesc('published_on')->orderByDesc('created_at')->get();
+        $posts = $this->publishedPosts($kind)->orderByDesc('published_on')->orderByDesc('created_at')->get();
         if ($category !== null && $category !== 'all') {
             $posts = $posts->filter(fn (Post $p) => $p->text('category', $locale) === $category);
         }
@@ -62,14 +64,56 @@ final class ContentService
         return $posts->map(fn (Post $p) => $this->postSummary($p, $locale))->values()->all();
     }
 
-    public function post(string $slug, string $locale): array
+    /**
+     * One published post of a kind (/v1/posts/{slug} and, W7-4, the public /blog/{slug} page); a draft, an archived or a withheld
+     * post is not found. `updated_at` (ISO 8601) and `translated` (the post has a title of its own in the locale) serve the page head.
+     *
+     * @return array<string, mixed>
+     */
+    public function post(string $slug, string $locale, string $kind = 'blog'): array
     {
-        $post = in_array($slug, self::WITHHELD_POSTS, true) ? null : Post::query()->where('slug', $slug)->where('state', 'published')->first();
-        if ($post === null) {
+        $post = $this->publishedPosts($kind)->where('slug', $slug)->first();
+        if (! $post instanceof Post) {
             throw DomainError::notFound('post');
         }
 
-        return $this->postSummary($post, $locale) + ['body' => $post->body[$locale] ?? $post->body['cs'] ?? []];
+        return $this->postSummary($post, $locale) + [
+            'body' => $post->body[$locale] ?? $post->body['cs'] ?? [],
+            'updated_at' => $post->updated_at === null ? null : Carbon::parse($post->updated_at)->toIso8601String(),
+            'translated' => $this->ownTitle($post, $locale),
+        ];
+    }
+
+    /**
+     * W7-4: the published blog posts of the sitemap in one query — slug, last change and whether a Slovak title of its own exists.
+     *
+     * @return list<array{slug: string, updated_at: string|null, sk: bool}>
+     */
+    public function sitemapPosts(): array
+    {
+        return $this->publishedPosts('blog')->orderBy('slug')->get(['slug', 'updated_at', 'title'])
+            ->map(fn (Post $p): array => [
+                'slug' => (string) $p->slug,
+                'updated_at' => $p->updated_at === null ? null : Carbon::parse($p->updated_at)->toIso8601String(),
+                'sk' => $this->ownTitle($p, 'sk'),
+            ])->values()->all();
+    }
+
+    /**
+     * The one place the public visibility of posts lives: published, of the kind, never a withheld post (I-R11).
+     *
+     * @return Builder<Post>
+     */
+    private function publishedPosts(string $kind): Builder
+    {
+        return Post::query()->where('kind', $kind)->where('state', 'published')->whereNotIn('slug', self::WITHHELD_POSTS);
+    }
+
+    private function ownTitle(Post $post, string $locale): bool
+    {
+        $title = $post->title;
+
+        return is_array($title) && is_string($title[$locale] ?? null) && $title[$locale] !== '';
     }
 
     /** Knowledge base search: title/excerpt/body substring match ranked by field, category filter. */
@@ -222,7 +266,7 @@ final class ContentService
      */
     public function blog(string $locale): array
     {
-        return Post::query()->where('kind', 'blog')->where('state', 'published')->whereNotIn('slug', self::WITHHELD_POSTS)->orderByDesc('published_on')->orderByDesc('created_at')->get()
+        return $this->publishedPosts('blog')->orderByDesc('published_on')->orderByDesc('created_at')->get()
             ->map(fn (Post $p) => array_replace($this->postSummary($p, $locale), [
                 'date' => $p->published_on === null ? '' : ($locale === 'en' ? $p->published_on->format('j M Y') : $p->published_on->format('j. n. Y')),
                 'author' => (string) $p->author,

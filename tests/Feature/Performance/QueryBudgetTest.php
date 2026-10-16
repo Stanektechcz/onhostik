@@ -293,7 +293,7 @@ it('quotes a cart of 2N lines with as many queries as N lines, under the ceiling
 });
 
 /** INSERT statements of one anonymous GET /v1/cart (W7-0: a read never creates a cart). */
-function qbGuestCartRead(TestCase $test, ?string $token): int
+function qbGuestCartReadInserts(TestCase $test, ?string $token): int
 {
     $inserts = 0;
     qbCountQueries(function () use ($test, $token, &$inserts) {
@@ -305,8 +305,8 @@ function qbGuestCartRead(TestCase $test, ?string $token): int
 }
 
 it('reads a guest cart without a single INSERT, with or without a token (W7-0)', function () {
-    expect(qbGuestCartRead($this, null))->toBe(0)
-        ->and(qbGuestCartRead($this, Str::random(40)))->toBe(0)
+    expect(qbGuestCartReadInserts($this, null))->toBe(0)
+        ->and(qbGuestCartReadInserts($this, Str::random(40)))->toBe(0)
         ->and(Cart::query()->count())->toBe(0);
 });
 

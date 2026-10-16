@@ -74,7 +74,7 @@ it('marks the Czech forms noindex in meta and header and keeps them out of the s
         expect((string) $response->getContent())->toContain('<meta name="robots" content="noindex, nofollow">')->not->toContain('rel="canonical"');
         expect($sitemap)->not->toContain('/'.$form.'<');
     }
-    expect($sitemap)->not->toContain('<lastmod>');
+    expect($sitemap)->not->toMatch('~<loc>(?![^<]*/blog/)[^<]*</loc><lastmod>~'); // W7-4: only blog posts carry lastmod
 });
 
 it('sends noindex on every public page outside production', function () {

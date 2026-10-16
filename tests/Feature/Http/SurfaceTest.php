@@ -16,7 +16,8 @@ it('serves the public surface verbatim with rewritten asset paths, the boot obje
     // the boot object is injected right before the shell, so the shell sees the session
     expect(strpos($html, 'window.ONHOST = {'))->toBeLessThan(strpos($html, 'src="/surfaces/onhost-shell.js?v='));
     expect($this->get('/stav')->assertOk()->getContent())->toContain('"hash":"#/stav"');
-    expect($this->get('/blog/pue-118')->assertOk()->getContent())->toContain('"hash":"#/blog/pue-118"');
+    // W7-4: an unknown post is a real 404 (no soft 404), still the public surface with its deep-link hash
+    expect($this->get('/blog/pue-118')->assertNotFound()->getContent())->toContain('"hash":"#/blog/pue-118"');
     $this->get('/neexistujici-stranka')->assertNotFound();
 
     $shell = $this->get('/surfaces/onhost-shell.js')->assertOk()->assertHeader('Content-Type', 'text/javascript; charset=utf-8');

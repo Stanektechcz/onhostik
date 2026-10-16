@@ -14,6 +14,7 @@ use App\Http\Support\PublicSeo;
 use App\Http\Support\ServicePageClaimsSeam;
 use App\Http\Support\SurfaceRenderer;
 use Illuminate\Http\Request;
+use Onhost\Domain\Content\ContentService;
 use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Authorization\StaffActor;
 use Onhost\Domain\Identity\Models\User;
@@ -21,6 +22,7 @@ use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Partners\Models\Partner;
 use Onhost\Platform\Commands\CommandScope;
+use Onhost\Platform\Errors\DomainError;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -50,8 +52,25 @@ final class SurfaceController extends Controller
     public function public(Request $request, ?string $path = null): Response
     {
         $hash = $path === null || $path === '' ? null : '#/'.trim($path, '/');
+        // W7-4: /blog/{slug} is an indexable article page; a draft, a withheld or an unknown post is a real 404 (no soft 404)
+        if ($path === null || (bool) config('onhost.ui.demo', false) || ! str_starts_with($path, 'blog/') || trim(substr($path, 5), '/') === '') {
+            return $this->surface($request, 'public', $hash);
+        }
+        if (preg_match('~^blog/([a-z0-9]+(?:-[a-z0-9]+)*)/?$~', $path, $m) === 1) {
+            try {
+                $article = app(ContentService::class)->post($m[1], app()->getLocale() === 'sk' ? 'sk' : 'cs', 'blog');
+            } catch (DomainError $e) {
+                if ($e->status !== 404) {
+                    throw $e;
+                }
 
-        return $this->surface($request, 'public', $hash);
+                return $this->surface($request, 'public', $hash, null, 404);
+            }
+
+            return $this->surface($request, 'public', $hash, $article);
+        }
+
+        return $this->surface($request, 'public', $hash, null, 404); // a deeper path or a malformed slug under /blog/
     }
 
     /**
@@ -200,7 +219,7 @@ final class SurfaceController extends Controller
         return $response;
     }
 
-    private function surface(Request $request, string $surface, ?string $hash): Response
+    private function surface(Request $request, string $surface, ?string $hash, ?array $article = null, int $status = 200): Response
     {
         $user = $request->user();
         $demo = (bool) config('onhost.ui.demo', false);
@@ -227,15 +246,18 @@ final class SurfaceController extends Controller
         }
         $html = $this->renderer->render($surface, $boot, $demo); // the credit/bonus/archive sentences are corrected inside render(), in the template only (G8 item 9, H2)
         if ($surface === 'public' && ! $demo) {
-            $html = PublicSeo::withHead($html, $request->path()); // N15 + W7-3: title, description, canonical, OG, JSON-LD and hreflang through the head seam
+            $html = PublicSeo::withHead($html, $request->path(), $article); // N15 + W7-3: title, description, canonical, OG, JSON-LD and hreflang through the head seam
+        }
+        if ($status === 404) { // W7-4: a missing post is never indexed
+            $html = PublicSeo::withNoindex($html);
         }
         $headers = ['Content-Type' => 'text/html; charset=utf-8', 'Cache-Control' => 'no-store', 'X-Frame-Options' => 'SAMEORIGIN', 'Referrer-Policy' => 'strict-origin-when-cross-origin'];
         // W7-3: forms and personal flows are never indexed, and nothing public is outside production (staging carries its own portal_url)
-        if (in_array($surface, self::CONCEPT_SURFACES, true) || ($surface === 'public' && (PublicSeo::notIndexed($request->path()) || ! PublicSeo::indexable()))) {
+        if ($status === 404 || in_array($surface, self::CONCEPT_SURFACES, true) || ($surface === 'public' && (PublicSeo::notIndexed($request->path()) || ! PublicSeo::indexable()))) {
             $headers['X-Robots-Tag'] = 'noindex, nofollow';
         }
 
-        return response($html, 200, $headers);
+        return response($html, $status, $headers);
     }
 
     /**

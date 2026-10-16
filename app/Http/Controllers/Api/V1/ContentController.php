@@ -23,7 +23,7 @@ final class ContentController extends ApiController
 
     public function post(Request $request, string $slug, ContentService $content): JsonResponse
     {
-        return $this->ok($content->post($slug, $this->locale($request)));
+        return $this->ok(array_diff_key($content->post($slug, $this->locale($request)), ['updated_at' => 1, 'translated' => 1])); // W7-4: the page-head fields stay off the API
     }
 
     public function kb(Request $request, ContentService $content): JsonResponse
