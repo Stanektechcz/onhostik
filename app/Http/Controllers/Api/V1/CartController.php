@@ -31,9 +31,15 @@ use Throwable;
  */
 final class CartController extends ApiController
 {
+    /**
+     * W7-0: reading the cart never writes. Without an open cart (no token, a malformed or unknown one, a signed-in user who has
+     * none yet) the answer is an empty virtual cart with no id and no token; a token is still issued only by PUT /v1/cart.
+     */
     public function show(Request $request): JsonResponse
     {
-        return response()->json(['data' => $this->present($this->cart($request))]);
+        $cart = $this->findCart($request);
+
+        return response()->json(['data' => $cart === null ? $this->presentVirtual() : $this->present($cart)]);
     }
 
     public function update(Request $request): JsonResponse
@@ -158,6 +164,27 @@ final class CartController extends ApiController
         }
 
         return Cart::query()->firstOrCreate(['session_token' => $token, 'state' => 'open'], ['currency' => 'CZK', 'commit_months' => 1, 'items' => [], 'expires_at' => now()->addDays(30)]);
+    }
+
+    /** The open cart of the signed-in user or of a well-formed X-Cart-Token, without creating one. */
+    private function findCart(Request $request): ?Cart
+    {
+        $user = $request->user();
+        if ($user !== null) {
+            return Cart::query()->where('user_id', $user->getAuthIdentifier())->where('state', 'open')->first();
+        }
+        $token = $request->headers->get('X-Cart-Token');
+        if (! is_string($token) || ! preg_match('/^[A-Za-z0-9_-]{16,80}$/', $token)) {
+            return null;
+        }
+
+        return Cart::query()->where('session_token', $token)->where('state', 'open')->first();
+    }
+
+    /** @return array{id: null, token: null, items: list<mixed>, commit_months: int, currency: string, promo_code: null, loyalty_points: null, expires_at: null} */
+    private function presentVirtual(): array
+    {
+        return ['id' => null, 'token' => null, 'items' => [], 'commit_months' => 1, 'currency' => 'CZK', 'promo_code' => null, 'loyalty_points' => null, 'expires_at' => null];
     }
 
     private function present(Cart $cart): array

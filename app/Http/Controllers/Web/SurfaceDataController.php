@@ -83,7 +83,7 @@ final class SurfaceDataController extends Controller
 
     public function data(): Response
     {
-        $js = Cache::remember('surfaces:onhost-data.js', 60, function () {
+        $js = Cache::flexible('surfaces:onhost-data.js', [60, 600], function () { // W7-0: fresh 60 s, then served stale up to 600 s while refreshed after the response; Cache::forget still forces a rebuild
             $payload = [];
             $vat = SurfacePricing::vat();
             $cardPayments = app(CardPayments::class)->available();

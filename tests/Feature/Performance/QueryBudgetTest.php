@@ -192,6 +192,24 @@ it('quotes a cart of 2N lines with as many queries as N lines, under the ceiling
         ->and(qbMeasureCartQuote($this, 2 * QB_N, true))->toBe($metricTwoN, 'nor the cart quote with the funnel metric');
 });
 
+/** INSERT statements of one anonymous GET /v1/cart (W7-0: a read never creates a cart). */
+function qbGuestCartRead(TestCase $test, ?string $token): int
+{
+    $inserts = 0;
+    qbCountQueries(function () use ($test, $token, &$inserts) {
+        $test->withHeaders($token === null ? [] : ['X-Cart-Token' => $token])->getJson('/v1/cart')->assertOk();
+        $inserts = count(array_filter(DB::getQueryLog(), fn (array $query) => str_starts_with(strtolower(ltrim((string) $query['query'])), 'insert')));
+    });
+
+    return $inserts;
+}
+
+it('reads a guest cart without a single INSERT, with or without a token (W7-0)', function () {
+    expect(qbGuestCartRead($this, null))->toBe(0)
+        ->and(qbGuestCartRead($this, Str::random(40)))->toBe(0)
+        ->and(Cart::query()->count())->toBe(0);
+});
+
 it('places a guest order of 2N lines with at most one extra query per extra line (the order item insert), under the ceiling, whatever another organization holds', function () {
     qbMeasureGuestCheckout($this, QB_N); // warm-up
     $n = qbMeasureGuestCheckout($this, QB_N);
