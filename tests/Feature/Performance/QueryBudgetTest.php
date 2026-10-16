@@ -18,7 +18,9 @@ use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Orders\Models\Cart;
 use Onhost\Domain\Orders\Models\Order;
+use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\OrganizationService;
+use Onhost\Domain\Provisioning\Models\ProviderBinding;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Platform\Commands\CommandContext;
 use Tests\TestCase;
@@ -47,7 +49,7 @@ const QB_CART_QUOTE_CEILING = 250;
 const QB_CART_QUOTE_FUNNEL_CEILING = 250;
 const QB_GUEST_CHECKOUT_CEILING = 600;
 const QB_GUEST_CART_READ_CEILING = 50;
-const QB_GUEST_CART_READ_INSERTS = 1; // W7-0 sníží na 0: GET /v1/cart without a known token still creates an open cart
+const QB_GUEST_CART_READ_INSERTS = 1; // W7-0 lowers this to 0: GET /v1/cart without a known token still creates an open cart
 const QB_SURFACE_DATA_COLD_CEILING = 400;
 const QB_PANEL_CEILING = 400;
 const QB_N = 3;
@@ -313,7 +315,7 @@ it('reads an anonymous cart with a bounded number of queries and at most one INS
     qbReport('guest_cart_read.unknown_token.queries', $unknown['queries']);
     qbReport('guest_cart_read.unknown_token.inserts', $unknown['inserts']);
 
-    // W7-0 sníží na 0: a read must not create a cart; today firstOrCreate inserts one open cart per unknown token
+    // W7-0 lowers this to 0: a read must not create a cart; today firstOrCreate inserts one open cart per unknown token
     expect($none['inserts'])->toBeLessThanOrEqual(QB_GUEST_CART_READ_INSERTS)
         ->and($unknown['inserts'])->toBeLessThanOrEqual(QB_GUEST_CART_READ_INSERTS);
     qbUnderCeiling($none['queries'], QB_GUEST_CART_READ_CEILING);
@@ -335,9 +337,9 @@ it('builds the panel script of two tenants with bounded queries, each without th
     [$userB, $orgB] = $this->customerWithOrganization([], ['name' => 'QbTenantB s.r.o.']);
     $nameA = 'qbsvc-alpha-'.Str::lower(Str::random(8));
     $nameB = 'qbsvc-bravo-'.Str::lower(Str::random(8));
-    featureWebService($orgA, 'ispconfig')->forceFill(['name' => $nameA, 'hostname' => $nameA.'.cz'])->save();
-    featureWebService($orgB, 'ispconfig')->forceFill(['name' => $nameB, 'hostname' => $nameB.'.cz'])->save();
-    featureWebService($orgB, 'ispconfig')->forceFill(['name' => $nameB.'-2', 'hostname' => $nameB.'-2.cz'])->save();
+    qbWebService($orgA)->forceFill(['name' => $nameA, 'hostname' => $nameA.'.cz'])->save();
+    qbWebService($orgB)->forceFill(['name' => $nameB, 'hostname' => $nameB.'.cz'])->save();
+    qbWebService($orgB)->forceFill(['name' => $nameB.'-2', 'hostname' => $nameB.'-2.cz'])->save();
     expect(Service::query()->where('organization_id', $orgB->id)->count())->toBe(2);
 
     qbPanelTwoTenants($this, $userA); // warm-up
@@ -351,3 +353,12 @@ it('builds the panel script of two tenants with bounded queries, each without th
     qbUnderCeiling($a['queries'], QB_PANEL_CEILING);
     qbUnderCeiling($b['queries'], QB_PANEL_CEILING);
 });
+
+/** featureWebService always binds remote_id '7'; give each binding a unique remote id so several services can coexist. */
+function qbWebService(Organization $org): Service
+{
+    $service = featureWebService($org, 'ispconfig');
+    ProviderBinding::query()->where('service_id', $service->id)->update(['remote_id' => 'qb-'.$service->id]);
+
+    return $service;
+}
