@@ -40,7 +40,8 @@ keep_terminal_from_children
 SITE="${SITE:-staging.onhost.cz}"                     # the aaPanel site (staging.onhost.cz for testing, onhost.cz for production)
 APP_DIR="${APP_DIR:-/www/wwwroot/${SITE}}"           # aaPanel site root (the repository checkout; nginx serves $APP_DIR/public)
 REPO="${REPO:-https://github.com/Stanektechcz/onhostik.git}"
-PHP="${PHP:-/www/server/php/83/bin/php}"
+PHP_VERSION="${PHP_VERSION:-83}"   # aaPanel PHP directory (83, 84, 85): docs/runbooks/php85-cutover.md
+PHP="${PHP:-/www/server/php/${PHP_VERSION}/bin/php}"
 COMPOSER="${COMPOSER:-/usr/local/bin/composer}"
 RUN_USER="${RUN_USER:-www}"                            # aaPanel's PHP-FPM user
 ENV_DIR="${ENV_DIR:-/etc/onhost}"
