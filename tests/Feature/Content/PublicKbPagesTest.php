@@ -58,7 +58,7 @@ it('answers 404 with noindex for an unknown or unpublished article', function ()
     $this->get('/znalostni-baze')->assertOk(); // the list page is untouched
 });
 
-it('lists the published articles in the sitemap with lastmod (cached under seo:sitemap)',function () {
+it('lists the published articles in the sitemap with lastmod (cached under seo:sitemap)', function () {
     pkbConfig();
     pkbArticle('pkb-live');
     pkbArticle('pkb-hidden', 'draft');
