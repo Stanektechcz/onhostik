@@ -122,5 +122,6 @@ Route::get('sprava/{path?}', [SurfaceController::class, 'admin'])->where('path',
 Route::get('partner/{path?}', [SurfaceController::class, 'partner'])->where('path', '.*')->name('surface.partner');
 Route::get('m/{path?}', [SurfaceController::class, 'mobile'])->where('path', '.*')->name('surface.mobile');
 Route::get('widgets', [SurfaceController::class, 'widgets'])->name('surface.widgets');
+Route::get('sk/{path?}', [SurfaceController::class, 'publicSk'])->where('path', '('.implode('|', SurfaceController::PUBLIC_PATHS).')(/.*)?')->name('surface.public.sk'); // W6-6: 404 while locale_sk is off
 Route::get('/', [SurfaceController::class, 'public'])->name('surface.public');
 Route::get('{path}', [SurfaceController::class, 'public'])->where('path', '('.implode('|', SurfaceController::PUBLIC_PATHS).')(/.*)?')->name('surface.public.path');

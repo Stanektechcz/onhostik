@@ -131,6 +131,26 @@ it('(b) gives sk the Slovak format and texts, never an English string of the inv
         ->and(SurfaceRenderer::panelSeams((string) file_get_contents(base_path('apps/surfaces/Onhost-app.dc.html'))))->not->toContain("'sk-SK'");
 });
 
+it('(b2) W6-4: declines the Slovak lead time for 1, 3 and 5 days', function () {
+    expect(trans_choice('surface.stock_lead', 1, ['days' => 1], 'sk'))->toBe('dodanie do 1 dňa')
+        ->and(trans_choice('surface.stock_lead', 3, ['days' => 3], 'sk'))->toBe('dodanie do 3 dní')
+        ->and(trans_choice('surface.stock_lead', 5, ['days' => 5], 'sk'))->toBe('dodanie do 5 dní');
+});
+
+it('(b3) W6-4: translates every Czech Lexicon phrase to Slovak only while locale_sk is on', function () {
+    expect(array_keys(Lexicon::SK))->toBe(array_keys(Lexicon::EN));
+    config()->set('onhost.locale_sk', true);
+    foreach (array_keys(Lexicon::EN) as $phrase) {
+        $slovak = (string) Lexicon::translate($phrase, 'sk');
+        expect($slovak)->toBe(Lexicon::SK[$phrase])
+            ->and(preg_match('/[ěřůĚŘŮ]/u', $slovak))->toBe(0, $phrase); // letters Slovak never uses: no Czech left behind
+    }
+    config()->set('onhost.locale_sk', false);
+    foreach (array_keys(Lexicon::EN) as $phrase) {
+        expect(Lexicon::translate($phrase, 'sk'))->toBe($phrase);
+    }
+});
+
 it('(c) quotes the same cart identically for cs, sk and en', function () {
     config()->set('onhost.locale_sk', true);
     $this->seed([CatalogSeeder::class, TaxRuleSeeder::class]);
@@ -144,9 +164,12 @@ it('(c) quotes the same cart identically for cs, sk and en', function () {
     }
 });
 
-it('(d) keeps PublicSeo Czech only, without an sk hreflang', function () {
+it('(d) keeps the Czech pages Czech: the sk hreflang points to /sk/, never to a Czech URL', function () {
     config()->set('onhost.locale_sk', true);
-    expect(PublicSeo::LANGUAGES)->toBe(['cs']);
+    expect(PublicSeo::languages())->toBe(['cs', 'sk']); // W6-6: the SK texts are approved; Slovak lives under /sk/, never on the Czech URL
+    expect((string) $this->get('/')->getContent())->not->toContain('hreflang="sk" href="'.PublicSeo::base().'/"')->toContain('hreflang="sk" href="'.PublicSeo::base().'/sk/"');
+    config()->set('onhost.locale_sk', false);
+    expect(PublicSeo::languages())->toBe(['cs']);
     expect((string) $this->get('/')->getContent())->not->toContain('hreflang="sk"');
 });
 

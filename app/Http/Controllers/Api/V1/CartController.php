@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Presenters\Presenters;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Onhost\Domain\Billing\WithdrawalPolicy;
 use Onhost\Domain\Catalog\Models\Plan;
@@ -89,11 +90,12 @@ final class CartController extends ApiController
         $versions['tax_reasons'] = array_values(array_filter((array) ($versions['tax_reasons'] ?? []), fn ($reason) => ! str_contains((string) $reason, 'name_mismatch')));
         if ((bool) config('onhost.funnel_metrics')) {
             // W5-1: an anonymous metric, not a domain write (W4-6), so outside the CommandBus; a failing metric never costs the
-            // customer the quote. Reported without context: no plan keys, locale or cart reach the log.
+            // customer the quote. W6-2: logged as a warning with the exception class only, never report($e) - a QueryException
+            // message carries its SQL bindings (plan keys, locale), which must not reach the log or the error tracker.
             try {
                 $this->countQuote($outbox, (array) $cart->items, (int) ($cart->commit_months ?? 1));
             } catch (Throwable $e) {
-                report($e);
+                Log::warning('cart quote metric failed', ['exception' => $e::class]);
             }
         }
 

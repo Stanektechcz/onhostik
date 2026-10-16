@@ -9,7 +9,7 @@ return [
     'most_popular' => 'Najčastejšia voľba',
     'stock_unit' => 'prenájom / mesiac',
     'stock_units' => '{1} :count kus na sklade|[2,4] :count kusy na sklade|[5,*] :count kusov na sklade',
-    'stock_lead' => 'dodanie :days dní',
+    'stock_lead' => '{1} dodanie do :days dňa|[2,*] dodanie do :days dní',
     'stock_on_order' => 'na objednávku',
     'metric' => [
         'disk' => 'priestor',

@@ -25,11 +25,16 @@ function djcDoctorReport(): array
 function djcVerdict(string $content, string $environment): Process
 {
     $file = (string) tempnam(sys_get_temp_dir(), 'onhost-djc-');
-    file_put_contents($file, $content);
-    $process = new Process([PHP_BINARY, base_path('infra/aapanel/deploy-gate.php'), 'verdict', '--report', $file, '--doctor-rc', '0', '--env', $environment, '--production', '0', '--sha', str_repeat('cd', 20), '--override', '', '--accept-file', '']);
-    $process->setTimeout(30);
-    $process->run();
-    @unlink($file);
+    try {
+        file_put_contents($file, $content);
+        // --doctor-rc 0: this contract checks how the gate parses the report body, not the doctor's exit code; a zero rc
+        // keeps the verdict driven by the JSON rows alone (the rc handling is covered by DeployGateTest)
+        $process = new Process([PHP_BINARY, base_path('infra/aapanel/deploy-gate.php'), 'verdict', '--report', $file, '--doctor-rc', '0', '--env', $environment, '--production', '0', '--sha', str_repeat('cd', 20), '--override', '', '--accept-file', '']);
+        $process->setTimeout(30);
+        $process->run();
+    } finally {
+        @unlink($file);
+    }
 
     return $process;
 }

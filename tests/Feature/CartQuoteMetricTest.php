@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 use Database\Seeders\CatalogSeeder;
 use Database\Seeders\TaxRuleSeeder;
-use Illuminate\Log\Events\MessageLogged;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Exceptions;
+use Illuminate\Support\Facades\Log;
 use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Outbox\OutboxMessage;
 use Onhost\Platform\Outbox\OutboxPublisher;
@@ -114,28 +114,30 @@ function cqmW51Amounts($test, array $plans, bool $metrics): array
     return ['subtotal' => $data['subtotal'], 'tax' => $data['tax'], 'total' => $data['total'], 'currency' => $data['currency']];
 }
 
-it('answers the quote with the same amounts when publishing the metric fails (W5-1)', function () {
+it('answers the quote and logs only the exception class when the metric fails with a query error (W5-1, W6-2)', function () {
     $expected = cqmW51Amounts($this, ['standard'], false);
 
-    // OutboxPublisher is final: a real instance is bound and its publish throws for the metric event only
+    // OutboxPublisher is final: a real instance is bound and the metric insert throws a QueryException whose bindings
+    // carry a secret marker; the message of such an exception would leak the bindings if it were reported or logged
     app()->instance(OutboxPublisher::class, app()->make(OutboxPublisher::class));
     OutboxMessage::creating(function (OutboxMessage $message) {
         if ($message->name === 'cart.quote.requested') {
-            throw new RuntimeException('outbox unavailable');
+            throw new QueryException('testing', 'insert into outbox_messages (payload) values (?)', ['secret-plan-key'], new RuntimeException('outbox unavailable'));
         }
     });
     Exceptions::fake();
-    $logged = [];
-    Event::listen(MessageLogged::class, function (MessageLogged $event) use (&$logged) {
-        $logged[] = $event->message.' '.json_encode($event->context);
-    });
+    Log::spy();
 
     expect(cqmW51Amounts($this, ['standard'], true))->toBe($expected);
 
-    Exceptions::assertReported(RuntimeException::class);
+    Exceptions::assertNothingReported();
     expect(cqmMessages())->toHaveCount(0);
-    foreach ($logged as $line) {
-        expect(str_contains($line, 'standard'))->toBeFalse('the log names the plan key')
-            ->and(str_contains($line, 'plan_keys'))->toBeFalse('the log names plan_keys');
+    Log::shouldHaveReceived('warning')->once()->with('cart quote metric failed', ['exception' => QueryException::class]);
+    foreach (['emergency', 'alert', 'critical', 'error', 'warning', 'notice', 'info', 'debug', 'log'] as $level) {
+        Log::shouldNotHaveReceived($level, function (...$args) {
+            $line = (string) json_encode($args);
+
+            return str_contains($line, 'secret-plan-key') || str_contains($line, 'standard') || str_contains($line, 'plan_keys') || str_contains($line, '"en"');
+        });
     }
 });
