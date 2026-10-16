@@ -81,7 +81,7 @@ final class SurfaceDataController extends Controller
 
     public function __construct(private readonly CatalogService $catalog, private readonly ContentService $content, private readonly IncidentService $incidents, private readonly GameConfigurator $gameConfigurator) {}
 
-    public function data(): Response
+    public function data(Request $request): Response
     {
         $js = Cache::flexible('surfaces:onhost-data.js', [60, 600], function () { // W7-0: fresh 60 s, then served stale up to 600 s while refreshed after the response; Cache::forget still forces a rebuild
             $payload = [];
@@ -114,7 +114,11 @@ final class SurfaceDataController extends Controller
                 ."    status: function (cs) { return L(cs).status; },\n    locations: function (cs) { return L(cs).locations; },\n    changelog: function (cs) { return L(cs).changelog; },\n    skus: function (cs) { return L(cs).skus; },\n    pages: function (cs) { return L(cs).pages; },\n    webPlans: function (cs) { return L(cs).webPlans; },\n    gameSlots: function (cs) { return L(cs).gameSlots; },\n    gameConfig: function (cs) { return L(cs).gameConfig; },\n    pricing: function (cs) { return L(cs).pricing; },\n    addons: function (cs) { return L(cs).addons; },\n    tlds: function (cs) { return L(cs).tlds; },\n    currencies: function (cs) { return L(cs === undefined ? true : cs).currencies; },\n    vat: function () { return D.cs.vat ? D.cs.vat.rate : null; },\n    vatPercent: function (cs) { var v = L(cs === undefined ? true : cs).vat; return v ? v.percent : null; },\n    vatPayer: function () { return D.cs.vatPayer !== false; },\n    references: function (cs) { return L(cs === undefined ? true : cs).references || []; },\n    blog: function (cs) { return L(cs === undefined ? true : cs).blog || []; },\n    team: function (cs) { return L(cs === undefined ? true : cs).team || []; },\n    contact: function () { return D.cs.contact || {}; },\n    cardPayments: function () { return D.cs.cardPayments; },\n    legalLinks: function (cs) { return L(cs).legal || []; },\n    legalDocs: function (cs) { return L(cs === undefined ? true : cs).legalDocs || []; },\n    generatedAt:".json_encode(now()->toIso8601String())."\n  };\n})();\n";
         });
 
-        return response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=60']);
+        $response = response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=60']);
+        $response->setEtag(sha1($js)); // W7-2b (MERENI P4): 304 on a matching If-None-Match
+        $response->isNotModified($request);
+
+        return $response;
     }
 
     /** Public product page slug (onhost-svc-*.js) → catalogue products whose plans the page sells. */
