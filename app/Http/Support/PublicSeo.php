@@ -108,6 +108,118 @@ final class PublicSeo
         return implode("\n", $links);
     }
 
+    /** Search engines may index the public site (config onhost.seo.indexable; off outside production, so staging never is). */
+    public static function indexable(): bool
+    {
+        return (bool) config('onhost.seo.indexable', false);
+    }
+
+    /** The key of a path in lang/{cs,sk}/seo.php ('/' → 'home', '/ceny/x' → 'ceny'). */
+    private static function key(string $cs): string
+    {
+        $first = explode('/', trim($cs, '/'))[0];
+
+        return $first === '' ? 'home' : $first;
+    }
+
+    /** One text of the seo table in the page's language, falling back to Czech. */
+    private static function text(string $lang, string $key, string $field): string
+    {
+        $line = 'seo.pages.'.$key.'.'.$field;
+        $value = trans($line, [], $lang);
+        if ($lang !== 'cs' && (! is_string($value) || $value === $line)) {
+            $value = trans($line, [], 'cs');
+        }
+
+        return is_string($value) && $value !== $line ? $value : '';
+    }
+
+    private static function attr(string $value): string
+    {
+        return htmlspecialchars($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    }
+
+    /**
+     * W7-3: the whole head of a public page — title, description, canonical, Open Graph, Twitter card and JSON-LD
+     * (Organization, WebSite, BreadcrumbList) next to the hreflang links; forms and personal flows carry noindex in both languages.
+     */
+    public static function head(string $path): string
+    {
+        [$lang, $cs] = self::split($path);
+        $key = self::key($cs);
+        $title = self::text($lang, $key, 'title');
+        $description = self::text($lang, $key, 'description');
+        $tags = [];
+        if ($title !== '') {
+            $tags[] = '<title>'.self::attr($title).'</title>';
+        }
+        if ($description !== '') {
+            $tags[] = '<meta name="description" content="'.self::attr($description).'">';
+        }
+        if (self::notIndexed($path)) {
+            $tags[] = '<meta name="robots" content="noindex, nofollow">';
+
+            return implode("\n", $tags);
+        }
+        $hreflang = self::hreflang($path);
+        if ($hreflang === '') { // a page outside the sitemap (a blog post, a hash route): no canonical of its own here
+            return implode("\n", $tags);
+        }
+        $tags[] = $hreflang;
+        $url = self::base().($lang === 'sk' ? self::skPath($cs) : $cs);
+        $siteName = self::text($lang, 'home', 'site_name') ?: 'ONhost';
+        $tags[] = '<link rel="canonical" href="'.self::attr($url).'">';
+        $og = ['og:type' => 'website', 'og:title' => $title, 'og:description' => $description, 'og:url' => $url, 'og:locale' => $lang === 'sk' ? 'sk_SK' : 'cs_CZ', 'og:site_name' => $siteName];
+        foreach ($og as $property => $content) {
+            if ($content !== '') {
+                $tags[] = '<meta property="'.$property.'" content="'.self::attr($content).'">';
+            }
+        }
+        $tags[] = '<meta name="twitter:card" content="summary">'; // no og:image until W7-K4 approves one
+        $json = json_encode(['@context' => 'https://schema.org', '@graph' => self::graph($lang, $cs, $url, $siteName)], JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if (is_string($json)) {
+            $tags[] = '<script type="application/ld+json">'.$json.'</script>';
+        }
+
+        return implode("\n", $tags);
+    }
+
+    /** @return list<array<string, mixed>> the JSON-LD nodes of one page (no logo, no offers: W7-K4 and one price source) */
+    private static function graph(string $lang, string $cs, string $url, string $siteName): array
+    {
+        $home = self::base().($lang === 'sk' ? self::skPath('/') : '/');
+        $id = LegalIdentitySeam::identity();
+        $organization = ['@type' => 'Organization', '@id' => self::base().'/#organization', 'name' => $siteName, 'url' => self::base().'/'];
+        if ($id['name'] !== '') {
+            $organization['legalName'] = $id['name'];
+        }
+        if ($id['ico'] !== '') {
+            $organization['identifier'] = ['@type' => 'PropertyValue', 'propertyID' => 'IČO', 'value' => $id['ico']];
+        }
+        $contact = array_filter(['telephone' => $id['phone'], 'email' => $id['email']], fn (string $v): bool => $v !== '');
+        if ($contact !== []) {
+            $organization['contactPoint'] = ['@type' => 'ContactPoint', 'contactType' => 'customer service'] + $contact;
+        }
+        $graph = [$organization, ['@type' => 'WebSite', '@id' => $home.'#website', 'url' => $home, 'name' => $siteName, 'inLanguage' => $lang, 'publisher' => ['@id' => self::base().'/#organization']]];
+        if ($cs !== '/') {
+            $key = self::key($cs);
+            $graph[] = ['@type' => 'BreadcrumbList', 'itemListElement' => [
+                ['@type' => 'ListItem', 'position' => 1, 'name' => self::text($lang, 'home', 'crumb') ?: $siteName, 'item' => $home],
+                ['@type' => 'ListItem', 'position' => 2, 'name' => self::text($lang, $key, 'crumb') ?: $key, 'item' => $url],
+            ]];
+        }
+
+        return $graph;
+    }
+
+    /** W7-3 head seam: everything of head() goes right before </head> in one replacement; the prototype file stays untouched. */
+    public static function withHead(string $html, string $path): string
+    {
+        $head = self::head($path);
+
+        return $head === '' ? $html : (string) preg_replace('~</head>~', addcslashes($head, '\\$')."\n</head>", $html, 1);
+    }
+
     /** Head seam: the links go right before </head> of the rendered page; the prototype file itself stays untouched. */
     public static function withHreflang(string $html, string $path): string
     {

@@ -1,2 +1,5 @@
 User-agent: *
-Disallow:
+Disallow: /sprava
+Disallow: /panel
+
+Sitemap: https://onhost.cz/sitemap.xml
