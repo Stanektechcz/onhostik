@@ -474,7 +474,7 @@ final class GameTemplates
     /** @return Collection<int, ProviderInstance> */
     private function gameInstances(): Collection
     {
-        return ProviderInstance::query()->where('provider', 'pterodactyl')->where('state', 'active')->get();
+        return app(GameInstanceMemo::class)->get(); // once per request or job (W7-0b)
     }
 
     /** @return array<string,string> operator-held values (a Steam account) from the secret store */

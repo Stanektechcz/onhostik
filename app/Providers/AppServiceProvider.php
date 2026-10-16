@@ -16,9 +16,17 @@ use Illuminate\Queue\Events\Looping;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
+use Onhost\Domain\Catalog\CatalogService;
+use Onhost\Domain\Catalog\Models\Plan;
+use Onhost\Domain\Catalog\Models\PlanVersion;
+use Onhost\Domain\Catalog\Models\Price;
+use Onhost\Domain\Catalog\Models\Product;
+use Onhost\Domain\Catalog\Models\ProductOption;
 use Onhost\Domain\Identity\Models\PersonalAccessToken;
 use Onhost\Domain\Platform\QueueLaneHeartbeat;
 use Onhost\Domain\Platform\ScheduleHealth;
+use Onhost\Domain\Provisioning\GameInstanceMemo;
+use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Platform\Dns\Dnsbl\DnsblLookup;
 use Onhost\Platform\Dns\Dnsbl\ResolverDnsblLookup;
 use Onhost\Platform\Dns\RecordResolver;
@@ -37,12 +45,28 @@ final class AppServiceProvider extends ServiceProvider
         $this->app->bind(DnsblLookup::class, ResolverDnsblLookup::class); // SP1a: blocklist questions through the operator's own resolver
         $this->app->bind(CertificateReader::class, PeerCertificateReader::class); // what a node really serves for a site (CertificateWatch)
         $this->app->singleton(SurfaceRenderer::class, fn () => new SurfaceRenderer((string) config('onhost.ui.surfaces_path', base_path('apps/surfaces'))));
+        // W7-0b (MERENI P2 + P6): request memos; scoped instances are dropped between requests and jobs
+        $this->app->scoped(CatalogService::class);
+        $this->app->scoped(GameInstanceMemo::class);
         $this->app->singleton(QueueLaneHeartbeat::class); // one per worker process: it remembers when it last stamped each lane (TASK-0045)
     }
 
     public function boot(): void
     {
         Event::listen(Looping::class, [QueueLaneHeartbeat::class, 'handle']); // every worker loop stamps its own lane (TASK-0045)
+        // W7-0b: any write to the catalog or the game panels drops the request memo, whoever writes (command, seeder, test)
+        foreach ([Product::class, Plan::class, PlanVersion::class, Price::class, ProductOption::class] as $model) {
+            Event::listen(["eloquent.saved: {$model}", "eloquent.deleted: {$model}"], function (): void {
+                if ($this->app->resolved(CatalogService::class)) {
+                    $this->app->make(CatalogService::class)->forgetMemo();
+                }
+            });
+        }
+        Event::listen(['eloquent.saved: '.ProviderInstance::class, 'eloquent.deleted: '.ProviderInstance::class], function (): void {
+            if ($this->app->resolved(GameInstanceMemo::class)) {
+                $this->app->make(GameInstanceMemo::class)->forget();
+            }
+        });
         // C2 (panel 2026-10-15): a stored 'sk' preference reads Czech strings before English; every other locale keeps config('app.fallback_locale')
         Event::listen(LocaleUpdated::class, function (LocaleUpdated $event): void {
             $this->app['translator']->setFallback($event->locale === 'sk' ? 'cs' : (string) config('app.fallback_locale', 'en'));

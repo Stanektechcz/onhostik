@@ -26,7 +26,8 @@ final class CatalogController extends ApiController
     public function show(Request $request, CatalogService $catalog, string $product): JsonResponse
     {
         [$locale, $currency] = $this->localeCurrency($request);
-        $item = collect($catalog->publicCatalog($locale, $currency)['products'] ?? $catalog->publicCatalog($locale, $currency))->first(fn ($p) => ($p['key'] ?? null) === $product);
+        $all = $catalog->publicCatalog($locale, $currency);
+        $item = collect($all['products'] ?? $all)->first(fn ($p) => ($p['key'] ?? null) === $product);
         if ($item === null) {
             $model = Product::query()->where('key', $product)->first();
             if ($model === null) {
