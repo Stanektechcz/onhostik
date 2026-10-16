@@ -23,9 +23,27 @@ use Onhost\Platform\Money\Money;
  */
 final class CatalogService
 {
+    /** @var array<string, Collection<int, Product>> request memo of the active product query (MERENI P2); the instance is scoped, so it never outlives a request or job */
+    private array $activeMemo = [];
+
+    /** @var array<string, Product> request memo of `product()` by key */
+    private array $productMemo = [];
+
+    /** Drops the request memo: after every catalog command and on any catalog model save or delete (AppServiceProvider). */
+    public function forgetMemo(): void
+    {
+        $this->activeMemo = [];
+        $this->productMemo = [];
+    }
+
     /** @return Collection<int, Product> */
     public function products(?string $family = null, bool $sellableOnly = true): Collection
     {
+        if ($family === null && $sellableOnly) {
+            $products = $this->activeMemo['all'] ??= Product::query()->with(['plans.versions.prices', 'options'])->orderBy('sort')->where('state', 'active')->get();
+
+            return $products->filter(fn (Product $p) => SellSwitch::allows($p->family))->values(); // the sell switch is read on every call, only the query is memoized
+        }
         $query = Product::query()->with(['plans.versions.prices', 'options'])->orderBy('sort');
         if ($family !== null) {
             $query->where('family', $family);
@@ -41,12 +59,15 @@ final class CatalogService
 
     public function product(string $key): Product
     {
+        if (isset($this->productMemo[$key])) {
+            return $this->productMemo[$key];
+        }
         $product = Product::query()->with(['plans.versions.prices', 'options'])->where('key', $key)->first();
         if ($product === null) {
             throw DomainError::notFound("Product {$key}");
         }
 
-        return $product;
+        return $this->productMemo[$key] = $product;
     }
 
     /** @return array{product:Product, plan:Plan, version:PlanVersion, price:Price} */
