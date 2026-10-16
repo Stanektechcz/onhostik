@@ -40,7 +40,7 @@ final class IncludedServices
             ->where('tags->billing', 'included')
             ->whereKeyNot($service->id)
             ->whereIn('state', self::LIVE)
-            ->orderBy('created_at')
+            ->orderBy('created_at')->orderBy('id')
             ->get();
     }
 
