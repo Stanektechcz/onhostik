@@ -32,6 +32,7 @@ use Onhost\Domain\Invoicing\Models\LegalEntity;
 use Onhost\Domain\Notifications\MailHealth;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\OrderStateMachine;
+use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Payments\ComgateCheck;
 use Onhost\Domain\Payments\ReconciliationHealth;
 use Onhost\Domain\Platform\GoLiveChecks;
@@ -180,7 +181,9 @@ final class Doctor extends Command
             $this->line(sprintf('%s · %d checks · %d FAIL · %d WARN', app()->environment(), count($this->rows), $fails, $warns));
         }
 
-        return $fails > 0 ? self::FAILURE : self::SUCCESS;
+        $blockingFails = count(array_filter($this->rows, fn ($r) => $r['status'] === 'FAIL' && $r['blocking'])); // W7-1: a non-blocking FAIL (einvoice readiness) is reported, never fails the run
+
+        return $blockingFails > 0 ? self::FAILURE : self::SUCCESS;
     }
 
     /**
@@ -676,6 +679,28 @@ final class Doctor extends Command
         };
         $this->add('documents', 'e-invoice (SK eFaktúra / Peppol) delivery', $configured || ! $due, $detail, false,
             'choose a Peppol access point, set PEPPOL_BASE_URL and PEPPOL_SENDER_ID, store its key with onhost:secrets:set (PEPPOL_SECRET_REF), then php artisan config:cache');
+        $this->einvoiceDriverReadiness($from);
+    }
+
+    /**
+     * W7-1: the e-invoice driver and whether a sender ID is set (presence only, never the value or the secret). Before the SK
+     * mandatory date a missing delivery is a WARN; from it, the driver `null` with a Slovak customer is a FAIL that never
+     * blocks (blocking=false; the exit code counts blocking FAIL rows only).
+     */
+    private function einvoiceDriverReadiness(CarbonImmutable $from): void
+    {
+        $driver = (string) config('onhost.einvoice.driver', 'null');
+        $sender = (string) config('onhost.einvoice.peppol.sender_id') !== '';
+        $ready = $driver !== 'null' && $sender;
+        $detail = 'driver '.$driver.' · sender_id set: '.($sender ? 'yes' : 'no').' · SK eFaktúra from '.$from->toDateString();
+        $status = match (true) {
+            $ready => 'OK',
+            CarbonImmutable::now()->lessThan($from) => 'WARN',
+            $driver === 'null' && Organization::query()->where('country', 'SK')->exists() => 'FAIL',
+            default => 'WARN',
+        };
+        $this->rows[] = ['area' => 'einvoice', 'check' => 'readiness', 'status' => $status, 'detail' => $detail,
+            'remedy' => $ready ? '' : 'Peppol delivery comes with layer 2 (W7-K1): until then EINVOICE_DRIVER=null records deliveries as skipped; set PEPPOL_SENDER_ID once the access point is chosen', 'blocking' => false];
     }
 
     /** ISO 13616 mod-97 check of an IBAN (letters → 10..35, country and check digits moved to the end, remainder 1). */

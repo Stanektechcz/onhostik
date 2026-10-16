@@ -283,7 +283,7 @@ return [
     ],
 
     'einvoice' => [
-        'driver' => env('EINVOICE_DRIVER', 'peppol'),
+        'driver' => env('EINVOICE_DRIVER', 'null'), // W7-1: null = nothing is sent, deliveries recorded as skipped; peppol comes with layer 2
         'peppol' => [
             'base_url' => env('PEPPOL_BASE_URL'),
             'secret_ref' => env('PEPPOL_SECRET_REF', 'env://PEPPOL'),
