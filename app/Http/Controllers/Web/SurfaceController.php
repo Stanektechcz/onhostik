@@ -47,11 +47,21 @@ final class SurfaceController extends Controller
     /** Where a signed-in person without a partnership is sent from /partner: the reseller programme with its application form. */
     public const PARTNER_APPLICATION = '/reseller';
 
-    public function __construct(private readonly SurfaceRenderer $renderer, private readonly Authorizer $authorizer, private readonly StaffNavigation $navigation) {}
+    public function __construct(private readonly SurfaceRenderer $renderer, private readonly Authorizer $authorizer, private readonly StaffNavigation $navigation, private readonly ContentService $content) {}
 
     public function public(Request $request, ?string $path = null): Response
     {
         $hash = $path === null || $path === '' ? null : '#/'.trim($path, '/');
+        $slug = PublicSeo::kbSlug($request->path());
+        if ($slug !== null && ! (bool) config('onhost.ui.demo', false)) { // W7-4b: an article that is not published does not exist
+            try {
+                $article = $this->content->kbArticle($slug, app()->getLocale() === 'sk' ? 'sk' : 'cs');
+            } catch (DomainError) {
+                abort(404, '', ['X-Robots-Tag' => 'noindex, nofollow']);
+            }
+
+            return $this->surface($request, 'public', $hash, $article);
+        }
         // W7-4: /blog/{slug} is an indexable article page; a draft, a withheld or an unknown post is a real 404 (no soft 404)
         if ($path === null || (bool) config('onhost.ui.demo', false) || ! str_starts_with($path, 'blog/') || trim(substr($path, 5), '/') === '') {
             return $this->surface($request, 'public', $hash);
@@ -246,7 +256,7 @@ final class SurfaceController extends Controller
         }
         $html = $this->renderer->render($surface, $boot, $demo); // the credit/bonus/archive sentences are corrected inside render(), in the template only (G8 item 9, H2)
         if ($surface === 'public' && ! $demo) {
-            $html = PublicSeo::withHead($html, $request->path(), $article); // N15 + W7-3: title, description, canonical, OG, JSON-LD and hreflang through the head seam
+            $html = $article !== null && PublicSeo::kbSlug($request->path()) !== null ? PublicSeo::withKbHead($html, $request->path(), $article) : PublicSeo::withHead($html, $request->path(), $article); // W7-4b kb article, else N15 + W7-3: title, description, canonical, OG, JSON-LD and hreflang through the head seam
         }
         if ($status === 404) { // W7-4: a missing post is never indexed
             $html = PublicSeo::withNoindex($html);
