@@ -25,6 +25,7 @@ final class PublicSeo
 
     /** The path prefixes of the translated public sites (W6-6 sk, W7-3-EN en). */
     public const PREFIXES = ['sk' => '/sk', 'en' => '/en'];
+
     /** W7-4b: the cache key of the sitemap's knowledge base rows; staff publishing an article forgets it. */
     public const SITEMAP_CACHE = ContentEditor::SITEMAP_CACHE_KEY;
 
