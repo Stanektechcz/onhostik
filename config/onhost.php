@@ -14,6 +14,9 @@ return [
     'portal_url' => env('ONHOST_PORTAL_URL', env('APP_URL', 'http://localhost:8000')),
     'default_locale' => env('ONHOST_DEFAULT_LOCALE', 'cs'),
     'locales' => ['cs', 'sk', 'en'],
+    'seo' => [ // W7-3: off (X-Robots-Tag noindex on every public page) unless production, so staging is never indexed
+        'indexable' => (bool) env('ONHOST_SEO_INDEXABLE', env('APP_ENV', 'production') === 'production'),
+    ],
     'locale_sk' => (bool) env('ONHOST_LOCALE_SK', false), // W4-4: Slovak as a supported request locale (SetLocale); off until the owner reads lang/sk
     'timezone_display' => 'Europe/Prague',
     'demo_mode' => (bool) env('ONHOST_DEMO_MODE', false), // surface role switcher etc. — never in production

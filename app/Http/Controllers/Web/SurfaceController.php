@@ -199,10 +199,11 @@ final class SurfaceController extends Controller
         }
         $html = $this->renderer->render($surface, $boot, $demo); // the credit/bonus/archive sentences are corrected inside render(), in the template only (G8 item 9, H2)
         if ($surface === 'public' && ! $demo) {
-            $html = PublicSeo::withHreflang($html, $request->path()); // N15: hreflang through the head seam, sitemap pages only
+            $html = PublicSeo::withHead($html, $request->path()); // N15 + W7-3: title, description, canonical, OG, JSON-LD and hreflang through the head seam
         }
         $headers = ['Content-Type' => 'text/html; charset=utf-8', 'Cache-Control' => 'no-store', 'X-Frame-Options' => 'SAMEORIGIN', 'Referrer-Policy' => 'strict-origin-when-cross-origin'];
-        if (in_array($surface, self::CONCEPT_SURFACES, true)) {
+        // W7-3: forms and personal flows are never indexed, and nothing public is outside production (staging carries its own portal_url)
+        if (in_array($surface, self::CONCEPT_SURFACES, true) || ($surface === 'public' && (PublicSeo::notIndexed($request->path()) || ! PublicSeo::indexable()))) {
             $headers['X-Robots-Tag'] = 'noindex, nofollow';
         }
 

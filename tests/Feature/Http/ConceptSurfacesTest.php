@@ -46,6 +46,7 @@ it('keeps the concepts open in demo mode, still unindexed and marked', function 
 });
 
 it('leaves the product surfaces indexable and without the concept banner', function () {
+    config(['onhost.seo.indexable' => true]); // W7-3: outside production every public page is noindex; this is about production
     $response = $this->get('/')->assertOk();
     expect($response->headers->has('X-Robots-Tag'))->toBeFalse()->and($response->getContent())->not->toContain('onhost-concept-banner');
 });
