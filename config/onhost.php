@@ -18,6 +18,7 @@ return [
         'indexable' => (bool) env('ONHOST_SEO_INDEXABLE', env('APP_ENV', 'production') === 'production'),
     ],
     'locale_sk' => (bool) env('ONHOST_LOCALE_SK', false), // W4-4: Slovak as a supported request locale (SetLocale); off until the owner reads lang/sk
+    'locale_en_urls' => (bool) env('ONHOST_LOCALE_EN_URLS', false), // W7-3-EN: the English public site at /en/…; off until the owner approves lang/en/seo.php (W7-K4)
     'timezone_display' => 'Europe/Prague',
     'demo_mode' => (bool) env('ONHOST_DEMO_MODE', false), // surface role switcher etc. — never in production
     'funnel_metrics' => (bool) env('ONHOST_FUNNEL_METRICS', false), // W4-6: anonymous cart-quote metric into funnel_daily (docs/compliance/dpia-funnel-telemetry.md); production switch-on is the owner's step

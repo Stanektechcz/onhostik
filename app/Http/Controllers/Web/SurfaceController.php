@@ -73,6 +73,24 @@ final class SurfaceController extends Controller
         return $response;
     }
 
+    /**
+     * W7-3-EN: the English public site at /en/… on the same domain, as /sk/ (W6-6). Always registered (route:cache); 404 while
+     * config('onhost.locale_en_urls') is off (until the owner approves lang/en/seo.php, W7-K4). Forms under /en/ carry noindex.
+     */
+    public function publicEn(Request $request, ?string $path = null): Response
+    {
+        if (! (bool) config('onhost.locale_en_urls', false)) {
+            abort(404);
+        }
+        app()->setLocale('en');
+        $response = $this->public($request, $path);
+        if (PublicSeo::notIndexed($request->path())) {
+            $response->headers->set('X-Robots-Tag', 'noindex, nofollow');
+        }
+
+        return $response;
+    }
+
     public function panel(Request $request, ?string $path = null): Response
     {
         return $this->surface($request, 'panel', $this->hash($path));
