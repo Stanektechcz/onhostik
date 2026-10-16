@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-// Slovak (W4-4): strojově připraveno, čeká na jedno čtení vlastníkem (owner-queue řádek 9). Keys and placeholders mirror lang/cs.
+// Slovak (W4-4): schváleno vlastníkem 2026-10-16 (W4-K3), aktivní až s ONHOST_LOCALE_SK=true. Keys and placeholders mirror lang/cs.
 
 return [
     'failed' => 'E-mail alebo heslo nesúhlasí.',
