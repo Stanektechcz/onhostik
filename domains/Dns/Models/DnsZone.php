@@ -19,7 +19,7 @@ final class DnsZone extends Model
 
     protected function casts(): array
     {
-        return ['serial' => 'integer', 'version' => 'integer', 'dnssec' => 'boolean', 'dnssec_ds' => 'array', 'nameservers' => 'array', 'secondary_providers' => 'array', 'committed_at' => 'datetime', 'last_verified_at' => 'datetime', 'drift_checked_at' => 'datetime', 'drift' => 'array'];
+        return ['serial' => 'integer', 'version' => 'integer', 'dnssec' => 'boolean', 'dnssec_ds' => 'array', 'nameservers' => 'array', 'secondary_providers' => 'array', 'committed_at' => 'datetime', 'last_verified_at' => 'datetime', 'drift_checked_at' => 'datetime', 'drift' => 'array', 'dnssec_check' => 'array'];
     }
 
     /** @return HasMany<DnsRecord, $this> */

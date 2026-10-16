@@ -61,6 +61,7 @@ final class FinalArchive
         private readonly DeletionPolicy $policy,
         private readonly ServiceIdentityCheck $identity,
         private readonly ProviderRegistry $providers,
+        private readonly BackupCompleteness $completeness,
     ) {}
 
     public function disk(): Filesystem
@@ -118,6 +119,7 @@ final class FinalArchive
         $gaps = [];
         $snapshot = [];
         $attempts = [];
+        $databases = [];
         try {
             $this->write($work, 'service.json', (string) json_encode($this->metadata($service, $adapter, $ref, $identity), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
             $this->flush($set, $work, $parts); // the metadata is on the disk before the first provider call
@@ -127,8 +129,8 @@ final class FinalArchive
                 match ($service->family) {
                     // a web service's own mailboxes are archived with it: the plan sells them, the mail domain is made
                     // for the site, and the removal takes that domain — so it may not be the one thing nobody kept
-                    'web', 'managed' => (function () use ($service, $adapter, $ref, $work, &$gaps, &$attempts, $freshOnly, $options) {
-                        $this->web($adapter, $ref, $work, $gaps, $attempts, $freshOnly, isset($options['only_database']) ? (string) $options['only_database'] : null, $service);
+                    'web', 'managed' => (function () use ($service, $adapter, $ref, $work, &$gaps, &$attempts, &$databases, $freshOnly, $options) {
+                        $this->web($adapter, $ref, $work, $gaps, $attempts, $freshOnly, isset($options['only_database']) ? (string) $options['only_database'] : null, $service, $databases);
                         foreach (MailDomains::bindingsOf($service) as $index => $mail) { // a service can have mail in several of its domains
                             $this->mail($adapter, $mail->ref(), $work, $gaps, $index === 0 ? null : MailDomains::nameOf($mail));
                         }
@@ -143,6 +145,9 @@ final class FinalArchive
             $this->flush($set, $work, $parts);
             $manifest = ['service_id' => $service->id, 'organization_id' => $service->organization_id, 'family' => $service->family, 'created_at' => now()->toIso8601String(),
                 'retention_until' => $retention->toIso8601String(), 'parts' => $parts, 'gaps' => $gaps, 'identity' => $identity, 'attempts' => $attempts];
+            if (in_array($service->family, ['web', 'managed'], true)) {
+                $manifest['databases'] = $databases; // what the service owned at set time (BackupCompleteness compares the parts with this)
+            }
             $this->disk()->put($set.'/manifest.json', (string) json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
         } catch (Throwable $e) {
             try {
@@ -162,6 +167,7 @@ final class FinalArchive
         $backup->forceFill(['state' => 'completed', 'finished_at' => now(), 'size_bytes' => (int) ($snapshot['size_bytes'] ?? 0) ?: $bytes, 'verified_at' => now(), 'verify_status' => 'ok',
             'remote_id' => $snapshot['remote_id'] ?? null, 'remote_datastore' => (string) ($snapshot['datastore'] ?? config('onhost.platform_backup.disk', 'local')),
             'meta' => array_merge((array) $backup->meta, ['parts' => array_keys($parts), 'gaps' => $gaps, 'snapshot' => $snapshot ?: null, 'attempts' => $attempts])])->save();
+        $this->completeness->inspect($backup->refresh());
         $this->audit->record($context->withScope($service->organization_id), $final ? 'service.final_archive' : 'service.backup.archive', 'succeeded', ['service' => $service->id, 'kind' => $kind, 'set' => $set, 'bytes' => $bytes, 'parts' => array_keys($parts), 'gaps' => $gaps], 'backup', $backup->id);
         if ($final) { // an ordinary backup is reported by its operation; this event says "the data is safe, the deletion may go on"
             $this->outbox->publish(GenericEvent::of('service.final_archive.created', 'service', $service->id, ['backup_id' => $backup->id, 'set' => $set, 'bytes' => $bytes, 'retention_until' => $retention->toIso8601String(), 'gaps' => $gaps], $service->organization_id));
@@ -265,6 +271,7 @@ final class FinalArchive
             $problem = $this->verifyOne($backup);
             if ($problem === null) {
                 $backup->forceFill(['verified_at' => now(), 'verify_status' => 'ok'])->save();
+                $this->completeness->inspect($backup); // the same look at "is every database in the set", repeated while it still matters
                 $stats['ok']++;
 
                 continue;
@@ -489,7 +496,7 @@ final class FinalArchive
      * shared node does not always offer both: the file transport (SFTP or the panel's file API) and the panel's own
      * site backup. Each attempt is recorded; only when both fail does the archive — and with it the deletion — stop.
      */
-    private function web(?object $adapter, ?ResourceRef $ref, string $work, array &$gaps, array &$attempts, bool $freshOnly = false, ?string $onlyDatabase = null, ?Service $service = null): void
+    private function web(?object $adapter, ?ResourceRef $ref, string $work, array &$gaps, array &$attempts, bool $freshOnly = false, ?string $onlyDatabase = null, ?Service $service = null, array &$databases = []): void
     {
         if (! $adapter instanceof WebToolsProvider || $ref === null) {
             if ($freshOnly) { // a backup with nothing of the site in it is not a backup; the final archive still keeps the metadata
@@ -507,7 +514,7 @@ final class FinalArchive
                 throw new DomainError('backup_not_possible', 'Databázi, která se má přepsat, panel nezná; nic nebylo změněno.', 409);
             }
             $adapter->exportDatabase($ref, $onlyDatabase, $work.'/database-'.self::databaseSlug((string) ($database['name'] ?? $onlyDatabase)).'.sql', self::credentialsOf($service, $onlyDatabase));
-            $gaps[] = 'only the database being overwritten is in this copy';
+            $gaps[] = BackupCompleteness::PARTIAL_GAP;
 
             return;
         }
@@ -515,6 +522,7 @@ final class FinalArchive
             foreach ($adapter->listDatabases($ref) as $database) {
                 $name = (string) ($database['name'] ?? $database['remote_id'] ?? 'db');
                 $adapter->exportDatabase($ref, (string) $database['remote_id'], $work.'/database-'.self::databaseSlug($name).'.sql', self::credentialsOf($service, (string) $database['remote_id']));
+                $databases[] = self::databaseSlug($name);
             }
         }
         try {

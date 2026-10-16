@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Incidents;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Http\Request;
 use Onhost\Domain\Incidents\Models\OnCallAlert;
@@ -72,17 +73,35 @@ final class OnCallService
         $dedup = self::dedupKey($event, $aggregateType, $aggregateId);
         $existing = OnCallAlert::query()->where('dedup_key', $dedup)->whereIn('state', [OnCallAlert::OPEN, OnCallAlert::ACKED, OnCallAlert::ESCALATED])->orderByDesc('id')->first();
         if ($existing !== null) {
-            $existing->forceFill(['meta' => array_merge((array) $existing->meta, ['repeats' => (int) data_get($existing->meta, 'repeats', 0) + 1, 'last_seen_at' => now()->toIso8601String()])])->save();
-
-            return $existing;
+            return $this->repeat($existing, $severity);
         }
         $alert = OnCallAlert::query()->create([
-            'event' => $event, 'dedup_key' => $dedup, 'severity' => in_array($severity, ['info', 'warn', 'hot'], true) ? $severity : 'warn', 'state' => OnCallAlert::OPEN,
+            'event' => $event, 'dedup_key' => $dedup, 'occurrences' => 1, 'last_seen_at' => now(), 'severity' => in_array($severity, ['info', 'warn', 'hot'], true) ? $severity : 'warn', 'state' => OnCallAlert::OPEN,
             'title' => mb_substr($title, 0, 250), 'body' => $body, 'surface' => $surface, 'provider' => $this->provider()?->name(), 'escalate_after' => now()->addMinutes($this->escalateAfterMinutes()),
             'meta' => array_filter(['aggregate' => ['type' => $aggregateType, 'id' => $aggregateId], 'assignee' => app(OnCallRota::class)->assignee(), 'correlation_id' => CommandContext::currentCorrelationId()]), // §5r-1: the person on the rota right now
         ]);
         $this->page($alert, 0);
         $this->outbox->publish(GenericEvent::of('oncall.alert.opened', 'oncall_alert', $alert->id, self::present($alert)));
+
+        return $alert;
+    }
+
+    /**
+     * The same subject raised again while its alert is still active: one row, one more occurrence. Nobody is paged again
+     * unless the new report is more severe than what the alert carries — then the severity is raised and the pager told.
+     */
+    private function repeat(OnCallAlert $alert, string $severity): OnCallAlert
+    {
+        $rank = ['info' => 0, 'warn' => 1, 'hot' => 2];
+        $raised = ($rank[$severity] ?? -1) > ($rank[$alert->severity] ?? 1);
+        $alert->forceFill([
+            'occurrences' => (int) $alert->occurrences + 1, 'last_seen_at' => now(), 'severity' => $raised ? $severity : $alert->severity,
+            'meta' => array_merge((array) $alert->meta, ['repeats' => (int) data_get($alert->meta, 'repeats', 0) + 1, 'last_seen_at' => now()->toIso8601String()]),
+        ])->save();
+        if ($raised) {
+            $this->page($alert, (int) $alert->escalations);
+            $this->outbox->publish(GenericEvent::of('oncall.alert.severity_raised', 'oncall_alert', $alert->id, self::present($alert)));
+        }
 
         return $alert;
     }
@@ -293,7 +312,7 @@ final class OnCallService
             'id' => $a->id, 'event' => $a->event, 'severity' => $a->severity, 'state' => $a->state, 'title' => $a->title, 'body' => $a->body, 'surface' => $a->surface, 'provider' => $a->provider, 'paged' => $a->provider_ref !== null,
             'escalations' => (int) $a->escalations, 'escalate_after' => $a->escalate_after?->toIso8601String(), 'escalated_at' => $a->escalated_at?->toIso8601String(),
             'acked_by' => $a->acked_by, 'acked_at' => $a->acked_at?->toIso8601String(), 'resolved_by' => $a->resolved_by, 'resolved_at' => $a->resolved_at?->toIso8601String(),
-            'trace_url' => Tracer::urlFor(data_get($a->meta, 'correlation_id')), 'repeats' => (int) data_get($a->meta, 'repeats', 0), 'aggregate' => data_get($a->meta, 'aggregate'), 'assignee' => data_get($a->meta, 'assignee'), 'at' => $a->created_at?->toIso8601String(),
+            'trace_url' => Tracer::urlFor(data_get($a->meta, 'correlation_id')), 'repeats' => (int) data_get($a->meta, 'repeats', 0), 'occurrences' => (int) $a->occurrences, 'last_seen_at' => $a->last_seen_at !== null ? CarbonImmutable::parse($a->last_seen_at)->toIso8601String() : null, 'aggregate' => data_get($a->meta, 'aggregate'), 'assignee' => data_get($a->meta, 'assignee'), 'at' => $a->created_at?->toIso8601String(),
         ];
     }
 

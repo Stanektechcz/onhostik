@@ -28,6 +28,6 @@ final class OnCallAlert extends Model
 
     protected function casts(): array
     {
-        return ['meta' => 'array', 'escalations' => 'integer', 'escalated_at' => 'datetime', 'escalate_after' => 'datetime', 'acked_at' => 'datetime', 'resolved_at' => 'datetime'];
+        return ['meta' => 'array', 'escalations' => 'integer', 'occurrences' => 'integer', 'last_seen_at' => 'datetime', 'escalated_at' => 'datetime', 'escalate_after' => 'datetime', 'acked_at' => 'datetime', 'resolved_at' => 'datetime'];
     }
 }

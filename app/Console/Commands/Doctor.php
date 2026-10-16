@@ -41,6 +41,7 @@ use Onhost\Domain\Platform\LaunchReadinessChecks;
 use Onhost\Domain\Platform\QueueLaneHeartbeat;
 use Onhost\Domain\Platform\ScheduleHealth;
 use Onhost\Domain\Provisioning\AutomationLedger;
+use Onhost\Domain\Provisioning\CollectorHeartbeat;
 use Onhost\Domain\Provisioning\Models\IntegrationHealth;
 use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\Operation;
@@ -422,6 +423,9 @@ final class Doctor extends Command
         $drifted = DnsZone::query()->whereNotNull('drift')->limit(50)->pluck('name');
         $this->add('dns', 'every DNS zone equals what its provider serves', $drifted->isEmpty(), $drifted->isEmpty() ? 'no differences at the last comparison (onhost:dns:drift, nightly)' : $drifted->count().' zone(s) differ: '.$drifted->take(5)->implode(', ').' — compare in the console and publish or import', false);
 
+        $dsBroken = DnsZone::query()->where('dnssec', true)->whereIn('dnssec_check->state', ['missing', 'mismatch', 'unknown'])->limit(50)->get(['name', 'dnssec_check']);
+        $this->add('dns', 'every signed zone has its DS at the registry', $dsBroken->isEmpty(), $dsBroken->isEmpty() ? 'the registry holds the DS of our key for every zone with DNSSEC at the last look (onhost:dns:drift, nightly)' : $dsBroken->count().' signed zone(s) without a verified DS: '.$dsBroken->take(5)->map(fn (DnsZone $z) => $z->name.' ('.data_get($z->dnssec_check, 'state').')')->implode(', ').' — missing/mismatch breaks resolution for validating resolvers: publish the DS at the registry or switch DNSSEC off; unknown = the registry could not be read', false);
+
         $unasked = DnsZone::query()->whereNotNull('drift_error')->limit(50)->get(['name', 'drift_error']);
         $this->add('dns', 'every DNS zone could be compared with its provider', $unasked->isEmpty(), $unasked->isEmpty() ? 'the provider answered for every zone at the last comparison' : $unasked->count().' zone(s) could not be compared: '.$unasked->take(5)->map(fn (DnsZone $z) => $z->name.' ('.$z->getAttribute('drift_error').')')->implode(', ').' — the provider did not answer; see the provider health and `onhost:dns:drift`', false);
 
@@ -534,8 +538,31 @@ final class Doctor extends Command
         }
         $off = $ledger->disabled();
         $this->add('automation', 'no rule switched off', $off === [], $off === [] ? 'every rule on' : 'off: '.implode(', ', $off), false);
+        foreach (app(CollectorHeartbeat::class)->checks() as $check) {
+            $this->add($check['area'], $check['check'], $check['ok'], $check['detail'], $check['blocking']);
+        }
+        $this->auditChain($ledger);
         $backlog = $ledger->backlog();
         $this->add('automation', 'operation backlog', ! $backlog['alert'], $backlog['stale'].' operation(s) due for more than '.$backlog['age_minutes'].' min (threshold '.$backlog['threshold'].($backlog['jobs'] !== null ? ', '.$backlog['jobs'].' queued job(s)' : '').')', false);
+    }
+
+    /** The audit hash chain: the last `onhost:audit:verify` result (no full walk here); broken is blocking, a verify older than 48 h only warns. */
+    private function auditChain(AutomationLedger $ledger): void
+    {
+        $last = $ledger->last('audit.verify');
+        if ($last === null) {
+            $this->add('audit', 'audit chain verified', false, 'onhost:audit:verify has not run yet', false);
+
+            return;
+        }
+        if (($last['error'] ?? null) !== null) {
+            $this->add('audit', 'audit chain intact', false, 'BROKEN at '.($last['stats']['broken_id'] ?? '?').': '.$last['error'].' (checked '.CarbonImmutable::parse((string) $last['at'])->diffForHumans().')');
+
+            return;
+        }
+        $age = (int) CarbonImmutable::parse((string) $last['at'])->diffInHours(now(), true);
+        $this->add('audit', 'audit chain intact', true, ($last['stats']['checked'] ?? 0).' row(s) verified '.CarbonImmutable::parse((string) $last['at'])->diffForHumans());
+        $this->add('audit', 'audit chain verify is recent', $age <= 48, $age <= 48 ? 'last verify '.$age.' h ago' : 'last verify '.$age.' h ago (more than 48 h) — is the nightly onhost:audit:verify running?', false);
     }
 
     private function secretsAndTls(): void

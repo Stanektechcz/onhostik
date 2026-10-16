@@ -512,6 +512,8 @@ return [
     ],
 
     'dns' => [
+        // public resolver asked (DNS-over-HTTPS, JSON) for the parent's DS record of a signed zone (DnssecWatch); read-only, platform-chosen, still goes through EgressGuard
+        'doh_url' => env('ONHOST_DNS_DOH_URL', 'https://cloudflare-dns.com/dns-query'),
         'nameservers' => [
             'powerdns' => array_values(array_filter(array_map('trim', explode(',', (string) env('ONHOST_DNS_NAMESERVERS', 'ns1.onhost.cz,ns2.onhost.cz'))))),
             'wedos_zone' => ['ns.wedos.com', 'ns.wedos.cz', 'ns.wedos.eu', 'ns.wedos.net'],

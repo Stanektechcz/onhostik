@@ -17,6 +17,7 @@ use Onhost\Domain\Billing\SubscriptionExpiryNotices;
 use Onhost\Domain\Billing\SubscriptionService;
 use Onhost\Domain\Compliance\ComplianceService;
 use Onhost\Domain\Content\Waitlist\WaitlistService;
+use Onhost\Domain\Dns\DnssecWatch;
 use Onhost\Domain\Dns\DnsService;
 use Onhost\Domain\Dns\Models\DnsRecord;
 use Onhost\Domain\Dns\Models\DnsZone;
@@ -102,7 +103,9 @@ use Onhost\Domain\Services\Web\CdnService;
 use Onhost\Domain\Services\Web\CertificateAutoIssuer;
 use Onhost\Domain\Services\Web\CertificateService;
 use Onhost\Domain\Services\Web\CertificateWatch;
+use Onhost\Domain\Services\Web\OriginExposureWatch;
 use Onhost\Domain\Services\Web\RestoreTest;
+use Onhost\Domain\Services\Web\SecurityHeadersWatch;
 use Onhost\Domain\Services\Web\SiteIntegrityCheck;
 use Onhost\Domain\Services\Web\UptimeMonitor;
 use Onhost\Domain\Services\Web\WebFileStore;
@@ -112,6 +115,7 @@ use Onhost\Domain\Tax\CnbRates;
 use Onhost\Domain\WalletLedger\LedgerService;
 use Onhost\Domain\WalletLedger\WalletForecast;
 use Onhost\Domain\WalletLedger\WalletService;
+use Onhost\Platform\Audit\AuditChainVerifier;
 use Onhost\Platform\Commands\CommandBus;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
@@ -583,6 +587,14 @@ Artisan::command('onhost:support:sla', function (TicketService $tickets, WorkOff
     $this->table(['breached', 'closed', 'offers_expired'], [$tickets->tick() + ['offers_expired' => $offers->expire()]]);
 })->purpose('Detect support SLA breaches (escalate) and auto-close resolved tickets');
 
+Artisan::command('onhost:audit:verify {--max= : stop after this many rows}', function (AuditChainVerifier $verifier, AutomationLedger $ledger) {
+    $result = $verifier->verify($this->option('max') !== null ? (int) $this->option('max') : null);
+    $ledger->record('audit.verify', ['checked' => $result['checked'], 'ok' => $result['ok'], 'broken_id' => $result['broken_id']], $result['ok'] ? null : (string) $result['reason']);
+    $this->{$result['ok'] ? 'info' : 'error'}($result['ok'] ? "audit chain intact, {$result['checked']} row(s) checked" : "audit chain BROKEN at row {$result['broken_at']} ({$result['broken_id']}): {$result['reason']}");
+
+    return $result['ok'] ? 0 : 1;
+})->purpose('Walk the audit hash chain and report the first broken link (edited, removed or inserted row)');
+
 Artisan::command('onhost:ledger:verify', function (LedgerService $ledger) {
     $result = $ledger->verifyInvariant();
     $ok = ($result['ok'] ?? ($result['balanced'] ?? false)) === true;
@@ -666,6 +678,7 @@ Schedule::command('onhost:services:usage-watch')->hourlyAt(50)->withoutOverlappi
 Schedule::command('onhost:billing:renewal-guard')->dailyAt('07:35')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:provisioning:board')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:digest:weekly')->weeklyOn(1, '07:00')->withoutOverlapping()->onOneServer();
+Schedule::command('onhost:digest:monthly')->monthlyOn(1, '07:30')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:nodes:check')->dailyAt('05:20')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:nodes:usage')->everyFifteenMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:sites:integrity')->dailyAt('04:40')->withoutOverlapping()->onOneServer();
@@ -673,6 +686,7 @@ Schedule::command('onhost:dns:check')->dailyAt('05:10')->withoutOverlapping()->o
 Schedule::command('onhost:mail:blocklist')->hourlyAt(25)->withoutOverlapping()->onOneServer(); // SP1a: every sending address and customer mail domain, each pair at most hourly
 Schedule::command('onhost:digest:staff-daily')->dailyAt('07:15')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:ledger:verify')->dailyAt('05:00')->onOneServer();
+Schedule::command('onhost:audit:verify')->dailyAt('03:50')->withoutOverlapping()->onOneServer();
 
 // ── status / SLA / compliance (blueprint §66, §73, §23) ──────────────────────
 Artisan::command('onhost:sla:evaluate', function (SlaService $sla) {
@@ -826,6 +840,18 @@ Artisan::command('onhost:dns:check {--limit=200}', function (PublicDnsCheck $che
     $result = $check->run((int) $this->option('limit'));
     $ledger->record('dns.check', $result);
     $this->table(['checked', 'problems', 'repaired', 'told', 'errors'], [$result]);
+    // the same nightly look at the public side of every site: its security headers and whether the CDN's origin address leaks; each records its own run
+    foreach (['sites.headers' => SecurityHeadersWatch::class, 'sites.origin' => OriginExposureWatch::class] as $key => $class) {
+        if ($ledger->off($key)) {
+            continue;
+        }
+        try {
+            $ledger->record($key, app($class)->run((int) $this->option('limit')));
+        } catch (Throwable $e) {
+            $ledger->record($key, [], mb_substr($e->getMessage(), 0, 200));
+            $this->warn($key.' failed: '.$e->getMessage());
+        }
+    }
 })->purpose('Compare what public DNS answers for every customer domain with what the platform published for it: repair our own zones, tell the customer about the DNS they hold elsewhere');
 
 Artisan::command('onhost:mail:blocklist', function (ReputationMonitor $monitor, AutomationLedger $ledger) {
@@ -860,6 +886,17 @@ Artisan::command('onhost:digest:weekly', function (DigestService $digests, Autom
     $ledger->record('digest.weekly', $result);
     $this->table(['organizations', 'sent', 'skipped'], [$result]);
 })->purpose('Weekly customer digest: renewals and expiries ahead, credit, backups, monitors, plan usage');
+
+Artisan::command('onhost:digest:monthly', function (DigestService $digests, AutomationLedger $ledger) {
+    if ($ledger->off('digest.monthly')) {
+        $this->warn('switched off by staff (console → automation)');
+
+        return;
+    }
+    $result = $digests->monthly();
+    $ledger->record('digest.monthly', $result);
+    $this->table(['organizations', 'sent', 'skipped'], [$result]);
+})->purpose('Monthly customer report: what was checked per service and when; unverified items said as unverified');
 
 Artisan::command('onhost:digest:staff-daily', function (DigestService $digests, AutomationLedger $ledger) {
     if ($ledger->off('digest.staff')) {
@@ -1437,9 +1474,18 @@ Artisan::command('onhost:fx:sync {--date= : the day to fetch the list for (Y-m-d
  * record changed at the provider by hand, a commit that arrived only in part, a zone deleted there: operations hear about it
  * the first night, the doctor shows it until it is gone. Nothing is repaired by itself — which side is right is a decision.
  */
-Artisan::command('onhost:dns:drift {--limit= : zones to compare in this run (default: onhost.dns.drift_batch)}', function (DnsService $dns) {
+Artisan::command('onhost:dns:drift {--limit= : zones to compare in this run (default: onhost.dns.drift_batch)}', function (DnsService $dns, AutomationLedger $ledger) {
     $stats = $dns->checkDrift((int) ($this->option('limit') ?: config('onhost.dns.drift_batch', 200)));
+    $ledger->record('dns.drift', $stats);
     $this->info("compared {$stats['checked']} zone(s): {$stats['drifted']} differ, {$stats['errors']} could not be asked");
+    if (! $ledger->off('dns.dnssec')) { // signed zones: does the registry hold the DS of the key we sign with
+        try {
+            $ledger->record('dns.dnssec', app(DnssecWatch::class)->run((int) ($this->option('limit') ?: config('onhost.dns.drift_batch', 200))));
+        } catch (Throwable $e) {
+            $ledger->record('dns.dnssec', [], mb_substr($e->getMessage(), 0, 200));
+            $this->warn('dns.dnssec failed: '.$e->getMessage());
+        }
+    }
 })->purpose('Compare every DNS zone with what its provider serves and report the differences');
 
 Artisan::command('onhost:dns:platform-sync {--service=* : limit to these service ids} {--dry-run : only report what would change}', function (DnsService $dns) {
