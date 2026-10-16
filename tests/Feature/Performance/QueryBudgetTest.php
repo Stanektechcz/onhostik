@@ -19,6 +19,7 @@ use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Orders\Models\Cart;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Organizations\OrganizationService;
+use Onhost\Domain\Services\Models\Service;
 use Onhost\Platform\Commands\CommandContext;
 use Tests\TestCase;
 
@@ -34,11 +35,21 @@ use Tests\TestCase;
  * (composer: "Could not authenticate against github.com"), so no count was measured. Replace them with the counts measured by
  * `php artisan test --compact tests/Feature/Performance/QueryBudgetTest.php` (commit 8817e21, funnel_metrics off and on);
  * after that they may only go down.
+ *
+ * W6-3: three more scenarios - the anonymous cart read (all queries and INSERTs apart), the pricing data script cold and warm,
+ * and the panel script of two tenants (counts and isolation). ASSUMED / BLOCKED still holds for every QB_* below: the W6-3
+ * sandbox could not install vendor/ either (2026-10-16, PHP 8.3.6, base 0c7691d; composer dist downloads from github.com
+ * refused), so nothing was measured. QB_REPORT=1 writes build/query-budget.json (scenario => count) so CI reports the counts;
+ * set QB_* = ceil(max of three runs x 1.1) from that report and replace this paragraph with the counts, date, commit and PHP.
  */
 const QB_PRICING_DATA_CEILING = 400;
 const QB_CART_QUOTE_CEILING = 250;
 const QB_CART_QUOTE_FUNNEL_CEILING = 250;
 const QB_GUEST_CHECKOUT_CEILING = 600;
+const QB_GUEST_CART_READ_CEILING = 50;
+const QB_GUEST_CART_READ_INSERTS = 1; // W7-0 sníží na 0: GET /v1/cart without a known token still creates an open cart
+const QB_SURFACE_DATA_COLD_CEILING = 400;
+const QB_PANEL_CEILING = 400;
 const QB_N = 3;
 
 beforeEach(function () {
@@ -157,6 +168,90 @@ function qbMeasureGuestCheckout(TestCase $test, int $count): int
     return qbCountQueries(fn () => $test->withHeaders(['Referer' => 'http://localhost', 'Idempotency-Key' => 'qb-'.$id])->postJson('/v1/checkout/guest', $payload)->assertCreated());
 }
 
+/** Records $count under $scenario in build/query-budget.json when QB_REPORT=1 (CI report step); a no-op otherwise. */
+function qbReport(string $scenario, int $count): void
+{
+    if (getenv('QB_REPORT') !== '1') {
+        return;
+    }
+    $path = base_path('build/query-budget.json');
+    $report = is_file($path) ? json_decode((string) file_get_contents($path), true) : [];
+    $report = is_array($report) ? $report : [];
+    $report[$scenario] = $count;
+    ksort($report);
+    if (! is_dir(dirname($path))) {
+        mkdir(dirname($path), 0775, true);
+    }
+    file_put_contents($path, json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
+}
+
+/**
+ * All SQL statements and the INSERTs among them that $callback runs, without emptying any cache.
+ *
+ * @return array{queries: int, inserts: int}
+ */
+function qbCountStatements(callable $callback): array
+{
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+    try {
+        $callback();
+        $log = DB::getQueryLog();
+        $inserts = array_filter($log, fn (array $entry): bool => str_starts_with(strtolower(ltrim((string) $entry['query'])), 'insert'));
+
+        return ['queries' => count($log), 'inserts' => count($inserts)];
+    } finally {
+        DB::disableQueryLog();
+        DB::flushQueryLog();
+    }
+}
+
+/**
+ * Queries and INSERTs of one anonymous GET /v1/cart, with no token or with a well-formed token nobody holds.
+ *
+ * @return array{queries: int, inserts: int}
+ */
+function qbGuestCartRead(TestCase $test, ?string $token): array
+{
+    $test->app['auth']->forgetGuards();
+    $headers = $token === null ? [] : ['X-Cart-Token' => $token];
+    Cache::flush();
+
+    return qbCountStatements(fn () => $test->withHeaders($headers)->getJson('/v1/cart')->assertOk());
+}
+
+/**
+ * Queries of the pricing data script right after Cache::flush (cold) and of the next request (warm).
+ *
+ * @return array{cold: int, warm: int}
+ */
+function qbSurfaceData(TestCase $test): array
+{
+    Cache::flush();
+    $cold = qbCountStatements(fn () => $test->get('/surfaces/onhost-data.js')->assertOk());
+    $warm = qbCountStatements(fn () => $test->get('/surfaces/onhost-data.js')->assertOk());
+
+    return ['cold' => $cold['queries'], 'warm' => $warm['queries']];
+}
+
+/**
+ * Queries and body of the panel script for $user.
+ *
+ * @return array{queries: int, body: string}
+ */
+function qbPanelTwoTenants(TestCase $test, User $user): array
+{
+    $test->app['auth']->forgetGuards();
+    $test->actingAs($user, 'sanctum');
+    $body = '';
+    Cache::flush();
+    $counts = qbCountStatements(function () use ($test, &$body): void {
+        $body = (string) $test->get('/surfaces/onhost-panel.js')->assertOk()->getContent();
+    });
+
+    return ['queries' => $counts['queries'], 'body' => $body];
+}
+
 it('builds the pricing data script with as many queries for 2N plans as for N, under the ceiling, whatever another organization holds', function () {
     qbAddPlans(QB_N);
     qbMeasurePricingData($this); // warm-up: one-time boot costs are not part of the budget
@@ -165,6 +260,7 @@ it('builds the pricing data script with as many queries for 2N plans as for N, u
     $twoN = qbMeasurePricingData($this);
 
     expect($twoN)->toBe($n, 'the pricing data script must not run a query per plan');
+    qbReport('pricing_data.2n', $twoN);
     qbUnderCeiling($twoN, QB_PRICING_DATA_CEILING);
 
     qbNoisyNeighbour(2 * QB_N);
@@ -177,6 +273,7 @@ it('quotes a cart of 2N lines with as many queries as N lines, under the ceiling
     $twoN = qbMeasureCartQuote($this, 2 * QB_N);
 
     expect($twoN)->toBe($n, 'the cart quote must not run a query per line');
+    qbReport('cart_quote.2n', $twoN);
     qbUnderCeiling($twoN, QB_CART_QUOTE_CEILING);
 
     // funnel_metrics on adds a constant (the Plan::whereIn lookup and the outbox insert), never a query per line
@@ -185,6 +282,7 @@ it('quotes a cart of 2N lines with as many queries as N lines, under the ceiling
     $metricTwoN = qbMeasureCartQuote($this, 2 * QB_N, true);
     expect($metricTwoN)->toBe($metricN, 'the funnel metric must not run a query per line')
         ->and($metricN)->toBeGreaterThan($n, 'funnel_metrics=true must add its constant');
+    qbReport('cart_quote_funnel.2n', $metricTwoN);
     qbUnderCeiling($metricTwoN, QB_CART_QUOTE_FUNNEL_CEILING);
 
     qbNoisyNeighbour(2 * QB_N);
@@ -199,8 +297,57 @@ it('places a guest order of 2N lines with at most one extra query per extra line
 
     // CheckoutService inserts one order_items row per line, so N extra lines may cost N extra queries, never more.
     expect($twoN - $n)->toBeLessThanOrEqual(QB_N, 'the guest checkout may only add the order item insert per line');
+    qbReport('guest_checkout.2n', $twoN);
     qbUnderCeiling($twoN, QB_GUEST_CHECKOUT_CEILING);
 
     qbNoisyNeighbour(2 * QB_N);
     expect(qbMeasureGuestCheckout($this, 2 * QB_N))->toBe($twoN, 'another organization\'s plans, carts and orders must not change the guest checkout');
+});
+
+it('reads an anonymous cart with a bounded number of queries and at most one INSERT', function () {
+    qbGuestCartRead($this, null); // warm-up
+    $none = qbGuestCartRead($this, null);
+    $unknown = qbGuestCartRead($this, 'qbUnknownToken'.Str::random(26));
+    qbReport('guest_cart_read.no_token.queries', $none['queries']);
+    qbReport('guest_cart_read.no_token.inserts', $none['inserts']);
+    qbReport('guest_cart_read.unknown_token.queries', $unknown['queries']);
+    qbReport('guest_cart_read.unknown_token.inserts', $unknown['inserts']);
+
+    // W7-0 sníží na 0: a read must not create a cart; today firstOrCreate inserts one open cart per unknown token
+    expect($none['inserts'])->toBeLessThanOrEqual(QB_GUEST_CART_READ_INSERTS)
+        ->and($unknown['inserts'])->toBeLessThanOrEqual(QB_GUEST_CART_READ_INSERTS);
+    qbUnderCeiling($none['queries'], QB_GUEST_CART_READ_CEILING);
+    qbUnderCeiling($unknown['queries'], QB_GUEST_CART_READ_CEILING);
+});
+
+it('serves a warm pricing data script without a single query', function () {
+    qbSurfaceData($this); // warm-up: one-time boot costs are not part of the budget
+    $data = qbSurfaceData($this);
+    qbReport('surface_data.cold', $data['cold']);
+    qbReport('surface_data.warm', $data['warm']);
+
+    expect($data['warm'])->toBe(0, 'the warm pricing data script must come from the cache');
+    qbUnderCeiling($data['cold'], QB_SURFACE_DATA_COLD_CEILING);
+});
+
+it('builds the panel script of two tenants with bounded queries, each without the other tenant\'s services or organization', function () {
+    [$userA, $orgA] = $this->customerWithOrganization([], ['name' => 'QbTenantA s.r.o.']);
+    [$userB, $orgB] = $this->customerWithOrganization([], ['name' => 'QbTenantB s.r.o.']);
+    $nameA = 'qbsvc-alpha-'.Str::lower(Str::random(8));
+    $nameB = 'qbsvc-bravo-'.Str::lower(Str::random(8));
+    featureWebService($orgA, 'ispconfig')->forceFill(['name' => $nameA, 'hostname' => $nameA.'.cz'])->save();
+    featureWebService($orgB, 'ispconfig')->forceFill(['name' => $nameB, 'hostname' => $nameB.'.cz'])->save();
+    featureWebService($orgB, 'ispconfig')->forceFill(['name' => $nameB.'-2', 'hostname' => $nameB.'-2.cz'])->save();
+    expect(Service::query()->where('organization_id', $orgB->id)->count())->toBe(2);
+
+    qbPanelTwoTenants($this, $userA); // warm-up
+    $a = qbPanelTwoTenants($this, $userA);
+    $b = qbPanelTwoTenants($this, $userB);
+    qbReport('panel.tenant_a', $a['queries']);
+    qbReport('panel.tenant_b', $b['queries']);
+
+    expect($a['body'])->toContain($nameA)->not->toContain($nameB)->not->toContain((string) $orgB->id)
+        ->and($b['body'])->toContain($nameB)->not->toContain($nameA)->not->toContain((string) $orgA->id);
+    qbUnderCeiling($a['queries'], QB_PANEL_CEILING);
+    qbUnderCeiling($b['queries'], QB_PANEL_CEILING);
 });
