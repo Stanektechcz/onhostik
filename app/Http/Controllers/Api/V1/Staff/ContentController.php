@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Staff;
 
 use App\Http\Controllers\Api\V1\ApiController;
+use App\Http\Support\PublicSeo;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Onhost\Domain\Content\Commands\ContentCommand;
 use Onhost\Domain\Content\ContentService;
 use Onhost\Domain\Content\Models\ChangelogEntry;
@@ -205,6 +207,7 @@ final class ContentController extends ApiController
             'body' => ['required', 'array'], 'body.cs' => ['required', 'array'], 'tags' => ['nullable', 'array'], 'state' => ['nullable', 'in:draft,published,archived'], 'read_minutes' => ['nullable', 'integer', 'min:1', 'max:120'], 'author' => ['nullable', 'string', 'max:120'],
         ]);
         $article = KnowledgeArticle::query()->updateOrCreate(['slug' => $data['slug']], array_diff_key($data, ['slug' => 1]) + ['published_at' => now()]);
+        Cache::forget(PublicSeo::SITEMAP_CACHE); // W7-4b: a published, changed or withdrawn article changes the sitemap
         $audit->record($this->api->context($request), 'content.kb.upsert', 'succeeded', ['slug' => $article->slug, 'state' => $article->state], 'knowledge_article', $article->id);
 
         return $this->ok($article->toArray());

@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Http\Support;
 
 use App\Http\Controllers\Web\SurfaceController;
+use Illuminate\Support\Facades\Cache;
+use Onhost\Domain\Content\ContentService;
 
 /**
  * N15 (variant B, ROZHODNUTI-vlna2 2026-10-15): the public site's sitemap and its hreflang links, both through seams only.
@@ -17,6 +19,12 @@ final class PublicSeo
 {
     /** Public surface paths that must never be indexed (forms and personal flows). */
     public const NOT_INDEXED = ['kosik', 'prihlaseni', 'registrace', 'obnova-hesla'];
+
+    /** W7-4b: the cache key of the sitemap's knowledge base rows; staff publishing an article forgets it. */
+    public const SITEMAP_CACHE = 'seo:sitemap';
+
+    /** W7-4b: the path prefix of a knowledge base article ('/znalostni-baze/{slug}'). */
+    public const KB_PREFIX = '/znalostni-baze/';
 
     /** The path prefix of the Slovak public site (W6-6). */
     public const SK_PREFIX = '/sk';
@@ -220,6 +228,71 @@ final class PublicSeo
         return $head === '' ? $html : (string) preg_replace('~</head>~', addcslashes($head, '\\$')."\n</head>", $html, 1);
     }
 
+    /** W7-4b: the slug of a knowledge base article path ('/znalostni-baze/{slug}', also under /sk/), null for any other path. */
+    public static function kbSlug(string $path): ?string
+    {
+        [, $cs] = self::split($path);
+
+        return preg_match('~^/znalostni-baze/([a-z0-9-]+)$~', $cs, $m) === 1 ? $m[1] : null;
+    }
+
+    /**
+     * W7-4b: the head of a published knowledge base article — title, description (the perex), self canonical and JSON-LD
+     * TechArticle {headline, dateModified = published_at, inLanguage, publisher}; no author.
+     *
+     * @param  array<string, mixed>  $article  ContentService::kbArticle()
+     */
+    public static function kbHead(string $path, array $article): string
+    {
+        [$lang, $cs] = self::split($path);
+        $title = (string) ($article['title'] ?? '');
+        $description = (string) ($article['excerpt'] ?? '');
+        $siteName = self::text($lang, 'home', 'site_name') ?: 'ONhost';
+        $url = self::base().($lang === 'sk' ? self::skPath($cs) : $cs);
+        $tags = ['<title>'.self::attr($title.' | '.$siteName).'</title>'];
+        if ($description !== '') {
+            $tags[] = '<meta name="description" content="'.self::attr($description).'">';
+        }
+        $tags[] = '<link rel="canonical" href="'.self::attr($url).'">';
+        $node = ['@context' => 'https://schema.org', '@type' => 'TechArticle', 'headline' => $title, 'inLanguage' => $lang, 'url' => $url,
+            'publisher' => ['@type' => 'Organization', '@id' => self::base().'/#organization', 'name' => $siteName, 'url' => self::base().'/']];
+        if (is_string($article['updated'] ?? null) && $article['updated'] !== '') {
+            $node['dateModified'] = $article['updated'];
+        }
+        if ($description !== '') {
+            $node['description'] = $description;
+        }
+        $json = json_encode($node, JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if (is_string($json)) {
+            $tags[] = '<script type="application/ld+json">'.$json.'</script>';
+        }
+
+        return implode("\n", $tags);
+    }
+
+    /**
+     * W7-4b head seam for an article page, as withHead().
+     *
+     * @param  array<string, mixed>  $article
+     */
+    public static function withKbHead(string $html, string $path, array $article): string
+    {
+        return (string) preg_replace('~</head>~', addcslashes(self::kbHead($path, $article), '\\$')."\n</head>", $html, 1);
+    }
+
+    /**
+     * W7-4b: the published knowledge base articles as sitemap rows (one query, cached until staff publish an article).
+     *
+     * @return list<array{slug: string, lastmod: string|null}>
+     */
+    public static function kbRows(): array
+    {
+        /** @var list<array{slug: string, lastmod: string|null}> $rows */
+        $rows = Cache::remember(self::SITEMAP_CACHE, 3600, fn (): array => app(ContentService::class)->kbSitemap());
+
+        return $rows;
+    }
+
     /** Head seam: the links go right before </head> of the rendered page; the prototype file itself stays untouched. */
     public static function withHreflang(string $html, string $path): string
     {
@@ -252,6 +325,9 @@ final class PublicSeo
             foreach ([$path, self::skPath($path)] as $loc) {
                 $xml .= '  <url><loc>'.self::xml(self::base().$loc).'</loc>'.$alternates.'</url>'."\n";
             }
+        }
+        foreach (self::kbRows() as $row) { // W7-4b: the Czech article pages, lastmod = published_at
+            $xml .= '  <url><loc>'.self::xml(self::base().self::KB_PREFIX.$row['slug']).'</loc>'.($row['lastmod'] === null ? '' : '<lastmod>'.self::xml($row['lastmod']).'</lastmod>').'</url>'."\n";
         }
 
         return $xml.'</urlset>'."\n";

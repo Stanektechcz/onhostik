@@ -14,6 +14,7 @@ use App\Http\Support\PublicSeo;
 use App\Http\Support\ServicePageClaimsSeam;
 use App\Http\Support\SurfaceRenderer;
 use Illuminate\Http\Request;
+use Onhost\Domain\Content\ContentService;
 use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Authorization\StaffActor;
 use Onhost\Domain\Identity\Models\User;
@@ -21,6 +22,7 @@ use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Partners\Models\Partner;
 use Onhost\Platform\Commands\CommandScope;
+use Onhost\Platform\Errors\DomainError;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -45,13 +47,22 @@ final class SurfaceController extends Controller
     /** Where a signed-in person without a partnership is sent from /partner: the reseller programme with its application form. */
     public const PARTNER_APPLICATION = '/reseller';
 
-    public function __construct(private readonly SurfaceRenderer $renderer, private readonly Authorizer $authorizer, private readonly StaffNavigation $navigation) {}
+    public function __construct(private readonly SurfaceRenderer $renderer, private readonly Authorizer $authorizer, private readonly StaffNavigation $navigation, private readonly ContentService $content) {}
 
     public function public(Request $request, ?string $path = null): Response
     {
         $hash = $path === null || $path === '' ? null : '#/'.trim($path, '/');
+        $article = null;
+        $slug = PublicSeo::kbSlug($request->path());
+        if ($slug !== null && ! (bool) config('onhost.ui.demo', false)) { // W7-4b: an article that is not published does not exist
+            try {
+                $article = $this->content->kbArticle($slug, app()->getLocale() === 'sk' ? 'sk' : 'cs');
+            } catch (DomainError) {
+                abort(404, '', ['X-Robots-Tag' => 'noindex, nofollow']);
+            }
+        }
 
-        return $this->surface($request, 'public', $hash);
+        return $this->surface($request, 'public', $hash, $article);
     }
 
     /**
@@ -172,7 +183,8 @@ final class SurfaceController extends Controller
         return $response;
     }
 
-    private function surface(Request $request, string $surface, ?string $hash): Response
+    /** @param  array<string, mixed>|null  $article  W7-4b: the published knowledge base article of /znalostni-baze/{slug} */
+    private function surface(Request $request, string $surface, ?string $hash, ?array $article = null): Response
     {
         $user = $request->user();
         $demo = (bool) config('onhost.ui.demo', false);
@@ -199,7 +211,7 @@ final class SurfaceController extends Controller
         }
         $html = $this->renderer->render($surface, $boot, $demo); // the credit/bonus/archive sentences are corrected inside render(), in the template only (G8 item 9, H2)
         if ($surface === 'public' && ! $demo) {
-            $html = PublicSeo::withHead($html, $request->path()); // N15 + W7-3: title, description, canonical, OG, JSON-LD and hreflang through the head seam
+            $html = $article !== null ? PublicSeo::withKbHead($html, $request->path(), $article) : PublicSeo::withHead($html, $request->path()); // N15 + W7-3: title, description, canonical, OG, JSON-LD and hreflang through the head seam
         }
         $headers = ['Content-Type' => 'text/html; charset=utf-8', 'Cache-Control' => 'no-store', 'X-Frame-Options' => 'SAMEORIGIN', 'Referrer-Policy' => 'strict-origin-when-cross-origin'];
         // W7-3: forms and personal flows are never indexed, and nothing public is outside production (staging carries its own portal_url)

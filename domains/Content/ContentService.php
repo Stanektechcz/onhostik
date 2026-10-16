@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Content;
 
+use Illuminate\Support\Carbon;
 use Onhost\Domain\Content\Models\ChangelogEntry;
 use Onhost\Domain\Content\Models\ContentReference;
 use Onhost\Domain\Content\Models\Lead;
@@ -112,6 +113,18 @@ final class ContentService
             'slug' => $article->slug, 'cat' => $this->localized($article->category, $locale), 'title' => $this->localized($article->title, $locale), 'excerpt' => $this->localized($article->excerpt, $locale),
             'updated' => $article->published_at?->toDateString(), 'read' => "{$article->read_minutes} min", 'body' => $article->body[$locale] ?? $article->body['cs'] ?? [], 'tags' => $article->tags ?? [],
         ];
+    }
+
+    /**
+     * W7-4b: the published knowledge base articles for the sitemap, in one query (slug and published_at only).
+     *
+     * @return list<array{slug: string, lastmod: string|null}>
+     */
+    public function kbSitemap(): array
+    {
+        return KnowledgeArticle::query()->where('state', 'published')->orderBy('slug')->get(['slug', 'published_at'])
+            ->map(fn (KnowledgeArticle $a): array => ['slug' => (string) $a->slug, 'lastmod' => $a->published_at === null ? null : Carbon::parse($a->published_at)->toDateString()])
+            ->values()->all();
     }
 
     /** `[date, tag, tagLabel, title, body][]` */
