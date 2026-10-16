@@ -13,6 +13,10 @@ use Illuminate\Support\Facades\DB;
  * cart quotes from funnel_daily, placed and paid orders per currency (the market proxy; CZK and EUR never mix). No amounts,
  * no identifier of an organization, user, order or request. Cells under 5 are suppressed, totals add visible cells only.
  *
+ * W6-2 (difference attack): every count is first a day cell (day x currency, or day for quotes) with the <5 threshold. A
+ * week is the sum of its VISIBLE day cells and gets the threshold again; it is never counted from raw rows, so neither
+ * week minus days nor --days N against N+1 reveals a suppressed day.
+ *
  * Platformní agregát, W5-6: it reads `orders` through DB::table on purpose, across every tenant — the output carries counts
  * only. It writes nothing, publishes no event and needs no route, migration or config key.
  */
@@ -21,6 +25,8 @@ final class FunnelReport extends Command
     private const MIN_CELL = 5;
 
     private const PAID_LABEL = 'paid (bez odečtu refundací)';
+
+    private const SUPPRESSION = 'buňky <5 (včetně 0) potlačené, týden = součet viditelných dnů';
 
     protected $signature = 'onhost:funnel-report {--days=30 : window in days, 1-366} {--group=day : day|week} {--json : machine-readable output}';
 
@@ -47,12 +53,12 @@ final class FunnelReport extends Command
         /** @var array<string, array<string, array{placed: int, paid: int}>> $markets */
         $markets = [];
         foreach (DB::table('orders')->whereNotNull('placed_at')->where('placed_at', '>=', $from)->get(['currency', 'placed_at']) as $row) {
-            $key = $this->periodKey(Carbon::parse((string) $row->placed_at, 'UTC'), $group);
+            $key = Carbon::parse((string) $row->placed_at, 'UTC')->toDateString();
             $markets[$key][(string) $row->currency]['placed'] = ($markets[$key][(string) $row->currency]['placed'] ?? 0) + 1;
             $markets[$key][(string) $row->currency]['paid'] ??= 0;
         }
         foreach (DB::table('orders')->whereNotNull('paid_at')->whereNull('cancelled_at')->where('paid_at', '>=', $from)->get(['currency', 'paid_at']) as $row) {
-            $key = $this->periodKey(Carbon::parse((string) $row->paid_at, 'UTC'), $group);
+            $key = Carbon::parse((string) $row->paid_at, 'UTC')->toDateString();
             $markets[$key][(string) $row->currency]['paid'] = ($markets[$key][(string) $row->currency]['paid'] ?? 0) + 1;
             $markets[$key][(string) $row->currency]['placed'] ??= 0;
         }
@@ -63,10 +69,29 @@ final class FunnelReport extends Command
             $rows = DB::table('funnel_daily')->where('date', '>=', $from->toDateString())
                 ->groupBy('date')->get(['date', DB::raw('SUM(count) as total')]);
             foreach ($rows as $row) {
-                $key = $this->periodKey(Carbon::parse((string) $row->date, 'UTC'), $group);
+                $key = Carbon::parse((string) $row->date, 'UTC')->toDateString();
                 $quotes[$key] = ($quotes[$key] ?? 0) + (int) $row->total;
             }
         }
+
+        // W6-2: suppress per day first; a period (day or week) adds only visible day cells and is thresholded again
+        /** @var array<string, array<string, array{placed: int, paid: int}>> $visibleMarkets */
+        $visibleMarkets = [];
+        foreach ($markets as $day => $byCurrency) {
+            $key = $this->periodKey(Carbon::parse($day, 'UTC'), $group);
+            foreach ($byCurrency as $currency => $counts) {
+                $visibleMarkets[$key][$currency]['placed'] = ($visibleMarkets[$key][$currency]['placed'] ?? 0) + (int) $this->cell($counts['placed'])['value'];
+                $visibleMarkets[$key][$currency]['paid'] = ($visibleMarkets[$key][$currency]['paid'] ?? 0) + (int) $this->cell($counts['paid'])['value'];
+            }
+        }
+        $markets = $visibleMarkets;
+        /** @var array<string, int> $visibleQuotes */
+        $visibleQuotes = [];
+        foreach ($quotes as $day => $count) {
+            $key = $this->periodKey(Carbon::parse($day, 'UTC'), $group);
+            $visibleQuotes[$key] = ($visibleQuotes[$key] ?? 0) + (int) $this->cell($count)['value'];
+        }
+        $quotes = $visibleQuotes;
 
         $periods = array_unique(array_merge(array_keys($markets), array_keys($quotes)));
         sort($periods);
@@ -98,7 +123,7 @@ final class FunnelReport extends Command
         if ($this->option('json')) {
             $this->line((string) json_encode([
                 'days' => $days, 'group' => $group, 'timezone' => 'UTC', 'funnel_metrics' => $metrics,
-                'note' => 'součty jsou dolní mez', 'paid_label' => self::PAID_LABEL, 'min_cell' => self::MIN_CELL,
+                'note' => 'součty jsou dolní mez', 'suppression' => self::SUPPRESSION, 'paid_label' => self::PAID_LABEL, 'min_cell' => self::MIN_CELL,
                 'rows' => $rows, 'quotes' => $metrics ? $quoteRows : null,
                 'totals' => ['placed' => $totals['placed'], 'paid' => $totals['paid'], 'quotes' => $metrics ? $totals['quotes'] : null],
             ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
@@ -106,7 +131,7 @@ final class FunnelReport extends Command
             return self::SUCCESS;
         }
 
-        $this->line("Funnel platformy za {$days} dní po ".($group === 'week' ? 'týdnech (ISO, pondělí)' : 'dnech').' v UTC — jen čtení; součty jsou dolní mez (buňky <5 potlačené).');
+        $this->line("Funnel platformy za {$days} dní po ".($group === 'week' ? 'týdnech (ISO, pondělí)' : 'dnech').' v UTC — jen čtení; součty jsou dolní mez ('.self::SUPPRESSION.').');
         if (! $metrics) {
             $this->warn('funnel_metrics vypnuto, konverze se nepočítá');
         }
