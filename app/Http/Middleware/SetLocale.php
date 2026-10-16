@@ -28,6 +28,10 @@ final class SetLocale
                 $wanted = $preferred === 'sk' && ! in_array('sk', $supported, true) ? 'cs' : $preferred;
             }
         }
+        // W6-6: the Slovak public site lives under /sk/ on the same domain; the prefix wins, but only while the switch is on
+        if (in_array('sk', $supported, true) && ($request->path() === 'sk' || str_starts_with($request->path(), 'sk/'))) {
+            $wanted = 'sk';
+        }
         if (is_string($wanted) && in_array($wanted, $supported, true)) {
             app()->setLocale($wanted);
         }

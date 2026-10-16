@@ -54,6 +54,25 @@ final class SurfaceController extends Controller
         return $this->surface($request, 'public', $hash);
     }
 
+    /**
+     * W6-6 (owner decision 2026-10-16): the Slovak public site at /sk/… on the same domain. The route is always registered (route:cache);
+     * while config('onhost.locale_sk') is off it answers 404. On, it renders the public surface as ?locale=sk does (SetLocale sets 'sk'
+     * from the /sk prefix); forms and personal flows under /sk/ carry noindex and stay out of the sitemap and hreflang.
+     */
+    public function publicSk(Request $request, ?string $path = null): Response
+    {
+        if (! (bool) config('onhost.locale_sk', false)) {
+            abort(404);
+        }
+        app()->setLocale('sk');
+        $response = $this->public($request, $path);
+        if (PublicSeo::notIndexed($request->path())) {
+            $response->headers->set('X-Robots-Tag', 'noindex, nofollow');
+        }
+
+        return $response;
+    }
+
     public function panel(Request $request, ?string $path = null): Response
     {
         return $this->surface($request, 'panel', $this->hash($path));

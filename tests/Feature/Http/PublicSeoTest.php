@@ -39,7 +39,7 @@ it('adds hreflang cs and x-default to a public page, never sk before the texts a
     expect($html)->toContain('<link rel="alternate" hreflang="cs" href="https://onhost.example/ceny">')
         ->toContain('<link rel="alternate" hreflang="x-default" href="https://onhost.example/ceny">')
         ->not->toContain('hreflang="sk"');
-    expect(PublicSeo::LANGUAGES)->not->toContain('sk');
+    expect(PublicSeo::languages())->not->toContain('sk'); // locale_sk is off by default (W6-6 adds sk only when it is on)
 });
 
 it('adds no hreflang to pages outside the sitemap and keeps the prototype untouched', function () {
