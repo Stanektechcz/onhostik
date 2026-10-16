@@ -99,7 +99,7 @@ final class SurfaceController extends Controller
     }
 
     /** Static prototype assets (design system, scripts, images) with long cache; generated scripts have their own routes. */
-    public function asset(string $path): BinaryFileResponse|Response
+    public function asset(Request $request, string $path): BinaryFileResponse|Response
     {
         $file = $this->renderer->assetPath($path);
         if ($file === null) {
@@ -113,12 +113,12 @@ final class SurfaceController extends Controller
                 (string) file_get_contents($file),
             );
 
-            return response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=300', 'X-Content-Type-Options' => 'nosniff']);
+            return $this->scriptResponse($request, $js);
         }
         if ($path === 'onhost-shell.js' && ! config('onhost.ui.demo', false)) { // the prototype's surface switcher ("Plochy Onhost", bottom-left) is a design-review tool, not part of the product
             $js = str_replace('function boot() { if (EMBED) return;', 'function boot() { if (EMBED || (window.ONHOST && !window.ONHOST.demo)) return;', (string) file_get_contents($file));
 
-            return response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=300', 'X-Content-Type-Options' => 'nosniff']);
+            return $this->scriptResponse($request, $js);
         }
         if ($path === 'onhost-command.js' && ! config('onhost.ui.demo', false)) { // one assistant only: the drawer ("Asistent", ⌘J) gives way to the panel's chat (seam #30)
             $chat = 'function panelChat() { var b = Array.prototype.slice.call(document.querySelectorAll(\'button\')).filter(function (x) { return /Zeptat se AI|Ask the AI|Zavřít chat|Close chat/.test(x.textContent || \'\'); })[0]; if (b) { b.click(); return true; } return false; }'
@@ -139,7 +139,7 @@ final class SurfaceController extends Controller
                 (string) file_get_contents($file),
             );
 
-            return response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=300', 'X-Content-Type-Options' => 'nosniff']);
+            return $this->scriptResponse($request, $js);
         }
         // the public /api and /dokumentace pages (audit 2026-10 D3): the limits, headers, endpoints, errors, webhook retry and the
         // two API guides come from the routes, the config and the dispatcher; the prototype's story stays in demo mode only
@@ -147,27 +147,37 @@ final class SurfaceController extends Controller
             $original = ServicePageClaimsSeam::apply((string) file_get_contents($file), $path); // Q1: no DDoS capacity on the SLA page
             $js = $path === 'onhost-public.js' ? PublicApiDocs::publicScript($original) : (PublicApiDocs::docsModule($original) ?? $original);
 
-            return response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=300', 'X-Content-Type-Options' => 'nosniff']);
+            return $this->scriptResponse($request, $js);
         }
         if ($path === 'onhost-content.js' && ! config('onhost.ui.demo', false)) { // credit is never paid back in cash (G8 item 9, owner decision 2026-10-05)
             // I-R17 (TASK-0149): the blog is what staff publish (ONHOST_DATA.blog); the prototype's posts are not sent
             $js = PublicContentSeam::contentModule(CreditClaimsSeam::apply((string) file_get_contents($file), ['content']));
 
-            return response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=300', 'X-Content-Type-Options' => 'nosniff']);
+            return $this->scriptResponse($request, $js);
         }
         if ($path === 'onhost-svc-web.js' && ! config('onhost.ui.demo', false)) { // customer surfaces never name a registrar vendor (seam #20); an SLA credit is credited, not refunded (G8 item 9)
             $js = CreditClaimsSeam::apply(str_replace("'Hetzner', 'Wedos']", "'Hetzner', 'Forpsi']", ServicePageClaimsSeam::apply((string) file_get_contents($file), $path)), ['svc-web']); // P1: SLA band
 
-            return response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=300', 'X-Content-Type-Options' => 'nosniff']);
+            return $this->scriptResponse($request, $js);
         }
         if (ServicePageClaimsSeam::covers($path) && ! config('onhost.ui.demo', false)) { // J-R2 (K8b): the invented eco figures and EPYC stock claims are not served
             $js = ServicePageClaimsSeam::apply((string) file_get_contents($file), $path);
 
-            return response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=300', 'X-Content-Type-Options' => 'nosniff']);
+            return $this->scriptResponse($request, $js);
         }
         $response = new BinaryFileResponse($file, 200, ['Content-Type' => SurfaceRenderer::mime($file), 'X-Content-Type-Options' => 'nosniff']);
         // design-system bundle is content-addressed (immutable); prototype scripts short-lived; API seams are versioned by query (mtime)
         $response->setPublic()->setMaxAge(str_contains($path, '_ds/') ? 31536000 : (str_starts_with($path, 'api/') ? 86400 : 300));
+
+        return $response;
+    }
+
+    /** W7-2b (MERENI P4): a script transformed in PHP carries a content ETag; a matching If-None-Match gets 304 with no body. */
+    private function scriptResponse(Request $request, string $js): Response
+    {
+        $response = response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=300', 'X-Content-Type-Options' => 'nosniff']);
+        $response->setEtag(sha1($js));
+        $response->isNotModified($request);
 
         return $response;
     }
