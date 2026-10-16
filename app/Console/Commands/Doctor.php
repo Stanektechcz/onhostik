@@ -496,6 +496,21 @@ final class Doctor extends Command
         $this->add('app', 'APP_KEY set', (string) config('app.key') !== '', '');
         $this->add('app', 'APP_URL uses https', str_starts_with((string) config('app.url'), 'https://'), (string) config('app.url'));
         $this->add('app', 'Sanctum stateful domains set', (array) config('sanctum.stateful', []) !== [], 'the surfaces authenticate with the session cookie');
+        $php = self::phpVersionRow(PHP_VERSION);
+        $this->add('runtime', 'PHP version', $php['ok'], $php['detail'], false, $php['remedy']);
+    }
+
+    /**
+     * W7-6: the PHP the doctor runs on. 8.4 and newer is OK; older is a standing, non-blocking WARN until the cutover
+     * (docs/runbooks/php85-cutover.md). The version is a parameter so the verdict is testable on any CI PHP.
+     *
+     * @return array{ok: bool, detail: string, remedy: string}
+     */
+    public static function phpVersionRow(string $version): array
+    {
+        $ok = version_compare($version, '8.4.0', '>=');
+
+        return ['ok' => $ok, 'detail' => $version, 'remedy' => $ok ? '' : 'see docs/runbooks/php85-cutover.md'];
     }
 
     private function storage(): void

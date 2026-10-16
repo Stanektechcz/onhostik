@@ -1,5 +1,6 @@
 # Control-plane image: PHP 8.3 CLI/FPM with the extensions Laravel + the adapters need.
-FROM php:8.3-cli-alpine
+ARG PHP_VERSION=8.3
+FROM php:${PHP_VERSION}-cli-alpine
 
 RUN apk add --no-cache icu-dev libzip-dev postgresql-dev oniguruma-dev gmp-dev linux-headers $PHPIZE_DEPS \
     && docker-php-ext-install -j"$(nproc)" intl pdo_pgsql bcmath gmp zip pcntl opcache \
