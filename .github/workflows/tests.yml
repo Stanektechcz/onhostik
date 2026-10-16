@@ -64,7 +64,7 @@ jobs:
 
       # W5-4: report only. The Pest step above decides the job colour; this step never does (continue-on-error).
       - name: Classify failures against the baseline (report only)
-        if: always()
+        if: always() && steps.pest.outcome != 'skipped'
         continue-on-error: true
         run: |
           mkdir -p build
@@ -157,7 +157,7 @@ jobs:
 
       # W5-4: report only. The Pest step above decides the job colour; this step never does (continue-on-error).
       - name: Classify failures against the baseline (report only)
-        if: always()
+        if: always() && steps.pest.outcome != 'skipped'
         continue-on-error: true
         run: |
           mkdir -p build
