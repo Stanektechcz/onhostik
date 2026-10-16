@@ -539,6 +539,8 @@ HTML;
      * W5-5: the number locale of the served money helpers. Off (config onhost.locale_sk), the expression is the prototype's own,
      * byte for byte; on, a Slovak page (ONHOST.locale = sk, which the prototype shows with its Czech texts) formats as sk-SK.
      * Only the format follows the language: currency and amounts come from the cart and the legal entity.
+     * W6-4: the language switch of the prototype (languageSeams) still knows only cs and en, so Slovak is never a third
+     * `this.state.lang`; it is the Czech UI with ONHOST.locale = sk, and this seam is the only place that tells them apart.
      */
     private static function intlLocale(): string
     {
