@@ -35,7 +35,7 @@ function langSkParitySkOnly(): array
 {
     return ['surface.php' => [
         'metric.disk' => [], 'metric.inodes' => [], 'metric.mail' => [], 'metric.memory' => [], 'metric.traffic' => [], 'metric.transfer' => [], 'metric.web_disk_total' => [],
-        'most_popular' => [], 'stock_lead' => [':days'], 'stock_on_order' => [], 'stock_unit' => [], 'stock_units' => [':count', ':count', ':count'],
+        'most_popular' => [], 'stock_lead' => [':days', ':days'], 'stock_on_order' => [], 'stock_unit' => [], 'stock_units' => [':count', ':count', ':count'],
     ]];
 }
 

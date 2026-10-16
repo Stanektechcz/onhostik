@@ -157,3 +157,11 @@ dvojčete v `lang/cs` (české texty jsou ve větvích kódu); `LangSkParityTest
 **B2 je otevřené rozhodnutí** (sk do `PublicSeo::LANGUAGES`, hreflang, sitemap). Doporučení: podsložka `/sk/` na stejné
 doméně (bez kroku v DNS) a `sk` do `LANGUAGES` až ve stejném commitu jako vlastní SK URL. Připomínky Adriana z W4-K3
 se zapracují samostatným commitem, až dorazí.
+
+## Stav po W6-4
+
+* `Lexicon::SK` (stejné klíče jako `EN`, W4-K3) a `table('sk')`: `translate()` ji použije jen při `Lexicon::slovak()`;
+  vypnutý přepínač vrací pro `sk` český text beze změny. Test `SkLocalePhase2Test` (b3).
+* `lang/sk/surface.php` `stock_lead` přes `trans_choice` (1 dňa, 2+ dní); česká větev `ContentService` se nemění
+  (oprava „dodání 1 dnů“ je follow-up vlny 7).
+* Snapshoty pro test (a) zatím nahrané nejsou (bez `vendor/`), test (a) se do té doby přeskakuje.

@@ -137,7 +137,7 @@ final class ContentService
             if (Lexicon::slovak($locale)) { // W5-5: lang/sk/surface.php, plural forms through trans_choice
                 return [$s->name, $s->spec[$locale] ?? $s->spec['cs'] ?? '', $price, __('surface.stock_unit', [], 'sk'), match (true) {
                     $s->available > 0 => trans_choice('surface.stock_units', (int) $s->available, ['count' => $s->available], 'sk'),
-                    $s->lead_days > 0 => __('surface.stock_lead', ['days' => $s->lead_days], 'sk'),
+                    $s->lead_days > 0 => trans_choice('surface.stock_lead', (int) $s->lead_days, ['days' => $s->lead_days], 'sk'),
                     default => __('surface.stock_on_order', [], 'sk'),
                 }, $s->availability];
             }
