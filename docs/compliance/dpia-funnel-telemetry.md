@@ -70,5 +70,10 @@ jen vlastník (W5-K2).
 * **Ochrana malých čísel:** buňka `< 5` se vypíše jako `<5` (v JSON `{"value": null, "suppressed": true}`). Součty se
   počítají jen z viditelných buněk, a jsou proto **dolní mez**. Konverze (paid/placed, placed/poptávky) se počítá jen tam,
   kde jsou obě složky ≥ 5.
+* **Rozdílový útok (W6-2):** buňky <5 (včetně 0) potlačené, týden = součet viditelných dnů. Každý počet (placed, paid,
+  poptávky) vzniká nejdřív jako denní buňka (den × měna, u poptávek den) s prahem <5; týdenní buňka je součet
+  **viditelných** denních buněk a práh <5 se na ni použije znovu. Týden se nikdy nepočítá ze surových řádků, takže ani
+  rozdíl `--group=week` a `--group=day`, ani posun `--days` o jeden den neprozradí potlačený den. Věta je v textové
+  hlavičce i v JSON (`suppression`).
 * **Vypnutý přepínač:** při `funnel_metrics=false` se poptávky nevypisují (JSON `quotes: null`, `funnel_metrics: false`) a
   report upozorní „funnel_metrics vypnuto, konverze se nepočítá“.

@@ -86,7 +86,7 @@ function fnrRow(array $report, string $period, string $market): array
     throw new RuntimeException("no row {$period} {$market}");
 }
 
-it('adds up per day and per ISO week, split by currency', function () {
+it('adds up per day and per ISO week of visible days, split by currency', function () {
     $day = fnrJson();
     expect(fnrRow($day, '2026-10-12', 'CZK')['placed'])->toBe(['value' => 6, 'suppressed' => false])
         ->and(fnrRow($day, '2026-10-12', 'CZK')['paid'])->toBe(['value' => 5, 'suppressed' => false])
@@ -94,16 +94,18 @@ it('adds up per day and per ISO week, split by currency', function () {
         ->and(fnrRow($day, '2026-10-12', 'EUR')['paid'])->toBe(['value' => 5, 'suppressed' => false])
         ->and($day['quotes'][0])->toMatchArray(['period' => '2026-10-12', 'quotes' => ['value' => 13, 'suppressed' => false]])
         ->and($day['note'])->toBe('součty jsou dolní mez')
-        ->and($day['paid_label'])->toBe('paid (bez odečtu refundací)');
+        ->and($day['paid_label'])->toBe('paid (bez odečtu refundací)')
+        ->and($day['suppression'])->toBe('buňky <5 (včetně 0) potlačené, týden = součet viditelných dnů');
 
+    // W6-2: the suppressed Tuesday (3 CZK placed, 3 quotes) never enters the week
     $week = fnrJson(['--group' => 'week']);
     expect($week['rows'])->toHaveCount(2)
-        ->and(fnrRow($week, '2026-10-12', 'CZK')['placed'])->toBe(['value' => 9, 'suppressed' => false])
+        ->and(fnrRow($week, '2026-10-12', 'CZK')['placed'])->toBe(['value' => 6, 'suppressed' => false])
         ->and(fnrRow($week, '2026-10-12', 'CZK')['paid'])->toBe(['value' => 5, 'suppressed' => false])
         ->and(fnrRow($week, '2026-10-12', 'EUR')['placed'])->toBe(['value' => 5, 'suppressed' => false])
         ->and($week['quotes'])->toHaveCount(1)
-        ->and($week['quotes'][0]['quotes'])->toBe(['value' => 16, 'suppressed' => false])
-        ->and($week['totals'])->toBe(['placed' => 14, 'paid' => 10, 'quotes' => 16]);
+        ->and($week['quotes'][0]['quotes'])->toBe(['value' => 13, 'suppressed' => false])
+        ->and($week['totals'])->toBe(['placed' => 11, 'paid' => 10, 'quotes' => 13]);
 });
 
 it('suppresses a cell under five and leaves it out of the totals', function () {
@@ -115,7 +117,7 @@ it('suppresses a cell under five and leaves it out of the totals', function () {
 
     Artisan::call('onhost:funnel-report');
     $text = Artisan::output();
-    expect($text)->toContain('<5')->toContain('součty jsou dolní mez')->toContain('placed 11');
+    expect($text)->toContain('<5')->toContain('součty jsou dolní mez')->toContain('týden = součet viditelných dnů')->toContain('placed 11');
 });
 
 it('never prints an organization, user, e-mail or order identifier', function () {
@@ -162,4 +164,42 @@ it('refuses a window outside 1-366 days', function () {
         ->and(Artisan::output())->toContain('1-366')
         ->and(Artisan::call('onhost:funnel-report', ['--days' => '400']))->toBe(1)
         ->and(Artisan::call('onhost:funnel-report', ['--days' => '366']))->toBe(0);
+});
+
+/** W6-2: CZK orders in the ISO week of Monday 28 Sep, 5 a day except Thursday 1 Oct with 3 (a suppressed day). */
+function fnrW62Week(): void
+{
+    foreach (['2026-09-29' => 5, '2026-09-30' => 5, '2026-10-01' => 3, '2026-10-02' => 5, '2026-10-03' => 5] as $date => $count) {
+        foreach (range(1, $count) as $i) {
+            fnrOrder('org_fnr_gamma', 'CZK', $date.' 08:00:00');
+        }
+    }
+}
+
+it('never shows a week from which a suppressed day can be subtracted (W6-2)', function () {
+    fnrW62Week();
+
+    $week = fnrRow(fnrJson(['--group' => 'week']), '2026-09-28', 'CZK');
+    expect($week['placed'])->toBe(['value' => 20, 'suppressed' => false]);
+
+    $visibleDays = 0;
+    foreach (fnrJson()['rows'] as $row) {
+        if ($row['market'] === 'CZK' && $row['period'] >= '2026-09-28' && $row['period'] <= '2026-10-04') {
+            $visibleDays += (int) $row['placed']['value'];
+        }
+    }
+    expect($visibleDays)->toBe(20)->and($week['placed']['value'] - $visibleDays)->toBe(0);
+});
+
+it('gives the same week for --days N and N+1 when the extra day is suppressed (W6-2)', function () {
+    fnrW62Week();
+
+    // 14 Oct is today: --days=13 starts on Friday 2 Oct, --days=14 adds the suppressed Thursday 1 Oct
+    $without = fnrRow(fnrJson(['--group' => 'week', '--days' => '13']), '2026-09-28', 'CZK');
+    $with = fnrRow(fnrJson(['--group' => 'week', '--days' => '14']), '2026-09-28', 'CZK');
+    expect($without['placed'])->toBe(['value' => 10, 'suppressed' => false])
+        ->and($with['placed'])->toBe($without['placed']);
+
+    // a visible extra day does show: --days=15 adds Wednesday 30 Sep
+    expect(fnrRow(fnrJson(['--group' => 'week', '--days' => '15']), '2026-09-28', 'CZK')['placed']['value'])->toBe(15);
 });
