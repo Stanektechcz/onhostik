@@ -67,6 +67,7 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
+          mkdir -p build
           out=build/gate-classify.json
           code=0
           php scripts/ci/gate-classify.php --junit=build/junit.xml --baseline=.ai/baseline/baseline.json --pest-exit=${{ steps.pest.outcome == 'success' && '0' || '1' }} --format=json > "$out" || code=$?
@@ -159,6 +160,7 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
+          mkdir -p build
           out=build/gate-classify.json
           code=0
           php scripts/ci/gate-classify.php --junit=build/junit-shard-${{ matrix.shard }}.xml --baseline=.ai/baseline/baseline.json --pest-exit=${{ steps.pest.outcome == 'success' && '0' || '1' }} --format=json > "$out" || code=$?

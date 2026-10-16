@@ -536,11 +536,6 @@ HTML;
     }
 
     /**
-     * TASK-0070 (audit 2026-10 P3, a11y): the panel and the staff console start in the person's language (ONHOST.locale — the
-     * panel's own "Jazyk panelu" setting saved it, and a reload used to fall back to Czech), and every language switch keeps
-     * `<html lang>` in step, so a screen reader reads the page in the language it is written in.
-     */
-    /**
      * W5-5: the number locale of the served money helpers. Off (config onhost.locale_sk), the expression is the prototype's own,
      * byte for byte; on, a Slovak page (ONHOST.locale = sk, which the prototype shows with its Czech texts) formats as sk-SK.
      * Only the format follows the language: currency and amounts come from the cart and the legal entity.
@@ -552,6 +547,11 @@ HTML;
             : "this.state.lang === 'cs' ? 'cs-CZ' : 'en-US'";
     }
 
+    /**
+     * TASK-0070 (audit 2026-10 P3, a11y): the panel and the staff console start in the person's language (ONHOST.locale — the
+     * panel's own "Jazyk panelu" setting saved it, and a reload used to fall back to Czech), and every language switch keeps
+     * `<html lang>` in step, so a screen reader reads the page in the language it is written in.
+     */
     private static function languageSeams(string $html, string $surface): string
     {
         $initial = "(window.ONHOST && window.ONHOST.locale === 'en' ? 'en' : 'cs')";
