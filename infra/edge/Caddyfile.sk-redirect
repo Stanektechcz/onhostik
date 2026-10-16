@@ -1,6 +1,6 @@
 # ONhost edge — the Slovak domain (W6-6, owner decision 2026-10-16), Caddy flavour.
 # The Slovak public site lives at https://onhost.cz/sk/ on the same domain; onhost.sk only redirects there, permanently (301),
-# keeping the path and the query ({uri} = path + query). The target host is fixed: never {host}, so the redirect cannot be
+# keeping the path and the query ({uri} = path + query). The target host is fixed: never the request host, so the redirect cannot be
 # pointed elsewhere. Import this file from conf.d next to the main Caddyfile; DNS and deployment are the owner's steps
 # (docs/runbooks/sk-cutover.md).
 
