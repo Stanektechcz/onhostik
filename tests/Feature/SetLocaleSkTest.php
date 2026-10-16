@@ -60,6 +60,7 @@ it('quotes the same cart identically for ?locale=cs and ?locale=sk', function ()
     }
 });
 
-it('still publishes hreflang for Czech only', function () {
-    expect(PublicSeo::LANGUAGES)->toBe(['cs']);
+it('publishes hreflang for Czech only while the switch is off', function () {
+    config()->set('onhost.locale_sk', false);
+    expect(PublicSeo::languages())->toBe(['cs']);
 });

@@ -144,9 +144,12 @@ it('(c) quotes the same cart identically for cs, sk and en', function () {
     }
 });
 
-it('(d) keeps PublicSeo Czech only, without an sk hreflang', function () {
+it('(d) keeps the Czech pages Czech: the sk hreflang points to /sk/, never to a Czech URL', function () {
     config()->set('onhost.locale_sk', true);
-    expect(PublicSeo::LANGUAGES)->toBe(['cs']);
+    expect(PublicSeo::languages())->toBe(['cs', 'sk']); // W6-6: the SK texts are approved; Slovak lives under /sk/, never on the Czech URL
+    expect((string) $this->get('/')->getContent())->not->toContain('hreflang="sk" href="'.PublicSeo::base().'/"')->toContain('hreflang="sk" href="'.PublicSeo::base().'/sk/"');
+    config()->set('onhost.locale_sk', false);
+    expect(PublicSeo::languages())->toBe(['cs']);
     expect((string) $this->get('/')->getContent())->not->toContain('hreflang="sk"');
 });
 
