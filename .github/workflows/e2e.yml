@@ -83,6 +83,51 @@ jobs:
           WEDOS_TEST_MODE: 'true'
           ONHOST_SELL_DEFAULT: 'true'
 
+      # W7-5: report-only performance budget (uncompressed bytes are the fixed metric, TTFB/LCP/CLS a trend).
+      - name: Perf budget (report only)
+        continue-on-error: true
+        run: npx playwright test tests/e2e/perf-budget.spec.js
+        env:
+          CI: 'true'
+          PERF_BUDGET: '1'
+          E2E_START_SERVER: '1'
+          E2E_BASE_URL: http://127.0.0.1:8001
+          APP_ENV: local
+          APP_URL: http://127.0.0.1:8001
+          DB_CONNECTION: sqlite
+          DB_DATABASE: database/database.sqlite
+          QUEUE_CONNECTION: sync
+          CACHE_STORE: file
+          SESSION_DRIVER: file
+          SESSION_SECURE_COOKIE: 'false'
+          SANCTUM_STATEFUL_DOMAINS: 127.0.0.1:8001
+          ONHOST_SECRETS_DRIVER: env
+          ONHOST_FILES_DISK: local
+          ONHOST_PLATFORM_BACKUP_DISK: local
+          ONHOST_BACKUP_OFFSITE_DISK: ''
+          MAIL_MAILER: log
+          WEDOS_TEST_MODE: 'true'
+          ONHOST_SELL_DEFAULT: 'true'
+
+      - name: Perf budget summary
+        if: always()
+        continue-on-error: true
+        run: >-
+          node -e "const fs=require('fs');const f='test-results/perf.json';
+          if(!fs.existsSync(f)){console.log('perf.json missing');process.exit(0)}
+          const rows=JSON.parse(fs.readFileSync(f,'utf8'));
+          let md='### Perf budget (report only, uncompressed bytes)\n\n| path | html_bytes | data_js_bytes | ttfb_ms | lcp_ms | cls |\n|---|---|---|---|---|---|\n';
+          for(const r of rows){md+='| '+[r.path,r.html_bytes,r.data_js_bytes,r.ttfb_ms,r.lcp_ms,r.cls].join(' | ')+' |\n'}
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,md)"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf-budget
+          path: test-results/perf.json
+          if-no-files-found: ignore
+          retention-days: 30
+
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
