@@ -21,6 +21,9 @@ final class ContentEditor
     /** The generated public data script reads posts and references; an edit shows on the site at the next request. */
     public const PUBLIC_CACHE_KEY = 'surfaces:onhost-data.js';
 
+    /** W7-4: the cached /sitemap.xml lists the published blog posts; it is forgotten wherever the public data script is. */
+    public const SITEMAP_CACHE_KEY = 'seo:sitemap';
+
     private const SLUG = '/^[a-z0-9]+(?:-[a-z0-9]+)*$/';
 
     private const MAX_SECTIONS = 40;
@@ -80,6 +83,7 @@ final class ContentEditor
         }
         $post->delete();
         Cache::forget(self::PUBLIC_CACHE_KEY);
+        Cache::forget(self::SITEMAP_CACHE_KEY);
     }
 
     /**
@@ -137,6 +141,7 @@ final class ContentEditor
     {
         $reference->delete();
         Cache::forget(self::PUBLIC_CACHE_KEY);
+        Cache::forget(self::SITEMAP_CACHE_KEY);
     }
 
     /**
@@ -157,6 +162,7 @@ final class ContentEditor
             ContentReference::query()->whereKey($id)->update(['sort' => $position + 1]);
         }
         Cache::forget(self::PUBLIC_CACHE_KEY);
+        Cache::forget(self::SITEMAP_CACHE_KEY);
 
         return ContentReference::query()->orderBy('sort')->get()->map(fn (ContentReference $r) => $r->toAdmin())->values()->all();
     }
@@ -268,6 +274,7 @@ final class ContentEditor
     private function touched(Post|ContentReference $model): Post|ContentReference
     {
         Cache::forget(self::PUBLIC_CACHE_KEY);
+        Cache::forget(self::SITEMAP_CACHE_KEY);
 
         return $model->refresh();
     }
