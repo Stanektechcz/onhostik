@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-// Slovak (W5-5): strojově připraveno, čeká na jedno čtení vlastníkem (W4-K3). Only the keys the sk branches of
+// Slovak (W5-5): schváleno vlastníkem 2026-10-16 (W4-K3), aktivní až s ONHOST_LOCALE_SK=true. Only the keys the sk branches of
 // docs/development/sk-locale-inventory.md use; read only while config('onhost.locale_sk') is on. No legal texts here.
 
 return [
