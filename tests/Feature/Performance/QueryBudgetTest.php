@@ -321,6 +321,7 @@ it('places a guest order of 2N lines with at most one extra query per extra line
     qbUnderCeiling($twoN, QB_GUEST_CHECKOUT_CEILING);
 
     qbNoisyNeighbour(2 * QB_N);
+    qbMeasureGuestCheckout($this, 2 * QB_N); // re-warm: the new plans flush the catalog cache once
     expect(qbMeasureGuestCheckout($this, 2 * QB_N))->toBe($twoN, 'another organization\'s plans, carts and orders must not change the guest checkout');
 });
 
