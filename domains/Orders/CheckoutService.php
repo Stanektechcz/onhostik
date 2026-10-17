@@ -449,7 +449,7 @@ final class CheckoutService
             }
         }
 
-        return array_values(array_unique(array_filter($docs, fn ($k) => ConsentDocument::current($k) !== null || str_starts_with($k, 'registry_terms_'))));
+        return array_values(array_filter(array_unique($docs), fn ($k) => ConsentDocument::current($k) !== null || str_starts_with($k, 'registry_terms_'))); // unique first: one document lookup, not one per line
     }
 
     private function recordConsents(Order $order, Organization $organization, ?User $user, array $consents, CommandContext $context): array

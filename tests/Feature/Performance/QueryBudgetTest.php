@@ -315,8 +315,8 @@ it('places a guest order of 2N lines with at most one extra query per extra line
     $n = qbMeasureGuestCheckout($this, QB_N);
     $twoN = qbMeasureGuestCheckout($this, 2 * QB_N);
 
-    // CheckoutService inserts one order_items row per line, so N extra lines may cost N extra queries, never more.
-    expect($twoN - $n)->toBeLessThanOrEqual(QB_N, 'the guest checkout may only add the order item insert per line');
+    // A bank order writes two rows per line, its order item and its proforma invoice line, so N extra lines may cost 2N extra queries, never more.
+    expect($twoN - $n)->toBeLessThanOrEqual(2 * QB_N, 'the guest checkout may only add the order item and proforma line inserts per line');
     qbReport('guest_checkout.2n', $twoN);
     qbUnderCeiling($twoN, QB_GUEST_CHECKOUT_CEILING);
 
