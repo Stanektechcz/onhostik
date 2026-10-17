@@ -163,7 +163,7 @@ function qbMeasureGuestCheckout(TestCase $test, int $count): int
     $payload = [
         'customer' => ['email' => 'qb-'.$id.'@example.cz', 'name' => 'Měření Rozpočtu', 'country' => 'CZ', 'street' => 'Dlouhá 12', 'city' => 'Praha', 'postal_code' => '110 00'],
         'items' => qbItems($count), 'commit_months' => 1, 'currency' => 'CZK',
-        'consents' => ['terms' => ['version' => '2026-09'], 'privacy' => [], 'dpa' => [], 'withdrawal_waiver' => []],
+        'consents' => ['terms' => ['version' => '2026-09'], 'privacy' => [], 'dpa' => [], 'withdrawal_waiver' => [], 'sla' => []],
         'payment' => ['mode' => 'bank'], 'terms' => true,
     ];
 
