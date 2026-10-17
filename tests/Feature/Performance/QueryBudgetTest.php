@@ -155,7 +155,7 @@ function qbMeasureCartQuote(TestCase $test, int $count, bool $funnelMetrics = fa
 /** Queries of one guest checkout with $count lines, by a visitor nobody knows yet. */
 function qbMeasureGuestCheckout(TestCase $test, int $count): int
 {
-    $test->app['auth']->forgetGuards();
+    app('auth')->forgetGuards();
     $test->flushSession();
     $id = Str::lower(Str::random(10));
     RateLimiter::clear(md5('auth'.'ip:127.0.0.1'));
@@ -215,7 +215,7 @@ function qbCountStatements(callable $callback): array
  */
 function qbGuestCartRead(TestCase $test, ?string $token): array
 {
-    $test->app['auth']->forgetGuards();
+    app('auth')->forgetGuards();
     $headers = $token === null ? [] : ['X-Cart-Token' => $token];
     Cache::flush();
 
@@ -243,7 +243,7 @@ function qbSurfaceData(TestCase $test): array
  */
 function qbPanelTwoTenants(TestCase $test, User $user): array
 {
-    $test->app['auth']->forgetGuards();
+    app('auth')->forgetGuards();
     $test->actingAs($user, 'sanctum');
     $body = '';
     Cache::flush();

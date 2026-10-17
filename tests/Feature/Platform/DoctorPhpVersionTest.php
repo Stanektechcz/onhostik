@@ -41,7 +41,7 @@ it('keeps the aaPanel PHP path at 83 when PHP_VERSION is not set', function (str
     $source = (string) file_get_contents(base_path($script));
 
     preg_match('/^PHP_VERSION="\$\{PHP_VERSION:-([0-9]+)\}"/m', $source, $version);
-    preg_match('/^PHP="\$\{PHP:-([^}]+)\}"/m', $source, $path);
+    preg_match('/^PHP="\$\{PHP:-(.+)\}"/m', $source, $path);
     expect($version[1] ?? null)->toBe('83')
         ->and($path[1] ?? null)->toBe('/www/server/php/${PHP_VERSION}/bin/php')
         ->and(str_replace('${PHP_VERSION}', $version[1], $path[1]))->toBe('/www/server/php/83/bin/php');

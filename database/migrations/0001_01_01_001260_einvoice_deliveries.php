@@ -18,7 +18,7 @@ return new class extends Migration
     {
         Schema::dropIfExists('einvoice_deliveries');
         Schema::create('einvoice_deliveries', function (Blueprint $table): void {
-            $table->uuid('id')->primary();
+            $table->string('id', 40)->primary(); // a UUID (HasUuids); varchar like every other key, so the width guard can measure it
             $table->string('organization_id', 40)->index();
             $table->string('invoice_id', 40)->unique();
             $table->string('invoice_number', 64);

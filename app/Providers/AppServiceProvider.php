@@ -11,6 +11,7 @@ use Illuminate\Console\Events\ScheduledTaskFinished;
 use Illuminate\Console\Events\ScheduledTaskSkipped;
 use Illuminate\Console\Events\ScheduledTaskStarting;
 use Illuminate\Foundation\Events\LocaleUpdated;
+use Illuminate\Foundation\Http\Events\RequestHandled;
 use Illuminate\Http\Request;
 use Illuminate\Queue\Events\Looping;
 use Illuminate\Support\Facades\Event;
@@ -62,6 +63,15 @@ final class AppServiceProvider extends ServiceProvider
                 }
             });
         }
+        // the memos are request-scoped, but scoped instances only reset in queue workers and Octane: drop them after every HTTP request too
+        Event::listen(RequestHandled::class, function (): void {
+            if ($this->app->resolved(CatalogService::class)) {
+                $this->app->make(CatalogService::class)->forgetMemo();
+            }
+            if ($this->app->resolved(GameInstanceMemo::class)) {
+                $this->app->make(GameInstanceMemo::class)->forget();
+            }
+        });
         Event::listen(['eloquent.saved: '.ProviderInstance::class, 'eloquent.deleted: '.ProviderInstance::class], function (): void {
             if ($this->app->resolved(GameInstanceMemo::class)) {
                 $this->app->make(GameInstanceMemo::class)->forget();
