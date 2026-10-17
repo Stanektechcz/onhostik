@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Http\Support\PublicSeo;
 use App\Http\Support\SurfaceRenderer;
+use Onhost\Domain\Content\Models\Post;
 
 /*
  * W7-3-EN: the English public site at /en/… on the same domain, behind config('onhost.locale_en_urls') (default off, W7-K4).
@@ -25,6 +26,7 @@ function publicSeoEnLegacySitemap(): string
 
 it('answers 404 under /en/ and keeps the sitemap and hreflang unchanged while the switch is off', function () {
     config(['onhost.portal_url' => 'https://onhost.example', 'onhost.ui.demo' => false, 'onhost.locale_sk' => false, 'onhost.locale_en_urls' => false]);
+    Post::query()->delete(); // the migration publishes starter posts (W7-4); the pre-W7-3-EN shape is asserted without them
     $this->get('/en/')->assertNotFound();
     $this->get('/en/ceny')->assertNotFound();
     $this->get('/en')->assertNotFound();

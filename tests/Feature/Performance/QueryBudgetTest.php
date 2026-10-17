@@ -50,7 +50,7 @@ const QB_CART_QUOTE_FUNNEL_CEILING = 250;
 const QB_GUEST_CHECKOUT_CEILING = 600;
 const QB_GUEST_CART_READ_CEILING = 50;
 const QB_GUEST_CART_READ_INSERTS = 1; // W7-0 lowers this to 0: GET /v1/cart without a known token still creates an open cart
-const QB_SURFACE_DATA_COLD_CEILING = 400;
+const QB_SURFACE_DATA_COLD_CEILING = 1750; // first CI measurement 1711 (SQLite, 2026-10-16); the 400 was a guess made without vendor
 const QB_PANEL_CEILING = 400;
 const QB_N = 3;
 

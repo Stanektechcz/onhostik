@@ -87,5 +87,5 @@ it('reads the sitemap articles in the same number of queries for n and 2n articl
     foreach (range(4, 6) as $i) {
         pkbArticle('pkb-n-'.$i);
     }
-    expect($count())->toBe($small)->and($small)->toBeLessThanOrEqual(1);
+    expect($count())->toBe($small)->and($small)->toBeLessThanOrEqual(2); // one query for the blog posts (W7-4), one for the articles
 });

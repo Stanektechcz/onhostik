@@ -192,10 +192,10 @@ final class PublicSeo
             return implode("\n", $tags);
         }
         $tags[] = $hreflang;
-        $url = self::base().($lang === 'sk' ? self::langPath('sk', $cs) : $cs);
+        $url = self::base().($lang === 'cs' ? $cs : self::langPath($lang, $cs)); // W7-3-EN: /sk/ and /en/ are canonical to themselves
         $siteName = self::text($lang, 'home', 'site_name') ?: 'ONhost';
         $tags[] = '<link rel="canonical" href="'.self::attr($url).'">';
-        $og = ['og:type' => 'website', 'og:title' => $title, 'og:description' => $description, 'og:url' => $url, 'og:locale' => $lang === 'sk' ? 'sk_SK' : 'cs_CZ', 'og:site_name' => $siteName];
+        $og = ['og:type' => 'website', 'og:title' => $title, 'og:description' => $description, 'og:url' => $url, 'og:locale' => ['sk' => 'sk_SK', 'en' => 'en_US'][$lang] ?? 'cs_CZ', 'og:site_name' => $siteName];
         foreach ($og as $property => $content) {
             if ($content !== '') {
                 $tags[] = '<meta property="'.$property.'" content="'.self::attr($content).'">';
@@ -238,8 +238,11 @@ final class PublicSeo
         return $graph;
     }
 
-    /** W7-3 head seam: everything of head() goes right before </head> in one replacement; the prototype file stays untouched. */
-    /** @param  array<string, mixed>|null  $article  W7-4: the published post of a /blog/{slug} page */
+    /**
+     * W7-3 head seam: everything of head() goes right before </head> in one replacement; the prototype file stays untouched.
+     *
+     * @param  array<string, mixed>|null  $article  W7-4: the published post of a /blog/{slug} page
+     */
     public static function withHead(string $html, string $path, ?array $article = null): string
     {
         $head = $article === null ? self::head($path) : self::articleHead($path, $article);
