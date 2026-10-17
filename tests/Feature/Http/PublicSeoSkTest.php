@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Http\Support\PublicSeo;
 use App\Http\Support\SurfaceRenderer;
+use Onhost\Domain\Content\Models\Post;
 
 /*
  * W6-6 (owner decision 2026-10-16): the Slovak public site at /sk/… on the same domain, behind config('onhost.locale_sk').
@@ -25,6 +26,7 @@ function publicSeoSkLegacySitemap(): string
 
 it('answers 404 under /sk/ and keeps the sitemap and hreflang Czech only while the switch is off', function () {
     config(['onhost.portal_url' => 'https://onhost.example', 'onhost.ui.demo' => false, 'onhost.locale_sk' => false]);
+    Post::query()->delete(); // the migration publishes starter posts (W7-4); the pre-W6-6 shape is asserted without them
     $this->get('/sk/')->assertNotFound();
     $this->get('/sk/ceny')->assertNotFound();
     $this->get('/sk')->assertNotFound();

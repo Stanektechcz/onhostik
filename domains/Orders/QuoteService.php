@@ -61,6 +61,9 @@ final class QuoteService
 
     public const LINE_PENPOT = 'penpot';
 
+    /** @var array<string, bool|null> capacity answers of the quote being built, per line shape (W7: one capacity read per distinct plan, not per line) */
+    private array $capacityMemo = [];
+
     public function __construct(
         private readonly CatalogService $catalog,
         private readonly TaxEngine $tax,
@@ -226,6 +229,7 @@ final class QuoteService
     public function quote(array $items, Currency|string $currency, array $customer, int $commitMonths = 1, ?string $promoCode = null, ?Organization $organization = null, string $locale = 'cs', ?LimitRaiseWaiver $waiver = null, int $loyaltyPoints = 0): Quote
     {
         $currency = $currency instanceof Currency ? $currency : Currency::fromString($currency);
+        $this->capacityMemo = [];
         if ($organization !== null) {
             // who the customer is for tax and for the regional price list is a fact of the organization — its country, whether it
             // is a business, what VIES said about its VAT number — never something a request can say. A cart that claimed
@@ -560,7 +564,12 @@ final class QuoteService
         }
         $region = (string) ($config['region'] ?? config('onhost.provisioning.default_region', 'cz1'));
         // servers since H04, web and managed hosting since TASK-0023 (the plan's placement, its panel rule and the disk it sells)
-        $fits = app(CartCapacity::class)->fits($product, $entitlements, $region, $planKey, NodeScheduler::sandboxFor($organization?->id));
+        // the same product, plan, size and region get the same answer within one quote (a quote changes no node)
+        $key = json_encode([$product->key, $planKey, $region, $organization?->id, $entitlements]);
+        if (! array_key_exists($key, $this->capacityMemo)) {
+            $this->capacityMemo[$key] = app(CartCapacity::class)->fits($product, $entitlements, $region, $planKey, NodeScheduler::sandboxFor($organization?->id));
+        }
+        $fits = $this->capacityMemo[$key];
         if ($fits === false) {
             throw new DomainError('capacity_sold_out', "{$product->key} of this size is sold out in {$region} right now. Nothing was ordered or charged; a smaller plan or another location may be available.", 409, ['field' => 'items', 'product' => $product->key, 'region' => $region]);
         }

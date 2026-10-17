@@ -30,6 +30,7 @@ use Onhost\Platform\Secrets\EnvSecretStore;
 use Onhost\Platform\Secrets\OpenBaoSecretStore;
 use Onhost\Platform\Secrets\SecretStore;
 use Onhost\Providers\AaPanel\AaPanelWebProvider;
+use Onhost\Providers\Contracts\EInvoiceProvider;
 use Onhost\Providers\Contracts\IpGeoProvider;
 use Onhost\Providers\Contracts\VatNumberValidator;
 use Onhost\Providers\IpGeo\HttpIpGeoProvider;
@@ -38,6 +39,7 @@ use Onhost\Providers\IspConfig\IspConfigWebProvider;
 use Onhost\Providers\Kubernetes\KubernetesAppsProvider;
 use Onhost\Providers\Pbs\PbsBackupProvider;
 use Onhost\Providers\Penpot\PenpotDockerProvider;
+use Onhost\Providers\Peppol\NullEInvoiceProvider;
 use Onhost\Providers\PowerDns\PowerDnsProvider;
 use Onhost\Providers\Proxmox\ProxmoxComputeProvider;
 use Onhost\Providers\Pterodactyl\PterodactylGameProvider;
@@ -87,6 +89,15 @@ final class PlatformServiceProvider extends ServiceProvider
         // VAT numbers in VIES (D31.1): off until go-live (ONHOST_VIES_ENABLED); resolved per call, so the switch needs no restart
         $this->app->bind(VatNumberValidator::class, fn ($app): VatNumberValidator => (bool) config('onhost.vies.enabled', false) ? $app->make(ViesVatNumberValidator::class) : new DisabledVatNumberValidator);
         // ── end TASK-0031 ──
+        // W7-1: the e-invoice driver; an unknown or not yet implemented driver fails loudly, never a silent fallback
+        $this->app->bind(EInvoiceProvider::class, function (): EInvoiceProvider {
+            $driver = (string) config('onhost.einvoice.driver', 'null');
+
+            return match ($driver) {
+                'null' => new NullEInvoiceProvider,
+                default => throw new RuntimeException("E-invoice driver '{$driver}' is not implemented (EINVOICE_DRIVER); use 'null' until the Peppol driver ships with layer 2."),
+            };
+        });
         $this->app->singleton(Authorizer::class); // every holder shares it, so a revoked binding is forgotten everywhere at once
         $this->app->singleton(CommandAuthorizer::class, IdentityCommandAuthorizer::class);
         $this->app->singleton(CommandBus::class);

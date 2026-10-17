@@ -14,6 +14,7 @@ use App\Http\Support\PublicSeo;
 use App\Http\Support\ServicePageClaimsSeam;
 use App\Http\Support\SurfaceRenderer;
 use Illuminate\Http\Request;
+use Onhost\Domain\Content\ContentService;
 use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Authorization\StaffActor;
 use Onhost\Domain\Identity\Models\User;
@@ -21,6 +22,7 @@ use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Partners\Models\Partner;
 use Onhost\Platform\Commands\CommandScope;
+use Onhost\Platform\Errors\DomainError;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -45,13 +47,40 @@ final class SurfaceController extends Controller
     /** Where a signed-in person without a partnership is sent from /partner: the reseller programme with its application form. */
     public const PARTNER_APPLICATION = '/reseller';
 
-    public function __construct(private readonly SurfaceRenderer $renderer, private readonly Authorizer $authorizer, private readonly StaffNavigation $navigation) {}
+    public function __construct(private readonly SurfaceRenderer $renderer, private readonly Authorizer $authorizer, private readonly StaffNavigation $navigation, private readonly ContentService $content) {}
 
     public function public(Request $request, ?string $path = null): Response
     {
         $hash = $path === null || $path === '' ? null : '#/'.trim($path, '/');
+        $slug = PublicSeo::kbSlug($request->path());
+        if ($slug !== null && ! (bool) config('onhost.ui.demo', false)) { // W7-4b: an article that is not published does not exist
+            try {
+                $article = $this->content->kbArticle($slug, app()->getLocale() === 'sk' ? 'sk' : 'cs');
+            } catch (DomainError) {
+                abort(404, '', ['X-Robots-Tag' => 'noindex, nofollow']);
+            }
 
-        return $this->surface($request, 'public', $hash);
+            return $this->surface($request, 'public', $hash, $article);
+        }
+        // W7-4: /blog/{slug} is an indexable article page; a draft, a withheld or an unknown post is a real 404 (no soft 404)
+        if ($path === null || (bool) config('onhost.ui.demo', false) || ! str_starts_with($path, 'blog/') || trim(substr($path, 5), '/') === '') {
+            return $this->surface($request, 'public', $hash);
+        }
+        if (preg_match('~^blog/([a-z0-9]+(?:-[a-z0-9]+)*)/?$~', $path, $m) === 1) {
+            try {
+                $article = app(ContentService::class)->post($m[1], app()->getLocale() === 'sk' ? 'sk' : 'cs', 'blog');
+            } catch (DomainError $e) {
+                if ($e->status !== 404) {
+                    throw $e;
+                }
+
+                return $this->surface($request, 'public', $hash, null, 404);
+            }
+
+            return $this->surface($request, 'public', $hash, $article);
+        }
+
+        return $this->surface($request, 'public', $hash, null, 404); // a deeper path or a malformed slug under /blog/
     }
 
     /**
@@ -65,6 +94,24 @@ final class SurfaceController extends Controller
             abort(404);
         }
         app()->setLocale('sk');
+        $response = $this->public($request, $path);
+        if (PublicSeo::notIndexed($request->path())) {
+            $response->headers->set('X-Robots-Tag', 'noindex, nofollow');
+        }
+
+        return $response;
+    }
+
+    /**
+     * W7-3-EN: the English public site at /en/… on the same domain, as /sk/ (W6-6). Always registered (route:cache); 404 while
+     * config('onhost.locale_en_urls') is off (until the owner approves lang/en/seo.php, W7-K4). Forms under /en/ carry noindex.
+     */
+    public function publicEn(Request $request, ?string $path = null): Response
+    {
+        if (! (bool) config('onhost.locale_en_urls', false)) {
+            abort(404);
+        }
+        app()->setLocale('en');
         $response = $this->public($request, $path);
         if (PublicSeo::notIndexed($request->path())) {
             $response->headers->set('X-Robots-Tag', 'noindex, nofollow');
@@ -99,7 +146,7 @@ final class SurfaceController extends Controller
     }
 
     /** Static prototype assets (design system, scripts, images) with long cache; generated scripts have their own routes. */
-    public function asset(string $path): BinaryFileResponse|Response
+    public function asset(Request $request, string $path): BinaryFileResponse|Response
     {
         $file = $this->renderer->assetPath($path);
         if ($file === null) {
@@ -113,12 +160,12 @@ final class SurfaceController extends Controller
                 (string) file_get_contents($file),
             );
 
-            return response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=300', 'X-Content-Type-Options' => 'nosniff']);
+            return $this->scriptResponse($request, $js);
         }
         if ($path === 'onhost-shell.js' && ! config('onhost.ui.demo', false)) { // the prototype's surface switcher ("Plochy Onhost", bottom-left) is a design-review tool, not part of the product
             $js = str_replace('function boot() { if (EMBED) return;', 'function boot() { if (EMBED || (window.ONHOST && !window.ONHOST.demo)) return;', (string) file_get_contents($file));
 
-            return response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=300', 'X-Content-Type-Options' => 'nosniff']);
+            return $this->scriptResponse($request, $js);
         }
         if ($path === 'onhost-command.js' && ! config('onhost.ui.demo', false)) { // one assistant only: the drawer ("Asistent", ⌘J) gives way to the panel's chat (seam #30)
             $chat = 'function panelChat() { var b = Array.prototype.slice.call(document.querySelectorAll(\'button\')).filter(function (x) { return /Zeptat se AI|Ask the AI|Zavřít chat|Close chat/.test(x.textContent || \'\'); })[0]; if (b) { b.click(); return true; } return false; }'
@@ -139,7 +186,7 @@ final class SurfaceController extends Controller
                 (string) file_get_contents($file),
             );
 
-            return response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=300', 'X-Content-Type-Options' => 'nosniff']);
+            return $this->scriptResponse($request, $js);
         }
         // the public /api and /dokumentace pages (audit 2026-10 D3): the limits, headers, endpoints, errors, webhook retry and the
         // two API guides come from the routes, the config and the dispatcher; the prototype's story stays in demo mode only
@@ -147,23 +194,23 @@ final class SurfaceController extends Controller
             $original = ServicePageClaimsSeam::apply((string) file_get_contents($file), $path); // Q1: no DDoS capacity on the SLA page
             $js = $path === 'onhost-public.js' ? PublicApiDocs::publicScript($original) : (PublicApiDocs::docsModule($original) ?? $original);
 
-            return response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=300', 'X-Content-Type-Options' => 'nosniff']);
+            return $this->scriptResponse($request, $js);
         }
         if ($path === 'onhost-content.js' && ! config('onhost.ui.demo', false)) { // credit is never paid back in cash (G8 item 9, owner decision 2026-10-05)
             // I-R17 (TASK-0149): the blog is what staff publish (ONHOST_DATA.blog); the prototype's posts are not sent
             $js = PublicContentSeam::contentModule(CreditClaimsSeam::apply((string) file_get_contents($file), ['content']));
 
-            return response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=300', 'X-Content-Type-Options' => 'nosniff']);
+            return $this->scriptResponse($request, $js);
         }
         if ($path === 'onhost-svc-web.js' && ! config('onhost.ui.demo', false)) { // customer surfaces never name a registrar vendor (seam #20); an SLA credit is credited, not refunded (G8 item 9)
             $js = CreditClaimsSeam::apply(str_replace("'Hetzner', 'Wedos']", "'Hetzner', 'Forpsi']", ServicePageClaimsSeam::apply((string) file_get_contents($file), $path)), ['svc-web']); // P1: SLA band
 
-            return response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=300', 'X-Content-Type-Options' => 'nosniff']);
+            return $this->scriptResponse($request, $js);
         }
         if (ServicePageClaimsSeam::covers($path) && ! config('onhost.ui.demo', false)) { // J-R2 (K8b): the invented eco figures and EPYC stock claims are not served
             $js = ServicePageClaimsSeam::apply((string) file_get_contents($file), $path);
 
-            return response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=300', 'X-Content-Type-Options' => 'nosniff']);
+            return $this->scriptResponse($request, $js);
         }
         $response = new BinaryFileResponse($file, 200, ['Content-Type' => SurfaceRenderer::mime($file), 'X-Content-Type-Options' => 'nosniff']);
         // design-system bundle is content-addressed (immutable); prototype scripts short-lived; API seams are versioned by query (mtime)
@@ -172,7 +219,17 @@ final class SurfaceController extends Controller
         return $response;
     }
 
-    private function surface(Request $request, string $surface, ?string $hash): Response
+    /** W7-2b (MERENI P4): a script transformed in PHP carries a content ETag; a matching If-None-Match gets 304 with no body. */
+    private function scriptResponse(Request $request, string $js): Response
+    {
+        $response = response($js, 200, ['Content-Type' => 'text/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=300', 'X-Content-Type-Options' => 'nosniff']);
+        $response->setEtag(sha1($js));
+        $response->isNotModified($request);
+
+        return $response;
+    }
+
+    private function surface(Request $request, string $surface, ?string $hash, ?array $article = null, int $status = 200): Response
     {
         $user = $request->user();
         $demo = (bool) config('onhost.ui.demo', false);
@@ -199,14 +256,18 @@ final class SurfaceController extends Controller
         }
         $html = $this->renderer->render($surface, $boot, $demo); // the credit/bonus/archive sentences are corrected inside render(), in the template only (G8 item 9, H2)
         if ($surface === 'public' && ! $demo) {
-            $html = PublicSeo::withHreflang($html, $request->path()); // N15: hreflang through the head seam, sitemap pages only
+            $html = $article !== null && PublicSeo::kbSlug($request->path()) !== null ? PublicSeo::withKbHead($html, $request->path(), $article) : PublicSeo::withHead($html, $request->path(), $article); // W7-4b kb article, else N15 + W7-3: title, description, canonical, OG, JSON-LD and hreflang through the head seam
+        }
+        if ($status === 404) { // W7-4: a missing post is never indexed
+            $html = PublicSeo::withNoindex($html);
         }
         $headers = ['Content-Type' => 'text/html; charset=utf-8', 'Cache-Control' => 'no-store', 'X-Frame-Options' => 'SAMEORIGIN', 'Referrer-Policy' => 'strict-origin-when-cross-origin'];
-        if (in_array($surface, self::CONCEPT_SURFACES, true)) {
+        // W7-3: forms and personal flows are never indexed, and nothing public is outside production (staging carries its own portal_url)
+        if ($status === 404 || in_array($surface, self::CONCEPT_SURFACES, true) || ($surface === 'public' && (PublicSeo::notIndexed($request->path()) || ! PublicSeo::indexable()))) {
             $headers['X-Robots-Tag'] = 'noindex, nofollow';
         }
 
-        return response($html, 200, $headers);
+        return response($html, $status, $headers);
     }
 
     /**

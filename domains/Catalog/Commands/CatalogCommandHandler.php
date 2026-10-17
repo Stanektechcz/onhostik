@@ -7,6 +7,7 @@ namespace Onhost\Domain\Catalog\Commands;
 use Illuminate\Support\Facades\Cache;
 use Onhost\Domain\Catalog\CatalogPreflight;
 use Onhost\Domain\Catalog\CatalogRevisions;
+use Onhost\Domain\Catalog\CatalogService;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Catalog\Models\ProductOption;
 use Onhost\Domain\Catalog\Models\PromoCode;
@@ -85,6 +86,7 @@ final class CatalogCommandHandler implements CommandHandler
             default => throw new DomainError('op_unknown', 'Unknown catalog operation.', 422, ['field' => 'op']),
         };
         Cache::forget('surfaces:onhost-data.js'); // the public web reflects the change on the next request
+        app(CatalogService::class)->forgetMemo(); // and the rest of this request reads it too (W7-0b)
 
         return $result;
     }
@@ -133,6 +135,7 @@ final class CatalogCommandHandler implements CommandHandler
             $out[$product->key] = $state;
         }
         Cache::forget('surfaces:onhost-data.js');
+        app(CatalogService::class)->forgetMemo();
 
         return $out;
     }

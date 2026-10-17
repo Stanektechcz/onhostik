@@ -979,6 +979,26 @@ role rows); a `ROW-FAIL` is explained in the record. Record the duration. The 7-
 - `find $APP/storage/logs ! -user www` prints nothing;
 - mail only in the sink; no provider calls in the logs (`grep -il 'ispconfig\|aapanel\|pterodactyl\|proxmox' storage/logs/*`).
 
+### Komprese a cache (compression and cache, W7-2; owner step)
+
+`infra/aapanel/nginx-site.conf` does not duplicate gzip (aaPanel's global nginx.conf already compresses
+HTML/JSON/JS/CSS/SVG, verified on staging 2026-10-16), keeps brotli as a commented block for builds with the module,
+and sets `expires` only for `/favicon.ico`. HTML keeps no-store (CSRF token in the boot JSON).
+
+1. Owner, on the host: paste the changed parts into Website → staging.onhost.cz → Config; brotli only if
+   `nginx -V 2>&1 | grep -c brotli` prints more than 0.
+2. `nginx -t` — must report `syntax is ok` / `test is successful`; otherwise do not reload.
+3. Reload nginx (aaPanel → Nginx → Reload, or `nginx -s reload`).
+4. Read-only check:
+   ```
+   curl -sI -H 'Accept-Encoding: br, gzip' https://staging.onhost.cz/
+   ```
+   `content-encoding: br` (or `gzip` without brotli) and `Vary: Accept-Encoding`; `cache-control` still no-store.
+   After HS-2 (`docs/runbooks/hsts.md`):
+   `curl -sI -H 'Accept-Encoding: br, gzip' https://staging.onhost.cz/ | grep -ci strict-transport-security` = `1`.
+5. Rollback: restore the previous site config (aaPanel keeps a copy; or comment the brotli block and the favicon
+   location out again), `nginx -t`, reload, repeat step 4.
+
 ## D. Go / no-go for "staging phase 1 live" (all must hold)
 
 - O1–O12 and all fourteen owner questions (1–14) recorded — an answer, or the default taken and marked as such; the

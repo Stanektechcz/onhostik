@@ -62,6 +62,16 @@ jobs:
         id: pest
         run: mkdir -p build && php artisan test --compact --log-junit build/junit.xml
 
+      # W6-3: report only (continue-on-error). The query counts of tests/Feature/Performance/QueryBudgetTest.php go to the step summary.
+      - name: query budget report
+        if: always() && steps.pest.outcome != 'skipped'
+        continue-on-error: true
+        run: |
+          mkdir -p build
+          rm -f build/query-budget.json
+          QB_REPORT=1 php artisan test --compact tests/Feature/Performance/QueryBudgetTest.php || true
+          { echo '### query budget (sqlite)'; echo; echo '```json'; cat build/query-budget.json 2>/dev/null || echo '{}'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
       # W5-4: report only. The Pest step above decides the job colour; this step never does (continue-on-error).
       - name: Classify failures against the baseline (report only)
         if: always() && steps.pest.outcome != 'skipped'

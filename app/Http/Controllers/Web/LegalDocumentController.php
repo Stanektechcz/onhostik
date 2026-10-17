@@ -6,12 +6,14 @@ namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
 use App\Http\Support\CookieInventory;
+use App\Http\Support\PublicSeo;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Onhost\Domain\Invoicing\Models\LegalEntity;
 use Onhost\Domain\Orders\LegalDocuments;
 use Onhost\Domain\Orders\Models\ConsentDocument;
+use Symfony\Component\HttpFoundation\Response;
 
 /**
  * Public legal documents (`/dokumenty/{slug}`, `/dokumenty/{slug}/{version}`, `/sla`): the versioned consent documents the
@@ -30,7 +32,7 @@ final class LegalDocumentController extends Controller
         'zasady-uzivani' => 'aup',
     ];
 
-    public function index(Request $request): View
+    public function index(Request $request): Response
     {
         $documents = [];
         foreach (self::SLUGS as $slug => $key) {
@@ -40,7 +42,11 @@ final class LegalDocumentController extends Controller
             }
         }
 
-        return view('legal.index', ['documents' => $documents, 'entity' => $this->entity(), 'stylesheet' => $this->stylesheet()]);
+        $html = view('legal.index', ['documents' => $documents, 'entity' => $this->entity(), 'stylesheet' => $this->stylesheet()])->render();
+        // W7-3: /dokumenty is in the sitemap, so it carries the same SEO head as the public surface (its own <title> gives way to the head seam's)
+        $html = PublicSeo::withHead((string) preg_replace('~<title>.*?</title>\s*~s', '', $html, 1), '/dokumenty');
+
+        return response($html, 200, PublicSeo::indexable() ? [] : ['X-Robots-Tag' => 'noindex, nofollow']);
     }
 
     public function show(Request $request, string $slug): View

@@ -57,13 +57,14 @@ keep_terminal_from_children
 SITE="${SITE:-staging.onhost.cz}"
 APP_DIR="${APP_DIR:-/www/wwwroot/${SITE}}"
 ENV_FILE="${ENV_FILE:-${ENV_DIR:-/etc/onhost}/app.env}"   # root-owned; $APP_DIR/.env must BE this file (install.sh symlinks it)
-PHP="${PHP:-/www/server/php/83/bin/php}"
+PHP_VERSION="${PHP_VERSION:-83}"   # aaPanel PHP directory (83, 84, 85): docs/runbooks/php85-cutover.md
+PHP="${PHP:-/www/server/php/${PHP_VERSION}/bin/php}"
 COMPOSER="${COMPOSER:-/usr/local/bin/composer}"
 RUN_USER="${RUN_USER:-www}"
 DEPLOY_STATE_DIR="${DEPLOY_STATE_DIR:-/var/lib/onhost-deploy/${SITE}}"
 DEPLOY_GIT_DIR="${DEPLOY_GIT_DIR:-${DEPLOY_STATE_DIR}/repo.git}"   # root's repository; $APP_DIR is only its work tree
 DEPLOY_LIB_DIR="${DEPLOY_LIB_DIR:-/usr/local/lib/onhost-deploy}"
-PHP_FPM_RELOAD="${PHP_FPM_RELOAD:-}"            # e.g. '/etc/init.d/php-fpm-83 reload' (opcache would keep serving old code)
+PHP_FPM_RELOAD="${PHP_FPM_RELOAD:-}"            # e.g. '/etc/init.d/php-fpm-${PHP_VERSION} reload' (opcache would keep serving old code)
 DEPLOY_HTTP_IP="${DEPLOY_HTTP_IP:-127.0.0.1}"   # where nginx answers https://$SITE on this host (the vhost lets loopback past basic auth)
 DEPLOY_HTTP_BASE="${DEPLOY_HTTP_BASE:-}"        # tests only: a plain base URL (php -S) instead of https://$SITE via --resolve
 DRAIN_TIMEOUT="${DRAIN_TIMEOUT:-300}"

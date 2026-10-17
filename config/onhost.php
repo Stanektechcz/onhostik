@@ -14,7 +14,11 @@ return [
     'portal_url' => env('ONHOST_PORTAL_URL', env('APP_URL', 'http://localhost:8000')),
     'default_locale' => env('ONHOST_DEFAULT_LOCALE', 'cs'),
     'locales' => ['cs', 'sk', 'en'],
+    'seo' => [ // W7-3: off (X-Robots-Tag noindex on every public page) unless production, so staging is never indexed
+        'indexable' => (bool) env('ONHOST_SEO_INDEXABLE', env('APP_ENV', 'production') === 'production'),
+    ],
     'locale_sk' => (bool) env('ONHOST_LOCALE_SK', false), // W4-4: Slovak as a supported request locale (SetLocale); off until the owner reads lang/sk
+    'locale_en_urls' => (bool) env('ONHOST_LOCALE_EN_URLS', false), // W7-3-EN: the English public site at /en/…; off until the owner approves lang/en/seo.php (W7-K4)
     'timezone_display' => 'Europe/Prague',
     'demo_mode' => (bool) env('ONHOST_DEMO_MODE', false), // surface role switcher etc. — never in production
     'funnel_metrics' => (bool) env('ONHOST_FUNNEL_METRICS', false), // W4-6: anonymous cart-quote metric into funnel_daily (docs/compliance/dpia-funnel-telemetry.md); production switch-on is the owner's step
@@ -283,7 +287,7 @@ return [
     ],
 
     'einvoice' => [
-        'driver' => env('EINVOICE_DRIVER', 'peppol'),
+        'driver' => env('EINVOICE_DRIVER', 'null'), // W7-1: null = nothing is sent, deliveries recorded as skipped; peppol comes with layer 2
         'peppol' => [
             'base_url' => env('PEPPOL_BASE_URL'),
             'secret_ref' => env('PEPPOL_SECRET_REF', 'env://PEPPOL'),

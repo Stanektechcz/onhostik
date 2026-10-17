@@ -60,10 +60,22 @@ it('keeps the W5-5 sk-only files to the keys and placeholders the sk branches us
         $file = dirname(__DIR__, 2).'/lang/sk/'.$name;
         expect(is_file($file))->toBeTrue()
             ->and(is_file(dirname(__DIR__, 2).'/lang/cs/'.$name))->toBeFalse()
-            ->and((string) file_get_contents($file))->toContain('strojově připraveno, čeká na jedno čtení vlastníkem (W4-K3)');
+            ->and((string) file_get_contents($file))->toContain('schváleno vlastníkem 2026-10-16 (W4-K3), aktivní až s ONHOST_LOCALE_SK=true')
+            ->and((string) file_get_contents($file))->not->toContain('čeká na jedno čtení');
         ksort($expected);
         expect(langSkParityFlatten(require $file))->toBe($expected);
     }
+});
+
+it('marks every lang/sk file as owner-approved but inactive until ONHOST_LOCALE_SK=true', function () {
+    $root = dirname(__DIR__, 2);
+    foreach (['surface.php', 'passwords.php', 'validation.php', 'auth.php'] as $name) {
+        $header = (string) file_get_contents($root.'/lang/sk/'.$name);
+        expect($header)->toContain('schváleno vlastníkem 2026-10-16 (W4-K3), aktivní až s ONHOST_LOCALE_SK=true')
+            ->and($header)->not->toContain('čeká na jedno čtení');
+    }
+    expect(config('onhost.locale_sk'))->toBeFalse()
+        ->and((string) file_get_contents($root.'/.env.example'))->toMatch('/^ONHOST_LOCALE_SK=false\b/m');
 });
 
 it('leaves access.php and permissions.php out of lang/sk', function () {
