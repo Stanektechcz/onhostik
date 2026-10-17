@@ -28,6 +28,7 @@ return [
         'lide' => ['title' => 'Ľudia | ONhost', 'description' => 'Ľudia za ONhost.', 'crumb' => 'Ľudia'],
         'reseller' => ['title' => 'Reseller | ONhost', 'description' => 'Partnerský program ONhost pre resellerov.', 'crumb' => 'Reseller'],
         'verejne-zakazky' => ['title' => 'Verejné zákazky | ONhost', 'description' => 'ONhost pre verejné zákazky.', 'crumb' => 'Verejné zákazky'],
+        'dokumenty' => ['title' => 'Dokumenty | ONhost', 'description' => 'Obchodné podmienky a ďalšie právne dokumenty ONhost.', 'crumb' => 'Dokumenty'], // the documents stay Czech only (no /sk/ twin); the key keeps lang/sk key-for-key
         'kosik' => ['title' => 'Košík | ONhost', 'description' => 'Košík ONhost.', 'crumb' => 'Košík'],
         'prihlaseni' => ['title' => 'Prihlásenie | ONhost', 'description' => 'Prihlásenie do ONhost.', 'crumb' => 'Prihlásenie'],
         'registrace' => ['title' => 'Registrácia | ONhost', 'description' => 'Registrácia do ONhost.', 'crumb' => 'Registrácia'],

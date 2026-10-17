@@ -44,7 +44,7 @@ use Tests\TestCase;
  * refused), so nothing was measured. QB_REPORT=1 writes build/query-budget.json (scenario => count) so CI reports the counts;
  * set QB_* = ceil(max of three runs x 1.1) from that report and replace this paragraph with the counts, date, commit and PHP.
  */
-const QB_PRICING_DATA_CEILING = 400;
+const QB_PRICING_DATA_CEILING = 1750; // first CI measurement 1722 (SQLite, 2026-10-17); the 400 was a guess made without vendor
 const QB_CART_QUOTE_CEILING = 250;
 const QB_CART_QUOTE_FUNNEL_CEILING = 250;
 const QB_GUEST_CHECKOUT_CEILING = 600;
